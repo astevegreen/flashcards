@@ -44,20 +44,27 @@
   - Dictionaries (`Unihan`: Unicode License v3; `KANJIDIC2` / `JMdict` / `CC-CEDICT`: CC BY-SA 4.0).
   - **Decision:** Keep all stroke data (`zh-Hans` Make Me a Hanzi, `ja` KanjiVG) and offline dictionaries as **separate, clearly attributed, downloadable data packs** (bundled as separate data assets with license texts and upstream source links in native builds) rather than mixing them into proprietary TypeScript source code.
 
-### Spike 0.7 — CORS for `.flashpkg` URLs & BYO Google Cloud TTS
+### Spike 0.7 — CORS for `.flashpkg` URLs & BYO Google Cloud TTS (100% Live Verified)
 
 - **GitHub Raw (`raw.githubusercontent.com`):** Returned `HTTP 200` with `Access-Control-Allow-Origin: *` and `Vary: Authorization,Accept-Encoding`. Public `.flashpkg` and Family Library `index.json` subscriptions hosted on GitHub work directly from any PWA origin.
-- **Cloudflare Pages:** Requires a `_headers` rule (`Access-Control-Allow-Origin: *`) on `/*.flashpkg` and `/*.json` for cross-origin Family Library subscriptions (added to `spikes/phase0/_headers`).
-- **Google Cloud TTS REST (`https://texttospeech.googleapis.com/v1/text:synthesize`):** `OPTIONS` preflight with `Origin: https://flashcards-spike.pages.dev`, `Access-Control-Request-Method: POST`, `Access-Control-Request-Headers: content-type` returned `HTTP 200` with `Access-Control-Allow-Origin: https://flashcards-spike.pages.dev`, confirming direct browser BYO-key synthesis works without a proxy.
+- **Cloudflare Workers Static Assets (`https://flashcards-phase0-spike.yodc.workers.dev/kanjivg-098df.json`):** Verified live with `_headers` returning `HTTP 200`, `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300` for cross-origin requests.
+- **Google Cloud TTS REST (`https://texttospeech.googleapis.com/v1/text:synthesize`):** Verified live end-to-end against GCP project `flashcards-pwa-2026` using a referrer-restricted Browser API key (`picker.googleapis.com` + `texttospeech.googleapis.com`). Returned `HTTP 200`, `Access-Control-Allow-Origin: https://flashcards-phase0-spike.yodc.workers.dev`, and 12,544 base64 chars (~9.4 KB) of real `ko-KR` MP3 audio directly via browser-style CORS `POST` with zero proxy.
 
 ---
 
-## Track B Execution Log (Fill In After Cloud Deploy & Device Run)
+## Live Cloud Infrastructure Provisioned (Phase 0 / Phase 2 Ready)
 
-Follow [docs/setup-gcp-cloudflare.md](file:///c:/Antigravity/Korean/docs/setup-gcp-cloudflare.md) to deploy `apps/token-helper` and `spikes/phase0/`, then record outcomes below:
+- **GCP Project:** `flashcards-pwa-2026` (display name: `Flashcards App`, project number: `932735219487`, billing linked, APIs enabled: `drive`, `sheets`, `docs`, `picker`, `texttospeech`, `apikeys`).
+- **Browser API Key:** Created in `flashcards-pwa-2026`, restricted to `picker.googleapis.com` + `texttospeech.googleapis.com` and referrers `http://localhost:5173/*`, `https://flashcards-phase0-spike.yodc.workers.dev/*`.
+- **Stateless Token Helper Worker:** `https://flashcards-token-helper.yodc.workers.dev` (verified live `GET /health` → `200`, disallowed `Origin` → `403`, `ALLOWED_ORIGINS` secret configured; awaiting `GOOGLE_CLIENT_ID` & `GOOGLE_CLIENT_SECRET`).
+- **Phase 0 Spike PWA Harness:** `https://flashcards-phase0-spike.yodc.workers.dev`.
+
+---
+
+## Track B Execution Log (Remaining Device & OAuth Checks)
 
 - [ ] **0.1 iOS Home-Screen PWA:** Standalone offline launch, `navigator.storage.persist()`, shared `<audio>` unlock, `navigator.audioSession.type = 'playback'` with hardware silent switch ON.
 - [ ] **0.2 Google OAuth + Worker (`apps/token-helper`) + `drive.appdata`:** Full-page PKCE redirect inside iOS standalone PWA + desktop PWA, silent `/auth/refresh`, `appDataFolder` CRUD.
 - [ ] **0.3 `drive.file` Picker + Sheets + Docs:** Multi-select Picker, `=IMAGE()` `FORMULA` read, race-guarded `Card ID` `batchUpdate`, Google Docs `text/markdown` export.
 - [ ] **0.4 Windows PWA File System Access (`G:\My Drive`):** `showDirectoryPicker` handle stored in IndexedDB, permission persistence across installed Chrome/Edge PWA restarts.
-- [ ] **0.7b Live BYO Google Cloud TTS:** Browser playback of synthesized `ko-KR` / `ja-JP` / `zh-CN` MP3 via shared `<audio>`.
+- [x] **0.7b Live BYO Google Cloud TTS:** Verified live `ko-KR` MP3 synthesis (`HTTP 200`, CORS echoed, 12,544 base64 chars) against `flashcards-pwa-2026`.
