@@ -1,0 +1,30 @@
+{
+  "name": "@flash/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./flashpkg": {
+      "types": "./src/import/flashpkg.ts",
+      "default": "./src/import/flashpkg.ts"
+    },
+    "./csv": {
+      "types": "./src/import/csv.ts",
+      "default": "./src/import/csv.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@flash/content-schema": "workspace:*",
+    "fflate": "^0.8.3",
+    "ts-fsrs": "^6.0.0"
+  }
+}

@@ -1,0 +1,261 @@
+import type { Layout, NoteType } from './types.ts';
+
+export const BUILTIN_NOTE_TYPE_IDS = {
+  VOCAB_JA: 'preset:vocab-ja',
+  VOCAB_ZH: 'preset:vocab-zh',
+  VOCAB_KO: 'preset:vocab-ko',
+  HANJA: 'preset:hanja',
+  GRAMMAR: 'preset:grammar',
+  SENTENCE: 'preset:sentence',
+  CLOZE: 'preset:cloze',
+} as const;
+
+export const BUILTIN_NOTE_TYPES: readonly NoteType[] = [
+  {
+    id: BUILTIN_NOTE_TYPE_IDS.VOCAB_JA,
+    name: 'Vocabulary (JA)',
+    fields: [
+      { key: 'word', label: 'Word', kind: 'text', lang: 'ja', tts: true, sortKey: true },
+      { key: 'reading', label: 'Reading', kind: 'reading', lang: 'ja', tts: true },
+      { key: 'meaning', label: 'Meaning', kind: 'text', lang: 'en' },
+      { key: 'example', label: 'Example', kind: 'rich', lang: 'ja', tts: true },
+      { key: 'notes', label: 'Notes', kind: 'rich', lang: 'en' },
+    ],
+  },
+  {
+    id: BUILTIN_NOTE_TYPE_IDS.VOCAB_ZH,
+    name: 'Vocabulary (ZH)',
+    fields: [
+      { key: 'word', label: 'Word', kind: 'text', lang: 'zh-Hans', tts: true, sortKey: true },
+      { key: 'reading', label: 'Pinyin', kind: 'reading', lang: 'zh-Latn-pinyin' },
+      { key: 'meaning', label: 'Meaning', kind: 'text', lang: 'en' },
+      { key: 'example', label: 'Example', kind: 'rich', lang: 'zh-Hans', tts: true },
+      { key: 'notes', label: 'Notes', kind: 'rich', lang: 'en' },
+    ],
+  },
+  {
+    id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+    name: 'Vocabulary (KO)',
+    fields: [
+      { key: 'word', label: 'Word', kind: 'text', lang: 'ko', tts: true, sortKey: true },
+      { key: 'hanja', label: 'Hanja / Reading', kind: 'reading', lang: 'ko' },
+      { key: 'meaning', label: 'Meaning', kind: 'text', lang: 'en' },
+      { key: 'example', label: 'Example', kind: 'rich', lang: 'ko', tts: true },
+      { key: 'notes', label: 'Notes', kind: 'rich', lang: 'en' },
+    ],
+  },
+  {
+    id: BUILTIN_NOTE_TYPE_IDS.HANJA,
+    name: 'Hanja',
+    fields: [
+      { key: 'character', label: 'Hanja', kind: 'text', lang: 'ko', sortKey: true },
+      { key: 'eumhun', label: 'Eumhun (음훈)', kind: 'reading', lang: 'ko', tts: true },
+      { key: 'meaning', label: 'Meaning', kind: 'text', lang: 'en' },
+      { key: 'compounds', label: 'Compounds', kind: 'rich', lang: 'ko' },
+      { key: 'notes', label: 'Notes', kind: 'rich', lang: 'en' },
+    ],
+  },
+  {
+    id: BUILTIN_NOTE_TYPE_IDS.GRAMMAR,
+    name: 'Grammar point',
+    fields: [
+      { key: 'pattern', label: 'Grammar Point', kind: 'text', lang: 'ko', sortKey: true },
+      { key: 'explanation', label: 'Explanation', kind: 'rich', lang: 'en' },
+      { key: 'example', label: 'Example', kind: 'rich', lang: 'ko', tts: true },
+      { key: 'notes', label: 'Notes', kind: 'rich', lang: 'en' },
+    ],
+  },
+  {
+    id: BUILTIN_NOTE_TYPE_IDS.SENTENCE,
+    name: 'Sentence',
+    fields: [
+      { key: 'sentence', label: 'Sentence', kind: 'rich', lang: 'en', tts: true, sortKey: true },
+      { key: 'reading', label: 'Reading', kind: 'reading', lang: 'en' },
+      { key: 'translation', label: 'Translation', kind: 'rich', lang: 'en' },
+      { key: 'notes', label: 'Notes', kind: 'rich', lang: 'en' },
+    ],
+  },
+  {
+    id: BUILTIN_NOTE_TYPE_IDS.CLOZE,
+    name: 'Cloze',
+    fields: [
+      { key: 'text', label: 'Text', kind: 'rich', lang: 'ja', tts: true, sortKey: true },
+      { key: 'meaning', label: 'Meaning', kind: 'text', lang: 'en' },
+      { key: 'notes', label: 'Notes', kind: 'rich', lang: 'en' },
+    ],
+  },
+];
+
+export const BUILTIN_LAYOUTS: readonly Layout[] = [
+  // Vocabulary (JA)
+  {
+    id: 'layout:vocab-ja:recognition',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_JA,
+    name: 'Recognition',
+    front_fields: ['word'],
+    reveal_steps: [
+      ['reading', 'meaning'],
+      ['example', 'notes'],
+    ],
+    answer_mode: 'flip',
+    speak_field: 'reading',
+    hide_furigana_on_front: true,
+    enabled: true,
+  },
+  {
+    id: 'layout:vocab-ja:production',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_JA,
+    name: 'Production',
+    front_fields: ['meaning'],
+    reveal_steps: [
+      ['word', 'reading'],
+      ['example', 'notes'],
+    ],
+    answer_mode: 'flip',
+    speak_field: 'reading',
+    hide_furigana_on_front: false,
+    enabled: false,
+  },
+  // Vocabulary (ZH)
+  {
+    id: 'layout:vocab-zh:recognition',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_ZH,
+    name: 'Recognition',
+    front_fields: ['word'],
+    reveal_steps: [
+      ['reading', 'meaning'],
+      ['example', 'notes'],
+    ],
+    answer_mode: 'flip',
+    speak_field: 'word',
+    hide_furigana_on_front: true,
+    enabled: true,
+  },
+  {
+    id: 'layout:vocab-zh:production',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_ZH,
+    name: 'Production',
+    front_fields: ['meaning'],
+    reveal_steps: [
+      ['word', 'reading'],
+      ['example', 'notes'],
+    ],
+    answer_mode: 'flip',
+    speak_field: 'word',
+    hide_furigana_on_front: false,
+    enabled: false,
+  },
+  // Vocabulary (KO)
+  {
+    id: 'layout:vocab-ko:recognition',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+    name: 'Recognition',
+    front_fields: ['word'],
+    reveal_steps: [
+      ['hanja', 'meaning'],
+      ['example', 'notes'],
+    ],
+    answer_mode: 'flip',
+    speak_field: 'word',
+    hide_furigana_on_front: true,
+    enabled: true,
+  },
+  {
+    id: 'layout:vocab-ko:production',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+    name: 'Production',
+    front_fields: ['meaning'],
+    reveal_steps: [
+      ['word', 'hanja'],
+      ['example', 'notes'],
+    ],
+    answer_mode: 'flip',
+    speak_field: 'word',
+    hide_furigana_on_front: false,
+    enabled: false,
+  },
+  // Hanja
+  {
+    id: 'layout:hanja:recognition',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.HANJA,
+    name: 'Recognition',
+    front_fields: ['character'],
+    reveal_steps: [
+      ['eumhun', 'meaning'],
+      ['compounds', 'notes'],
+    ],
+    answer_mode: 'flip',
+    speak_field: 'eumhun',
+    hide_furigana_on_front: true,
+    enabled: true,
+  },
+  {
+    id: 'layout:hanja:production',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.HANJA,
+    name: 'Production',
+    front_fields: ['meaning', 'eumhun'],
+    reveal_steps: [['character', 'compounds', 'notes']],
+    answer_mode: 'flip',
+    speak_field: 'eumhun',
+    hide_furigana_on_front: false,
+    enabled: false,
+  },
+  // Grammar point
+  {
+    id: 'layout:grammar:recognition',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.GRAMMAR,
+    name: 'Recognition',
+    front_fields: ['pattern'],
+    reveal_steps: [['explanation'], ['example', 'notes']],
+    answer_mode: 'flip',
+    speak_field: 'example',
+    hide_furigana_on_front: false,
+    enabled: true,
+  },
+  {
+    id: 'layout:grammar:production',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.GRAMMAR,
+    name: 'Production',
+    front_fields: ['explanation'],
+    reveal_steps: [['pattern', 'example', 'notes']],
+    answer_mode: 'flip',
+    speak_field: 'example',
+    hide_furigana_on_front: false,
+    enabled: false,
+  },
+  // Sentence
+  {
+    id: 'layout:sentence:recognition',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.SENTENCE,
+    name: 'Recognition',
+    front_fields: ['sentence'],
+    reveal_steps: [['reading', 'translation', 'notes']],
+    answer_mode: 'flip',
+    speak_field: 'sentence',
+    hide_furigana_on_front: true,
+    enabled: true,
+  },
+  {
+    id: 'layout:sentence:production',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.SENTENCE,
+    name: 'Production',
+    front_fields: ['translation'],
+    reveal_steps: [['sentence', 'reading', 'notes']],
+    answer_mode: 'flip',
+    speak_field: 'sentence',
+    hide_furigana_on_front: false,
+    enabled: false,
+  },
+  // Cloze
+  {
+    id: 'layout:cloze:recognition',
+    note_type_id: BUILTIN_NOTE_TYPE_IDS.CLOZE,
+    name: 'Recognition',
+    front_fields: ['text'],
+    reveal_steps: [['meaning', 'notes']],
+    answer_mode: 'cloze',
+    speak_field: 'text',
+    hide_furigana_on_front: true,
+    enabled: true,
+  },
+];
