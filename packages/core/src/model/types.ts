@@ -55,6 +55,7 @@ export interface DeckFSRSParamsVersion {
   params_version: number;
   effective_from: number; // Unix ms
   params: FSRSParamsConfig;
+  reschedule_existing?: boolean;
 }
 
 export type SourceKind =

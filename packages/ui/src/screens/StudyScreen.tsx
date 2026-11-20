@@ -13,6 +13,7 @@ import { useApp } from '../state/AppContext.tsx';
 
 export interface StudyScreenProps {
   onOpenLibrary: () => void;
+  onOpenSettings?: () => void;
 }
 
 interface SwipeState {
@@ -30,7 +31,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return false;
 }
 
-export function StudyScreen({ onOpenLibrary }: StudyScreenProps) {
+export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps) {
   const {
     state,
     stateVersion,
@@ -348,6 +349,15 @@ export function StudyScreen({ onOpenLibrary }: StudyScreenProps) {
           >
             Import CSV / .flashpkg
           </button>
+          {onOpenSettings && (
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-2.5 text-sm font-semibold hover:bg-[var(--surface-2)]"
+            >
+              Connect Cloud Sync
+            </button>
+          )}
         </div>
       </section>
     );

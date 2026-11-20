@@ -26,6 +26,7 @@
     "@size-limit/file": "^14.3.0",
     "eslint": "^10.15.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "fake-indexeddb": "^6.2.8",
     "fast-check": "^4.10.3",
     "globals": "^17.14.0",
     "prettier": "^3.10.1",

@@ -181,11 +181,18 @@ const SAMPLE_DECK_SEEDS: readonly SampleDeckSeed[] = [
 ];
 
 /**
+ * Fixed baseline epoch for dev-mode sample deck seeding so auto-seeds across
+ * multiple simulated devices (`?device=a` / `?device=b`) never overwrite real
+ * user edits via LWW regardless of tab boot order.
+ */
+export const SAMPLE_SEED_EPOCH_MS = Date.UTC(2025, 0, 1, 0, 0, 0);
+
+/**
  * Generates deterministic seed events for the built-in sample decks (`ko`, `ja`, `zh-Hans`, `en`).
  */
 export function buildSampleDeckEvents(
   eventFactory: EventFactory,
-  nowMs: number = Date.now(),
+  nowMs: number = SAMPLE_SEED_EPOCH_MS,
 ): KnownEvent[] {
   const events: KnownEvent[] = [];
 

@@ -1,5 +1,12 @@
-import { createHlcState, uuidv7, type FlashEvent } from '@flash/core';
-import type { DeviceMeta, MaterializedCardRow, MediaBlob, Storage } from '@flash/platform';
+import { createHlcState, uuidv7, type FlashEvent, type SyncCursorState } from '@flash/core';
+import type {
+  DeviceMeta,
+  LocalSnapshotRecord,
+  MaterializedCardRow,
+  MediaBlob,
+  Storage,
+  SyncConfig,
+} from '@flash/platform';
 import Dexie, { type Table } from 'dexie';
 
 interface StoredEventRow {
@@ -10,7 +17,10 @@ interface StoredEventRow {
   type: string;
   v: number;
   card_id?: string;
+  local_seq?: number;
   payload: unknown;
+  /** Any extra unknown top-level envelope fields preserved verbatim for forward compatibility (§4.2). */
+  extra_fields?: Record<string, unknown>;
 }
 
 interface StoredMetaRow {
@@ -24,11 +34,29 @@ interface StoredMediaRow {
   bytes: Uint8Array;
 }
 
+interface StoredSnapshotRow {
+  key: string;
+  value: LocalSnapshotRecord;
+}
+
+interface StoredKvRow {
+  key: string;
+  value: unknown;
+}
+
+const KNOWN_ENVELOPE_KEYS = new Set(['id', 'device', 'seq', 'hlc', 'type', 'v', 'payload']);
+const LOCAL_SEQ_COUNTER_KEY = '__local_seq_counter';
+const SYNC_CURSOR_KEY = 'sync_cursor';
+const SYNC_CONFIG_KEY = 'sync_config';
+const LATEST_SNAPSHOT_KEY = 'latest';
+
 class FlashcardsDexieDb extends Dexie {
   events!: Table<StoredEventRow, string>;
   cards_cache!: Table<MaterializedCardRow, string>;
   meta!: Table<StoredMetaRow, string>;
   media!: Table<StoredMediaRow, string>;
+  snapshots!: Table<StoredSnapshotRow, string>;
+  kv!: Table<StoredKvRow, string>;
 
   constructor(dbName: string) {
     super(dbName);
@@ -38,6 +66,37 @@ class FlashcardsDexieDb extends Dexie {
       meta: 'key',
       media: 'hash',
     });
+    this.version(2)
+      .stores({
+        events: 'id, [device+seq], hlc, type, card_id, local_seq',
+        cards_cache: 'id, deck_id, due',
+        meta: 'key',
+        media: 'hash',
+        snapshots: 'key',
+        kv: 'key',
+      })
+      .upgrade(async (tx) => {
+        const eventsTable = tx.table<StoredEventRow, string>('events');
+        const kvTable = tx.table<StoredKvRow, string>('kv');
+        const all = await eventsTable.orderBy('hlc').toArray();
+        let counter = 0;
+        const updated: StoredEventRow[] = [];
+        for (const row of all) {
+          if (typeof row.local_seq === 'number' && row.local_seq > counter) {
+            counter = row.local_seq;
+          }
+        }
+        for (const row of all) {
+          if (typeof row.local_seq !== 'number') {
+            counter += 1;
+            updated.push({ ...row, local_seq: counter });
+          }
+        }
+        if (updated.length > 0) {
+          await eventsTable.bulkPut(updated);
+        }
+        await kvTable.put({ key: LOCAL_SEQ_COUNTER_KEY, value: counter });
+      });
   }
 }
 
@@ -53,6 +112,31 @@ function extractCardId(event: FlashEvent): string | undefined {
   return undefined;
 }
 
+function extractExtraFields(event: FlashEvent): Record<string, unknown> | undefined {
+  let extras: Record<string, unknown> | undefined;
+  for (const [k, v] of Object.entries(event as unknown as Record<string, unknown>)) {
+    if (!KNOWN_ENVELOPE_KEYS.has(k)) {
+      if (!extras) extras = {};
+      extras[k] = v;
+    }
+  }
+  return extras;
+}
+
+function rowToFlashEvent(r: StoredEventRow): FlashEvent {
+  const base: Record<string, unknown> = {
+    ...(r.extra_fields ?? {}),
+    id: r.id,
+    device: r.device,
+    seq: r.seq,
+    hlc: r.hlc,
+    type: r.type,
+    v: r.v,
+    payload: r.payload,
+  };
+  return base as unknown as FlashEvent;
+}
+
 export class DexieStorage implements Storage {
   private readonly db: FlashcardsDexieDb;
   readonly dbName: string;
@@ -64,52 +148,107 @@ export class DexieStorage implements Storage {
 
   async appendEvents(events: readonly FlashEvent[]): Promise<void> {
     if (events.length === 0) return;
-    const rows: StoredEventRow[] = events.map((ev) => {
-      const cardId = extractCardId(ev);
-      return {
-        id: ev.id,
-        device: ev.device,
-        seq: ev.seq,
-        hlc: ev.hlc,
-        type: ev.type,
-        v: ev.v,
-        payload: ev.payload,
-        ...(cardId !== undefined ? { card_id: cardId } : {}),
-      };
+
+    // Deduplicate within the incoming batch first
+    const unique: FlashEvent[] = [];
+    const seen = new Set<string>();
+    for (const ev of events) {
+      if (seen.has(ev.id)) continue;
+      seen.add(ev.id);
+      unique.push(ev);
+    }
+
+    await this.db.transaction('rw', this.db.events, this.db.kv, async () => {
+      const existing = await this.db.events.bulkGet(unique.map((ev) => ev.id));
+      const toInsert: FlashEvent[] = [];
+      for (let i = 0; i < unique.length; i++) {
+        const ev = unique[i];
+        if (ev && existing[i] === undefined) {
+          toInsert.push(ev);
+        }
+      }
+      if (toInsert.length === 0) return;
+
+      const counterRow = await this.db.kv.get(LOCAL_SEQ_COUNTER_KEY);
+      let counter = typeof counterRow?.value === 'number' ? counterRow.value : 0;
+      if (counter === 0) {
+        const lastByLocalSeq = await this.db.events.orderBy('local_seq').last();
+        if (typeof lastByLocalSeq?.local_seq === 'number') {
+          counter = lastByLocalSeq.local_seq;
+        }
+      }
+
+      const rows: StoredEventRow[] = toInsert.map((ev) => {
+        counter += 1;
+        const cardId = extractCardId(ev);
+        const extras = extractExtraFields(ev);
+        return {
+          id: ev.id,
+          device: ev.device,
+          seq: ev.seq,
+          hlc: ev.hlc,
+          type: ev.type,
+          v: ev.v,
+          payload: ev.payload,
+          local_seq: counter,
+          ...(cardId !== undefined ? { card_id: cardId } : {}),
+          ...(extras !== undefined ? { extra_fields: extras } : {}),
+        };
+      });
+
+      await this.db.events.bulkPut(rows);
+      await this.db.kv.put({ key: LOCAL_SEQ_COUNTER_KEY, value: counter });
     });
-    await this.db.events.bulkPut(rows);
   }
 
   async getEvents(sinceHlc?: string): Promise<FlashEvent[]> {
     const rows = sinceHlc
       ? await this.db.events.where('hlc').above(sinceHlc).sortBy('hlc')
       : await this.db.events.orderBy('hlc').toArray();
-    return rows.map((r) => ({
-      id: r.id,
-      device: r.device,
-      seq: r.seq,
-      hlc: r.hlc,
-      type: r.type,
-      v: r.v,
-      payload: r.payload,
-    }));
+    return rows.map(rowToFlashEvent);
   }
 
   async getEventsForCard(cardId: string): Promise<FlashEvent[]> {
     const rows = await this.db.events.where('card_id').equals(cardId).sortBy('hlc');
-    return rows.map((r) => ({
-      id: r.id,
-      device: r.device,
-      seq: r.seq,
-      hlc: r.hlc,
-      type: r.type,
-      v: r.v,
-      payload: r.payload,
-    }));
+    return rows.map(rowToFlashEvent);
   }
 
   async getAllEvents(): Promise<FlashEvent[]> {
     return this.getEvents();
+  }
+
+  async getDeviceEventsAfterSeq(deviceId: string, afterSeq: number): Promise<FlashEvent[]> {
+    const rows = await this.db.events
+      .where('[device+seq]')
+      .between([deviceId, afterSeq], [deviceId, Number.MAX_SAFE_INTEGER], false, true)
+      .toArray();
+    rows.sort((a, b) => a.seq - b.seq);
+    return rows.map(rowToFlashEvent);
+  }
+
+  async getEventsAfterLocalSeq(
+    afterLocalSeq: number,
+  ): Promise<{ events: FlashEvent[]; maxLocalSeq: number }> {
+    const rows = await this.db.events.where('local_seq').above(afterLocalSeq).sortBy('local_seq');
+    let maxLocalSeq = afterLocalSeq;
+    for (const r of rows) {
+      if (typeof r.local_seq === 'number' && r.local_seq > maxLocalSeq) {
+        maxLocalSeq = r.local_seq;
+      }
+    }
+    return {
+      events: rows.map(rowToFlashEvent),
+      maxLocalSeq,
+    };
+  }
+
+  async getMaxLocalSeq(): Promise<number> {
+    const counterRow = await this.db.kv.get(LOCAL_SEQ_COUNTER_KEY);
+    if (typeof counterRow?.value === 'number') {
+      return counterRow.value;
+    }
+    const last = await this.db.events.orderBy('local_seq').last();
+    return typeof last?.local_seq === 'number' ? last.local_seq : 0;
   }
 
   async getDeviceMeta(): Promise<DeviceMeta | undefined> {
@@ -128,7 +267,7 @@ export class DexieStorage implements Storage {
     const meta: DeviceMeta = {
       deviceId,
       seq: 0,
-      hlc: createHlcState(deviceId, Date.now()),
+      hlc: createHlcState(deviceId, 0),
     };
     await this.setDeviceMeta(meta);
     return meta;
@@ -143,8 +282,56 @@ export class DexieStorage implements Storage {
     });
   }
 
+  async upsertMaterializedCards(cards: readonly MaterializedCardRow[]): Promise<void> {
+    if (cards.length === 0) return;
+    await this.db.cards_cache.bulkPut([...cards]);
+  }
+
+  async deleteMaterializedCards(cardIds: readonly string[]): Promise<void> {
+    if (cardIds.length === 0) return;
+    await this.db.cards_cache.bulkDelete([...cardIds]);
+  }
+
   async loadMaterializedCards(): Promise<MaterializedCardRow[]> {
     return this.db.cards_cache.toArray();
+  }
+
+  async getSyncCursor(): Promise<SyncCursorState | undefined> {
+    return this.getKv<SyncCursorState>(SYNC_CURSOR_KEY);
+  }
+
+  async setSyncCursor(cursor: SyncCursorState): Promise<void> {
+    await this.setKv(SYNC_CURSOR_KEY, cursor);
+  }
+
+  async getSyncConfig(): Promise<SyncConfig | undefined> {
+    return this.getKv<SyncConfig>(SYNC_CONFIG_KEY);
+  }
+
+  async setSyncConfig(config: SyncConfig): Promise<void> {
+    await this.setKv(SYNC_CONFIG_KEY, config);
+  }
+
+  async getLocalSnapshot(): Promise<LocalSnapshotRecord | undefined> {
+    const row = await this.db.snapshots.get(LATEST_SNAPSHOT_KEY);
+    return row?.value;
+  }
+
+  async setLocalSnapshot(record: LocalSnapshotRecord): Promise<void> {
+    await this.db.snapshots.put({ key: LATEST_SNAPSHOT_KEY, value: record });
+  }
+
+  async getKv<T = unknown>(key: string): Promise<T | undefined> {
+    const row = await this.db.kv.get(key);
+    return row?.value as T | undefined;
+  }
+
+  async setKv(key: string, value: unknown): Promise<void> {
+    await this.db.kv.put({ key, value });
+  }
+
+  async deleteKv(key: string): Promise<void> {
+    await this.db.kv.delete(key);
   }
 
   async putMedia(media: MediaBlob): Promise<void> {
@@ -175,16 +362,26 @@ export class DexieStorage implements Storage {
   async clearAll(): Promise<void> {
     await this.db.transaction(
       'rw',
-      this.db.events,
-      this.db.cards_cache,
-      this.db.meta,
-      this.db.media,
+      [
+        this.db.events,
+        this.db.cards_cache,
+        this.db.meta,
+        this.db.media,
+        this.db.snapshots,
+        this.db.kv,
+      ],
       async () => {
         await this.db.events.clear();
         await this.db.cards_cache.clear();
         await this.db.meta.clear();
         await this.db.media.clear();
+        await this.db.snapshots.clear();
+        await this.db.kv.clear();
       },
     );
+  }
+
+  close(): void {
+    this.db.close();
   }
 }

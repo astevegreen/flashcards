@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useApp } from '../state/AppContext.tsx';
+import { useApp, type SyncUiState } from '../state/AppContext.tsx';
 
 export type NavTab = 'study' | 'library' | 'browse' | 'settings';
 
@@ -16,11 +16,40 @@ const NAV_ITEMS: readonly { id: NavTab; label: string; icon: string }[] = [
   { id: 'settings', label: 'Settings', icon: '⚙' },
 ];
 
+const PULL_REFRESH_THRESHOLD_PX = 64;
+
+function getSidebarBadge(syncState: SyncUiState): { label: string; tone: string } {
+  if (!syncState.isOnline && syncState.provider !== 'local_folder') {
+    return { label: 'Offline', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' };
+  }
+  switch (syncState.status) {
+    case 'syncing':
+      return { label: 'Syncing…', tone: 'bg-sky-500/15 text-sky-700 dark:text-sky-300' };
+    case 'synced':
+      return { label: 'Synced', tone: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' };
+    case 'offline':
+      return { label: 'Offline', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' };
+    case 'reconnect_required':
+      return { label: 'Reconnect', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' };
+    case 'upgrade_required':
+      return { label: 'Read-only', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' };
+    case 'error':
+      return { label: 'Sync Error', tone: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' };
+    case 'idle':
+      return { label: 'Sync', tone: 'bg-[var(--surface-2)] text-[var(--muted)]' };
+    case 'disconnected':
+    default:
+      return { label: 'Local', tone: 'bg-[var(--surface-2)] text-[var(--muted)]' };
+  }
+}
+
 export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
-  const { platform, showBackupBanner, dismissBackupBanner } = useApp();
+  const { platform, showBackupBanner, dismissBackupBanner, syncState, syncNow } = useApp();
   const [railCollapsed, setRailCollapsed] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
   const mainRef = useRef<HTMLElement | null>(null);
   const prevTabRef = useRef<NavTab>(activeTab);
+  const pullStartYRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (prevTabRef.current !== activeTab) {
@@ -28,6 +57,62 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
       mainRef.current?.focus({ preventScroll: true });
     }
   }, [activeTab]);
+
+  const badge = getSidebarBadge(syncState);
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLElement>) => {
+    if (syncState.provider === 'none') return;
+    if (window.scrollY > 0) return;
+    if (e.target instanceof Element && e.target.closest('[data-testid="study-card"]')) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    pullStartYRef.current = touch.clientY;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLElement>) => {
+    const startY = pullStartYRef.current;
+    if (startY === null) return;
+    if (window.scrollY > 0) {
+      pullStartYRef.current = null;
+      setPullDistance(0);
+      return;
+    }
+    const touch = e.touches[0];
+    if (!touch) return;
+    const dy = touch.clientY - startY;
+    if (dy > 8) {
+      setPullDistance(Math.min(dy, 96));
+    } else {
+      setPullDistance(0);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    const triggered = pullDistance >= PULL_REFRESH_THRESHOLD_PX;
+    pullStartYRef.current = null;
+    setPullDistance(0);
+    if (triggered && syncState.provider !== 'none') {
+      void syncNow();
+    }
+  };
+
+  const handleTouchCancel = () => {
+    pullStartYRef.current = null;
+    setPullDistance(0);
+  };
+
+  const handleBadgeClick = () => {
+    if (
+      syncState.provider === 'none' ||
+      syncState.status === 'reconnect_required' ||
+      syncState.status === 'upgrade_required' ||
+      syncState.status === 'error'
+    ) {
+      onSelectTab('settings');
+    } else {
+      void syncNow();
+    }
+  };
 
   return (
     <div className="flex min-h-dvh w-full bg-[var(--bg)] text-[var(--fg)]">
@@ -80,9 +165,15 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
           <div className="border-t border-[var(--border)] px-3 py-3 text-xs text-[var(--muted)]">
             <div className="flex items-center justify-between gap-1">
               <span className="truncate font-medium">{platform.deviceLabel}</span>
-              <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] uppercase">
-                Offline
-              </span>
+              <button
+                type="button"
+                data-testid="sidebar-sync-badge"
+                onClick={handleBadgeClick}
+                title={syncState.provider !== 'none' ? 'Sync now' : 'Configure sync in Settings'}
+                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${badge.tone}`}
+              >
+                {badge.label}
+              </button>
             </div>
           </div>
         )}
@@ -115,9 +206,19 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
           </div>
         )}
 
+        {pullDistance > 16 && (
+          <div role="status" className="py-1 text-center text-xs font-medium text-[var(--muted)]">
+            {pullDistance >= PULL_REFRESH_THRESHOLD_PX ? 'Release to sync…' : 'Pull down to sync'}
+          </div>
+        )}
+
         <main
           ref={mainRef}
           tabIndex={-1}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchCancel}
           className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-3 pb-20 pt-3 focus:outline-none sm:px-6 md:pb-6 md:pt-5"
         >
           {children}

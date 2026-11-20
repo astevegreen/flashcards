@@ -68,8 +68,75 @@ export interface CollectionState {
   pendingDeckPatches: Map<string, PendingDeckPatch>;
   /** Pending patches for out-of-order PageRead / SourceLinked before PageUpserted. */
   pendingPagePatches: Map<string, PendingPagePatch>;
-  /** Seen event IDs for idempotent event application. */
+  /** Seen event IDs for idempotent event application since empty/snapshot hydration. */
   appliedEventIds: Set<string>;
+  /** Secondary index: noteId -> derived cardIds (O(layouts_per_note) rebuilds). */
+  cardIdsByNote: Map<string, Set<string>>;
+  /** Secondary index: deckId -> derived cardIds (O(cards_in_deck) rebuilds & param updates). */
+  cardIdsByDeck: Map<string, Set<string>>;
+  /** Secondary index: deckId -> noteIds (O(notes_in_deck) deck card rebuilds). */
+  noteIdsByDeck: Map<string, Set<string>>;
+  /** Secondary index: reviewId -> cardId (O(1) ReviewUndone lookup). */
+  reviewIdToCardId: Map<string, string>;
+  /** Per-device max compacted seq hydrated from a snapshot (skips already-compacted events). */
+  snapshotWatermarks: Map<string, number>;
+  /** Total event count already compacted into a hydrated snapshot. */
+  snapshotEventCount: number;
+}
+
+export interface ApplyEventsResult {
+  state: CollectionState;
+  appliedCount: number;
+  changedCardIds: string[];
+  removedCardIds: string[];
+  maxHlc?: string;
+}
+
+/** Internal mutation collector used by `computeStatePatch` to emit compact Worker patches. */
+export interface ApplyMutationCollector {
+  noteTypeIds: Set<string>;
+  layoutIds: Set<string>;
+  deckIds: Set<string>;
+  noteIds: Set<string>;
+  reviewCardIds: Set<string>;
+  addedUndoneReviewIds: Set<string>;
+  fsrsDeckIds: Set<string>;
+  pageIds: Set<string>;
+  courseIds: Set<string>;
+  mediaHashes: Set<string>;
+  preferencesChanged: boolean;
+  addedUnknownEvents: UnknownEvent[];
+  fieldHlcKeys: Set<string>;
+  noteArchivedKeys: Set<string>;
+  pendingDeckPatchKeys: Set<string>;
+  pendingPagePatchKeys: Set<string>;
+  appliedEventIds: string[];
+}
+
+export function createMutationCollector(): ApplyMutationCollector {
+  return {
+    noteTypeIds: new Set(),
+    layoutIds: new Set(),
+    deckIds: new Set(),
+    noteIds: new Set(),
+    reviewCardIds: new Set(),
+    addedUndoneReviewIds: new Set(),
+    fsrsDeckIds: new Set(),
+    pageIds: new Set(),
+    courseIds: new Set(),
+    mediaHashes: new Set(),
+    preferencesChanged: false,
+    addedUnknownEvents: [],
+    fieldHlcKeys: new Set(),
+    noteArchivedKeys: new Set(),
+    pendingDeckPatchKeys: new Set(),
+    pendingPagePatchKeys: new Set(),
+    appliedEventIds: [],
+  };
+}
+
+export function getTotalAppliedEventCount(state: CollectionState): number {
+  return state.snapshotEventCount + state.appliedEventIds.size;
 }
 
 export function createEmptyState(): CollectionState {
@@ -109,13 +176,62 @@ export function createEmptyState(): CollectionState {
     pendingDeckPatches: new Map(),
     pendingPagePatches: new Map(),
     appliedEventIds: new Set(),
+    cardIdsByNote: new Map(),
+    cardIdsByDeck: new Map(),
+    noteIdsByDeck: new Map(),
+    reviewIdToCardId: new Map(),
+    snapshotWatermarks: new Map(),
+    snapshotEventCount: 0,
   };
 }
 
-function shouldApplyLww(state: CollectionState, key: string, incomingHlc: string): boolean {
+function addToMapSet(map: Map<string, Set<string>>, key: string, value: string): void {
+  let set = map.get(key);
+  if (!set) {
+    set = new Set();
+    map.set(key, set);
+  }
+  set.add(value);
+}
+
+function removeFromMapSet(map: Map<string, Set<string>>, key: string, value: string): void {
+  const set = map.get(key);
+  if (!set) return;
+  set.delete(value);
+  if (set.size === 0) {
+    map.delete(key);
+  }
+}
+
+function setCardInState(state: CollectionState, card: Card): void {
+  const prev = state.cards.get(card.id);
+  if (prev && (prev.deck_id !== card.deck_id || prev.note_id !== card.note_id)) {
+    removeFromMapSet(state.cardIdsByDeck, prev.deck_id, card.id);
+    removeFromMapSet(state.cardIdsByNote, prev.note_id, card.id);
+  }
+  state.cards.set(card.id, card);
+  addToMapSet(state.cardIdsByDeck, card.deck_id, card.id);
+  addToMapSet(state.cardIdsByNote, card.note_id, card.id);
+}
+
+function deleteCardFromState(state: CollectionState, cardId: string): void {
+  const existing = state.cards.get(cardId);
+  if (!existing) return;
+  state.cards.delete(cardId);
+  removeFromMapSet(state.cardIdsByDeck, existing.deck_id, cardId);
+  removeFromMapSet(state.cardIdsByNote, existing.note_id, cardId);
+}
+
+function shouldApplyLww(
+  state: CollectionState,
+  key: string,
+  incomingHlc: string,
+  collector?: ApplyMutationCollector,
+): boolean {
   const existing = state.fieldHlcs.get(key);
   if (existing === undefined || compareHlc(incomingHlc, existing) >= 0) {
     state.fieldHlcs.set(key, incomingHlc);
+    collector?.fieldHlcKeys.add(key);
     return true;
   }
   return false;
@@ -277,62 +393,105 @@ export function replaySingleCard(state: CollectionState, cardId: string): Card |
     delete updated.last_reviewed_tz_offset;
   }
 
-  state.cards.set(cardId, updated);
+  setCardInState(state, updated);
   return updated;
 }
 
-function rebuildCardsForDeck(state: CollectionState, deckId: string): void {
+function rebuildCardsForDeck(
+  state: CollectionState,
+  deckId: string,
+  changedCards: Set<string>,
+  removedCards: Set<string>,
+  replayedCards: Set<string>,
+): void {
   const deck = state.decks.get(deckId);
-  // Remove existing derived cards for this deck
-  for (const [cardId, card] of state.cards.entries()) {
-    if (card.deck_id === deckId) {
-      state.cards.delete(cardId);
+  const existingSet = state.cardIdsByDeck.get(deckId);
+  const prevCardIds = existingSet ? [...existingSet] : [];
+
+  for (const cardId of prevCardIds) {
+    deleteCardFromState(state, cardId);
+  }
+
+  const rebuiltIds = new Set<string>();
+  if (deck && !deck.archived) {
+    const enabledLayouts = getEnabledLayoutsForDeck(state, deck);
+    const deckNoteIds = state.noteIdsByDeck.get(deckId);
+    if (deckNoteIds && enabledLayouts.length > 0) {
+      for (const noteId of deckNoteIds) {
+        const note = state.notes.get(noteId);
+        if (!note || note.deck_id !== deckId || note.archived) continue;
+        for (const layout of enabledLayouts) {
+          const cardId = deriveCardId(note.id, layout.id, 0);
+          setCardInState(state, {
+            id: cardId,
+            note_id: note.id,
+            deck_id: deckId,
+            layout_id: layout.id,
+            variant: 0,
+            schedule: createInitialSchedule(0),
+          });
+          replaySingleCard(state, cardId);
+          rebuiltIds.add(cardId);
+          replayedCards.add(cardId);
+          changedCards.add(cardId);
+          removedCards.delete(cardId);
+        }
+      }
     }
   }
 
-  if (!deck || deck.archived) return;
-
-  const enabledLayouts = getEnabledLayoutsForDeck(state, deck);
-  for (const note of state.notes.values()) {
-    if (note.deck_id !== deckId || note.archived) continue;
-    for (const layout of enabledLayouts) {
-      const cardId = deriveCardId(note.id, layout.id, 0);
-      state.cards.set(cardId, {
-        id: cardId,
-        note_id: note.id,
-        deck_id: deckId,
-        layout_id: layout.id,
-        variant: 0,
-        schedule: createInitialSchedule(0),
-      });
-      replaySingleCard(state, cardId);
+  for (const prevId of prevCardIds) {
+    if (!rebuiltIds.has(prevId) && !state.cards.has(prevId)) {
+      removedCards.add(prevId);
+      changedCards.delete(prevId);
     }
   }
 }
 
-function rebuildCardsForNote(state: CollectionState, noteId: string): void {
+function rebuildCardsForNote(
+  state: CollectionState,
+  noteId: string,
+  changedCards: Set<string>,
+  removedCards: Set<string>,
+  replayedCards: Set<string>,
+): void {
   const note = state.notes.get(noteId);
-  for (const [cardId, card] of state.cards.entries()) {
-    if (card.note_id === noteId) {
-      state.cards.delete(cardId);
+  const existingSet = state.cardIdsByNote.get(noteId);
+  const prevCardIds = existingSet ? [...existingSet] : [];
+
+  for (const cardId of prevCardIds) {
+    deleteCardFromState(state, cardId);
+  }
+
+  const rebuiltIds = new Set<string>();
+  if (note && !note.archived) {
+    const deck = state.decks.get(note.deck_id);
+    if (deck && !deck.archived) {
+      const enabledLayouts = getEnabledLayoutsForDeck(state, deck);
+      for (const layout of enabledLayouts) {
+        const cardId = deriveCardId(note.id, layout.id, 0);
+        setCardInState(state, {
+          id: cardId,
+          note_id: note.id,
+          deck_id: deck.id,
+          layout_id: layout.id,
+          variant: 0,
+          schedule: createInitialSchedule(0),
+        });
+        replaySingleCard(state, cardId);
+        rebuiltIds.add(cardId);
+        replayedCards.add(cardId);
+        changedCards.add(cardId);
+        removedCards.delete(cardId);
+      }
     }
   }
-  if (!note || note.archived) return;
-  const deck = state.decks.get(note.deck_id);
-  if (!deck || deck.archived) return;
 
-  const enabledLayouts = getEnabledLayoutsForDeck(state, deck);
-  for (const layout of enabledLayouts) {
-    const cardId = deriveCardId(note.id, layout.id, 0);
-    state.cards.set(cardId, {
-      id: cardId,
-      note_id: note.id,
-      deck_id: deck.id,
-      layout_id: layout.id,
-      variant: 0,
-      schedule: createInitialSchedule(0),
-    });
-    replaySingleCard(state, cardId);
+  for (const prevId of prevCardIds) {
+    if (!rebuiltIds.has(prevId) && !state.cards.has(prevId)) {
+      removedCards.add(prevId);
+      changedCards.delete(prevId);
+    }
   }
 }
 
@@ -342,43 +501,44 @@ function applyDeckSettingsPatchTarget(
   target: Partial<DeckSettings>,
   settings: Partial<DeckSettings>,
   hlc: string,
+  collector?: ApplyMutationCollector,
 ): boolean {
   let layoutsChanged = false;
 
   if (
     settings.new_cards_per_day !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:new_cards_per_day`, hlc)
+    shouldApplyLww(state, `deck:${deckId}:settings:new_cards_per_day`, hlc, collector)
   ) {
     target.new_cards_per_day = settings.new_cards_per_day;
   }
   if (
     settings.max_reviews_per_day !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:max_reviews_per_day`, hlc)
+    shouldApplyLww(state, `deck:${deckId}:settings:max_reviews_per_day`, hlc, collector)
   ) {
     target.max_reviews_per_day = settings.max_reviews_per_day;
   }
   if (
     settings.target_retention !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:target_retention`, hlc)
+    shouldApplyLww(state, `deck:${deckId}:settings:target_retention`, hlc, collector)
   ) {
     target.target_retention = settings.target_retention;
   }
   if (
     settings.new_card_order !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:new_card_order`, hlc)
+    shouldApplyLww(state, `deck:${deckId}:settings:new_card_order`, hlc, collector)
   ) {
     target.new_card_order = settings.new_card_order;
   }
   if (
     settings.enabled_layout_ids !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:enabled_layout_ids`, hlc)
+    shouldApplyLww(state, `deck:${deckId}:settings:enabled_layout_ids`, hlc, collector)
   ) {
     target.enabled_layout_ids = [...settings.enabled_layout_ids];
     layoutsChanged = true;
   }
   if (
     settings.day_start_hour !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:day_start_hour`, hlc)
+    shouldApplyLww(state, `deck:${deckId}:settings:day_start_hour`, hlc, collector)
   ) {
     target.day_start_hour = settings.day_start_hour;
   }
@@ -410,27 +570,30 @@ function applyKnownEvent(
   dirtyCards: Set<string>,
   dirtyDecks: Set<string>,
   dirtyNotes: Set<string>,
+  collector?: ApplyMutationCollector,
 ): void {
   const { hlc } = event;
   switch (event.type) {
     case 'NoteTypeChanged': {
       const nt = event.payload.note_type;
-      if (shouldApplyLww(state, `noteType:${nt.id}`, hlc)) {
+      if (shouldApplyLww(state, `noteType:${nt.id}`, hlc, collector)) {
         state.noteTypes.set(nt.id, {
           ...nt,
           fields: nt.fields.map((f) => ({ ...f })),
         });
+        collector?.noteTypeIds.add(nt.id);
       }
       break;
     }
     case 'LayoutChanged': {
       const layout = event.payload.layout;
-      if (shouldApplyLww(state, `layout:${layout.id}`, hlc)) {
+      if (shouldApplyLww(state, `layout:${layout.id}`, hlc, collector)) {
         state.layouts.set(layout.id, {
           ...layout,
           front_fields: [...layout.front_fields],
           reveal_steps: layout.reveal_steps.map((s) => [...s]),
         });
+        collector?.layoutIds.add(layout.id);
         for (const deck of state.decks.values()) {
           if (deck.note_type_id === layout.note_type_id) {
             dirtyDecks.add(deck.id);
@@ -445,7 +608,10 @@ function applyKnownEvent(
       const initialRet = p.settings?.target_retention ?? DEFAULT_FSRS_CONFIG.request_retention;
       if (!deck) {
         const pending = state.pendingDeckPatches.get(p.deck_id);
-        state.pendingDeckPatches.delete(p.deck_id);
+        if (pending) {
+          state.pendingDeckPatches.delete(p.deck_id);
+          collector?.pendingDeckPatchKeys.add(p.deck_id);
+        }
 
         const mergedSettings: DeckSettings = { ...DEFAULT_DECK_SETTINGS };
         if (pending?.settings) {
@@ -485,34 +651,47 @@ function applyKnownEvent(
         state.decks.set(p.deck_id, deck);
 
         // Apply DeckCreated's own fields strictly via LWW so newer out-of-order patches win
-        if (shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc)) deck.name = p.name;
-        if (shouldApplyLww(state, `deck:${p.deck_id}:note_type_id`, hlc)) {
+        if (shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)) deck.name = p.name;
+        if (shouldApplyLww(state, `deck:${p.deck_id}:note_type_id`, hlc, collector)) {
           deck.note_type_id = p.note_type_id;
         }
-        if (shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc)) deck.language = p.language;
-        if (shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc)) deck.archived = false;
-        if (shouldApplyLww(state, `deck:${p.deck_id}:initial_retention`, hlc)) {
+        if (shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)) {
+          deck.language = p.language;
+        }
+        if (shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc, collector)) {
+          deck.archived = false;
+        }
+        if (shouldApplyLww(state, `deck:${p.deck_id}:initial_retention`, hlc, collector)) {
           deck.initial_retention = initialRet;
         }
-        if (p.source !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc)) {
+        if (
+          p.source !== undefined &&
+          shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc, collector)
+        ) {
           deck.source = { ...p.source };
         }
       } else {
-        if (shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc)) deck.name = p.name;
-        if (shouldApplyLww(state, `deck:${p.deck_id}:note_type_id`, hlc)) {
+        if (shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)) deck.name = p.name;
+        if (shouldApplyLww(state, `deck:${p.deck_id}:note_type_id`, hlc, collector)) {
           deck.note_type_id = p.note_type_id;
         }
-        if (shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc)) deck.language = p.language;
-        if (shouldApplyLww(state, `deck:${p.deck_id}:initial_retention`, hlc)) {
+        if (shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)) {
+          deck.language = p.language;
+        }
+        if (shouldApplyLww(state, `deck:${p.deck_id}:initial_retention`, hlc, collector)) {
           deck.initial_retention = initialRet;
         }
-        if (p.source !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc)) {
+        if (
+          p.source !== undefined &&
+          shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc, collector)
+        ) {
           deck.source = { ...p.source };
         }
       }
       if (p.settings) {
-        applyDeckSettingsPatchTarget(state, p.deck_id, deck.settings, p.settings, hlc);
+        applyDeckSettingsPatchTarget(state, p.deck_id, deck.settings, p.settings, hlc, collector);
       }
+      collector?.deckIds.add(p.deck_id);
       dirtyDecks.add(p.deck_id);
       break;
     }
@@ -522,28 +701,51 @@ function applyKnownEvent(
       if (!deck) {
         // Buffer out-of-order patch until DeckCreated arrives
         const pending = getOrCreatePendingDeckPatch(state, p.deck_id);
-        if (p.name !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc)) {
+        if (
+          p.name !== undefined &&
+          shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)
+        ) {
           pending.name = p.name;
         }
-        if (p.language !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc)) {
+        if (
+          p.language !== undefined &&
+          shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)
+        ) {
           pending.language = p.language;
         }
-        if (p.archived !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc)) {
+        if (
+          p.archived !== undefined &&
+          shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc, collector)
+        ) {
           pending.archived = p.archived;
         }
         if (p.settings) {
-          applyDeckSettingsPatchTarget(state, p.deck_id, pending.settings, p.settings, hlc);
+          applyDeckSettingsPatchTarget(
+            state,
+            p.deck_id,
+            pending.settings,
+            p.settings,
+            hlc,
+            collector,
+          );
         }
+        collector?.pendingDeckPatchKeys.add(p.deck_id);
         break;
       }
       let mustRebuildDeck = false;
-      if (p.name !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc)) {
+      if (p.name !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)) {
         deck.name = p.name;
       }
-      if (p.language !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc)) {
+      if (
+        p.language !== undefined &&
+        shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)
+      ) {
         deck.language = p.language;
       }
-      if (p.archived !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc)) {
+      if (
+        p.archived !== undefined &&
+        shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc, collector)
+      ) {
         deck.archived = p.archived;
         mustRebuildDeck = true;
       }
@@ -554,27 +756,31 @@ function applyKnownEvent(
           deck.settings,
           p.settings,
           hlc,
+          collector,
         );
         if (layoutsChanged) mustRebuildDeck = true;
       }
+      collector?.deckIds.add(p.deck_id);
       if (mustRebuildDeck) {
         dirtyDecks.add(p.deck_id);
       } else if (p.settings?.target_retention !== undefined) {
-        // Re-evaluate cards only if no versioned FSRS params exist for this deck
-        for (const card of state.cards.values()) {
-          if (card.deck_id === p.deck_id) dirtyCards.add(card.id);
+        const deckCards = state.cardIdsByDeck.get(p.deck_id);
+        if (deckCards) {
+          for (const cardId of deckCards) {
+            dirtyCards.add(cardId);
+          }
         }
       }
       break;
     }
     case 'DeckFSRSParamsChanged': {
       const p = event.payload;
-      if (!shouldApplyLww(state, `deck:${p.deck_id}:fsrs:${p.params_version}`, hlc)) {
+      if (!shouldApplyLww(state, `deck:${p.deck_id}:fsrs:${p.params_version}`, hlc, collector)) {
         break;
       }
       const existing = state.deckFsrsParams.get(p.deck_id) ?? [];
       const filtered = existing.filter((v) => v.params_version !== p.params_version);
-      const entry: DeckFSRSParamsVersion & { reschedule_existing?: boolean } = {
+      const entry: DeckFSRSParamsVersion = {
         params_version: p.params_version,
         effective_from: p.effective_from,
         params: { ...p.params },
@@ -585,9 +791,11 @@ function applyKnownEvent(
       filtered.push(entry);
       filtered.sort((a, b) => a.params_version - b.params_version);
       state.deckFsrsParams.set(p.deck_id, filtered);
-      for (const card of state.cards.values()) {
-        if (card.deck_id === p.deck_id) {
-          dirtyCards.add(card.id);
+      collector?.fsrsDeckIds.add(p.deck_id);
+      const deckCards = state.cardIdsByDeck.get(p.deck_id);
+      if (deckCards) {
+        for (const cardId of deckCards) {
+          dirtyCards.add(cardId);
         }
       }
       break;
@@ -607,28 +815,31 @@ function applyKnownEvent(
           created_order: p.created_order ?? 0,
         };
         state.notes.set(p.note_id, note);
-        shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc);
-        shouldApplyLww(state, `note:${p.note_id}:source_key`, hlc);
-        if (p.provenance) shouldApplyLww(state, `note:${p.note_id}:provenance`, hlc);
+        addToMapSet(state.noteIdsByDeck, note.deck_id, note.id);
+        shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc, collector);
+        shouldApplyLww(state, `note:${p.note_id}:source_key`, hlc, collector);
+        if (p.provenance) shouldApplyLww(state, `note:${p.note_id}:provenance`, hlc, collector);
         if (p.created_order !== undefined) {
-          shouldApplyLww(state, `note:${p.note_id}:created_order`, hlc);
+          shouldApplyLww(state, `note:${p.note_id}:created_order`, hlc, collector);
         }
       } else {
-        if (shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc)) {
+        if (shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc, collector)) {
           if (note.deck_id !== p.deck_id) {
+            removeFromMapSet(state.noteIdsByDeck, note.deck_id, note.id);
             dirtyDecks.add(note.deck_id);
+            note.deck_id = p.deck_id;
+            addToMapSet(state.noteIdsByDeck, note.deck_id, note.id);
           }
-          note.deck_id = p.deck_id;
         }
-        if (shouldApplyLww(state, `note:${p.note_id}:source_key`, hlc)) {
+        if (shouldApplyLww(state, `note:${p.note_id}:source_key`, hlc, collector)) {
           note.source_key = p.source_key;
         }
-        if (p.provenance && shouldApplyLww(state, `note:${p.note_id}:provenance`, hlc)) {
+        if (p.provenance && shouldApplyLww(state, `note:${p.note_id}:provenance`, hlc, collector)) {
           note.provenance = { ...p.provenance };
         }
         if (
           p.created_order !== undefined &&
-          shouldApplyLww(state, `note:${p.note_id}:created_order`, hlc)
+          shouldApplyLww(state, `note:${p.note_id}:created_order`, hlc, collector)
         ) {
           note.created_order = p.created_order;
         }
@@ -636,25 +847,28 @@ function applyKnownEvent(
 
       // Per-field LWW for note fields
       for (const [fieldKey, fieldValue] of Object.entries(p.fields)) {
-        if (shouldApplyLww(state, `note:${p.note_id}:field:${fieldKey}`, hlc)) {
+        if (shouldApplyLww(state, `note:${p.note_id}:field:${fieldKey}`, hlc, collector)) {
           note.fields[fieldKey] = fieldValue;
         }
       }
 
-      if (p.tags !== undefined && shouldApplyLww(state, `note:${p.note_id}:tags`, hlc)) {
+      if (p.tags !== undefined && shouldApplyLww(state, `note:${p.note_id}:tags`, hlc, collector)) {
         note.tags = [...p.tags];
       }
 
+      collector?.noteIds.add(p.note_id);
       dirtyNotes.add(p.note_id);
       break;
     }
     case 'NoteArchived': {
       const p = event.payload;
-      if (shouldApplyLww(state, `note:${p.note_id}:archived`, hlc)) {
+      if (shouldApplyLww(state, `note:${p.note_id}:archived`, hlc, collector)) {
         state.noteArchivedState.set(p.note_id, true);
+        collector?.noteArchivedKeys.add(p.note_id);
         const note = state.notes.get(p.note_id);
         if (note) {
           note.archived = true;
+          collector?.noteIds.add(p.note_id);
           dirtyNotes.add(p.note_id);
         }
       }
@@ -662,11 +876,13 @@ function applyKnownEvent(
     }
     case 'NoteRestored': {
       const p = event.payload;
-      if (shouldApplyLww(state, `note:${p.note_id}:archived`, hlc)) {
+      if (shouldApplyLww(state, `note:${p.note_id}:archived`, hlc, collector)) {
         state.noteArchivedState.set(p.note_id, false);
+        collector?.noteArchivedKeys.add(p.note_id);
         const note = state.notes.get(p.note_id);
         if (note) {
           note.archived = false;
+          collector?.noteIds.add(p.note_id);
           dirtyNotes.add(p.note_id);
         }
       }
@@ -693,29 +909,34 @@ function applyKnownEvent(
         }
         list.push(record);
         state.reviewsByCard.set(p.card_id, list);
+        state.reviewIdToCardId.set(p.review_id, p.card_id);
+        collector?.reviewCardIds.add(p.card_id);
       }
       dirtyCards.add(p.card_id);
       break;
     }
     case 'ReviewUndone': {
       const p = event.payload;
-      state.undoneReviewIds.add(p.review_id);
-      // Mark whichever card owns this review_id dirty
-      for (const [cardId, list] of state.reviewsByCard.entries()) {
-        if (list.some((r) => r.review_id === p.review_id)) {
-          dirtyCards.add(cardId);
-          break;
-        }
+      if (!state.undoneReviewIds.has(p.review_id)) {
+        state.undoneReviewIds.add(p.review_id);
+        collector?.addedUndoneReviewIds.add(p.review_id);
+      }
+      const cardId = state.reviewIdToCardId.get(p.review_id);
+      if (cardId !== undefined) {
+        dirtyCards.add(cardId);
       }
       break;
     }
     case 'PageUpserted': {
       const p = event.payload;
       const pending = state.pendingPagePatches.get(p.page_id);
-      state.pendingPagePatches.delete(p.page_id);
+      if (pending) {
+        state.pendingPagePatches.delete(p.page_id);
+        collector?.pendingPagePatchKeys.add(p.page_id);
+      }
       const existing = state.pages.get(p.page_id);
 
-      if (shouldApplyLww(state, `page:${p.page_id}`, hlc)) {
+      if (shouldApplyLww(state, `page:${p.page_id}`, hlc, collector)) {
         const page: Page = {
           id: p.page_id,
           slug: p.slug,
@@ -726,67 +947,80 @@ function applyKnownEvent(
         if (p.lang !== undefined) page.lang = p.lang;
         const resolvedSource = existing?.source ?? pending?.source;
         if (resolvedSource !== undefined) page.source = { ...resolvedSource };
-        if (p.source !== undefined && shouldApplyLww(state, `page:${p.page_id}:source`, hlc)) {
+        if (
+          p.source !== undefined &&
+          shouldApplyLww(state, `page:${p.page_id}:source`, hlc, collector)
+        ) {
           page.source = { ...p.source };
         }
         const resolvedReadAt = existing?.read_at ?? pending?.read_at;
         if (resolvedReadAt !== undefined) page.read_at = resolvedReadAt;
         state.pages.set(p.page_id, page);
+        collector?.pageIds.add(p.page_id);
       } else if (existing && p.source !== undefined) {
-        if (shouldApplyLww(state, `page:${p.page_id}:source`, hlc)) {
+        if (shouldApplyLww(state, `page:${p.page_id}:source`, hlc, collector)) {
           existing.source = { ...p.source };
+          collector?.pageIds.add(p.page_id);
         }
       }
       break;
     }
     case 'PageRead': {
       const p = event.payload;
-      if (shouldApplyLww(state, `page:${p.page_id}:read_at`, hlc)) {
+      if (shouldApplyLww(state, `page:${p.page_id}:read_at`, hlc, collector)) {
         const page = state.pages.get(p.page_id);
         if (page) {
           page.read_at = p.read_at;
+          collector?.pageIds.add(p.page_id);
         } else {
           const pending = getOrCreatePendingPagePatch(state, p.page_id);
           pending.read_at = p.read_at;
+          collector?.pendingPagePatchKeys.add(p.page_id);
         }
       }
       break;
     }
     case 'CourseChanged': {
       const c = event.payload.course;
-      if (shouldApplyLww(state, `course:${c.id}`, hlc)) {
+      if (shouldApplyLww(state, `course:${c.id}`, hlc, collector)) {
         state.courses.set(c.id, {
           ...c,
           items: c.items.map((item) => ({ ...item })),
         });
+        collector?.courseIds.add(c.id);
       }
       break;
     }
     case 'MediaAdded': {
       const m = event.payload.media;
       state.media.set(m.hash, { ...m });
+      collector?.mediaHashes.add(m.hash);
       break;
     }
     case 'SourceLinked': {
       const p = event.payload;
       if (p.target_kind === 'deck') {
-        if (shouldApplyLww(state, `deck:${p.target_id}:source`, hlc)) {
+        if (shouldApplyLww(state, `deck:${p.target_id}:source`, hlc, collector)) {
           const deck = state.decks.get(p.target_id);
           if (deck) {
             deck.source = { ...p.source };
+            collector?.deckIds.add(p.target_id);
           } else {
             const pending = getOrCreatePendingDeckPatch(state, p.target_id);
             pending.source = { ...p.source };
+            collector?.pendingDeckPatchKeys.add(p.target_id);
           }
         }
       } else {
-        if (shouldApplyLww(state, `page:${p.target_id}:source`, hlc)) {
+        if (shouldApplyLww(state, `page:${p.target_id}:source`, hlc, collector)) {
           const page = state.pages.get(p.target_id);
           if (page) {
             page.source = { ...p.source };
+            collector?.pageIds.add(p.target_id);
           } else {
             const pending = getOrCreatePendingPagePatch(state, p.target_id);
             pending.source = { ...p.source };
+            collector?.pendingPagePatchKeys.add(p.target_id);
           }
         }
       }
@@ -794,24 +1028,128 @@ function applyKnownEvent(
     }
     case 'PreferencesChanged': {
       const pref = event.payload.preferences;
+      let changed = false;
       if (
         pref.rating_button_mode !== undefined &&
-        shouldApplyLww(state, 'prefs:rating_button_mode', hlc)
+        shouldApplyLww(state, 'prefs:rating_button_mode', hlc, collector)
       ) {
         state.preferences.rating_button_mode = pref.rating_button_mode;
+        changed = true;
       }
-      if (pref.day_start_hour !== undefined && shouldApplyLww(state, 'prefs:day_start_hour', hlc)) {
+      if (
+        pref.day_start_hour !== undefined &&
+        shouldApplyLww(state, 'prefs:day_start_hour', hlc, collector)
+      ) {
         state.preferences.day_start_hour = pref.day_start_hour;
+        changed = true;
       }
       if (
         pref.pinyin_tone_colors !== undefined &&
-        shouldApplyLww(state, 'prefs:pinyin_tone_colors', hlc)
+        shouldApplyLww(state, 'prefs:pinyin_tone_colors', hlc, collector)
       ) {
         state.preferences.pinyin_tone_colors = pref.pinyin_tone_colors;
+        changed = true;
+      }
+      if (changed && collector) {
+        collector.preferencesChanged = true;
       }
       break;
     }
   }
+}
+
+function isEventAlreadyCompacted(state: CollectionState, event: FlashEvent): boolean {
+  if (state.appliedEventIds.has(event.id)) return true;
+  if (event.seq > 0) {
+    const wm = state.snapshotWatermarks.get(event.device);
+    if (wm !== undefined && event.seq <= wm) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Applies a batch of events to `state` while tracking affected cards and optional entity mutations.
+ */
+export function applyEventsWithCollector(
+  state: CollectionState,
+  events: readonly FlashEvent[],
+  collector?: ApplyMutationCollector,
+): ApplyEventsResult {
+  if (events.length === 0) {
+    return { state, appliedCount: 0, changedCardIds: [], removedCardIds: [] };
+  }
+
+  // Sort incoming events by (hlc, id) so entity creation before updates works even if chunks arrive out of order
+  const sorted = [...events].sort((a, b) => {
+    const hlcCmp = compareHlc(a.hlc, b.hlc);
+    if (hlcCmp !== 0) return hlcCmp;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+
+  const dirtyCards = new Set<string>();
+  const dirtyDecks = new Set<string>();
+  const dirtyNotes = new Set<string>();
+  let appliedCount = 0;
+  let maxHlc: string | undefined;
+
+  for (const event of sorted) {
+    if (isEventAlreadyCompacted(state, event)) continue;
+    state.appliedEventIds.add(event.id);
+    collector?.appliedEventIds.push(event.id);
+    appliedCount += 1;
+    if (maxHlc === undefined || compareHlc(event.hlc, maxHlc) > 0) {
+      maxHlc = event.hlc;
+    }
+
+    if (isKnownEventType(event.type)) {
+      applyKnownEvent(state, event as KnownEvent, dirtyCards, dirtyDecks, dirtyNotes, collector);
+    } else {
+      state.unknownEvents.push(event);
+      collector?.addedUnknownEvents.push(event);
+    }
+  }
+
+  const changedCards = new Set<string>();
+  const removedCards = new Set<string>();
+  const replayedCards = new Set<string>();
+
+  for (const deckId of dirtyDecks) {
+    rebuildCardsForDeck(state, deckId, changedCards, removedCards, replayedCards);
+  }
+  for (const noteId of dirtyNotes) {
+    const note = state.notes.get(noteId);
+    if (!note || !dirtyDecks.has(note.deck_id)) {
+      rebuildCardsForNote(state, noteId, changedCards, removedCards, replayedCards);
+    }
+  }
+  for (const cardId of dirtyCards) {
+    if (replayedCards.has(cardId)) continue;
+    const updated = replaySingleCard(state, cardId);
+    if (updated) {
+      changedCards.add(cardId);
+      removedCards.delete(cardId);
+    }
+  }
+
+  return {
+    state,
+    appliedCount,
+    changedCardIds: [...changedCards],
+    removedCardIds: [...removedCards],
+    ...(maxHlc !== undefined ? { maxHlc } : {}),
+  };
+}
+
+/**
+ * Deterministically applies a batch of events to `state` and returns incremental card diffs.
+ */
+export function applyEventsWithDiff(
+  state: CollectionState,
+  events: readonly FlashEvent[],
+): ApplyEventsResult {
+  return applyEventsWithCollector(state, events);
 }
 
 /**
@@ -825,43 +1163,7 @@ export function applyEvents(
   state: CollectionState,
   events: readonly FlashEvent[],
 ): CollectionState {
-  if (events.length === 0) return state;
-
-  // Sort incoming events by (hlc, id) so entity creation before updates works even if chunks arrive out of order
-  const sorted = [...events].sort((a, b) => {
-    const hlcCmp = compareHlc(a.hlc, b.hlc);
-    if (hlcCmp !== 0) return hlcCmp;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
-
-  const dirtyCards = new Set<string>();
-  const dirtyDecks = new Set<string>();
-  const dirtyNotes = new Set<string>();
-
-  for (const event of sorted) {
-    if (state.appliedEventIds.has(event.id)) continue;
-    state.appliedEventIds.add(event.id);
-
-    if (isKnownEventType(event.type)) {
-      applyKnownEvent(state, event as KnownEvent, dirtyCards, dirtyDecks, dirtyNotes);
-    } else {
-      state.unknownEvents.push(event);
-    }
-  }
-
-  for (const deckId of dirtyDecks) {
-    rebuildCardsForDeck(state, deckId);
-  }
-  for (const noteId of dirtyNotes) {
-    const note = state.notes.get(noteId);
-    if (!note || !dirtyDecks.has(note.deck_id)) {
-      rebuildCardsForNote(state, noteId);
-    }
-  }
-  for (const cardId of dirtyCards) {
-    replaySingleCard(state, cardId);
-  }
-
+  applyEventsWithDiff(state, events);
   return state;
 }
 
@@ -874,7 +1176,9 @@ export function replayAllEvents(events: readonly FlashEvent[]): CollectionState 
 export interface EventFactory {
   readonly deviceId: string;
   getSeq(): number;
+  setSeq(nextSeq: number): void;
   getHlc(): HlcState;
+  setHlc(nextHlc: HlcState): void;
   create<K extends KnownEventType>(
     type: K,
     payload: EventPayloadMap[K],
@@ -893,7 +1197,15 @@ export function createEventFactory(
   return {
     deviceId,
     getSeq: () => seq,
+    setSeq: (nextSeq: number) => {
+      if (Number.isInteger(nextSeq) && nextSeq > seq) {
+        seq = nextSeq;
+      }
+    },
     getHlc: () => hlcState,
+    setHlc: (nextHlc: HlcState) => {
+      hlcState = nextHlc;
+    },
     create<K extends KnownEventType>(
       type: K,
       payload: EventPayloadMap[K],

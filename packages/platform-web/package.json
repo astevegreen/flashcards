@@ -8,6 +8,22 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./sync-drive": {
+      "types": "./src/sync/google-drive-transport.ts",
+      "default": "./src/sync/google-drive-transport.ts"
+    },
+    "./sync-local-folder": {
+      "types": "./src/sync/local-folder-transport.ts",
+      "default": "./src/sync/local-folder-transport.ts"
+    },
+    "./auth-google": {
+      "types": "./src/auth/google-oauth-web.ts",
+      "default": "./src/auth/google-oauth-web.ts"
+    },
+    "./replay-worker": {
+      "types": "./src/workers/replay-client.ts",
+      "default": "./src/workers/replay-client.ts"
     }
   },
   "scripts": {

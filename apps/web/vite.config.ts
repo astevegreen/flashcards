@@ -3,13 +3,30 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const DEFAULT_TOKEN_HELPER_URL = 'https://flashcards-token-helper.yodc.workers.dev';
+
+function resolveTokenHelperOrigin(): string {
+  const raw = process.env['VITE_TOKEN_HELPER_URL']?.trim() || DEFAULT_TOKEN_HELPER_URL;
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return new URL(DEFAULT_TOKEN_HELPER_URL).origin;
+  }
+}
+
 function productionCspPlugin(): Plugin {
+  const tokenHelperOrigin = resolveTokenHelperOrigin();
   return {
     name: 'production-csp',
     apply: 'build',
     transformIndexHtml(html) {
-      const csp =
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self'; manifest-src 'self';";
+      const connectSrc = [
+        "'self'",
+        'https://www.googleapis.com',
+        'https://oauth2.googleapis.com',
+        tokenHelperOrigin,
+      ].join(' ');
+      const csp = `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src ${connectSrc}; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self'; manifest-src 'self';`;
       return html.replace(
         '<head>',
         `<head>\n    <meta http-equiv="Content-Security-Policy" content="${csp}" />`,
@@ -46,6 +63,15 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        ignoreURLParametersMatching: [
+          /^device$/,
+          /^code$/,
+          /^state$/,
+          /^scope$/,
+          /^authuser$/,
+          /^prompt$/,
+          /^error$/,
+        ],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,

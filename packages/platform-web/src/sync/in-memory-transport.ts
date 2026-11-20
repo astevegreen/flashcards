@@ -1,3 +1,4 @@
+import { SyncTransportError } from '@flash/core';
 import type { SyncFileInfo, SyncTransport } from '@flash/platform';
 
 interface StoredObject {
@@ -25,14 +26,17 @@ export class InMemorySyncTransport implements SyncTransport {
   async read(path: string): Promise<Uint8Array> {
     const obj = this.store.get(path);
     if (!obj) {
-      throw new Error(`SyncTransport: file not found at "${path}"`);
+      throw new SyncTransportError('NOT_FOUND', `SyncTransport: file not found at "${path}"`);
     }
     return new Uint8Array(obj.data);
   }
 
   async write(path: string, data: Uint8Array, opts?: { ifAbsent?: boolean }): Promise<void> {
     if (opts?.ifAbsent && this.store.has(path)) {
-      throw new Error(`SyncTransport: file already exists at "${path}"`);
+      throw new SyncTransportError(
+        'ALREADY_EXISTS',
+        `SyncTransport: file already exists at "${path}"`,
+      );
     }
     this.store.set(path, { data: new Uint8Array(data), updatedAt: Date.now() });
   }
@@ -45,10 +49,28 @@ export class InMemorySyncTransport implements SyncTransport {
 export class DevChannelSyncTransport implements SyncTransport {
   private readonly keyPrefix: string;
   private readonly channel: BroadcastChannel | null;
+  private readonly listeners = new Set<(path: string) => void>();
 
   constructor(namespace = 'flashcards-dev-sync') {
     this.keyPrefix = `${namespace}:`;
     this.channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(namespace) : null;
+    if (this.channel) {
+      this.channel.onmessage = (event: MessageEvent) => {
+        const msg = event.data as { type?: unknown; path?: unknown } | null;
+        if (msg && msg.type === 'write' && typeof msg.path === 'string') {
+          for (const listener of this.listeners) {
+            listener(msg.path);
+          }
+        }
+      };
+    }
+  }
+
+  subscribe(listener: (path: string) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   async list(prefix: string): Promise<SyncFileInfo[]> {
@@ -80,7 +102,10 @@ export class DevChannelSyncTransport implements SyncTransport {
     const raw =
       typeof localStorage !== 'undefined' ? localStorage.getItem(this.keyPrefix + path) : null;
     if (!raw) {
-      throw new Error(`DevChannelSyncTransport: file not found at "${path}"`);
+      throw new SyncTransportError(
+        'NOT_FOUND',
+        `DevChannelSyncTransport: file not found at "${path}"`,
+      );
     }
     const parsed = JSON.parse(raw) as { b64: string };
     const bin = atob(parsed.b64);
@@ -95,7 +120,10 @@ export class DevChannelSyncTransport implements SyncTransport {
     if (typeof localStorage === 'undefined') return;
     const key = this.keyPrefix + path;
     if (opts?.ifAbsent && localStorage.getItem(key) !== null) {
-      throw new Error(`DevChannelSyncTransport: file already exists at "${path}"`);
+      throw new SyncTransportError(
+        'ALREADY_EXISTS',
+        `DevChannelSyncTransport: file already exists at "${path}"`,
+      );
     }
     let bin = '';
     for (let i = 0; i < data.length; i++) {
@@ -107,6 +135,7 @@ export class DevChannelSyncTransport implements SyncTransport {
   }
 
   close(): void {
+    this.listeners.clear();
     this.channel?.close();
   }
 }

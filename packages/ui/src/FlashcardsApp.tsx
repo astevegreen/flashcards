@@ -1,5 +1,5 @@
-import type { FlashEvent } from '@flash/core';
-import type { DeviceMeta, PlatformServices } from '@flash/platform';
+import type { CollectionState, FlashEvent, SyncCursorState } from '@flash/core';
+import type { DeviceMeta, PlatformServices, SyncConfig } from '@flash/platform';
 import { lazy, Suspense, useState } from 'react';
 import { AppShell, type NavTab } from './layout/AppShell.tsx';
 import { StudyScreen } from './screens/StudyScreen.tsx';
@@ -22,7 +22,12 @@ function ScreenRouter() {
 
   return (
     <AppShell activeTab={activeTab} onSelectTab={setActiveTab}>
-      {activeTab === 'study' && <StudyScreen onOpenLibrary={() => setActiveTab('library')} />}
+      {activeTab === 'study' && (
+        <StudyScreen
+          onOpenLibrary={() => setActiveTab('library')}
+          onOpenSettings={() => setActiveTab('settings')}
+        />
+      )}
       {activeTab !== 'study' && (
         <Suspense
           fallback={<div className="py-12 text-center text-sm text-[var(--muted)]">Loading…</div>}
@@ -45,13 +50,33 @@ function ScreenRouter() {
 
 export interface FlashcardsAppProps {
   platform: PlatformServices;
-  initialEvents: readonly FlashEvent[];
+  initialEvents?: readonly FlashEvent[];
+  initialState?: CollectionState;
   initialMeta: DeviceMeta;
+  initialSyncConfig?: SyncConfig;
+  initialSyncCursor?: SyncCursorState;
+  initialOAuthError?: string;
 }
 
-export function FlashcardsApp({ platform, initialEvents, initialMeta }: FlashcardsAppProps) {
+export function FlashcardsApp({
+  platform,
+  initialEvents,
+  initialState,
+  initialMeta,
+  initialSyncConfig,
+  initialSyncCursor,
+  initialOAuthError,
+}: FlashcardsAppProps) {
   return (
-    <AppProvider platform={platform} initialEvents={initialEvents} initialMeta={initialMeta}>
+    <AppProvider
+      platform={platform}
+      initialMeta={initialMeta}
+      {...(initialEvents !== undefined ? { initialEvents } : {})}
+      {...(initialState !== undefined ? { initialState } : {})}
+      {...(initialSyncConfig !== undefined ? { initialSyncConfig } : {})}
+      {...(initialSyncCursor !== undefined ? { initialSyncCursor } : {})}
+      {...(initialOAuthError !== undefined ? { initialOAuthError } : {})}
+    >
       <ScreenRouter />
     </AppProvider>
   );

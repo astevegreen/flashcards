@@ -1,5 +1,6 @@
 import {
   applyEvents,
+  applyEventsWithDiff,
   applyReviewToSchedule,
   buildSampleDeckEvents,
   createEmptyState,
@@ -8,7 +9,10 @@ import {
   FLASH_NAMESPACE_UUID,
   getActiveFsrsParamsVersion,
   getEnabledLayoutsForDeck,
+  getTotalAppliedEventCount,
   resolveDeckFsrsConfig,
+  SAMPLE_SEED_EPOCH_MS,
+  serializeCollectionState,
   uuidv5,
   uuidv7,
   type Card,
@@ -20,8 +24,14 @@ import {
   type KnownEvent,
   type Note,
   type ReviewRating,
+  type SyncCursorState,
 } from '@flash/core';
-import type { DeviceMeta, PlatformServices } from '@flash/platform';
+import type {
+  DeviceMeta,
+  MaterializedCardRow,
+  PlatformServices,
+  SyncConfig,
+} from '@flash/platform';
 import {
   createContext,
   useCallback,
@@ -32,6 +42,9 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useSyncController, type SyncUiState } from './useSyncController.ts';
+
+export type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
 
 export interface UndoEntry {
   reviewId: string;
@@ -49,6 +62,12 @@ export interface AppContextValue {
   activeDeckId: string | undefined;
   setActiveDeckId: (deckId: string | undefined) => void;
   showBackupBanner: boolean;
+  syncState: SyncUiState;
+  syncNow: () => Promise<void>;
+  connectGoogleDrive: () => Promise<void>;
+  connectLocalFolder: () => Promise<boolean>;
+  reconnectLocalFolder: () => Promise<boolean>;
+  disconnectSync: () => Promise<void>;
   emitEvents: (events: readonly KnownEvent[]) => void;
   getEventFactory: () => EventFactory;
   rateCard: (card: Card, rating: ReviewRating, durationMs: number) => void;
@@ -70,21 +89,43 @@ export interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null);
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const LOCAL_SNAPSHOT_INTERVAL = 200;
+
+function cardToRow(card: Card): MaterializedCardRow {
+  return {
+    id: card.id,
+    deck_id: card.deck_id,
+    note_id: card.note_id,
+    layout_id: card.layout_id,
+    due: card.schedule.due,
+    schedule: card.schedule,
+  };
+}
+
+export interface AppProviderProps {
+  platform: PlatformServices;
+  initialEvents?: readonly FlashEvent[];
+  initialState?: CollectionState;
+  initialMeta: DeviceMeta;
+  initialSyncConfig?: SyncConfig;
+  initialSyncCursor?: SyncCursorState;
+  initialOAuthError?: string;
+  children: ReactNode;
+}
 
 export function AppProvider({
   platform,
-  initialEvents,
+  initialEvents = [],
+  initialState,
   initialMeta,
+  initialSyncConfig,
+  initialSyncCursor,
+  initialOAuthError,
   children,
-}: {
-  platform: PlatformServices;
-  initialEvents: readonly FlashEvent[];
-  initialMeta: DeviceMeta;
-  children: ReactNode;
-}) {
+}: AppProviderProps) {
   const stateRef = useRef<CollectionState | null>(null);
   if (stateRef.current === null) {
-    stateRef.current = applyEvents(createEmptyState(), initialEvents);
+    stateRef.current = initialState ?? applyEvents(createEmptyState(), initialEvents);
   }
   const collectionState = stateRef.current;
 
@@ -100,6 +141,7 @@ export function AppProvider({
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [activeDeckId, setActiveDeckId] = useState<string | undefined>(undefined);
   const persistChainRef = useRef<Promise<void>>(Promise.resolve());
+  const lastLocalSnapEventsRef = useRef<number>(getTotalAppliedEventCount(collectionState));
 
   // Request persistent storage on first launch (§4.4)
   useEffect(() => {
@@ -114,12 +156,42 @@ export function AppProvider({
     return next;
   }, []);
 
+  const handleRemoteStateMutated = useCallback((nextMeta?: DeviceMeta) => {
+    if (nextMeta) {
+      metaRef.current = nextMeta;
+      setMeta(nextMeta);
+    }
+    setStateVersion((v) => v + 1);
+  }, []);
+
+  const handleReplaceState = useCallback((nextState: CollectionState, nextMeta: DeviceMeta) => {
+    stateRef.current = nextState;
+    metaRef.current = nextMeta;
+    lastLocalSnapEventsRef.current = getTotalAppliedEventCount(nextState);
+    setMeta(nextMeta);
+    setUndoStack([]);
+    setStateVersion((v) => v + 1);
+  }, []);
+
+  const syncController = useSyncController({
+    platform,
+    stateRef: stateRef as React.MutableRefObject<CollectionState>,
+    metaRef,
+    factoryRef: factoryRef as React.MutableRefObject<EventFactory>,
+    ...(initialSyncConfig !== undefined ? { initialSyncConfig } : {}),
+    ...(initialSyncCursor !== undefined ? { initialSyncCursor } : {}),
+    ...(initialOAuthError !== undefined ? { initialOAuthError } : {}),
+    enqueuePersist,
+    onStateMutated: handleRemoteStateMutated,
+    onReplaceState: handleReplaceState,
+  });
+
   const emitEvents = useCallback(
     (events: readonly KnownEvent[]) => {
       if (events.length === 0) return;
       const factory = factoryRef.current ?? eventFactory;
       const st = stateRef.current ?? collectionState;
-      applyEvents(st, events);
+      const diff = applyEventsWithDiff(st, events);
       const nextMeta: DeviceMeta = {
         ...metaRef.current,
         seq: factory.getSeq(),
@@ -128,12 +200,49 @@ export function AppProvider({
       metaRef.current = nextMeta;
       setMeta(nextMeta);
       setStateVersion((v) => v + 1);
+
+      let reviewCount = 0;
+      for (const ev of events) {
+        if (ev.type === 'ReviewRecorded') reviewCount += 1;
+      }
+      syncController.notifyLocalEvents(events, reviewCount);
+
+      const changedRows: MaterializedCardRow[] = [];
+      for (const cardId of diff.changedCardIds) {
+        const card = st.cards.get(cardId);
+        if (card) changedRows.push(cardToRow(card));
+      }
+      const removedIds = diff.removedCardIds;
+
+      const totalNow = getTotalAppliedEventCount(st);
+      const shouldSnapshot = totalNow - lastLocalSnapEventsRef.current >= LOCAL_SNAPSHOT_INTERVAL;
+      const snapshotPayload = shouldSnapshot
+        ? serializeCollectionState(st, syncController.getCurrentWatermarks())
+        : null;
+      if (shouldSnapshot) {
+        lastLocalSnapEventsRef.current = totalNow;
+      }
+
       void enqueuePersist(async () => {
         await platform.storage.appendEvents(events);
+        if (changedRows.length > 0) {
+          await platform.storage.upsertMaterializedCards(changedRows);
+        }
+        if (removedIds.length > 0) {
+          await platform.storage.deleteMaterializedCards(removedIds);
+        }
         await platform.storage.setDeviceMeta(nextMeta);
+        if (snapshotPayload) {
+          const maxLocalSeq = await platform.storage.getMaxLocalSeq();
+          await platform.storage.setLocalSnapshot({
+            snapshot: snapshotPayload,
+            localSeq: maxLocalSeq,
+            savedAt: Date.now(),
+          });
+        }
       });
     },
-    [collectionState, enqueuePersist, eventFactory, platform.storage],
+    [collectionState, enqueuePersist, eventFactory, platform.storage, syncController],
   );
 
   const getEventFactory = useCallback(() => factoryRef.current ?? eventFactory, [eventFactory]);
@@ -303,7 +412,7 @@ export function AppProvider({
 
   const loadSampleDecks = useCallback(() => {
     const factory = factoryRef.current ?? eventFactory;
-    const events = buildSampleDeckEvents(factory, Date.now());
+    const events = buildSampleDeckEvents(factory, SAMPLE_SEED_EPOCH_MS);
     emitEvents(events);
   }, [emitEvents, eventFactory]);
 
@@ -332,15 +441,20 @@ export function AppProvider({
   }, [enqueuePersist, platform.storage]);
 
   const resetLocalData = useCallback(async () => {
+    const nextDeviceId = platform.hasDeviceSlug
+      ? platform.deviceId
+      : `web-${uuidv7().slice(0, 12)}`;
     const freshMeta: DeviceMeta = {
-      deviceId: platform.deviceId,
+      deviceId: nextDeviceId,
       seq: 0,
-      hlc: createHlcState(platform.deviceId, Date.now()),
+      hlc: createHlcState(nextDeviceId, 0),
       seeded: true,
     };
     metaRef.current = freshMeta;
     stateRef.current = createEmptyState();
     factoryRef.current = createEventFactory(freshMeta.deviceId, 0, freshMeta.hlc);
+    lastLocalSnapEventsRef.current = 0;
+    syncController.resetSyncState();
     setMeta(freshMeta);
     setUndoStack([]);
     setActiveDeckId(undefined);
@@ -349,9 +463,17 @@ export function AppProvider({
       await platform.storage.clearAll();
       await platform.storage.setDeviceMeta(freshMeta);
     });
-  }, [enqueuePersist, platform]);
+  }, [enqueuePersist, platform, syncController]);
 
   const showBackupBanner = useMemo(() => {
+    // Auto-hide weekly backup reminder once cloud or local-folder sync is connected and active (§4.4)
+    if (
+      (syncController.syncState.provider === 'google_drive' ||
+        syncController.syncState.provider === 'local_folder') &&
+      syncController.syncState.status !== 'reconnect_required'
+    ) {
+      return false;
+    }
     const st = stateRef.current ?? collectionState;
     if (st.decks.size === 0) return false;
     const now = Date.now();
@@ -372,7 +494,14 @@ export function AppProvider({
     }
     return false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collectionState, meta.lastBackupAt, meta.backupReminderDismissedAt, stateVersion]);
+  }, [
+    collectionState,
+    meta.lastBackupAt,
+    meta.backupReminderDismissedAt,
+    stateVersion,
+    syncController.syncState.provider,
+    syncController.syncState.status,
+  ]);
 
   const value: AppContextValue = {
     platform,
@@ -384,6 +513,12 @@ export function AppProvider({
     activeDeckId,
     setActiveDeckId,
     showBackupBanner,
+    syncState: syncController.syncState,
+    syncNow: syncController.syncNow,
+    connectGoogleDrive: syncController.connectGoogleDrive,
+    connectLocalFolder: syncController.connectLocalFolder,
+    reconnectLocalFolder: syncController.reconnectLocalFolder,
+    disconnectSync: syncController.disconnectSync,
     emitEvents,
     getEventFactory,
     rateCard,
