@@ -22,6 +22,7 @@ import {
   type NoteType,
   type Page,
   type ReviewRecord,
+  type SourceRef,
 } from '../model/types.ts';
 import {
   isKnownEventType,
@@ -31,6 +32,19 @@ import {
   type KnownEventType,
   type UnknownEvent,
 } from './types.ts';
+
+export interface PendingDeckPatch {
+  name?: string;
+  language?: string;
+  archived?: boolean;
+  settings: Partial<DeckSettings>;
+  source?: SourceRef;
+}
+
+export interface PendingPagePatch {
+  read_at?: number;
+  source?: SourceRef;
+}
 
 export interface CollectionState {
   noteTypes: Map<string, NoteType>;
@@ -50,6 +64,10 @@ export interface CollectionState {
   fieldHlcs: Map<string, string>;
   /** Pending/resolved archive tombstones for out-of-order NoteArchived/NoteRestored delivery. */
   noteArchivedState: Map<string, boolean>;
+  /** Pending patches for out-of-order DeckSettingsChanged / SourceLinked before DeckCreated. */
+  pendingDeckPatches: Map<string, PendingDeckPatch>;
+  /** Pending patches for out-of-order PageRead / SourceLinked before PageUpserted. */
+  pendingPagePatches: Map<string, PendingPagePatch>;
   /** Seen event IDs for idempotent event application. */
   appliedEventIds: Set<string>;
 }
@@ -88,6 +106,8 @@ export function createEmptyState(): CollectionState {
     unknownEvents: [],
     fieldHlcs: new Map(),
     noteArchivedState: new Map(),
+    pendingDeckPatches: new Map(),
+    pendingPagePatches: new Map(),
     appliedEventIds: new Set(),
   };
 }
@@ -129,15 +149,16 @@ export function resolveDeckFsrsConfig(
   recordedVersion?: number,
 ): FSRSParamsConfig {
   const deck = state.decks.get(deckId);
-  const baseRetention = deck?.settings.target_retention ?? DEFAULT_FSRS_CONFIG.request_retention;
   const versions = state.deckFsrsParams.get(deckId);
 
   if (!versions || versions.length === 0) {
     return {
       ...DEFAULT_FSRS_CONFIG,
-      request_retention: baseRetention,
+      request_retention: deck?.settings.target_retention ?? DEFAULT_FSRS_CONFIG.request_retention,
     };
   }
+
+  const initialRetention = deck?.initial_retention ?? DEFAULT_FSRS_CONFIG.request_retention;
 
   // Versions are kept sorted ascending by params_version
   const latest = versions[versions.length - 1];
@@ -152,7 +173,13 @@ export function resolveDeckFsrsConfig(
     };
   }
 
-  if (recordedVersion !== undefined && recordedVersion > 0) {
+  if (recordedVersion !== undefined) {
+    if (recordedVersion === 0) {
+      return {
+        ...DEFAULT_FSRS_CONFIG,
+        request_retention: initialRetention,
+      };
+    }
     const exact = versions.find((v) => v.params_version === recordedVersion);
     if (exact) {
       return {
@@ -177,7 +204,7 @@ export function resolveDeckFsrsConfig(
 
   return {
     ...DEFAULT_FSRS_CONFIG,
-    request_retention: baseRetention,
+    request_retention: initialRetention,
   };
 }
 
@@ -309,55 +336,72 @@ function rebuildCardsForNote(state: CollectionState, noteId: string): void {
   }
 }
 
-function applyDeckSettingsPatch(
+function applyDeckSettingsPatchTarget(
   state: CollectionState,
   deckId: string,
+  target: Partial<DeckSettings>,
   settings: Partial<DeckSettings>,
   hlc: string,
 ): boolean {
-  const deck = state.decks.get(deckId);
-  if (!deck) return false;
   let layoutsChanged = false;
 
   if (
     settings.new_cards_per_day !== undefined &&
     shouldApplyLww(state, `deck:${deckId}:settings:new_cards_per_day`, hlc)
   ) {
-    deck.settings.new_cards_per_day = settings.new_cards_per_day;
+    target.new_cards_per_day = settings.new_cards_per_day;
   }
   if (
     settings.max_reviews_per_day !== undefined &&
     shouldApplyLww(state, `deck:${deckId}:settings:max_reviews_per_day`, hlc)
   ) {
-    deck.settings.max_reviews_per_day = settings.max_reviews_per_day;
+    target.max_reviews_per_day = settings.max_reviews_per_day;
   }
   if (
     settings.target_retention !== undefined &&
     shouldApplyLww(state, `deck:${deckId}:settings:target_retention`, hlc)
   ) {
-    deck.settings.target_retention = settings.target_retention;
+    target.target_retention = settings.target_retention;
   }
   if (
     settings.new_card_order !== undefined &&
     shouldApplyLww(state, `deck:${deckId}:settings:new_card_order`, hlc)
   ) {
-    deck.settings.new_card_order = settings.new_card_order;
+    target.new_card_order = settings.new_card_order;
   }
   if (
     settings.enabled_layout_ids !== undefined &&
     shouldApplyLww(state, `deck:${deckId}:settings:enabled_layout_ids`, hlc)
   ) {
-    deck.settings.enabled_layout_ids = [...settings.enabled_layout_ids];
+    target.enabled_layout_ids = [...settings.enabled_layout_ids];
     layoutsChanged = true;
   }
   if (
     settings.day_start_hour !== undefined &&
     shouldApplyLww(state, `deck:${deckId}:settings:day_start_hour`, hlc)
   ) {
-    deck.settings.day_start_hour = settings.day_start_hour;
+    target.day_start_hour = settings.day_start_hour;
   }
 
   return layoutsChanged;
+}
+
+function getOrCreatePendingDeckPatch(state: CollectionState, deckId: string): PendingDeckPatch {
+  let pending = state.pendingDeckPatches.get(deckId);
+  if (!pending) {
+    pending = { settings: {} };
+    state.pendingDeckPatches.set(deckId, pending);
+  }
+  return pending;
+}
+
+function getOrCreatePendingPagePatch(state: CollectionState, pageId: string): PendingPagePatch {
+  let pending = state.pendingPagePatches.get(pageId);
+  if (!pending) {
+    pending = {};
+    state.pendingPagePatches.set(pageId, pending);
+  }
+  return pending;
 }
 
 function applyKnownEvent(
@@ -398,26 +442,60 @@ function applyKnownEvent(
     case 'DeckCreated': {
       const p = event.payload;
       let deck = state.decks.get(p.deck_id);
+      const initialRet = p.settings?.target_retention ?? DEFAULT_FSRS_CONFIG.request_retention;
       if (!deck) {
+        const pending = state.pendingDeckPatches.get(p.deck_id);
+        state.pendingDeckPatches.delete(p.deck_id);
+
+        const mergedSettings: DeckSettings = { ...DEFAULT_DECK_SETTINGS };
+        if (pending?.settings) {
+          if (pending.settings.new_cards_per_day !== undefined) {
+            mergedSettings.new_cards_per_day = pending.settings.new_cards_per_day;
+          }
+          if (pending.settings.max_reviews_per_day !== undefined) {
+            mergedSettings.max_reviews_per_day = pending.settings.max_reviews_per_day;
+          }
+          if (pending.settings.target_retention !== undefined) {
+            mergedSettings.target_retention = pending.settings.target_retention;
+          }
+          if (pending.settings.new_card_order !== undefined) {
+            mergedSettings.new_card_order = pending.settings.new_card_order;
+          }
+          if (pending.settings.enabled_layout_ids !== undefined) {
+            mergedSettings.enabled_layout_ids = [...pending.settings.enabled_layout_ids];
+          }
+          if (pending.settings.day_start_hour !== undefined) {
+            mergedSettings.day_start_hour = pending.settings.day_start_hour;
+          }
+        }
+
         deck = {
           id: p.deck_id,
-          name: p.name,
+          name: pending?.name ?? p.name,
           note_type_id: p.note_type_id,
-          language: p.language,
-          settings: { ...DEFAULT_DECK_SETTINGS },
-          archived: false,
+          language: pending?.language ?? p.language,
+          settings: mergedSettings,
+          initial_retention: initialRet,
+          archived: pending?.archived ?? false,
           created_at: p.created_at ?? 0,
         };
-        if (p.source !== undefined) {
-          deck.source = { ...p.source };
+        if (pending?.source !== undefined) {
+          deck.source = { ...pending.source };
         }
         state.decks.set(p.deck_id, deck);
-        shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc);
-        shouldApplyLww(state, `deck:${p.deck_id}:note_type_id`, hlc);
-        shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc);
-        shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc);
-        if (p.source !== undefined) {
-          shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc);
+
+        // Apply DeckCreated's own fields strictly via LWW so newer out-of-order patches win
+        if (shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc)) deck.name = p.name;
+        if (shouldApplyLww(state, `deck:${p.deck_id}:note_type_id`, hlc)) {
+          deck.note_type_id = p.note_type_id;
+        }
+        if (shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc)) deck.language = p.language;
+        if (shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc)) deck.archived = false;
+        if (shouldApplyLww(state, `deck:${p.deck_id}:initial_retention`, hlc)) {
+          deck.initial_retention = initialRet;
+        }
+        if (p.source !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc)) {
+          deck.source = { ...p.source };
         }
       } else {
         if (shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc)) deck.name = p.name;
@@ -425,12 +503,15 @@ function applyKnownEvent(
           deck.note_type_id = p.note_type_id;
         }
         if (shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc)) deck.language = p.language;
+        if (shouldApplyLww(state, `deck:${p.deck_id}:initial_retention`, hlc)) {
+          deck.initial_retention = initialRet;
+        }
         if (p.source !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc)) {
           deck.source = { ...p.source };
         }
       }
       if (p.settings) {
-        applyDeckSettingsPatch(state, p.deck_id, p.settings, hlc);
+        applyDeckSettingsPatchTarget(state, p.deck_id, deck.settings, p.settings, hlc);
       }
       dirtyDecks.add(p.deck_id);
       break;
@@ -438,7 +519,23 @@ function applyKnownEvent(
     case 'DeckSettingsChanged': {
       const p = event.payload;
       const deck = state.decks.get(p.deck_id);
-      if (!deck) break;
+      if (!deck) {
+        // Buffer out-of-order patch until DeckCreated arrives
+        const pending = getOrCreatePendingDeckPatch(state, p.deck_id);
+        if (p.name !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc)) {
+          pending.name = p.name;
+        }
+        if (p.language !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc)) {
+          pending.language = p.language;
+        }
+        if (p.archived !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc)) {
+          pending.archived = p.archived;
+        }
+        if (p.settings) {
+          applyDeckSettingsPatchTarget(state, p.deck_id, pending.settings, p.settings, hlc);
+        }
+        break;
+      }
       let mustRebuildDeck = false;
       if (p.name !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc)) {
         deck.name = p.name;
@@ -451,7 +548,13 @@ function applyKnownEvent(
         mustRebuildDeck = true;
       }
       if (p.settings) {
-        const layoutsChanged = applyDeckSettingsPatch(state, p.deck_id, p.settings, hlc);
+        const layoutsChanged = applyDeckSettingsPatchTarget(
+          state,
+          p.deck_id,
+          deck.settings,
+          p.settings,
+          hlc,
+        );
         if (layoutsChanged) mustRebuildDeck = true;
       }
       if (mustRebuildDeck) {
@@ -466,6 +569,9 @@ function applyKnownEvent(
     }
     case 'DeckFSRSParamsChanged': {
       const p = event.payload;
+      if (!shouldApplyLww(state, `deck:${p.deck_id}:fsrs:${p.params_version}`, hlc)) {
+        break;
+      }
       const existing = state.deckFsrsParams.get(p.deck_id) ?? [];
       const filtered = existing.filter((v) => v.params_version !== p.params_version);
       const entry: DeckFSRSParamsVersion & { reschedule_existing?: boolean } = {
@@ -498,7 +604,7 @@ function applyKnownEvent(
           source_key: p.source_key,
           provenance: p.provenance ? { ...p.provenance } : { source: 'user', reviewed: true },
           archived: state.noteArchivedState.get(p.note_id) ?? false,
-          created_order: p.created_order ?? state.notes.size,
+          created_order: p.created_order ?? 0,
         };
         state.notes.set(p.note_id, note);
         shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc);
@@ -509,6 +615,9 @@ function applyKnownEvent(
         }
       } else {
         if (shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc)) {
+          if (note.deck_id !== p.deck_id) {
+            dirtyDecks.add(note.deck_id);
+          }
           note.deck_id = p.deck_id;
         }
         if (shouldApplyLww(state, `note:${p.note_id}:source_key`, hlc)) {
@@ -602,8 +711,11 @@ function applyKnownEvent(
     }
     case 'PageUpserted': {
       const p = event.payload;
+      const pending = state.pendingPagePatches.get(p.page_id);
+      state.pendingPagePatches.delete(p.page_id);
+      const existing = state.pages.get(p.page_id);
+
       if (shouldApplyLww(state, `page:${p.page_id}`, hlc)) {
-        const existing = state.pages.get(p.page_id);
         const page: Page = {
           id: p.page_id,
           slug: p.slug,
@@ -612,17 +724,31 @@ function applyKnownEvent(
           tags: p.tags ? [...p.tags] : [],
         };
         if (p.lang !== undefined) page.lang = p.lang;
-        if (p.source !== undefined) page.source = { ...p.source };
-        if (existing?.read_at !== undefined) page.read_at = existing.read_at;
+        const resolvedSource = existing?.source ?? pending?.source;
+        if (resolvedSource !== undefined) page.source = { ...resolvedSource };
+        if (p.source !== undefined && shouldApplyLww(state, `page:${p.page_id}:source`, hlc)) {
+          page.source = { ...p.source };
+        }
+        const resolvedReadAt = existing?.read_at ?? pending?.read_at;
+        if (resolvedReadAt !== undefined) page.read_at = resolvedReadAt;
         state.pages.set(p.page_id, page);
+      } else if (existing && p.source !== undefined) {
+        if (shouldApplyLww(state, `page:${p.page_id}:source`, hlc)) {
+          existing.source = { ...p.source };
+        }
       }
       break;
     }
     case 'PageRead': {
       const p = event.payload;
-      const page = state.pages.get(p.page_id);
-      if (page && shouldApplyLww(state, `page:${p.page_id}:read_at`, hlc)) {
-        page.read_at = p.read_at;
+      if (shouldApplyLww(state, `page:${p.page_id}:read_at`, hlc)) {
+        const page = state.pages.get(p.page_id);
+        if (page) {
+          page.read_at = p.read_at;
+        } else {
+          const pending = getOrCreatePendingPagePatch(state, p.page_id);
+          pending.read_at = p.read_at;
+        }
       }
       break;
     }
@@ -644,14 +770,24 @@ function applyKnownEvent(
     case 'SourceLinked': {
       const p = event.payload;
       if (p.target_kind === 'deck') {
-        const deck = state.decks.get(p.target_id);
-        if (deck && shouldApplyLww(state, `deck:${p.target_id}:source`, hlc)) {
-          deck.source = { ...p.source };
+        if (shouldApplyLww(state, `deck:${p.target_id}:source`, hlc)) {
+          const deck = state.decks.get(p.target_id);
+          if (deck) {
+            deck.source = { ...p.source };
+          } else {
+            const pending = getOrCreatePendingDeckPatch(state, p.target_id);
+            pending.source = { ...p.source };
+          }
         }
       } else {
-        const page = state.pages.get(p.target_id);
-        if (page && shouldApplyLww(state, `page:${p.target_id}:source`, hlc)) {
-          page.source = { ...p.source };
+        if (shouldApplyLww(state, `page:${p.target_id}:source`, hlc)) {
+          const page = state.pages.get(p.target_id);
+          if (page) {
+            page.source = { ...p.source };
+          } else {
+            const pending = getOrCreatePendingPagePatch(state, p.target_id);
+            pending.source = { ...p.source };
+          }
         }
       }
       break;

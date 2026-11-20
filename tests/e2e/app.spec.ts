@@ -170,4 +170,108 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
 
     await context.close();
   });
+
+  test('production empty-state onboarding, .flashpkg file-chooser round-trip import, Settings rating modes, and Deck Options typing', async ({
+    page,
+  }) => {
+    // Without ?device= in production preview, app boots to zero-deck onboarding screen
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Ready to Study Offline' })).toBeVisible();
+
+    // Load sample decks via onboarding CTA
+    await page.getByRole('button', { name: 'Load Sample Decks' }).click();
+    await expect(page.getByTestId('study-card')).toBeVisible();
+
+    // Switch Settings -> 4 buttons (+ Hard) and verify Hard button renders in Study
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await page.getByLabel('Rating buttons mode').selectOption('4');
+    await page.getByRole('button', { name: 'Study' }).first().click();
+    await page.keyboard.press('Space');
+    await expect(page.getByTestId('rate-hard')).toBeVisible();
+
+    // Switch Settings -> 2 buttons (Again / Good) and verify Easy & Hard are hidden
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await page.getByLabel('Rating buttons mode').selectOption('2');
+    await page.getByRole('button', { name: 'Study' }).first().click();
+    await page.keyboard.press('Space');
+    await expect(page.getByTestId('rate-again')).toBeVisible();
+    await expect(page.getByTestId('rate-good')).toBeVisible();
+    await expect(page.getByTestId('rate-easy')).toHaveCount(0);
+    await expect(page.getByTestId('rate-hard')).toHaveCount(0);
+
+    // Library: test Deck Options target_retention keyboard typing (0.85) + export .flashpkg
+    await page.getByRole('button', { name: 'Library' }).first().click();
+    const koRow = page.locator('[data-testid^="deck-row-"]', { hasText: 'Korean Core + Hanja' });
+    await koRow.getByRole('button', { name: 'Options' }).click();
+    const retentionInput = koRow.getByLabel('Target retention');
+    await retentionInput.fill('0.85');
+    await retentionInput.blur();
+    await expect(retentionInput).toHaveValue('0.85');
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('export-collection-btn').click(),
+    ]);
+    const exportedPath = await download.path();
+    expect(exportedPath).toBeTruthy();
+
+    // Reset local data, then re-import the exported .flashpkg via real file chooser
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await page.getByRole('button', { name: 'Reset Local Device Data' }).click();
+    await page.getByRole('button', { name: 'Library' }).first().click();
+    await expect(page.locator('[data-testid^="deck-row-"]')).toHaveCount(0);
+
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.getByTestId('import-flashpkg-btn').click(),
+    ]);
+    if (exportedPath) {
+      await fileChooser.setFiles(exportedPath);
+    }
+    await expect(page.getByTestId('library-status')).toContainText('deck(s)');
+    await expect(page.locator('[data-testid^="deck-row-"]')).toHaveCount(4);
+  });
+
+  test('mobile viewport bottom tab bar, touch swipe gesture, and #tag Browse search', async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+    });
+    const page = await context.newPage();
+    await page.goto('/?device=mobile');
+
+    const mobileNav = page.getByRole('navigation', { name: 'Mobile navigation' });
+    await expect(mobileNav).toBeVisible();
+
+    const card = page.getByTestId('study-card');
+    await expect(card).toBeVisible();
+    const initialNew = Number(await page.getByTestId('count-new').textContent());
+
+    // Tap to reveal via Show Answer button, then swipe right on card (Pointer Events -> Good)
+    await page.getByTestId('reveal-button').click();
+    await expect(page.getByTestId('card-back')).toBeVisible();
+
+    const box = await card.boundingBox();
+    expect(box).toBeTruthy();
+    if (box) {
+      const startX = box.x + box.width * 0.25;
+      const endX = box.x + box.width * 0.85;
+      const midY = box.y + box.height * 0.5;
+      await page.mouse.move(startX, midY);
+      await page.mouse.down();
+      await page.mouse.move(endX, midY, { steps: 6 });
+      await page.mouse.up();
+    }
+    await expect(page.getByTestId('count-new')).toHaveText(String(initialNew - 1));
+
+    // Navigate via mobile bottom tab bar to Browse and search using #topik-1
+    await mobileNav.getByRole('button', { name: 'Browse' }).click();
+    await page.getByLabel('Search notes by text or tag').fill('#topik-1');
+    await expect(page.getByTestId('browse-list')).toContainText('학교');
+    await expect(page.getByTestId('browse-list')).not.toContainText('Bite the bullet');
+
+    await context.close();
+  });
 });

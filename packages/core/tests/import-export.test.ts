@@ -212,7 +212,7 @@ describe('.flashpkg Export, Import, Upgrade Preservation & Security (§3.4, §13
     );
   });
 
-  it('rejects zip bombs exceeding uncompressed byte limits (§13)', () => {
+  it('rejects zip bombs exceeding uncompressed byte limits even when zip headers spoof originalSize=0 (§13)', () => {
     // 200 KB of zeroes compresses to < 1 KB, tested against a tight 50 KB uncompressed cap
     const bigPayload = new Uint8Array(200_000);
     const bombZip = zipSync({
@@ -223,6 +223,26 @@ describe('.flashpkg Export, Import, Upgrade Preservation & Security (§3.4, §13
     const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', 1000));
     expect(() =>
       importFlashpkg(bombZip, replayAllEvents([]), factory, {
+        limits: { maxTotalUncompressedBytes: 50_000, maxSingleFileBytes: 50_000 },
+      }),
+    ).toThrow(FlashpkgSecurityError);
+
+    // Now spoof uncompressed size fields in local & central directory headers to 0
+    const spoofed = new Uint8Array(bombZip);
+    const view = new DataView(spoofed.buffer);
+    for (let i = 0; i <= spoofed.length - 4; i++) {
+      const sig = view.getUint32(i, true);
+      if (sig === 0x04034b50 && i + 26 <= spoofed.length) {
+        // Local file header: uncompressed size at offset +22
+        view.setUint32(i + 22, 0, true);
+      } else if (sig === 0x02014b50 && i + 28 <= spoofed.length) {
+        // Central directory header: uncompressed size at offset +24
+        view.setUint32(i + 24, 0, true);
+      }
+    }
+
+    expect(() =>
+      importFlashpkg(spoofed, replayAllEvents([]), factory, {
         limits: { maxTotalUncompressedBytes: 50_000, maxSingleFileBytes: 50_000 },
       }),
     ).toThrow(FlashpkgSecurityError);

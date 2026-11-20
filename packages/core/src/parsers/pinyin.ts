@@ -34,9 +34,16 @@ for (const forms of Object.values(TONE_MAP)) {
   MARKED_VOWEL_TONE.set(forms[3], 4);
 }
 
-function normalizeUmlaut(syllable: string): string {
-  // Replace u:/U: and v/V with ü/Ü
-  return syllable.replace(/u:/g, 'ü').replace(/U:/g, 'Ü').replace(/v/g, 'ü').replace(/V/g, 'Ü');
+function normalizeUmlaut(syllable: string, isNumbered: boolean): string {
+  // Always convert explicit u:/U: to ü/Ü.
+  // Convert v/V to ü/Ü only in valid Hanyu Pinyin umlaut positions (after l/n, or standalone v/ve with tone digit)
+  // so non-pinyin text like "vs." or "very" is never corrupted.
+  let out = syllable.replace(/u:/g, 'ü').replace(/U:/g, 'Ü');
+  out = out.replace(/([lLnN])v/g, '$1ü').replace(/([lLnN])V/g, '$1Ü');
+  if (isNumbered && /^[vV][eE]?$/.test(out)) {
+    out = out.replace(/v/g, 'ü').replace(/V/g, 'Ü');
+  }
+  return out;
 }
 
 /**
@@ -44,11 +51,10 @@ function normalizeUmlaut(syllable: string): string {
  * 1. If `a` or `e` is present, it takes the tone mark.
  * 2. If `ou` is present, `o` takes the tone mark.
  * 3. Otherwise, the last vowel (`a, e, i, o, u, ü`) takes the tone mark.
+ * Returns `null` if the syllable has no vowel (e.g., "hsk3"), so callers preserve it verbatim.
  */
-function applyToneMark(rawSyllable: string, tone: 1 | 2 | 3 | 4 | 5): string {
-  const normalized = normalizeUmlaut(rawSyllable);
-  if (tone === 5) return normalized;
-
+function applyToneMark(rawSyllable: string, tone: 1 | 2 | 3 | 4 | 5): string | null {
+  const normalized = normalizeUmlaut(rawSyllable, true);
   const lower = normalized.toLowerCase();
   let targetIndex = -1;
 
@@ -72,7 +78,8 @@ function applyToneMark(rawSyllable: string, tone: 1 | 2 | 3 | 4 | 5): string {
     }
   }
 
-  if (targetIndex === -1) return normalized;
+  if (targetIndex === -1) return null;
+  if (tone === 5) return normalized;
 
   const ch = normalized[targetIndex];
   if (ch === undefined) return normalized;
@@ -100,11 +107,11 @@ export function parsePinyin(input: string): PinyinToken[] {
 
   const tokens: PinyinToken[] = [];
   // Matches either:
-  // 1) A Latin/ü/u: syllable followed by tone digit 0-5 (e.g. `ni3`, `nu:3`, `lv4`, `Zhong1`, `ma5`)
-  // 2) An already tone-marked or plain alphabetic word (e.g. `nǐ`, `hǎo`, `ma`)
+  // 1) A Latin/ü/u: syllable followed by tone digit 0-5 (e.g. `ni3`, `nu:3`, `u:3`, `lv4`, `Zhong1`, `ma5`)
+  // 2) An already tone-marked or plain alphabetic word (including `u:` umlaut form like `lu:e`)
   // 3) Any non-word separator/punctuation run
   const tokenRegex =
-    /([a-zA-ZüÜ]+(?:u:|U:)?[a-zA-ZüÜ]*?)([0-5])|([a-zA-ZüÜāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜĀÁǍÀĒÉĚÈĪÍǏÌŌÓǑÒŪÚǓÙǕǗǙǛ]+)|([^a-zA-ZüÜāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜĀÁǍÀĒÉĚÈĪÍǏÌŌÓǑÒŪÚǓÙǕǗǙǛ]+)/g;
+    /((?:u:|U:|[a-zA-ZüÜ])+?)([0-5])|((?:u:|U:|[a-zA-ZüÜāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜĀÁǍÀĒÉĚÈĪÍǏÌŌÓǑÒŪÚǓÙǕǗǙǛ])+)|([^a-zA-ZüÜāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜĀÁǍÀĒÉĚÈĪÍǏÌŌÓǑÒŪÚǓÙǕǗǙǛ]+)/g;
 
   let match: RegExpExecArray | null;
   while ((match = tokenRegex.exec(input)) !== null) {
@@ -112,12 +119,20 @@ export function parsePinyin(input: string): PinyinToken[] {
     if (numberedBase !== undefined && toneDigit !== undefined) {
       const digit = Number(toneDigit);
       const tone = (digit === 0 ? 5 : digit) as 1 | 2 | 3 | 4 | 5;
-      tokens.push({
-        text: applyToneMark(numberedBase, tone),
-        tone,
-      });
+      const marked = applyToneMark(numberedBase, tone);
+      if (marked === null) {
+        tokens.push({
+          text: numberedBase + toneDigit,
+          tone: 0,
+        });
+      } else {
+        tokens.push({
+          text: marked,
+          tone,
+        });
+      }
     } else if (plainWord !== undefined) {
-      const normalized = normalizeUmlaut(plainWord);
+      const normalized = normalizeUmlaut(plainWord, false);
       tokens.push({
         text: normalized,
         tone: detectToneFromMarkedSyllable(normalized),

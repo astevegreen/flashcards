@@ -15,7 +15,14 @@ import type { ReviewRating } from '../src/model/types.ts';
 function canonicalSnapshot(state: CollectionState) {
   const decks = [...state.decks.values()]
     .sort((a, b) => a.id.localeCompare(b.id))
-    .map((d) => ({ id: d.id, name: d.name, settings: d.settings, archived: d.archived }));
+    .map((d) => ({
+      id: d.id,
+      name: d.name,
+      settings: d.settings,
+      initial_retention: d.initial_retention,
+      source: d.source,
+      archived: d.archived,
+    }));
 
   const notes = [...state.notes.values()]
     .sort((a, b) => a.id.localeCompare(b.id))
@@ -25,6 +32,7 @@ function canonicalSnapshot(state: CollectionState) {
       fields: Object.fromEntries(Object.entries(n.fields).sort(([a], [b]) => a.localeCompare(b))),
       tags: n.tags,
       archived: n.archived,
+      created_order: n.created_order,
     }));
 
   const cards = [...state.cards.values()]
@@ -37,7 +45,16 @@ function canonicalSnapshot(state: CollectionState) {
       last_reviewed_at: c.last_reviewed_at,
     }));
 
-  return { decks, notes, cards, preferences: state.preferences };
+  const pages = [...state.pages.values()]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((p) => ({
+      id: p.id,
+      title: p.title,
+      read_at: p.read_at,
+      source: p.source,
+    }));
+
+  return { decks, notes, cards, pages, preferences: state.preferences };
 }
 
 describe('Multi-device CRDT/event-log convergence (fast-check property test)', () => {
@@ -73,6 +90,31 @@ describe('Multi-device CRDT/event-log convergence (fast-check property test)', (
         kind: fc.constant('undo' as const),
         deviceIdx: fc.integer({ min: 0, max: 2 }),
         reviewPick: fc.nat(20),
+        dt: fc.integer({ min: 1, max: 50_000 }),
+      }),
+      fc.record({
+        kind: fc.constant('deckSettings' as const),
+        deviceIdx: fc.integer({ min: 0, max: 2 }),
+        name: fc.constantFrom('Deck A', 'Deck B', 'Deck C'),
+        newPerDay: fc.constantFrom(10, 20, 35),
+        dt: fc.integer({ min: 1, max: 50_000 }),
+      }),
+      fc.record({
+        kind: fc.constant('fsrsParams' as const),
+        deviceIdx: fc.integer({ min: 0, max: 2 }),
+        version: fc.integer({ min: 1, max: 2 }),
+        retention: fc.constantFrom(0.85, 0.9, 0.94),
+        dt: fc.integer({ min: 1, max: 50_000 }),
+      }),
+      fc.record({
+        kind: fc.constant('sourceLink' as const),
+        deviceIdx: fc.integer({ min: 0, max: 2 }),
+        uri: fc.constantFrom('sheet-1', 'sheet-2'),
+        dt: fc.integer({ min: 1, max: 50_000 }),
+      }),
+      fc.record({
+        kind: fc.constant('pageRead' as const),
+        deviceIdx: fc.integer({ min: 0, max: 2 }),
         dt: fc.integer({ min: 1, max: 50_000 }),
       }),
     );
@@ -122,6 +164,19 @@ describe('Multi-device CRDT/event-log convergence (fast-check property test)', (
               ),
             );
           }
+
+          allEvents.push(
+            f0.create(
+              'PageUpserted',
+              {
+                page_id: 'page-prop-1',
+                slug: 'intro',
+                title: 'Intro',
+                markdown: '# Hello',
+              },
+              baseTime,
+            ),
+          );
 
           let clock = baseTime + 1000;
           for (const act of actions) {
@@ -180,6 +235,47 @@ describe('Multi-device CRDT/event-log convergence (fast-check property test)', (
               const targetRev = createdReviewIds[act.reviewPick % createdReviewIds.length];
               if (!targetRev) continue;
               allEvents.push(factory.create('ReviewUndone', { review_id: targetRev }, clock));
+            } else if (act.kind === 'deckSettings') {
+              allEvents.push(
+                factory.create(
+                  'DeckSettingsChanged',
+                  {
+                    deck_id: deckId,
+                    name: act.name,
+                    settings: { new_cards_per_day: act.newPerDay },
+                  },
+                  clock,
+                ),
+              );
+            } else if (act.kind === 'fsrsParams') {
+              allEvents.push(
+                factory.create(
+                  'DeckFSRSParamsChanged',
+                  {
+                    deck_id: deckId,
+                    params_version: act.version,
+                    effective_from: clock,
+                    params: { request_retention: act.retention, enable_fuzz: false },
+                  },
+                  clock,
+                ),
+              );
+            } else if (act.kind === 'sourceLink') {
+              allEvents.push(
+                factory.create(
+                  'SourceLinked',
+                  {
+                    target_kind: 'deck',
+                    target_id: deckId,
+                    source: { kind: 'google_sheets', uri: act.uri },
+                  },
+                  clock,
+                ),
+              );
+            } else if (act.kind === 'pageRead') {
+              allEvents.push(
+                factory.create('PageRead', { page_id: 'page-prop-1', read_at: clock }, clock),
+              );
             }
           }
 

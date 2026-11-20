@@ -19,11 +19,8 @@ export interface ParsedHlc {
 const MAX_COUNTER = 0xffff;
 
 export function createHlcState(deviceId: string, initialWallMs = 0): HlcState {
-  if (!deviceId || deviceId.includes('-')) {
-    // Allow hyphens in deviceId by splitting only on the first two hyphens in parseHlc
-    if (!deviceId) {
-      throw new Error('HLC deviceId must be non-empty');
-    }
+  if (!deviceId) {
+    throw new Error('HLC deviceId must be non-empty');
   }
   return {
     wallMs: Math.max(0, Math.floor(initialWallMs)),

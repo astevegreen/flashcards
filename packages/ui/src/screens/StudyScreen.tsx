@@ -1,5 +1,6 @@
 import {
   buildStudyQueue,
+  formatIntervalLabel,
   previewIntervals,
   resolveDeckFsrsConfig,
   type Note,
@@ -46,6 +47,7 @@ export function StudyScreen({ onOpenLibrary }: StudyScreenProps) {
   const [furiganaOverride, setFuriganaOverride] = useState<boolean | null>(null);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [swipe, setSwipe] = useState<SwipeState>({ dx: 0, dy: 0, active: false });
+  const [clockTick, setClockTick] = useState(0);
 
   const pointerStartRef = useRef<{ id: number; x: number; y: number } | null>(null);
   const cardShownAtRef = useRef<number>(Date.now());
@@ -70,8 +72,17 @@ export function StudyScreen({ onOpenLibrary }: StudyScreenProps) {
         tzOffsetMinutes,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, stateVersion, activeDeckId],
+    [state, stateVersion, activeDeckId, clockTick],
   );
+
+  // Auto-wake queue when an intraday learning/relearning card becomes due
+  const nextLearningDueAt = queueResult.nextLearningDueAt;
+  useEffect(() => {
+    if (queueResult.queue.length > 0 || nextLearningDueAt === undefined) return;
+    const delayMs = Math.max(250, Math.min(nextLearningDueAt - Date.now() + 100, 60_000));
+    const timer = window.setTimeout(() => setClockTick((t) => t + 1), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [queueResult.queue.length, nextLearningDueAt, clockTick]);
 
   const currentCard = queueResult.queue[0];
   const currentNote = currentCard ? state.notes.get(currentCard.note_id) : undefined;
@@ -179,6 +190,10 @@ export function StudyScreen({ onOpenLibrary }: StudyScreenProps) {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
       if (key === ' ' || key === 'Enter') {
+        // Don't hijack Space/Enter when focus is on a button or link (avoids double activation)
+        if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement) {
+          return;
+        }
         if (!isFullyRevealed) {
           e.preventDefault();
           handleRevealNext();
@@ -238,6 +253,13 @@ export function StudyScreen({ onOpenLibrary }: StudyScreenProps) {
   // Mobile Pointer Events swipe gestures
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
+    if (e.pointerType !== 'mouse') {
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Ignore if pointer capture is unavailable (e.g. synthetic events)
+      }
+    }
     pointerStartRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
     setSwipe({ dx: 0, dy: 0, active: true });
   };
@@ -422,11 +444,17 @@ export function StudyScreen({ onOpenLibrary }: StudyScreenProps) {
       {/* Main Card Surface or Caught-Up State */}
       {!currentCard || !currentNote || !currentLayout || !currentDeck ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center">
-          <h2 className="text-xl font-bold">All caught up for today!</h2>
+          <h2 className="text-xl font-bold">
+            {nextLearningDueAt !== undefined
+              ? 'Learning card coming up'
+              : 'All caught up for today!'}
+          </h2>
           <p className="max-w-sm text-sm text-[var(--muted)]">
-            {queueResult.buriedNoteIds.size > 0
-              ? `${queueResult.buriedNoteIds.size} sibling card(s) are buried until tomorrow's study day.`
-              : 'You have finished all scheduled cards in this selection.'}
+            {nextLearningDueAt !== undefined
+              ? `Next learning card is due in ${formatIntervalLabel(nextLearningDueAt, nowMs)}. It will appear automatically.`
+              : queueResult.buriedNoteIds.size > 0
+                ? `${queueResult.buriedNoteIds.size} sibling card(s) are buried until tomorrow's study day.`
+                : 'You have finished all scheduled cards in this selection.'}
           </p>
           <div className="flex flex-wrap justify-center gap-2">
             {activeDeckId && (

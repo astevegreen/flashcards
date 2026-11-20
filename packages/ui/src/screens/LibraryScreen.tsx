@@ -3,10 +3,164 @@ import {
   decodeUtf8,
   getEnabledLayoutsForDeck,
   type Deck,
+  type DeckSettings,
   type NewCardOrder,
 } from '@flash/core';
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+
+function DeckOptionsPanel({
+  deck,
+  onUpdateSettings,
+  onExportDeck,
+}: {
+  deck: Deck;
+  onUpdateSettings: (deckId: string, patch: { settings: Partial<DeckSettings> }) => void;
+  onExportDeck: (deck: Deck) => void;
+}) {
+  const [newPerDayDraft, setNewPerDayDraft] = useState(String(deck.settings.new_cards_per_day));
+  const [maxRevDraft, setMaxRevDraft] = useState(String(deck.settings.max_reviews_per_day));
+  const [retentionDraft, setRetentionDraft] = useState(String(deck.settings.target_retention));
+
+  useEffect(() => {
+    setNewPerDayDraft(String(deck.settings.new_cards_per_day));
+  }, [deck.settings.new_cards_per_day]);
+
+  useEffect(() => {
+    setMaxRevDraft(String(deck.settings.max_reviews_per_day));
+  }, [deck.settings.max_reviews_per_day]);
+
+  useEffect(() => {
+    setRetentionDraft(String(deck.settings.target_retention));
+  }, [deck.settings.target_retention]);
+
+  const commitNewPerDay = () => {
+    const parsed = Number(newPerDayDraft);
+    if (Number.isFinite(parsed) && newPerDayDraft.trim() !== '') {
+      const clamped = Math.max(0, Math.min(999, Math.round(parsed)));
+      if (clamped !== deck.settings.new_cards_per_day) {
+        onUpdateSettings(deck.id, { settings: { new_cards_per_day: clamped } });
+      }
+      setNewPerDayDraft(String(clamped));
+    } else {
+      setNewPerDayDraft(String(deck.settings.new_cards_per_day));
+    }
+  };
+
+  const commitMaxRev = () => {
+    const parsed = Number(maxRevDraft);
+    if (Number.isFinite(parsed) && maxRevDraft.trim() !== '') {
+      const clamped = Math.max(1, Math.min(9999, Math.round(parsed)));
+      if (clamped !== deck.settings.max_reviews_per_day) {
+        onUpdateSettings(deck.id, { settings: { max_reviews_per_day: clamped } });
+      }
+      setMaxRevDraft(String(clamped));
+    } else {
+      setMaxRevDraft(String(deck.settings.max_reviews_per_day));
+    }
+  };
+
+  const commitRetention = () => {
+    const parsed = Number(retentionDraft);
+    if (Number.isFinite(parsed) && parsed >= 0.7 && parsed <= 0.99) {
+      const rounded = Math.round(parsed * 100) / 100;
+      if (rounded !== deck.settings.target_retention) {
+        onUpdateSettings(deck.id, { settings: { target_retention: rounded } });
+      }
+      setRetentionDraft(String(rounded));
+    } else {
+      setRetentionDraft(String(deck.settings.target_retention));
+    }
+  };
+
+  return (
+    <div className="mt-4 grid gap-3 border-t border-[var(--border)] pt-4 sm:grid-cols-2 lg:grid-cols-4">
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="text-[var(--muted)]">New cards / day</span>
+        <input
+          type="number"
+          min={0}
+          max={999}
+          value={newPerDayDraft}
+          onChange={(e) => {
+            setNewPerDayDraft(e.target.value);
+            const v = Number(e.target.value);
+            if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 0 && v <= 999) {
+              onUpdateSettings(deck.id, { settings: { new_cards_per_day: Math.round(v) } });
+            }
+          }}
+          onBlur={commitNewPerDay}
+          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+        />
+      </label>
+
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="text-[var(--muted)]">Max reviews / day</span>
+        <input
+          type="number"
+          min={1}
+          max={9999}
+          value={maxRevDraft}
+          onChange={(e) => {
+            setMaxRevDraft(e.target.value);
+            const v = Number(e.target.value);
+            if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 1 && v <= 9999) {
+              onUpdateSettings(deck.id, { settings: { max_reviews_per_day: Math.round(v) } });
+            }
+          }}
+          onBlur={commitMaxRev}
+          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+        />
+      </label>
+
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="text-[var(--muted)]">Target retention (0.70–0.99)</span>
+        <input
+          type="number"
+          step={0.01}
+          min={0.7}
+          max={0.99}
+          aria-label="Target retention"
+          value={retentionDraft}
+          onChange={(e) => setRetentionDraft(e.target.value)}
+          onBlur={commitRetention}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              commitRetention();
+            }
+          }}
+          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+        />
+      </label>
+
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="text-[var(--muted)]">New card order</span>
+        <select
+          value={deck.settings.new_card_order}
+          onChange={(e) =>
+            onUpdateSettings(deck.id, {
+              settings: { new_card_order: e.target.value as NewCardOrder },
+            })
+          }
+          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+        >
+          <option value="source">Source order</option>
+          <option value="random">Random (daily)</option>
+        </select>
+      </label>
+
+      <div className="flex items-end sm:col-span-2 lg:col-span-4">
+        <button
+          type="button"
+          onClick={() => onExportDeck(deck)}
+          className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--surface-2)]"
+        >
+          Export Deck (.flashpkg)
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export interface LibraryScreenProps {
   onStudyDeck: (deckId: string) => void;
@@ -306,83 +460,11 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
               </div>
 
               {isExpanded && (
-                <div className="mt-4 grid gap-3 border-t border-[var(--border)] pt-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <label className="flex flex-col gap-1 text-xs">
-                    <span className="text-[var(--muted)]">New cards / day</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={999}
-                      value={deck.settings.new_cards_per_day}
-                      onChange={(e) =>
-                        updateDeckSettings(deck.id, {
-                          settings: { new_cards_per_day: Math.max(0, Number(e.target.value)) },
-                        })
-                      }
-                      className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
-                    />
-                  </label>
-
-                  <label className="flex flex-col gap-1 text-xs">
-                    <span className="text-[var(--muted)]">Max reviews / day</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={9999}
-                      value={deck.settings.max_reviews_per_day}
-                      onChange={(e) =>
-                        updateDeckSettings(deck.id, {
-                          settings: { max_reviews_per_day: Math.max(1, Number(e.target.value)) },
-                        })
-                      }
-                      className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
-                    />
-                  </label>
-
-                  <label className="flex flex-col gap-1 text-xs">
-                    <span className="text-[var(--muted)]">Target retention (0.70–0.99)</span>
-                    <input
-                      type="number"
-                      step={0.01}
-                      min={0.7}
-                      max={0.99}
-                      value={deck.settings.target_retention}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        if (val >= 0.7 && val <= 0.99) {
-                          updateDeckSettings(deck.id, { settings: { target_retention: val } });
-                        }
-                      }}
-                      className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
-                    />
-                  </label>
-
-                  <label className="flex flex-col gap-1 text-xs">
-                    <span className="text-[var(--muted)]">New card order</span>
-                    <select
-                      value={deck.settings.new_card_order}
-                      onChange={(e) =>
-                        updateDeckSettings(deck.id, {
-                          settings: { new_card_order: e.target.value as NewCardOrder },
-                        })
-                      }
-                      className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
-                    >
-                      <option value="source">Source order</option>
-                      <option value="random">Random (daily)</option>
-                    </select>
-                  </label>
-
-                  <div className="flex items-end sm:col-span-2 lg:col-span-4">
-                    <button
-                      type="button"
-                      onClick={() => void handleExportDeck(deck)}
-                      className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--surface-2)]"
-                    >
-                      Export Deck (.flashpkg)
-                    </button>
-                  </div>
-                </div>
+                <DeckOptionsPanel
+                  deck={deck}
+                  onUpdateSettings={updateDeckSettings}
+                  onExportDeck={(d) => void handleExportDeck(d)}
+                />
               )}
             </div>
           );

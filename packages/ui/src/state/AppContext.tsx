@@ -95,28 +95,24 @@ export function AppProvider({
   const eventFactory = factoryRef.current;
 
   const [stateVersion, setStateVersion] = useState(0);
+  const metaRef = useRef<DeviceMeta>(initialMeta);
   const [meta, setMeta] = useState<DeviceMeta>(initialMeta);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [activeDeckId, setActiveDeckId] = useState<string | undefined>(undefined);
+  const persistChainRef = useRef<Promise<void>>(Promise.resolve());
 
   // Request persistent storage on first launch (§4.4)
   useEffect(() => {
     void platform.storage.requestPersistence();
   }, [platform.storage]);
 
-  const persistAsync = useCallback(
-    (events: readonly FlashEvent[], nextMeta: DeviceMeta) => {
-      void (async () => {
-        try {
-          await platform.storage.appendEvents(events);
-          await platform.storage.setDeviceMeta(nextMeta);
-        } catch (err) {
-          console.error('Failed to persist events to storage:', err);
-        }
-      })();
-    },
-    [platform.storage],
-  );
+  const enqueuePersist = useCallback((task: () => Promise<void>): Promise<void> => {
+    const next = persistChainRef.current.then(task, task).catch((err) => {
+      console.error('Failed to persist to storage:', err);
+    });
+    persistChainRef.current = next;
+    return next;
+  }, []);
 
   const emitEvents = useCallback(
     (events: readonly KnownEvent[]) => {
@@ -125,15 +121,19 @@ export function AppProvider({
       const st = stateRef.current ?? collectionState;
       applyEvents(st, events);
       const nextMeta: DeviceMeta = {
-        ...meta,
+        ...metaRef.current,
         seq: factory.getSeq(),
         hlc: factory.getHlc(),
       };
+      metaRef.current = nextMeta;
       setMeta(nextMeta);
       setStateVersion((v) => v + 1);
-      persistAsync(events, nextMeta);
+      void enqueuePersist(async () => {
+        await platform.storage.appendEvents(events);
+        await platform.storage.setDeviceMeta(nextMeta);
+      });
     },
-    [collectionState, eventFactory, meta, persistAsync],
+    [collectionState, enqueuePersist, eventFactory, platform.storage],
   );
 
   const getEventFactory = useCallback(() => factoryRef.current ?? eventFactory, [eventFactory]);
@@ -232,6 +232,7 @@ export function AppProvider({
     (deckId: string, patch: { name?: string; settings?: Partial<DeckSettings> }) => {
       const factory = factoryRef.current ?? eventFactory;
       const st = stateRef.current ?? collectionState;
+      const existingDeck = st.decks.get(deckId);
       const nowMs = Date.now();
       const events: KnownEvent[] = [];
       events.push(
@@ -245,7 +246,10 @@ export function AppProvider({
           nowMs,
         ),
       );
-      if (patch.settings?.target_retention !== undefined) {
+      if (
+        patch.settings?.target_retention !== undefined &&
+        patch.settings.target_retention !== existingDeck?.settings.target_retention
+      ) {
         const nextVersion = getActiveFsrsParamsVersion(st, deckId) + 1;
         events.push(
           factory.create(
@@ -305,38 +309,47 @@ export function AppProvider({
 
   const markBackupCompleted = useCallback(async () => {
     const nextMeta: DeviceMeta = {
-      ...meta,
+      ...metaRef.current,
       lastBackupAt: Date.now(),
     };
+    metaRef.current = nextMeta;
     setMeta(nextMeta);
-    await platform.storage.setDeviceMeta(nextMeta);
-  }, [meta, platform.storage]);
+    await enqueuePersist(async () => {
+      await platform.storage.setDeviceMeta(nextMeta);
+    });
+  }, [enqueuePersist, platform.storage]);
 
   const dismissBackupBanner = useCallback(async () => {
     const nextMeta: DeviceMeta = {
-      ...meta,
+      ...metaRef.current,
       backupReminderDismissedAt: Date.now(),
     };
+    metaRef.current = nextMeta;
     setMeta(nextMeta);
-    await platform.storage.setDeviceMeta(nextMeta);
-  }, [meta, platform.storage]);
+    await enqueuePersist(async () => {
+      await platform.storage.setDeviceMeta(nextMeta);
+    });
+  }, [enqueuePersist, platform.storage]);
 
   const resetLocalData = useCallback(async () => {
-    await platform.storage.clearAll();
     const freshMeta: DeviceMeta = {
       deviceId: platform.deviceId,
       seq: 0,
       hlc: createHlcState(platform.deviceId, Date.now()),
       seeded: true,
     };
-    await platform.storage.setDeviceMeta(freshMeta);
+    metaRef.current = freshMeta;
     stateRef.current = createEmptyState();
     factoryRef.current = createEventFactory(freshMeta.deviceId, 0, freshMeta.hlc);
     setMeta(freshMeta);
     setUndoStack([]);
     setActiveDeckId(undefined);
     setStateVersion((v) => v + 1);
-  }, [platform]);
+    await enqueuePersist(async () => {
+      await platform.storage.clearAll();
+      await platform.storage.setDeviceMeta(freshMeta);
+    });
+  }, [enqueuePersist, platform]);
 
   const showBackupBanner = useMemo(() => {
     const st = stateRef.current ?? collectionState;

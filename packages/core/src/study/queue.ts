@@ -22,6 +22,8 @@ export interface StudyQueueResult {
   queue: Card[];
   counts: StudyCounts;
   buriedNoteIds: Set<string>;
+  /** Earliest due timestamp (Unix ms) among unburied intraday learning/relearning cards due later today. */
+  nextLearningDueAt?: number;
 }
 
 /** Simple deterministic hash for reproducible daily random new-card ordering. */
@@ -101,6 +103,7 @@ export function buildStudyQueue(
   const dueCards: Card[] = [];
   const newCardsByDeck = new Map<string, Card[]>();
   const buriedNoteIds = new Set<string>();
+  let nextLearningDueAt: number | undefined;
 
   for (const card of state.cards.values()) {
     if (deckId !== undefined && card.deck_id !== deckId) continue;
@@ -128,6 +131,10 @@ export function buildStudyQueue(
 
       if (s.due <= nowMs) {
         learningCards.push(card);
+      } else if (s.due < endOfTodayMs) {
+        if (nextLearningDueAt === undefined || s.due < nextLearningDueAt) {
+          nextLearningDueAt = s.due;
+        }
       }
     } else if (s.state === 2) {
       // Review card
@@ -240,7 +247,7 @@ export function buildStudyQueue(
   }
 
   const queue = [...finalLearning, ...finalDue, ...finalNew];
-  return {
+  const result: StudyQueueResult = {
     queue,
     counts: {
       new: finalNew.length,
@@ -250,4 +257,8 @@ export function buildStudyQueue(
     },
     buriedNoteIds,
   };
+  if (nextLearningDueAt !== undefined) {
+    result.nextLearningDueAt = nextLearningDueAt;
+  }
+  return result;
 }

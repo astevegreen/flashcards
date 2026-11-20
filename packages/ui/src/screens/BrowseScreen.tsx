@@ -23,16 +23,27 @@ export function BrowseScreen() {
 
   const filteredNotes = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const isTagOnlyQuery = q.startsWith('#');
+    const tagNeedle = isTagOnlyQuery ? q.slice(1) : q;
     const list: Note[] = [];
     for (const note of state.notes.values()) {
       if (note.archived) continue;
       if (deckFilter && note.deck_id !== deckFilter) continue;
       if (q) {
-        const matchesField = Object.values(note.fields).some(
-          (val) => val.toLowerCase().includes(q) || stripRuby(val).toLowerCase().includes(q),
-        );
-        const matchesTag = note.tags.some((t) => t.toLowerCase().includes(q));
-        if (!matchesField && !matchesTag) continue;
+        const matchesTag =
+          tagNeedle.length > 0 && note.tags.some((t) => t.toLowerCase().includes(tagNeedle));
+        if (isTagOnlyQuery) {
+          if (!matchesTag) continue;
+        } else {
+          const matchesField = Object.values(note.fields).some((val) => {
+            if (val.toLowerCase().includes(q)) return true;
+            if (val.includes('[') || val.includes('{')) {
+              return stripRuby(val).toLowerCase().includes(q);
+            }
+            return false;
+          });
+          if (!matchesField && !matchesTag) continue;
+        }
       }
       list.push(note);
     }

@@ -12,10 +12,11 @@ import {
   type PackageNoteRecord,
   type SchemaValidationError,
 } from '@flash/content-schema';
-import { unzipSync, zipSync, type Unzipped } from 'fflate';
+import { Unzip, UnzipInflate, UnzipPassThrough, zipSync } from 'fflate';
 import type { CollectionState, EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { decodeUtf8, deriveNoteId, encodeUtf8, uuidv5, FLASH_NAMESPACE_UUID } from '../ids.ts';
+import type { Note } from '../model/types.ts';
 
 export const FLASHPKG_SECURITY_LIMITS = {
   maxFiles: 10_000,
@@ -210,8 +211,8 @@ export function exportFlashpkg(
   return zipSync(files, { level: 6 });
 }
 
-function parseJsonFile(files: Unzipped, path: string): unknown {
-  const bytes = files[path];
+function parseJsonFile(files: Map<string, Uint8Array>, path: string): unknown {
+  const bytes = files.get(path);
   if (!bytes) {
     throw new FlashpkgValidationError(`Missing required archive file "${path}".`);
   }
@@ -224,9 +225,134 @@ function parseJsonFile(files: Unzipped, path: string): unknown {
   }
 }
 
+function concatChunks(chunks: readonly Uint8Array[], totalLength: number): Uint8Array {
+  if (chunks.length === 0) return new Uint8Array(0);
+  if (chunks.length === 1 && chunks[0]) return chunks[0];
+  const out = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+/**
+ * Streaming, chunked zip extractor that enforces path-traversal, file-count, and actual inflated
+ * byte caps mid-stream so zip bombs with spoofed headers abort before exhausting memory (§13).
+ */
+function safeUnzipArchive(
+  archiveBytes: Uint8Array,
+  limits: {
+    maxFiles: number;
+    maxTotalUncompressedBytes: number;
+    maxSingleFileBytes: number;
+    maxCompressedBytes: number;
+  },
+): Map<string, Uint8Array> {
+  if (archiveBytes.byteLength > limits.maxCompressedBytes) {
+    throw new FlashpkgSecurityError(
+      `Archive exceeds max compressed size (${limits.maxCompressedBytes} bytes).`,
+    );
+  }
+
+  const extracted = new Map<string, Uint8Array>();
+  let fileCount = 0;
+  let declaredTotal = 0;
+  let actualTotal = 0;
+  let streamError: Error | null = null;
+
+  const unzipper = new Unzip((file) => {
+    if (streamError) return;
+    try {
+      assertSafeArchivePath(file.name);
+      fileCount += 1;
+      if (fileCount > limits.maxFiles) {
+        throw new FlashpkgSecurityError(`Archive exceeds maximum file count (${limits.maxFiles}).`);
+      }
+      if (file.originalSize !== undefined && file.originalSize > limits.maxSingleFileBytes) {
+        throw new FlashpkgSecurityError(
+          `File "${file.name}" exceeds max single-file size (${limits.maxSingleFileBytes} bytes).`,
+        );
+      }
+      if (file.originalSize !== undefined) {
+        declaredTotal += file.originalSize;
+        if (declaredTotal > limits.maxTotalUncompressedBytes) {
+          throw new FlashpkgSecurityError(
+            `Archive exceeds max uncompressed byte limit (${limits.maxTotalUncompressedBytes} bytes).`,
+          );
+        }
+      }
+
+      const chunks: Uint8Array[] = [];
+      let fileBytes = 0;
+
+      file.ondata = (err, chunk, final) => {
+        if (streamError) return;
+        if (err) {
+          streamError = new FlashpkgValidationError(
+            `Failed to inflate "${file.name}": ${err.message}`,
+          );
+          return;
+        }
+        if (chunk.byteLength > 0) {
+          fileBytes += chunk.byteLength;
+          if (fileBytes > limits.maxSingleFileBytes) {
+            streamError = new FlashpkgSecurityError(
+              `Inflated file "${file.name}" exceeds max single-file size (${limits.maxSingleFileBytes} bytes).`,
+            );
+            return;
+          }
+          actualTotal += chunk.byteLength;
+          if (actualTotal > limits.maxTotalUncompressedBytes) {
+            streamError = new FlashpkgSecurityError(
+              `Inflated archive exceeds max uncompressed byte limit (${limits.maxTotalUncompressedBytes} bytes).`,
+            );
+            return;
+          }
+          chunks.push(chunk);
+        }
+        if (final) {
+          extracted.set(file.name, concatChunks(chunks, fileBytes));
+        }
+      };
+
+      file.start();
+    } catch (err) {
+      streamError = err instanceof Error ? err : new Error(String(err));
+    }
+  });
+
+  unzipper.register(UnzipInflate);
+  unzipper.register(UnzipPassThrough);
+
+  const CHUNK_SIZE = 4096;
+  try {
+    for (let offset = 0; offset < archiveBytes.byteLength; offset += CHUNK_SIZE) {
+      const end = Math.min(offset + CHUNK_SIZE, archiveBytes.byteLength);
+      const isFinal = end >= archiveBytes.byteLength;
+      unzipper.push(archiveBytes.subarray(offset, end), isFinal);
+      if (streamError) {
+        throw streamError;
+      }
+    }
+    if (archiveBytes.byteLength === 0) {
+      throw new FlashpkgValidationError('Empty .flashpkg archive.');
+    }
+  } catch (err) {
+    if (streamError) throw streamError;
+    if (err instanceof FlashpkgSecurityError || err instanceof FlashpkgValidationError) throw err;
+    throw new FlashpkgValidationError(
+      `Failed to unzip .flashpkg archive: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  return extracted;
+}
+
 /**
  * Safely unpacks, validates, and converts a `.flashpkg` archive into events.
- * - Security (§13): blocks path traversal, file-count bombs, and uncompressed size bombs.
+ * - Security (§13): blocks path traversal, file-count bombs, and uncompressed size bombs (including spoofed headers).
  * - Upgrades (§3.4): matches existing decks by `(source.package_id, packageDeckId)` and
  *   notes by `source_key = record.id` so re-importing updates content without losing reviews.
  */
@@ -238,64 +364,7 @@ export function importFlashpkg(
 ): FlashpkgImportResult {
   const limits = { ...FLASHPKG_SECURITY_LIMITS, ...options?.limits };
   const nowMs = options?.nowMs ?? Date.now();
-
-  if (archiveBytes.byteLength > limits.maxCompressedBytes) {
-    throw new FlashpkgSecurityError(
-      `Archive exceeds max compressed size (${limits.maxCompressedBytes} bytes).`,
-    );
-  }
-
-  let fileCount = 0;
-  let totalUncompressed = 0;
-
-  let extracted: Unzipped;
-  try {
-    extracted = unzipSync(archiveBytes, {
-      filter(file) {
-        assertSafeArchivePath(file.name);
-        fileCount += 1;
-        if (fileCount > limits.maxFiles) {
-          throw new FlashpkgSecurityError(
-            `Archive exceeds maximum file count (${limits.maxFiles}).`,
-          );
-        }
-        if (file.originalSize > limits.maxSingleFileBytes) {
-          throw new FlashpkgSecurityError(
-            `File "${file.name}" exceeds max single-file size (${limits.maxSingleFileBytes} bytes).`,
-          );
-        }
-        totalUncompressed += file.originalSize;
-        if (totalUncompressed > limits.maxTotalUncompressedBytes) {
-          throw new FlashpkgSecurityError(
-            `Archive exceeds max uncompressed byte limit (${limits.maxTotalUncompressedBytes} bytes).`,
-          );
-        }
-        return true;
-      },
-    });
-  } catch (err) {
-    if (err instanceof FlashpkgSecurityError) throw err;
-    throw new FlashpkgValidationError(
-      `Failed to unzip .flashpkg archive: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  // Secondary verification on actual inflated byte lengths (protects against spoofed zip headers)
-  let actualTotal = 0;
-  for (const [name, data] of Object.entries(extracted)) {
-    assertSafeArchivePath(name);
-    if (data.byteLength > limits.maxSingleFileBytes) {
-      throw new FlashpkgSecurityError(
-        `Inflated file "${name}" exceeds max single-file size (${limits.maxSingleFileBytes} bytes).`,
-      );
-    }
-    actualTotal += data.byteLength;
-    if (actualTotal > limits.maxTotalUncompressedBytes) {
-      throw new FlashpkgSecurityError(
-        `Inflated archive exceeds max uncompressed byte limit (${limits.maxTotalUncompressedBytes} bytes).`,
-      );
-    }
-  }
+  const extracted = safeUnzipArchive(archiveBytes, limits);
 
   const manifestValidation = validatePackageManifest(parseJsonFile(extracted, 'manifest.json'));
   if (!manifestValidation.ok) {
@@ -304,12 +373,14 @@ export function importFlashpkg(
   const manifest = manifestValidation.data;
 
   const events: KnownEvent[] = [];
+  let firstImportedNoteTypeId: string | undefined;
 
-  if (extracted['note_types.json']) {
+  if (extracted.has('note_types.json')) {
     const ntRes = validateNoteTypes(parseJsonFile(extracted, 'note_types.json'));
     if (!ntRes.ok) {
       throw new FlashpkgValidationError('Invalid note_types.json', ntRes.errors);
     }
+    firstImportedNoteTypeId = ntRes.data[0]?.id;
     for (const nt of ntRes.data) {
       events.push(
         eventFactory.create(
@@ -334,7 +405,7 @@ export function importFlashpkg(
     }
   }
 
-  if (extracted['layouts.json']) {
+  if (extracted.has('layouts.json')) {
     const layoutRes = validateLayouts(parseJsonFile(extracted, 'layouts.json'));
     if (!layoutRes.ok) {
       throw new FlashpkgValidationError('Invalid layouts.json', layoutRes.errors);
@@ -362,7 +433,7 @@ export function importFlashpkg(
     }
   }
 
-  if (extracted['courses.json']) {
+  if (extracted.has('courses.json')) {
     const coursesRes = validateCourses(parseJsonFile(extracted, 'courses.json'));
     if (!coursesRes.ok) {
       throw new FlashpkgValidationError('Invalid courses.json', coursesRes.errors);
@@ -399,7 +470,7 @@ export function importFlashpkg(
   const deckEntries: PackageDeckEntry[] =
     manifest.decks.length > 0
       ? manifest.decks
-      : Object.keys(extracted)
+      : [...extracted.keys()]
           .filter((k) => k.startsWith('decks/') && k.endsWith('.jsonl'))
           .sort()
           .map((file) => {
@@ -408,13 +479,13 @@ export function importFlashpkg(
               id: uuidv5(manifest.package_id, slug),
               name: slug,
               file,
-              note_type_id: 'preset:vocab-ko',
+              note_type_id: firstImportedNoteTypeId ?? 'preset:vocab-ko',
             };
           });
 
   for (const deckEntry of deckEntries) {
     assertSafeArchivePath(deckEntry.file);
-    const jsonlBytes = extracted[deckEntry.file];
+    const jsonlBytes = extracted.get(deckEntry.file);
     if (!jsonlBytes) {
       throw new FlashpkgValidationError(
         `Deck file "${deckEntry.file}" listed in manifest not found.`,
@@ -489,6 +560,14 @@ export function importFlashpkg(
     }
     decksImported += 1;
 
+    // Pre-index existing notes for this deck by source_key for O(1) upgrade matching
+    const existingNotesBySourceKey = new Map<string, Note>();
+    for (const note of state.notes.values()) {
+      if (note.deck_id === targetDeckId && note.source_key) {
+        existingNotesBySourceKey.set(note.source_key, note);
+      }
+    }
+
     const lines = decodeUtf8(jsonlBytes)
       .split(/\r?\n/)
       .map((l) => l.trim())
@@ -515,9 +594,7 @@ export function importFlashpkg(
       const rec = noteValidation.data;
 
       // Upgrade-safe note matching: find existing note in targetDeck by source_key, else derive deterministically
-      const existingNote = [...state.notes.values()].find(
-        (n) => n.deck_id === targetDeckId && n.source_key === rec.id,
-      );
+      const existingNote = existingNotesBySourceKey.get(rec.id);
       const noteId = existingNote ? existingNote.id : deriveNoteId(targetDeckId, rec.id);
 
       events.push(

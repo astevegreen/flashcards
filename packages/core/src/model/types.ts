@@ -74,6 +74,8 @@ export interface Deck {
   note_type_id: string;
   language: string;
   settings: DeckSettings;
+  /** Baseline retention captured at deck creation so later settings changes don't drift version-0 historical reviews. */
+  initial_retention: number;
   source?: SourceRef;
   archived: boolean;
   created_at: number;

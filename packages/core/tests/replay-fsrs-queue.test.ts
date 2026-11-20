@@ -214,6 +214,158 @@ describe('FSRS deterministic replay, parameter versioning, and lossless undo', (
     expect(stateRescheduled.cards.get(cardId)?.schedule.due).toBeLessThan(dueBefore);
   });
 
+  it('preserves version-0 historical due dates when DeckSettingsChanged + DeckFSRSParamsChanged update target_retention', () => {
+    const t0 = Date.UTC(2026, 0, 1, 10, 0, 0);
+    const t1 = Date.UTC(2026, 0, 10, 10, 0, 0);
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const deckId = 'deck-v0-drift';
+    const noteId = deriveNoteId(deckId, 'n1');
+    const cardId = deriveCardId(noteId, 'layout:vocab-ko:recognition', 0);
+
+    const initialEvents = [
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: deckId,
+          name: 'Drift Guard',
+          note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+          language: 'ko',
+          settings: { target_retention: 0.9 },
+        },
+        t0,
+      ),
+      factory.create(
+        'NoteUpserted',
+        {
+          note_id: noteId,
+          deck_id: deckId,
+          source_key: 'n1',
+          fields: { word: '물', meaning: 'water' },
+        },
+        t0,
+      ),
+      factory.create(
+        'ReviewRecorded',
+        {
+          review_id: 'rev-v0',
+          card_id: cardId,
+          rating: 4,
+          reviewed_at: t0 + 1000,
+          tz_offset: 0,
+          duration_ms: 500,
+          answer_mode: 'flip',
+          fsrs_params_version: 0,
+          resulting_due_at: t0 + 86_400_000,
+        },
+        t0 + 1000,
+      ),
+    ];
+
+    const stateBefore = replayAllEvents(initialEvents);
+    const dueBefore = stateBefore.cards.get(cardId)?.schedule.due;
+    expect(dueBefore).toBeGreaterThan(t0);
+
+    // Change retention to 0.97 via DeckSettingsChanged + DeckFSRSParamsChanged (version 1)
+    const updateEvents = [
+      factory.create(
+        'DeckSettingsChanged',
+        { deck_id: deckId, settings: { target_retention: 0.97 } },
+        t1,
+      ),
+      factory.create(
+        'DeckFSRSParamsChanged',
+        {
+          deck_id: deckId,
+          params_version: 1,
+          effective_from: t1,
+          params: { request_retention: 0.97, enable_fuzz: false, enable_short_term: true },
+        },
+        t1,
+      ),
+    ];
+
+    const stateAfter = replayAllEvents([...initialEvents, ...updateEvents]);
+    expect(stateAfter.cards.get(cardId)?.schedule.due).toBe(dueBefore);
+    expect(resolveDeckFsrsConfig(stateAfter, deckId, t1 + 1000).request_retention).toBe(0.97);
+  });
+
+  it('converges identically when DeckSettingsChanged, SourceLinked, and PageRead arrive in earlier batches than entity creation', () => {
+    const t0 = Date.UTC(2026, 2, 1, 10, 0, 0);
+    const fA = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const fB = createEventFactory('dev-b', 0, createHlcState('dev-b', t0 + 500));
+
+    const deckCreated = fA.create(
+      'DeckCreated',
+      {
+        deck_id: 'deck-ooo',
+        name: 'Original Name',
+        note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+        language: 'ko',
+        settings: { new_cards_per_day: 20 },
+      },
+      t0,
+    );
+    const deckRenamed = fB.create(
+      'DeckSettingsChanged',
+      {
+        deck_id: 'deck-ooo',
+        name: 'Renamed Deck',
+        settings: { new_cards_per_day: 45 },
+      },
+      t0 + 1000,
+    );
+    const deckSource = fB.create(
+      'SourceLinked',
+      {
+        target_kind: 'deck',
+        target_id: 'deck-ooo',
+        source: { kind: 'package', package_id: 'pkg:ooo', package_version: '2.0.0' },
+      },
+      t0 + 1200,
+    );
+    const pageUpserted = fA.create(
+      'PageUpserted',
+      {
+        page_id: 'page-ooo',
+        slug: 'particles',
+        title: 'Particles',
+        markdown: '# Particles',
+      },
+      t0,
+    );
+    const pageRead = fB.create('PageRead', { page_id: 'page-ooo', read_at: t0 + 2000 }, t0 + 2000);
+    const pageSource = fB.create(
+      'SourceLinked',
+      {
+        target_kind: 'page',
+        target_id: 'page-ooo',
+        source: { kind: 'google_docs', uri: 'doc-123' },
+      },
+      t0 + 2100,
+    );
+
+    const inOrder = replayAllEvents([
+      deckCreated,
+      deckRenamed,
+      deckSource,
+      pageUpserted,
+      pageRead,
+      pageSource,
+    ]);
+
+    const outOfOrder = createEmptyState();
+    applyEvents(outOfOrder, [deckRenamed, deckSource, pageRead, pageSource]);
+    applyEvents(outOfOrder, [deckCreated, pageUpserted]);
+
+    expect(outOfOrder.decks.get('deck-ooo')).toEqual(inOrder.decks.get('deck-ooo'));
+    expect(outOfOrder.decks.get('deck-ooo')?.name).toBe('Renamed Deck');
+    expect(outOfOrder.decks.get('deck-ooo')?.settings.new_cards_per_day).toBe(45);
+    expect(outOfOrder.decks.get('deck-ooo')?.source?.package_id).toBe('pkg:ooo');
+    expect(outOfOrder.pages.get('page-ooo')).toEqual(inOrder.pages.get('page-ooo'));
+    expect(outOfOrder.pages.get('page-ooo')?.read_at).toBe(t0 + 2000);
+    expect(outOfOrder.pages.get('page-ooo')?.source?.uri).toBe('doc-123');
+  });
+
   it('preserves unknown future event types without crashing (§4.2)', () => {
     const state = createEmptyState();
     applyEvents(state, [
@@ -352,5 +504,61 @@ describe('Study queue, 04:00 rollover, and sibling burying (§5.1)', () => {
     const q = buildStudyQueue(state, { deckId, nowMs: t0 + 1000, tzOffsetMinutes: 0 });
     expect(q.counts.new).toBe(2);
     expect(q.queue).toHaveLength(2);
+  });
+
+  it('reports nextLearningDueAt for intraday learning cards and surfaces them once due', () => {
+    const t0 = Date.UTC(2026, 4, 1, 10, 0, 0);
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const deckId = 'deck-learn-wake';
+    const noteId = deriveNoteId(deckId, 'n1');
+    const cardId = deriveCardId(noteId, 'layout:vocab-ko:recognition', 0);
+
+    const state = replayAllEvents([
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: deckId,
+          name: 'Learning Wake',
+          note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+          language: 'ko',
+        },
+        t0,
+      ),
+      factory.create(
+        'NoteUpserted',
+        {
+          note_id: noteId,
+          deck_id: deckId,
+          source_key: 'n1',
+          fields: { word: '공부', meaning: 'study' },
+        },
+        t0,
+      ),
+      factory.create(
+        'ReviewRecorded',
+        {
+          review_id: 'r-again',
+          card_id: cardId,
+          rating: 1, // Again -> short-term learning step (~1m later)
+          reviewed_at: t0 + 1000,
+          tz_offset: 0,
+          duration_ms: 500,
+          answer_mode: 'flip',
+          fsrs_params_version: 0,
+          resulting_due_at: t0 + 61_000,
+        },
+        t0 + 1000,
+      ),
+    ]);
+
+    const qImmediately = buildStudyQueue(state, { deckId, nowMs: t0 + 2000, tzOffsetMinutes: 0 });
+    expect(qImmediately.queue).toHaveLength(0);
+    expect(qImmediately.nextLearningDueAt).toBeDefined();
+    expect(qImmediately.nextLearningDueAt).toBeGreaterThan(t0 + 2000);
+
+    const dueTime = qImmediately.nextLearningDueAt ?? t0 + 120_000;
+    const qWhenDue = buildStudyQueue(state, { deckId, nowMs: dueTime, tzOffsetMinutes: 0 });
+    expect(qWhenDue.counts.learning).toBe(1);
+    expect(qWhenDue.queue[0]?.id).toBe(cardId);
   });
 });

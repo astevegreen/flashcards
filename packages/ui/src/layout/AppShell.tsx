@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 
 export type NavTab = 'study' | 'library' | 'browse' | 'settings';
@@ -19,6 +19,15 @@ const NAV_ITEMS: readonly { id: NavTab; label: string; icon: string }[] = [
 export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
   const { platform, showBackupBanner, dismissBackupBanner } = useApp();
   const [railCollapsed, setRailCollapsed] = useState(false);
+  const mainRef = useRef<HTMLElement | null>(null);
+  const prevTabRef = useRef<NavTab>(activeTab);
+
+  useEffect(() => {
+    if (prevTabRef.current !== activeTab) {
+      prevTabRef.current = activeTab;
+      mainRef.current?.focus({ preventScroll: true });
+    }
+  }, [activeTab]);
 
   return (
     <div className="flex min-h-dvh w-full bg-[var(--bg)] text-[var(--fg)]">
@@ -106,7 +115,11 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
           </div>
         )}
 
-        <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-3 pb-20 pt-3 sm:px-6 md:pb-6 md:pt-5">
+        <main
+          ref={mainRef}
+          tabIndex={-1}
+          className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-3 pb-20 pt-3 focus:outline-none sm:px-6 md:pb-6 md:pt-5"
+        >
           {children}
         </main>
       </div>

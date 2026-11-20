@@ -98,4 +98,15 @@ describe('Pinyin parser (§6.2)', () => {
     ]);
     expect(parsePinyin('')).toEqual([]);
   });
+
+  it('does not corrupt non-pinyin v words or strip digits from consonant-only tokens, and handles u: forms', () => {
+    expect(formatPinyin('nǐ hǎo (vs. nín hǎo)')).toBe('nǐ hǎo (vs. nín hǎo)');
+    expect(formatPinyin('very good')).toBe('very good');
+    expect(formatPinyin('hsk3')).toBe('hsk3');
+    expect(parsePinyin('hsk3')).toEqual([{ text: 'hsk3', tone: 0 }]);
+    expect(parsePinyin('hsk5')).toEqual([{ text: 'hsk5', tone: 0 }]);
+    expect(formatPinyin('u:3')).toBe('ǚ');
+    expect(formatPinyin('lu:e')).toBe('lüe');
+    expect(formatPinyin('v3')).toBe('ǚ');
+  });
 });
