@@ -497,9 +497,9 @@ If development ever stops:
 - [ ] Google OAuth redirect + stateless Cloudflare Worker (`drive.appdata` + `drive.file`) inside an iOS standalone PWA and Android/desktop PWAs; confirm `appDataFolder` visibility across Web/Android/iOS OAuth clients in the same GCP project.
 - [ ] `drive.file`: Google Picker multi-select of Sheets; Sheets API read + `batchUpdate`; Google Docs export as `text/markdown`.
 - [ ] File System Access API (`showDirectoryPicker`) permission persistence in installed Chrome/Edge PWAs on Windows, reading Google Drive for Desktop folders.
-- [ ] `ts-fsrs` v5 API (fields, learning steps, deterministic replay) and WASM optimizer package check.
-- [ ] Hanzi Writer quiz with KanjiVG Japanese stroke data + Arphic/CC BY-SA license verification.
-- [ ] CORS check for `.flashpkg` URLs (GitHub raw / Cloudflare Pages) and BYO Google Cloud TTS REST endpoint.
+- [x] `ts-fsrs` v5 API (fields, learning steps, deterministic replay) and WASM optimizer package check. *(Verified in ADR 0001: `ts-fsrs@6.0.0` FSRS-6 21-weight + `fsrs-browser@6.6.0` BSD-3-Clause WASM)*
+- [x] Hanzi Writer quiz with KanjiVG Japanese stroke data + Arphic/CC BY-SA license verification. *(Verified in ADR 0001 + `spikes/phase0/drawing.html`)*
+- [x] CORS check for `.flashpkg` URLs (GitHub raw / Cloudflare Pages) and BYO Google Cloud TTS REST endpoint. *(Verified in ADR 0001 + `spikes/phase0/_headers`)*
 
 ### Phase 1 — Core & Offline Single-Device App (Lean MVP)
 - Monorepo setup (`pnpm` workspaces), `AGENTS.md`, CI, sample decks (`ja`, `zh-Hans`, `ko`, `en`).

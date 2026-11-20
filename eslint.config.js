@@ -111,12 +111,28 @@ export default tseslint.config(
       'react-hooks/exhaustive-deps': 'warn',
     },
   },
-  // Node scripts and config files
+  // Node scripts, Cloudflare Worker, and config files
   {
-    files: ['scripts/**/*.{js,mjs}', '*.config.{js,ts}', 'tests/**/*.ts'],
+    files: [
+      'scripts/**/*.{js,mjs}',
+      'spikes/phase0/scripts/**/*.{js,mjs}',
+      '*.config.{js,ts}',
+      'tests/**/*.ts',
+      'apps/token-helper/**/*.ts',
+    ],
     languageOptions: {
       globals: {
         ...globals.node,
+      },
+    },
+  },
+  // Throwaway browser spike harness
+  {
+    files: ['spikes/phase0/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.serviceworker,
       },
     },
   },

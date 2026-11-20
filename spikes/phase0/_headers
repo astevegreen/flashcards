@@ -1,0 +1,8 @@
+# Allow cross-origin subscription to .flashpkg and Family Library index.json on Cloudflare Pages (§3.4, Spike 0.7)
+/*.flashpkg
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=300
+
+/*.json
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=300

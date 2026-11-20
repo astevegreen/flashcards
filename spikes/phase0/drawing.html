@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Spike 0.6 — Hanzi Writer + KanjiVG Quiz</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: calc(16px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+        max-width: 720px;
+        margin-inline: auto;
+        background: #0b1120;
+        color: #f1f5f9;
+      }
+      a {
+        color: #60a5fa;
+      }
+      .card {
+        border: 1px solid #263248;
+        background: #111827;
+        border-radius: 16px;
+        padding: 16px;
+        margin-top: 16px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      button,
+      select {
+        padding: 8px 12px;
+        border-radius: 10px;
+        border: 1px solid #334155;
+        background: #1e293b;
+        color: #f8fafc;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #2563eb;
+        border-color: #2563eb;
+      }
+      #writer-target {
+        width: 260px;
+        height: 260px;
+        margin: 16px auto;
+        border: 2px dashed #334155;
+        border-radius: 12px;
+        background: #0f172a;
+        touch-action: none;
+      }
+      pre {
+        white-space: pre-wrap;
+        font-size: 12px;
+        background: #020617;
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid #1e293b;
+      }
+    </style>
+  </head>
+  <body>
+    <p><a href="./">← Back to Phase 0 Dashboard</a></p>
+    <h1>Spike 0.6 — Hanzi Writer + KanjiVG (Japanese)</h1>
+    <p>
+      Tests <code>hanzi-writer@3.7.3</code> (MIT) in graded quiz mode using converted Japanese
+      <strong>KanjiVG</strong> (CC BY-SA 3.0) stroke JSON vs. Simplified Chinese
+      <strong>Make Me a Hanzi</strong> (Arphic Public License).
+    </p>
+
+    <div class="card">
+      <div class="row">
+        <label>
+          Character:
+          <select id="char-select">
+            <option value="ja:098df:食">食 (Japanese — KanjiVG local JSON, 9 strokes)</option>
+            <option value="ja:08a9e:語">語 (Japanese — KanjiVG local JSON, 14 strokes)</option>
+            <option value="zh:食:食">食 (zh-Hans — Make Me a Hanzi CDN)</option>
+          </select>
+        </label>
+        <button id="btn-animate" type="button">Animate</button>
+        <button id="btn-quiz" type="button" class="primary">Start Quiz</button>
+      </div>
+
+      <div id="writer-target"></div>
+      <div id="quiz-status" style="text-align: center; font-weight: 600">
+        Loading Hanzi Writer...
+      </div>
+      <pre id="draw-log"></pre>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.7.3/dist/hanzi-writer.min.js"></script>
+    <script>
+      const target = document.getElementById('writer-target');
+      const select = document.getElementById('char-select');
+      const statusEl = document.getElementById('quiz-status');
+      const logEl = document.getElementById('draw-log');
+      let writer = null;
+
+      function log(msg) {
+        logEl.textContent = `[${new Date().toLocaleTimeString()}] ${msg}\n` + logEl.textContent;
+      }
+
+      function mapMistakesToFsrs(totalMistakes) {
+        if (totalMistakes === 0) return 'Easy (4)';
+        if (totalMistakes <= 2) return 'Good (3)';
+        return 'Again (1)';
+      }
+
+      function loadCharacter() {
+        if (typeof window.HanziWriter === 'undefined') {
+          statusEl.textContent = 'Offline or CDN blocked: HanziWriter script did not load.';
+          return;
+        }
+        target.innerHTML = '';
+        const [source, key, ch] = select.value.split(':');
+        const options = {
+          width: 260,
+          height: 260,
+          padding: 12,
+          showOutline: true,
+          strokeColor: '#e2e8f0',
+          outlineColor: '#334155',
+          drawingColor: '#60a5fa',
+          highlightColor: '#34d399',
+        };
+        if (source === 'ja') {
+          options.charDataLoader = async (_char, onComplete, onError) => {
+            try {
+              const res = await fetch(`./kanjivg-${key}.json`);
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const data = await res.json();
+              log(`Loaded KanjiVG JSON for ${ch} (${data.strokes.length} strokes)`);
+              onComplete(data);
+            } catch (err) {
+              log(`Failed to load KanjiVG JSON: ${err}`);
+              onError(err);
+            }
+          };
+        }
+        writer = window.HanziWriter.create(target, ch, options);
+        statusEl.textContent = `Ready: ${ch} (${source === 'ja' ? 'KanjiVG JA' : 'Make Me a Hanzi ZH'})`;
+      }
+
+      document.getElementById('btn-animate').addEventListener('click', () => {
+        if (!writer) return;
+        writer.animateCharacter();
+      });
+
+      document.getElementById('btn-quiz').addEventListener('click', () => {
+        if (!writer) return;
+        statusEl.textContent = 'Quiz active — draw stroke 1...';
+        writer.quiz({
+          onMistake(strokeData) {
+            statusEl.textContent = `Mistake on stroke ${strokeData.strokeNum + 1} (total: ${strokeData.totalMistakes})`;
+            log(
+              `Mistake stroke=${strokeData.strokeNum + 1} totalMistakes=${strokeData.totalMistakes}`,
+            );
+          },
+          onCorrectStroke(strokeData) {
+            statusEl.textContent = `Stroke ${strokeData.strokeNum + 1} OK (${strokeData.strokesRemaining} left)`;
+          },
+          onComplete(summary) {
+            const suggested = mapMistakesToFsrs(summary.totalMistakes);
+            statusEl.textContent = `Complete! Mistakes: ${summary.totalMistakes} → Suggested FSRS: ${suggested}`;
+            log(`Quiz complete: mistakes=${summary.totalMistakes}, suggested=${suggested}`);
+          },
+        });
+      });
+
+      select.addEventListener('change', loadCharacter);
+      loadCharacter();
+    </script>
+  </body>
+</html>
