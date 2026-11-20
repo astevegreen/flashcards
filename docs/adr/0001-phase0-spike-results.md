@@ -61,10 +61,10 @@
 
 ---
 
-## Track B Execution Log (Remaining Device & OAuth Checks)
+## Track B Execution Log (Live Verification)
 
-- [ ] **0.1 iOS Home-Screen PWA:** Standalone offline launch, `navigator.storage.persist()`, shared `<audio>` unlock, `navigator.audioSession.type = 'playback'` with hardware silent switch ON.
-- [ ] **0.2 Google OAuth + Worker (`apps/token-helper`) + `drive.appdata`:** Full-page PKCE redirect inside iOS standalone PWA + desktop PWA, silent `/auth/refresh`, `appDataFolder` CRUD.
-- [ ] **0.3 `drive.file` Picker + Sheets + Docs:** Multi-select Picker, `=IMAGE()` `FORMULA` read, race-guarded `Card ID` `batchUpdate`, Google Docs `text/markdown` export.
-- [ ] **0.4 Windows PWA File System Access (`G:\My Drive`):** `showDirectoryPicker` handle stored in IndexedDB, permission persistence across installed Chrome/Edge PWA restarts.
+- [x] **0.2 Google OAuth + Worker (`apps/token-helper`) + `drive.appdata`:** Verified live on `https://flashcards-phase0-spike.yodc.workers.dev` ↔ `https://flashcards-token-helper.yodc.workers.dev` (`/health`, PKCE redirect `/auth/exchange`, IndexedDB `refresh_token`, silent `/auth/refresh`, and `spaces=appDataFolder` CRUD).
 - [x] **0.7b Live BYO Google Cloud TTS:** Verified live `ko-KR` MP3 synthesis (`HTTP 200`, CORS echoed, 12,544 base64 chars) against `flashcards-pwa-2026`.
+- [ ] **0.1 iOS Home-Screen PWA (physical iPhone check):** Confirm standalone offline launch, `navigator.storage.persist()`, shared `<audio>` unlock, `navigator.audioSession.type = 'playback'` with silent switch ON, and standalone OAuth redirect return on a real iOS device if not yet tested.
+- [ ] **0.3 `drive.file` Picker + Sheets + Docs:** Confirm multi-select Picker, `=IMAGE()` `FORMULA` read, race-guarded `Card ID` `batchUpdate`, and Docs `text/markdown` export before Phase 3.
+- [ ] **0.4 Windows PWA File System Access (`G:\My Drive`):** Confirm `showDirectoryPicker` handle persistence across installed Chrome/Edge PWA restarts before Phase 3.

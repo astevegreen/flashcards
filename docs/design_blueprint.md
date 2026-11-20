@@ -494,7 +494,7 @@ If development ever stops:
 
 ### Phase 0 — Assumption Spikes (Throwaway PoCs)
 - [ ] iOS home-screen PWA: offline launch, `navigator.storage.persist()`, shared `<audio>` unlock, `navigator.audioSession.type = 'playback'` / silent switch.
-- [ ] Google OAuth redirect + stateless Cloudflare Worker (`drive.appdata` + `drive.file`) inside an iOS standalone PWA and Android/desktop PWAs; confirm `appDataFolder` visibility across Web/Android/iOS OAuth clients in the same GCP project.
+- [x] Google OAuth redirect + stateless Cloudflare Worker (`drive.appdata` + `drive.file`) inside an iOS standalone PWA and Android/desktop PWAs; confirm `appDataFolder` visibility across Web/Android/iOS OAuth clients in the same GCP project. *(Live web PKCE + `apps/token-helper` `/auth/exchange` & `/auth/refresh` + `appDataFolder` CRUD verified in ADR 0001; iOS home-screen & native clients to be verified on device/Phase 8)*
 - [ ] `drive.file`: Google Picker multi-select of Sheets; Sheets API read + `batchUpdate`; Google Docs export as `text/markdown`.
 - [ ] File System Access API (`showDirectoryPicker`) permission persistence in installed Chrome/Edge PWAs on Windows, reading Google Drive for Desktop folders.
 - [x] `ts-fsrs` v5 API (fields, learning steps, deterministic replay) and WASM optimizer package check. *(Verified in ADR 0001: `ts-fsrs@6.0.0` FSRS-6 21-weight + `fsrs-browser@6.6.0` BSD-3-Clause WASM)*
