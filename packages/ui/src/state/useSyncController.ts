@@ -52,6 +52,7 @@ export interface SyncUiState {
 export interface SyncController {
   syncState: SyncUiState;
   syncNow: (opts?: { silent?: boolean }) => Promise<void>;
+  flushPendingSync: () => void;
   connectGoogleDrive: () => Promise<void>;
   connectLocalFolder: () => Promise<boolean>;
   reconnectLocalFolder: () => Promise<boolean>;
@@ -77,6 +78,41 @@ export interface UseSyncControllerOptions {
 const REVIEWS_PER_AUTO_SYNC = 20;
 const AUTO_SYNC_INTERVAL_MS = 120_000;
 const LOCAL_SNAPSHOT_EVENT_THRESHOLD = 200;
+export const IDLE_PUSH_DEBOUNCE_MS = 8_000;
+export const FOREGROUND_PULL_COOLDOWN_MS = 15_000;
+
+export function isNetworkSyncProvider(provider: SyncProviderKind): boolean {
+  return provider === 'google_drive' || provider === 'dev_channel';
+}
+
+export function shouldFlushPendingSync(params: {
+  provider: SyncProviderKind;
+  pendingCount: number;
+  isOnline: boolean;
+}): boolean {
+  if (params.provider === 'none') return false;
+  if (params.pendingCount <= 0) return false;
+  if (isNetworkSyncProvider(params.provider) && !params.isOnline) return false;
+  return true;
+}
+
+export function shouldTriggerForegroundPull(params: {
+  provider: SyncProviderKind;
+  visibilityState: DocumentVisibilityState;
+  isOnline: boolean;
+  nowMs: number;
+  lastSyncAtMs: number;
+  cooldownMs?: number;
+  inFlight: boolean;
+}): boolean {
+  if (params.provider === 'none') return false;
+  if (params.visibilityState !== 'visible') return false;
+  if (params.inFlight) return false;
+  if (isNetworkSyncProvider(params.provider) && !params.isOnline) return false;
+  const cooldown = params.cooldownMs ?? FOREGROUND_PULL_COOLDOWN_MS;
+  if (params.nowMs - params.lastSyncAtMs < cooldown) return false;
+  return true;
+}
 
 function isNavigatorOnline(): boolean {
   return typeof navigator === 'undefined' ? true : navigator.onLine;
@@ -188,6 +224,15 @@ export function useSyncController({
   const lastLocalSnapshotCountRef = useRef<number>(getTotalAppliedEventCount(stateRef.current));
   const inFlightRef = useRef<boolean>(false);
   const queuedRef = useRef<boolean>(false);
+  const idlePushTimerRef = useRef<number | null>(null);
+  const lastSyncCompletedAtRef = useRef<number>(initialSyncCursor?.lastSyncedAt ?? 0);
+
+  const clearIdlePushTimer = useCallback(() => {
+    if (idlePushTimerRef.current !== null) {
+      window.clearTimeout(idlePushTimerRef.current);
+      idlePushTimerRef.current = null;
+    }
+  }, []);
 
   const [syncState, setSyncState] = useState<SyncUiState>(() => {
     const online = isNavigatorOnline();
@@ -219,15 +264,16 @@ export function useSyncController({
     };
   });
 
-  // Clean up Web Worker on unmount
+  // Clean up Web Worker and timers on unmount
   useEffect(() => {
     return () => {
+      clearIdlePushTimer();
       workerRef.current?.terminate();
       workerRef.current = null;
       workerHydratedRef.current = false;
       workerTrackingLocalRef.current = false;
     };
-  }, []);
+  }, [clearIdlePushTimer]);
 
   const ensureReplayWorker = useCallback(async (): Promise<ReplayWorkerClient | null> => {
     if (workerRef.current) return workerRef.current;
@@ -322,6 +368,7 @@ export function useSyncController({
   );
 
   const executeSync = useCallback(async (): Promise<void> => {
+    clearIdlePushTimer();
     const provider = configRef.current.provider;
     if (provider === 'none') return;
 
@@ -413,6 +460,7 @@ export function useSyncController({
 
       cursorRef.current = result.cursor;
       reviewsSinceSyncRef.current = 0;
+      lastSyncCompletedAtRef.current = result.cursor.lastSyncedAt ?? Date.now();
 
       if (result.status === 'collection_mismatch') {
         setSyncState((prev) => ({
@@ -595,6 +643,7 @@ export function useSyncController({
     }
   }, [
     applyRemoteEventsOffMainThread,
+    clearIdlePushTimer,
     enqueuePersist,
     factoryRef,
     metaRef,
@@ -608,6 +657,21 @@ export function useSyncController({
   const syncNow = useCallback(async (): Promise<void> => {
     await executeSync();
   }, [executeSync]);
+
+  const flushPendingSync = useCallback(() => {
+    clearIdlePushTimer();
+    const provider = configRef.current.provider;
+    const pendingCount = Math.max(0, metaRef.current.seq - (cursorRef.current?.lastPushedSeq ?? 0));
+    if (
+      shouldFlushPendingSync({
+        provider,
+        pendingCount,
+        isOnline: isNavigatorOnline(),
+      })
+    ) {
+      void executeSync();
+    }
+  }, [clearIdlePushTimer, executeSync, metaRef]);
 
   // Trigger 1: App open (after first paint) for connected cloud / local-folder providers
   useEffect(() => {
@@ -647,28 +711,41 @@ export function useSyncController({
     };
   }, [executeSync]);
 
-  // Trigger 3: Backgrounding (`visibilitychange` -> hidden, `pagehide`) push when pending events exist
+  // Trigger 3: Backgrounding (`visibilitychange` -> hidden, `pagehide`) pushes pending events;
+  // returning to foreground (`visibilitychange` -> visible, `window.focus`) triggers a throttled pull
+  // so already-open desktop/mobile tabs converge immediately when switching devices.
   useEffect(() => {
-    const pushIfPending = () => {
-      const provider = configRef.current.provider;
-      if (provider === 'none') return;
-      const pending = Math.max(0, metaRef.current.seq - (cursorRef.current?.lastPushedSeq ?? 0));
-      if (pending > 0) {
+    const pullIfForegroundReady = () => {
+      if (
+        shouldTriggerForegroundPull({
+          provider: configRef.current.provider,
+          visibilityState: document.visibilityState,
+          isOnline: isNavigatorOnline(),
+          nowMs: Date.now(),
+          lastSyncAtMs: lastSyncCompletedAtRef.current,
+          cooldownMs: FOREGROUND_PULL_COOLDOWN_MS,
+          inFlight: inFlightRef.current,
+        })
+      ) {
         void executeSync();
       }
     };
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
-        pushIfPending();
+        flushPendingSync();
+      } else if (document.visibilityState === 'visible') {
+        pullIfForegroundReady();
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('pagehide', pushIfPending);
+    window.addEventListener('pagehide', flushPendingSync);
+    window.addEventListener('focus', pullIfForegroundReady);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('pagehide', pushIfPending);
+      window.removeEventListener('pagehide', flushPendingSync);
+      window.removeEventListener('focus', pullIfForegroundReady);
     };
-  }, [executeSync, metaRef]);
+  }, [executeSync, flushPendingSync]);
 
   // Trigger 4b: Every 2 minutes while active
   useEffect(() => {
@@ -692,7 +769,8 @@ export function useSyncController({
     });
   }, [executeSync, metaRef, platform]);
 
-  // Trigger 4a: Track local mutations & every 20 reviews auto-sync
+  // Trigger 4a: Track local mutations, auto-sync every 20 reviews, and schedule an idle-debounce push
+  // (~8s after the last mutation) so short mobile sessions upload before the user locks the screen.
   const notifyLocalEvents = useCallback(
     (events: readonly FlashEvent[], reviewCount = 0) => {
       if ((workerHydratedRef.current || workerTrackingLocalRef.current) && events.length > 0) {
@@ -707,15 +785,34 @@ export function useSyncController({
         prev.pendingCount === pendingCount ? prev : { ...prev, pendingCount },
       );
 
-      if (reviewCount > 0 && configRef.current.provider !== 'none') {
+      const provider = configRef.current.provider;
+      if (provider === 'none' || events.length === 0) return;
+
+      if (reviewCount > 0) {
         reviewsSinceSyncRef.current += reviewCount;
         if (reviewsSinceSyncRef.current >= REVIEWS_PER_AUTO_SYNC) {
           reviewsSinceSyncRef.current = 0;
+          clearIdlePushTimer();
           void executeSync();
+          return;
         }
       }
+
+      if (
+        shouldFlushPendingSync({
+          provider,
+          pendingCount,
+          isOnline: isNavigatorOnline(),
+        })
+      ) {
+        clearIdlePushTimer();
+        idlePushTimerRef.current = window.setTimeout(() => {
+          idlePushTimerRef.current = null;
+          flushPendingSync();
+        }, IDLE_PUSH_DEBOUNCE_MS);
+      }
     },
-    [executeSync, metaRef],
+    [clearIdlePushTimer, executeSync, flushPendingSync, metaRef],
   );
 
   const getCurrentWatermarks = useCallback((): Record<string, number> => {
@@ -786,6 +883,8 @@ export function useSyncController({
   }, [executeSync, platform]);
 
   const disconnectSync = useCallback(async (): Promise<void> => {
+    clearIdlePushTimer();
+    lastSyncCompletedAtRef.current = 0;
     const prevProvider = configRef.current.provider;
     if (prevProvider === 'google_drive') {
       const auth = await platform.getGoogleAuth();
@@ -817,9 +916,11 @@ export function useSyncController({
       lastPulledCount: 0,
       lastPushedCount: 0,
     });
-  }, [clearCollectionBinding, enqueuePersist, platform]);
+  }, [clearCollectionBinding, clearIdlePushTimer, enqueuePersist, platform]);
 
   const resetSyncState = useCallback(() => {
+    clearIdlePushTimer();
+    lastSyncCompletedAtRef.current = 0;
     workerRef.current?.terminate();
     workerRef.current = null;
     workerHydratedRef.current = false;
@@ -841,11 +942,12 @@ export function useSyncController({
       lastPulledCount: 0,
       lastPushedCount: 0,
     });
-  }, [platform.hasDeviceSlug]);
+  }, [clearIdlePushTimer, platform.hasDeviceSlug]);
 
   return {
     syncState,
     syncNow,
+    flushPendingSync,
     connectGoogleDrive,
     connectLocalFolder,
     reconnectLocalFolder,

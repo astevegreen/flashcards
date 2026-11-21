@@ -18,14 +18,21 @@ const SettingsScreen = lazy(() =>
 
 function ScreenRouter() {
   const [activeTab, setActiveTab] = useState<NavTab>('study');
-  const { setActiveDeckId } = useApp();
+  const { setActiveDeckId, flushPendingSync } = useApp();
+
+  const handleSelectTab = (nextTab: NavTab) => {
+    if (activeTab === 'study' && nextTab !== 'study') {
+      flushPendingSync();
+    }
+    setActiveTab(nextTab);
+  };
 
   return (
-    <AppShell activeTab={activeTab} onSelectTab={setActiveTab}>
+    <AppShell activeTab={activeTab} onSelectTab={handleSelectTab}>
       {activeTab === 'study' && (
         <StudyScreen
-          onOpenLibrary={() => setActiveTab('library')}
-          onOpenSettings={() => setActiveTab('settings')}
+          onOpenLibrary={() => handleSelectTab('library')}
+          onOpenSettings={() => handleSelectTab('settings')}
         />
       )}
       {activeTab !== 'study' && (
@@ -36,7 +43,7 @@ function ScreenRouter() {
             <LibraryScreen
               onStudyDeck={(deckId) => {
                 setActiveDeckId(deckId);
-                setActiveTab('study');
+                handleSelectTab('study');
               }}
             />
           )}

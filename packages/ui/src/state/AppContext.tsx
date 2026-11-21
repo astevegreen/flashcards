@@ -68,6 +68,7 @@ export interface AppContextValue {
   audio: AudioController;
   syncState: SyncUiState;
   syncNow: () => Promise<void>;
+  flushPendingSync: () => void;
   connectGoogleDrive: () => Promise<void>;
   connectLocalFolder: () => Promise<boolean>;
   reconnectLocalFolder: () => Promise<boolean>;
@@ -755,6 +756,7 @@ export function AppProvider({
     audio,
     syncState: syncController.syncState,
     syncNow: syncController.syncNow,
+    flushPendingSync: syncController.flushPendingSync,
     connectGoogleDrive: syncController.connectGoogleDrive,
     connectLocalFolder: syncController.connectLocalFolder,
     reconnectLocalFolder: syncController.reconnectLocalFolder,

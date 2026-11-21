@@ -146,10 +146,11 @@ media/<sha256>.<ext>
 
 - Validated against a JSON Schema in `packages/content-schema` with machine-readable errors.
 - **Upgrades preserve reviews:** Re-importing a newer version of the same `package_id` updates content while matching notes by their package note ID.
-- **Sharing & Family Library:**
+- **Sharing, Built-In Starter Decks & Family Library:**
   - Send `.flashpkg` directly (AirDrop, email, chat, Drive link).
-  - **Subscribe to a package URL** (e.g., GitHub raw / Cloudflare Pages).
-  - **Optional Family Library catalog:** A static `index.json` manifest listing `.flashpkg` URLs, titles, and descriptions that family members can browse and subscribe to in one tap.
+  - **Subscribe to a package URL** (e.g., Cloudflare Pages / GitHub Pages with CORS).
+  - **Built-in Starter Decks & Family Library catalogs:** Static `index.json` manifests listing vetted `.flashpkg` URLs, titles, and descriptions that users can browse and install in one tap without connecting Google Drive or Dropbox. Configure an optional default starter catalog via `VITE_STARTER_CATALOG_URL` alongside user-added Family Library catalogs.
+  - **Free static-pack hosting pattern (shared with §6.3):** Keep deck/dictionary sources in a public GitHub repo and publish built static artifacts (`index.json`, `.flashpkg`, `packs.json`, dictionary/stroke packs) via GitHub Actions to **Cloudflare Pages** (free, unlimited bandwidth, custom CORS `_headers`, ≤ 25 MB/file) or **GitHub Pages** (and **Cloudflare R2** free tier if packs exceed 25 MB). Avoid relying on `raw.githubusercontent.com` as a public CDN (rate limits / Git binary bloat) or GitHub Releases download URLs directly from browsers (redirect to `objects.githubusercontent.com` lacks CORS).
   - Share a Google Sheet (§3.1).
 - **Export:** Any deck, page, course, or full collection can be exported as `.flashpkg`.
 
@@ -203,7 +204,7 @@ media/<aa>/<sha256>.<ext>
 - **Push:** Write new segment, then update `head.json`. **Pull:** Read each device's `head.json`, then download unseen segments.
 - **Snapshots:** Periodically compact state into a snapshot recording each device's watermark so new devices bootstrap quickly.
 - **Size:** ~100 bytes/review (~2 MB gzipped per 100k reviews). Reviews are never deleted.
-- **Triggers:** On app open, network reconnect, backgrounding (push), every 20 reviews or 2 minutes while studying, and pull-to-refresh. Study UI never blocks on sync.
+- **Triggers:** On app open, network reconnect, foreground/focus return (`visibilitychange -> visible` / `window.focus`, throttled with a 15 s cooldown), idle debounce after local mutations (~8 s), study-session exit, backgrounding (`visibilitychange -> hidden` / `pagehide` push), every 20 reviews or 2 minutes while studying, and manual Sync Now. Study UI never blocks on sync.
 - **Forward/backward compatibility:** `manifest.json` carries `format_version` and `min_app_version`. Older app builds read what they understand, refuse to write to a newer format (prompting to update), and preserve unknown event types/fields untouched.
 
 ### 4.3 Transports & Auth
@@ -322,6 +323,8 @@ Downloadable on web (cached locally once) and bundled in native builds:
 | Chinese words | CC-CEDICT | CC BY-SA |
 
 Attribution shown in About screen (share-alike applies to dictionary data, not app code).
+
+- **Unified Static Pack Catalog:** Both offline dictionary packs and stroke-data packs (`KanjiVG`, `Make Me a Hanzi`) are discovered via a single configurable `VITE_PACK_CATALOG_URL` (`packs.json` manifest hosted via the same free GitHub → GitHub Actions → Cloudflare Pages / GitHub Pages / R2 pipeline in §3.4), cached locally in IndexedDB/Cache API with version checks and license metadata, and backed by tiny bundled dev/test fixtures so offline dev & CI never require network access.
 
 ### 6.4 Drawing (Phase 6)
 Per-language mode: `graded` | `lookup` | `off`.
@@ -530,10 +533,10 @@ If development ever stops:
 - Resolution chain (attached → cached media → BYO `TtsProvider` key → local `speechSynthesis`), iOS 2–3 card RAM preloader, `0.75×` pitch-preserved slow playback, media sync.
 
 ### Phase 6 — Drawing & Offline Dictionaries
-- Graded drawing (`ja`/`zh-Hans`), draw-to-lookup (Hanja first), downloadable offline dictionary packs (Unihan, KANJIDIC2, JMdict, CC-CEDICT).
+- Graded drawing (`ja`/`zh-Hans`), draw-to-lookup (Hanja first), downloadable offline dictionary & stroke packs (`Unihan`, `KANJIDIC2`, `JMdict`, `CC-CEDICT`, `KanjiVG`, `Make Me a Hanzi`) via a unified static pack catalog (`VITE_PACK_CATALOG_URL` → `packs.json`, with offline dev/test fixtures), plus optional built-in Starter Decks catalog wiring (`VITE_STARTER_CATALOG_URL` → existing `FamilyCatalog` `index.json`).
 
 ### Phase 7 — AI Tooling Extras (R5)
-- `tools/cli` (`validate`, `build`, `audio`, `inbox`) and optional local MCP server for Claude Code / Antigravity.
+- `tools/cli` (`validate`, `build`, `audio`, `inbox`), GitHub Actions publishing workflow for the free static content repo (building `.flashpkg`, dictionary/stroke packs, `index.json`, and `packs.json` to Cloudflare Pages / GitHub Pages), and optional local MCP server for Claude Code / Antigravity.
 
 ### Phase 8 — Native Shells & Stores (R6)
 - Capacitor (Android/iOS) and Tauri (PC) shells, SQLite adapter, native Google Sign-In (no Worker), static Picker deep-link page, ML Kit Digital Ink, StoreKit 2 / Play Billing + Ed25519 desktop license keys, optional Dropbox/iCloud transports, store listings with sunset promise.
