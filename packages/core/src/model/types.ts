@@ -1,6 +1,6 @@
-import type { AnswerMode, FieldKind, ProvenanceDef } from '@flash/content-schema';
+import type { AnswerMode, FieldKind, ProvenanceDef, SpeakTiming } from '@flash/content-schema';
 
-export type { AnswerMode, FieldKind };
+export type { AnswerMode, FieldKind, SpeakTiming };
 export type Provenance = ProvenanceDef;
 
 export interface NoteTypeField {
@@ -26,8 +26,13 @@ export interface Layout {
   reveal_steps: string[][];
   answer_mode: AnswerMode;
   speak_field?: string;
+  speak_on?: SpeakTiming;
   hide_furigana_on_front: boolean;
   enabled: boolean;
+  /** For `cloze` layouts: enable composable typed-blank input by default (§5.2). */
+  cloze_typed?: boolean;
+  /** Explicit field key evaluated in `typed` / `choice` modes (defaults to `reveal_steps[0][0]`). */
+  answer_field?: string;
 }
 
 export type NewCardOrder = 'source' | 'random';
@@ -64,6 +69,10 @@ export type SourceKind =
 export interface SourceRef {
   kind: SourceKind;
   uri?: string;
+  external_id?: string;
+  sheet_tab?: string;
+  read_only?: boolean;
+  content_hash?: string;
   package_id?: string;
   package_version?: string;
   last_synced_at?: number;
@@ -161,10 +170,14 @@ export interface Course {
 }
 
 export interface MediaEntry {
-  hash: string; // sha256
+  hash: string; // sha256(bytes)
   ext: string;
   mime: string;
   size: number;
+  /** Optional deterministic TTS cache key: sha256(normalized_text + '\0' + canonical_voice_id) (§7.1). */
+  tts_key?: string;
+  /** Optional language-level TTS fallback key: sha256(normalized_text + '\0' + normalized_lang) for key-less secondary devices. */
+  tts_lang_key?: string;
 }
 
 export type RatingButtonMode = '2' | '3' | '4';
@@ -173,6 +186,14 @@ export interface CollectionPreferences {
   rating_button_mode: RatingButtonMode;
   day_start_hour: number; // default 4 (04:00 local)
   pinyin_tone_colors: boolean;
+  /** Treat Japanese hiragana and katakana as equivalent in typed-answer mode (default true). */
+  ja_kana_equivalent?: boolean;
+  /** Ignore Mandarin tone marks/numbers in typed-answer mode (default false). */
+  zh_ignore_tones?: boolean;
+  /** Automatically play card audio on front/reveal during study (default false; Listen mode always auto-plays). */
+  auto_play_audio?: boolean;
+  /** Optional synced per-language cloud TTS voice overrides (e.g. { ja: 'ja-JP-Neural2-C' }). */
+  tts_voices?: Record<string, string>;
 }
 
 export const DEFAULT_DECK_SETTINGS: DeckSettings = {
@@ -186,4 +207,7 @@ export const DEFAULT_COLLECTION_PREFERENCES: CollectionPreferences = {
   rating_button_mode: '3',
   day_start_hour: 4,
   pinyin_tone_colors: true,
+  ja_kana_equivalent: true,
+  zh_ignore_tones: false,
+  auto_play_audio: false,
 };

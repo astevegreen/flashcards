@@ -1,5 +1,11 @@
-import { getTotalAppliedEventCount, type RatingButtonMode } from '@flash/core';
-import { useState } from 'react';
+import {
+  DEFAULT_AZURE_VOICES,
+  DEFAULT_GOOGLE_VOICES,
+  getTotalAppliedEventCount,
+  type RatingButtonMode,
+} from '@flash/core';
+import type { TtsProviderKind } from '@flash/platform';
+import { useEffect, useMemo, useState } from 'react';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 
 function formatSyncStatusLabel(status: SyncUiStatus): string {
@@ -44,7 +50,9 @@ export function SettingsScreen() {
   const {
     platform,
     state,
+    stateVersion,
     meta,
+    audio,
     syncState,
     syncNow,
     connectGoogleDrive,
@@ -62,6 +70,140 @@ export function SettingsScreen() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
+
+  // Audio & BYO Cloud TTS form state (API key stays strictly device-local)
+  const [ttsProviderDraft, setTtsProviderDraft] = useState<TtsProviderKind>(
+    audio.ttsConfig.provider,
+  );
+  const [ttsApiKeyDraft, setTtsApiKeyDraft] = useState(audio.ttsConfig.apiKey ?? '');
+  const [ttsAzureRegionDraft, setTtsAzureRegionDraft] = useState(audio.ttsConfig.azureRegion ?? '');
+  const [voiceDrafts, setVoiceDrafts] = useState<Record<string, string>>({
+    ja: state.preferences.tts_voices?.['ja'] ?? '',
+    'zh-Hans': state.preferences.tts_voices?.['zh-Hans'] ?? '',
+    ko: state.preferences.tts_voices?.['ko'] ?? '',
+    en: state.preferences.tts_voices?.['en'] ?? '',
+  });
+  const [ttsTestLang, setTtsTestLang] = useState('ko');
+  const [ttsTestBusy, setTtsTestBusy] = useState(false);
+  const [ttsTestMessage, setTtsTestMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [voiceListTick, setVoiceListTick] = useState(0);
+
+  useEffect(() => {
+    setTtsProviderDraft(audio.ttsConfig.provider);
+    setTtsApiKeyDraft(audio.ttsConfig.apiKey ?? '');
+    setTtsAzureRegionDraft(audio.ttsConfig.azureRegion ?? '');
+  }, [audio.ttsConfig]);
+
+  const syncedVoicesKey = JSON.stringify(state.preferences.tts_voices ?? {});
+  useEffect(() => {
+    setVoiceDrafts({
+      ja: state.preferences.tts_voices?.['ja'] ?? '',
+      'zh-Hans': state.preferences.tts_voices?.['zh-Hans'] ?? '',
+      ko: state.preferences.tts_voices?.['ko'] ?? '',
+      en: state.preferences.tts_voices?.['en'] ?? '',
+    });
+    // Only resync drafts when synced `tts_voices` actually changes (not on unrelated state ticks)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncedVoicesKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    const synth = window.speechSynthesis;
+    const bump = () => setVoiceListTick((t) => t + 1);
+    if (typeof synth.addEventListener === 'function') {
+      synth.addEventListener('voiceschanged', bump);
+      return () => synth.removeEventListener('voiceschanged', bump);
+    }
+    return undefined;
+  }, []);
+
+  const audioClipCount = useMemo(() => {
+    let count = 0;
+    for (const entry of state.media.values()) {
+      if (entry.mime.startsWith('audio/')) count += 1;
+    }
+    return count;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, stateVersion]);
+
+  const localVoiceSummary = useMemo(() => {
+    void voiceListTick;
+    const speech = platform.deviceSpeech;
+    if (!speech || !speech.isAvailable()) return null;
+    const langs = ['ja', 'zh-Hans', 'ko', 'en'] as const;
+    return langs.map((lang) => {
+      const localCount = speech.listVoices(lang).filter((v) => v.localService).length;
+      return { lang, localCount };
+    });
+  }, [platform.deviceSpeech, voiceListTick]);
+
+  const handleSaveTtsSettings = async () => {
+    setError(null);
+    try {
+      if (ttsProviderDraft === 'azure' && !/^[a-z0-9-]{2,32}$/i.test(ttsAzureRegionDraft.trim())) {
+        setError('Please enter a valid Azure region (e.g. eastus or koreacentral).');
+        return;
+      }
+      await audio.saveTtsConfig({
+        provider: ttsProviderDraft,
+        ...(ttsApiKeyDraft.trim() ? { apiKey: ttsApiKeyDraft.trim() } : {}),
+        ...(ttsProviderDraft === 'azure' && ttsAzureRegionDraft.trim()
+          ? { azureRegion: ttsAzureRegionDraft.trim().toLowerCase() }
+          : {}),
+      });
+      // Persist synced per-language voice overrides via PreferencesChanged
+      const voicePatch: Record<string, string> = {};
+      for (const lang of ['ja', 'zh-Hans', 'ko', 'en'] as const) {
+        const nextVal = (voiceDrafts[lang] ?? '').trim();
+        const prevVal = (state.preferences.tts_voices?.[lang] ?? '').trim();
+        if (nextVal !== prevVal) {
+          voicePatch[lang] = nextVal;
+        }
+      }
+      if (Object.keys(voicePatch).length > 0) {
+        updatePreferences({ tts_voices: voicePatch });
+      }
+      setStatus('Audio & TTS settings saved.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleClearTtsKey = async () => {
+    setError(null);
+    await audio.clearTtsKey();
+    setTtsProviderDraft('none');
+    setTtsApiKeyDraft('');
+    setTtsAzureRegionDraft('');
+    setTtsTestMessage(null);
+    setStatus('Cleared device-local Cloud TTS API key.');
+  };
+
+  const handleTestVoice = async () => {
+    setTtsTestBusy(true);
+    setTtsTestMessage(null);
+    try {
+      const draftVoice = (voiceDrafts[ttsTestLang] ?? '').trim();
+      const res = await audio.testTtsVoice(ttsTestLang, {
+        config: {
+          provider: ttsProviderDraft,
+          ...(ttsApiKeyDraft.trim() ? { apiKey: ttsApiKeyDraft.trim() } : {}),
+          ...(ttsProviderDraft === 'azure' && ttsAzureRegionDraft.trim()
+            ? { azureRegion: ttsAzureRegionDraft.trim().toLowerCase() }
+            : {}),
+        },
+        ...(draftVoice ? { voiceOverride: draftVoice } : {}),
+      });
+      setTtsTestMessage({ ok: res.ok, text: res.message });
+    } catch (err) {
+      setTtsTestMessage({
+        ok: false,
+        text: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setTtsTestBusy(false);
+    }
+  };
 
   const isSyncConnected = syncState.provider !== 'none';
   const providerLabel =
@@ -140,7 +282,14 @@ export function SettingsScreen() {
   const handleExportBackup = async () => {
     try {
       const { exportFlashpkg } = await import('@flash/core/flashpkg');
-      const bytes = exportFlashpkg(state, { name: 'Flashcards Full Backup' });
+      const mediaBlobs = new Map<string, Uint8Array>();
+      for (const hash of state.media.keys()) {
+        const blob = await platform.storage.getMedia(hash);
+        if (blob) {
+          mediaBlobs.set(hash, blob.bytes);
+        }
+      }
+      const bytes = exportFlashpkg(state, { name: 'Flashcards Full Backup', mediaBlobs });
       const dateStamp = new Date().toISOString().slice(0, 10);
       await platform.files.downloadFile(
         `flashcards-backup-${dateStamp}.flashpkg`,
@@ -161,11 +310,18 @@ export function SettingsScreen() {
       if (!picked) return;
       const { importFlashpkg } = await import('@flash/core/flashpkg');
       const result = importFlashpkg(picked.bytes, state, getEventFactory());
+      for (const media of result.extractedMedia) {
+        await platform.storage.putMedia({
+          hash: media.hash,
+          mime: media.mime,
+          bytes: media.bytes,
+        });
+      }
       if (result.events.length > 0) {
         emitEvents(result.events);
       }
       setStatus(
-        `Restored "${result.manifest.name}" (${result.decksImported} deck(s), ${result.notesImported} note(s)).`,
+        `Restored "${result.manifest.name}" (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.pagesImported} page(s)).`,
       );
       setError(null);
     } catch (err) {
@@ -393,6 +549,252 @@ export function SettingsScreen() {
             className="h-4 w-4"
           />
         </label>
+
+        <label className="flex items-center justify-between gap-4 text-sm">
+          <div>
+            <div className="font-medium">Japanese typed mode: Hiragana = Katakana</div>
+            <div className="text-xs text-[var(--muted)]">
+              Accept hiragana and katakana interchangeably when grading typed Japanese answers.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={state.preferences.ja_kana_equivalent ?? true}
+            onChange={(e) => updatePreferences({ ja_kana_equivalent: e.target.checked })}
+            className="h-4 w-4"
+          />
+        </label>
+
+        <label className="flex items-center justify-between gap-4 text-sm">
+          <div>
+            <div className="font-medium">Mandarin typed mode: Ignore tones</div>
+            <div className="text-xs text-[var(--muted)]">
+              Accept pinyin without tone marks or tone numbers when grading typed Mandarin answers.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={state.preferences.zh_ignore_tones ?? false}
+            onChange={(e) => updatePreferences({ zh_ignore_tones: e.target.checked })}
+            className="h-4 w-4"
+          />
+        </label>
+      </div>
+
+      {/* Audio & TTS (Phase 5, §7) */}
+      <div
+        data-testid="audio-tts-card"
+        className="flex flex-col gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+      >
+        <div>
+          <h2 className="text-sm font-semibold">Audio &amp; TTS</h2>
+          <p className="text-xs text-[var(--muted)]">
+            Resolution order: attached clip → cached/synced TTS → optional BYO cloud TTS → offline
+            device voice.
+          </p>
+        </div>
+
+        <label className="flex items-center justify-between gap-4 text-sm">
+          <div>
+            <div className="font-medium">Auto-play audio during study</div>
+            <div className="text-xs text-[var(--muted)]">
+              Automatically speak cards on front (Recognition) or reveal (Production). Listen mode
+              always auto-plays.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            data-testid="auto-play-audio-toggle"
+            checked={state.preferences.auto_play_audio ?? false}
+            onChange={(e) => updatePreferences({ auto_play_audio: e.target.checked })}
+            className="h-4 w-4"
+          />
+        </label>
+
+        <div className="flex flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-semibold">Cloud TTS Provider (Optional BYO Key)</div>
+              <div className="text-[11px] text-[var(--muted)]">
+                API keys are stored strictly on this device and are <strong>never synced</strong> or
+                exported. Synthesized MP3 clips are cached &amp; synced so other devices play them
+                offline.
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="font-medium text-[var(--muted)]">Provider</span>
+              <select
+                aria-label="Cloud TTS Provider"
+                data-testid="tts-provider-select"
+                value={ttsProviderDraft}
+                onChange={(e) => setTtsProviderDraft(e.target.value as TtsProviderKind)}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm text-[var(--fg)]"
+              >
+                <option value="none">None (Device TTS only)</option>
+                <option value="google">Google Cloud TTS</option>
+                <option value="azure">Azure AI Speech</option>
+              </select>
+            </label>
+
+            {ttsProviderDraft !== 'none' && (
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="font-medium text-[var(--muted)]">
+                  {ttsProviderDraft === 'google'
+                    ? 'Google Cloud API Key (device-local)'
+                    : 'Azure Subscription Key (device-local)'}
+                </span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  data-testid="tts-api-key-input"
+                  value={ttsApiKeyDraft}
+                  onChange={(e) => setTtsApiKeyDraft(e.target.value)}
+                  placeholder={
+                    ttsProviderDraft === 'google' ? 'AIza…' : 'Azure Speech subscription key'
+                  }
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm text-[var(--fg)]"
+                />
+              </label>
+            )}
+
+            {ttsProviderDraft === 'azure' && (
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="font-medium text-[var(--muted)]">Azure Region</span>
+                <input
+                  type="text"
+                  autoComplete="off"
+                  data-testid="tts-azure-region-input"
+                  value={ttsAzureRegionDraft}
+                  onChange={(e) => setTtsAzureRegionDraft(e.target.value)}
+                  placeholder="eastus, koreacentral, japaneast…"
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm text-[var(--fg)]"
+                />
+              </label>
+            )}
+          </div>
+
+          {ttsProviderDraft !== 'none' && (
+            <div className="flex flex-col gap-2 pt-1">
+              <div className="text-[11px] font-medium text-[var(--muted)]">
+                Optional Voice ID overrides (synced across devices; leave blank for neural defaults)
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(
+                  [
+                    { key: 'ja', label: 'Japanese (ja)' },
+                    { key: 'zh-Hans', label: 'Mandarin (zh-Hans)' },
+                    { key: 'ko', label: 'Korean (ko)' },
+                    { key: 'en', label: 'English (en)' },
+                  ] as const
+                ).map(({ key, label }) => {
+                  const placeholder =
+                    ttsProviderDraft === 'google'
+                      ? (DEFAULT_GOOGLE_VOICES[key] ?? '')
+                      : (DEFAULT_AZURE_VOICES[key] ?? '');
+                  return (
+                    <label key={key} className="flex flex-col gap-0.5 text-[11px]">
+                      <span className="text-[var(--muted)]">{label}</span>
+                      <input
+                        type="text"
+                        data-testid={`tts-voice-${key}`}
+                        value={voiceDrafts[key] ?? ''}
+                        onChange={(e) =>
+                          setVoiceDrafts((prev) => ({ ...prev, [key]: e.target.value }))
+                        }
+                        placeholder={placeholder}
+                        className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="button"
+              data-testid="tts-save-btn"
+              onClick={() => void handleSaveTtsSettings()}
+              className="rounded-xl bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+            >
+              Save Audio Settings
+            </button>
+            {(audio.ttsConfig.apiKey || ttsProviderDraft !== 'none') && (
+              <button
+                type="button"
+                data-testid="tts-clear-btn"
+                onClick={() => void handleClearTtsKey()}
+                className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400"
+              >
+                Clear Key
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Live Voice Test */}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            aria-label="Test voice language"
+            data-testid="tts-test-lang-select"
+            value={ttsTestLang}
+            onChange={(e) => setTtsTestLang(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--fg)]"
+          >
+            <option value="ko">Korean (ko)</option>
+            <option value="ja">Japanese (ja)</option>
+            <option value="zh-Hans">Mandarin (zh-Hans)</option>
+            <option value="en">English (en)</option>
+          </select>
+          <button
+            type="button"
+            data-testid="tts-test-btn"
+            disabled={ttsTestBusy}
+            onClick={() => void handleTestVoice()}
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-50"
+          >
+            {ttsTestBusy ? 'Playing…' : '🔊 Test Voice'}
+          </button>
+          {ttsTestMessage && (
+            <span
+              data-testid="tts-test-status"
+              className={`text-xs ${
+                ttsTestMessage.ok
+                  ? 'text-emerald-700 dark:text-emerald-300'
+                  : 'text-rose-600 dark:text-rose-400'
+              }`}
+            >
+              {ttsTestMessage.text}
+            </span>
+          )}
+        </div>
+
+        {/* Diagnostics Strip */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[var(--border)] pt-2 text-[11px] text-[var(--muted)]">
+          <span>
+            Cached / attached audio clips:{' '}
+            <strong data-testid="audio-clip-count" className="text-[var(--fg)]">
+              {audioClipCount}
+            </strong>
+          </span>
+          {localVoiceSummary ? (
+            <span>
+              Offline device voices:{' '}
+              {localVoiceSummary.map((v, idx) => (
+                <span key={v.lang}>
+                  {idx > 0 ? ', ' : ''}
+                  <strong className="text-[var(--fg)]">{v.lang}</strong>:{v.localCount}
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span>Device speech synthesis: unavailable</span>
+          )}
+        </div>
       </div>
 
       {/* Local Backup & Restore */}

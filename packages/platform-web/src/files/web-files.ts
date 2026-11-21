@@ -21,7 +21,11 @@ export class WebFiles implements Files {
           return;
         }
         const buf = await file.arrayBuffer();
-        done({ name: file.name, bytes: new Uint8Array(buf) });
+        done({
+          name: file.name,
+          bytes: new Uint8Array(buf),
+          ...(file.type ? { mime: file.type } : {}),
+        });
       });
       input.addEventListener('cancel', () => done(null));
       input.click();

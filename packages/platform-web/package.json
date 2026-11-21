@@ -24,6 +24,30 @@
     "./replay-worker": {
       "types": "./src/workers/replay-client.ts",
       "default": "./src/workers/replay-client.ts"
+    },
+    "./sources-google": {
+      "types": "./src/sources/google-index.ts",
+      "default": "./src/sources/google-index.ts"
+    },
+    "./sources-local": {
+      "types": "./src/sources/local-folder-sources.ts",
+      "default": "./src/sources/local-folder-sources.ts"
+    },
+    "./sources-http": {
+      "types": "./src/sources/package-subscription.ts",
+      "default": "./src/sources/package-subscription.ts"
+    },
+    "./media-image": {
+      "types": "./src/media/image-processor.ts",
+      "default": "./src/media/image-processor.ts"
+    },
+    "./media-audio": {
+      "types": "./src/media/audio-processor.ts",
+      "default": "./src/media/audio-processor.ts"
+    },
+    "./audio-tts": {
+      "types": "./src/audio/tts-providers.ts",
+      "default": "./src/audio/tts-providers.ts"
     }
   },
   "scripts": {
@@ -33,6 +57,7 @@
   "dependencies": {
     "@flash/core": "workspace:*",
     "@flash/platform": "workspace:*",
-    "dexie": "^4.4.7"
+    "dexie": "^4.4.7",
+    "read-excel-file": "^9.3.20"
   }
 }

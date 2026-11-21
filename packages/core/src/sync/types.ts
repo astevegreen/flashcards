@@ -92,6 +92,14 @@ export interface SyncSnapshot {
   state: SerializedCollectionState;
 }
 
+/** Structural local media store passed to `SyncEngine` for `media/<aa>/<sha256>.<ext>` sync (§4.2). */
+export interface SyncMediaStore {
+  getLocalMedia(
+    hash: string,
+  ): Promise<{ hash: string; mime: string; bytes: Uint8Array } | undefined>;
+  putLocalMedia(media: { hash: string; mime: string; bytes: Uint8Array }): Promise<void>;
+}
+
 /** Per-device persisted sync watermark cursor. */
 export interface SyncCursorState {
   collectionId?: string;
@@ -102,6 +110,8 @@ export interface SyncCursorState {
   remoteSegments: Record<string, number>;
   lastSnapshotTotalEvents: number;
   lastSyncedAt?: number;
+  /** Content hashes confirmed uploaded to remote `media/<aa>/<sha256>.<ext>` store. */
+  pushedMediaHashes?: string[];
 }
 
 export function createInitialSyncCursor(collectionId?: string): SyncCursorState {
@@ -126,6 +136,9 @@ export interface SyncRunResult {
   pulledEvents: FlashEvent[];
   pushedEventCount: number;
   pushedSegments: number;
+  pushedMediaCount?: number;
+  pulledMediaCount?: number;
+  mediaWarnings?: string[];
   hydratedSnapshot?: SyncSnapshot;
   snapshotWritten?: string;
   maxRemoteHlc?: string;

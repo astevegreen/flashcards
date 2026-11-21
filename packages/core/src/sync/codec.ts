@@ -16,6 +16,40 @@ export const SYNC_CODEC_LIMITS = {
   maxUncompressedBytes: 25 * 1024 * 1024, // 25 MiB
 } as const;
 
+export const SYNC_MEDIA_LIMITS = {
+  maxMediaBlobBytes: 10 * 1024 * 1024, // 10 MiB
+} as const;
+
+export const SAFE_SYNC_MEDIA_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'webp',
+  'gif',
+  'mp3',
+  'ogg',
+  'wav',
+  'm4a',
+]);
+
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
+
+/**
+ * Returns the canonical §4.2 media sync object path: `media/<sha256[0..2]>/<sha256>.<ext>`.
+ * Validates hash & extension against path traversal and unsafe extensions (§13).
+ */
+export function mediaObjectPath(hash: string, ext: string): string {
+  const normHash = hash.trim().toLowerCase();
+  const normExt = ext.trim().toLowerCase().replace(/^\./, '');
+  if (!SHA256_HEX_RE.test(normHash)) {
+    throw new SyncCodecError(`Invalid SHA-256 media hash: "${hash}"`);
+  }
+  if (!SAFE_SYNC_MEDIA_EXTENSIONS.has(normExt)) {
+    throw new SyncCodecError(`Unsupported media file extension: "${ext}"`);
+  }
+  return `media/${normHash.slice(0, 2)}/${normHash}.${normExt}`;
+}
+
 export class SyncCodecError extends Error {
   constructor(message: string) {
     super(message);

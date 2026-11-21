@@ -1,9 +1,13 @@
-import type { Note, NoteType } from '@flash/core';
+import type { Note, NoteType, SourceRef } from '@flash/core';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useApp } from '../state/AppContext.tsx';
+import { MediaAudioPlayer } from './MediaAudioPlayer.tsx';
+import { MediaImage } from './MediaImage.tsx';
 
 export interface NoteEditDialogProps {
   note: Note | null;
   noteType: NoteType | undefined;
+  deckSource?: SourceRef | undefined;
   onSave: (note: Note, fields: Record<string, string>, tags: string[]) => void;
   onClose: () => void;
 }
@@ -14,12 +18,21 @@ export interface NoteEditDialogProps {
  * - No redundant `role="dialog"` or `aria-modal`
  * - Uses `closedby="any"` with pointer-position light-dismiss fallback when unsupported
  */
-export function NoteEditDialog({ note, noteType, onSave, onClose }: NoteEditDialogProps) {
+export function NoteEditDialog({
+  note,
+  noteType,
+  deckSource,
+  onSave,
+  onClose,
+}: NoteEditDialogProps) {
+  const { platform, addMedia } = useApp();
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const titleId = useId();
   const closedByCodeRef = useRef(false);
   const [draftFields, setDraftFields] = useState<Record<string, string>>({});
   const [tagsText, setTagsText] = useState('');
+  const [uploadingField, setUploadingField] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -29,6 +42,7 @@ export function NoteEditDialog({ note, noteType, onSave, onClose }: NoteEditDial
       closedByCodeRef.current = false;
       setDraftFields({ ...note.fields });
       setTagsText(note.tags.join(', '));
+      setUploadError(null);
       if (!dialog.open) {
         dialog.showModal();
       }
@@ -92,6 +106,48 @@ export function NoteEditDialog({ note, noteType, onSave, onClose }: NoteEditDial
     };
   }, [onClose]);
 
+  const handleUploadImage = async (fieldKey: string) => {
+    setUploadError(null);
+    setUploadingField(fieldKey);
+    try {
+      const picked = await platform.files.pickFile({
+        accept: 'image/png,image/jpeg,image/webp,image/gif',
+      });
+      if (!picked) return;
+      if (!platform.processImage) {
+        throw new Error('Image processing is unavailable on this platform.');
+      }
+      const processed = await platform.processImage(picked.bytes, picked.mime ?? '');
+      await addMedia(processed);
+      setDraftFields((prev) => ({ ...prev, [fieldKey]: `media:${processed.hash}` }));
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploadingField(null);
+    }
+  };
+
+  const handleUploadAudio = async (fieldKey: string) => {
+    setUploadError(null);
+    setUploadingField(fieldKey);
+    try {
+      const picked = await platform.files.pickFile({
+        accept: 'audio/mpeg,audio/wav,audio/ogg,audio/mp4,.mp3,.wav,.ogg,.m4a',
+      });
+      if (!picked) return;
+      if (!platform.processAudio) {
+        throw new Error('Audio processing is unavailable on this platform.');
+      }
+      const processed = await platform.processAudio(picked.bytes, picked.mime ?? '');
+      await addMedia(processed);
+      setDraftFields((prev) => ({ ...prev, [fieldKey]: `media:${processed.hash}` }));
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploadingField(null);
+    }
+  };
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!note) return;
@@ -105,12 +161,14 @@ export function NoteEditDialog({ note, noteType, onSave, onClose }: NoteEditDial
 
   const fieldsList =
     noteType?.fields ??
-    Object.keys(draftFields).map((key) => ({
-      key,
-      label: key,
-      kind: 'text' as const,
-      lang: 'en',
-    }));
+    Object.keys(draftFields)
+      .filter((key) => key !== 'speech_override')
+      .map((key) => ({
+        key,
+        label: key,
+        kind: 'text' as const,
+        lang: 'en',
+      }));
 
   return (
     <dialog
@@ -134,11 +192,109 @@ export function NoteEditDialog({ note, noteType, onSave, onClose }: NoteEditDial
           </button>
         </div>
 
+        {deckSource?.kind === 'google_sheets' &&
+          deckSource.uri?.startsWith('https://docs.google.com/spreadsheets/') && (
+            <div
+              data-testid="sheet-source-edit-banner"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs"
+            >
+              <span className="text-[var(--muted)]">
+                Synced from a Google Sheet. Edit in Sheets to keep changes on the next pull, or edit
+                locally offline below.
+              </span>
+              <a
+                href={deckSource.uri}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="open-source-sheet-link"
+                className="rounded-lg bg-[var(--accent)] px-2.5 py-1 font-semibold text-white hover:opacity-90"
+              >
+                Open in Google Sheets ↗
+              </a>
+            </div>
+          )}
+
+        {uploadError && (
+          <div
+            role="alert"
+            className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300"
+          >
+            {uploadError}
+          </div>
+        )}
+
         <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto pr-1">
           {fieldsList.map((field, index) => {
+            const value = draftFields[field.key] ?? '';
+
+            if (field.kind === 'image') {
+              const busy = uploadingField === field.key;
+              return (
+                <div key={field.key} className="flex flex-col gap-1.5 text-sm">
+                  <span className="font-medium text-[var(--muted)]">{field.label}</span>
+                  {value && (
+                    <div className="flex flex-col items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-2">
+                      <MediaImage src={value} alt={field.label} className="max-h-40" />
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      data-testid={`upload-image-${field.key}`}
+                      disabled={busy}
+                      onClick={() => void handleUploadImage(field.key)}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-50"
+                    >
+                      {busy ? 'Processing…' : value ? 'Replace Image' : 'Upload Image'}
+                    </button>
+                    {value && (
+                      <button
+                        type="button"
+                        data-testid={`remove-image-${field.key}`}
+                        onClick={() => setDraftFields((prev) => ({ ...prev, [field.key]: '' }))}
+                        className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            if (field.kind === 'audio') {
+              const busy = uploadingField === field.key;
+              return (
+                <div key={field.key} className="flex flex-col gap-1.5 text-sm">
+                  <span className="font-medium text-[var(--muted)]">{field.label}</span>
+                  {value && <MediaAudioPlayer src={value} label={field.label} />}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      data-testid={`upload-audio-${field.key}`}
+                      disabled={busy}
+                      onClick={() => void handleUploadAudio(field.key)}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-50"
+                    >
+                      {busy ? 'Validating…' : value ? 'Replace Audio' : 'Upload Audio'}
+                    </button>
+                    {value && (
+                      <button
+                        type="button"
+                        data-testid={`remove-audio-${field.key}`}
+                        onClick={() => setDraftFields((prev) => ({ ...prev, [field.key]: '' }))}
+                        className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
             const isMultiline =
               field.kind === 'rich' || field.key === 'notes' || field.key === 'example';
-            const value = draftFields[field.key] ?? '';
             return (
               <label key={field.key} className="flex flex-col gap-1 text-sm">
                 <span className="font-medium text-[var(--muted)]">
@@ -170,6 +326,26 @@ export function NoteEditDialog({ note, noteType, onSave, onClose }: NoteEditDial
               </label>
             );
           })}
+
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-[var(--muted)]">
+              Pronunciation override (TTS text)
+            </span>
+            <input
+              type="text"
+              data-testid="speech-override-input"
+              value={draftFields['speech_override'] ?? ''}
+              onChange={(e) =>
+                setDraftFields((prev) => ({ ...prev, speech_override: e.target.value }))
+              }
+              placeholder="Optional kana / hangul reading for TTS (e.g. はし or 한국어)"
+              className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none"
+            />
+            <span className="text-[11px] text-[var(--muted)]">
+              Overrides which text is spoken by TTS (useful for Japanese Kanji or Korean Hanja
+              disambiguation). Leave blank to use the layout&apos;s default speak field.
+            </span>
+          </label>
 
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-[var(--muted)]">Tags (comma-separated)</span>

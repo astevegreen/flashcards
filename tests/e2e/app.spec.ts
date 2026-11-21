@@ -229,7 +229,7 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
       await fileChooser.setFiles(exportedPath);
     }
     await expect(page.getByTestId('library-status')).toContainText('deck(s)');
-    await expect(page.locator('[data-testid^="deck-row-"]')).toHaveCount(4);
+    await expect(page.locator('[data-testid^="deck-row-"]')).toHaveCount(5);
   });
 
   test('mobile viewport bottom tab bar, touch swipe gesture, and #tag Browse search', async ({

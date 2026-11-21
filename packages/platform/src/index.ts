@@ -73,6 +73,7 @@ export interface Storage {
   deleteKv(key: string): Promise<void>;
   putMedia(media: MediaBlob): Promise<void>;
   getMedia(hash: string): Promise<MediaBlob | undefined>;
+  listMediaHashes?(): Promise<string[]>;
   requestPersistence(): Promise<boolean>;
   clearAll(): Promise<void>;
 }
@@ -80,6 +81,21 @@ export interface Storage {
 export interface PickedFile {
   name: string;
   bytes: Uint8Array;
+  mime?: string;
+}
+
+export interface ProcessedImage {
+  hash: string;
+  ext: string;
+  mime: string;
+  size: number;
+  bytes: Uint8Array;
+}
+
+export interface ImageProcessOptions {
+  maxDimension?: number;
+  quality?: number;
+  maxInputBytes?: number;
 }
 
 export interface Files {
@@ -102,11 +118,14 @@ export interface SyncTransport {
   write(path: string, data: Uint8Array, opts?: { ifAbsent?: boolean }): Promise<void>;
 }
 
+export type OAuthSignInIntent = 'sync' | 'sources';
+
 export interface AuthSession {
   provider: string;
   accessToken: string;
   expiresAt: number;
   scope?: string;
+  intent?: OAuthSignInIntent;
 }
 
 export interface Auth {
@@ -114,9 +133,242 @@ export interface Auth {
   isConnected(): Promise<boolean>;
   getSession(): Promise<AuthSession | null>;
   getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string>;
-  signIn(): Promise<AuthSession | null>;
+  signIn(opts?: { intent?: OAuthSignInIntent }): Promise<AuthSession | null>;
   handleRedirectCallback(): Promise<AuthSession | null>;
   signOut(): Promise<void>;
+}
+
+/** Non-blocking import warning surfaced per linked source. */
+export interface SourceWarning {
+  code: string;
+  message: string;
+  row?: number;
+  header?: string;
+  file?: string;
+}
+
+export type SourceSyncStatus = 'idle' | 'synced' | 'error' | 'permission_required' | 'offline';
+
+export interface LinkedGoogleSource {
+  id: string;
+  kind: 'google_sheets' | 'google_docs';
+  fileId: string;
+  name: string;
+  uri: string;
+  deckId?: string;
+  pageId?: string;
+  noteTypeId?: string;
+  language?: string;
+  sheetTab?: string;
+  readOnly?: boolean;
+  lastModifiedTime?: string;
+  lastSyncedAt?: number;
+  lastStatus?: SourceSyncStatus;
+  lastError?: string;
+  warnings?: SourceWarning[];
+  /** Cached map of remote `https://` image URL -> localized `media:<sha256>` URI (Option 1). */
+  localizedImages?: Record<string, string>;
+  /** Cached map of remote `https://` audio URL -> localized `media:<sha256>` URI. */
+  localizedAudio?: Record<string, string>;
+}
+
+export interface CachedLocalFileEntry {
+  relativePath: string;
+  kind: 'csv' | 'tsv' | 'xlsx' | 'md' | 'flashpkg';
+  lastModified: number;
+  size: number;
+  contentHash: string;
+  deckId?: string;
+  pageId?: string;
+  noteTypeId?: string;
+  language?: string;
+  packageId?: string;
+}
+
+export interface InboxImportedEntry {
+  fileName: string;
+  contentHash: string;
+  importedAt: number;
+  movedToImported: boolean;
+}
+
+export interface PendingXlsxReconciliation {
+  folderId: string;
+  relativePath: string;
+  deckId: string;
+  deckName: string;
+  missingNotes: Array<{ noteId: string; sortKey: string; preview: string }>;
+  addedRows: Array<{ rowNumber: number; sortKey: string; preview: string }>;
+}
+
+export interface LinkedLocalFolder {
+  id: string;
+  name: string;
+  addedAt: number;
+  writeCardIds: boolean;
+  lastScannedAt?: number;
+  lastStatus?: SourceSyncStatus;
+  lastError?: string;
+  files: Record<string, CachedLocalFileEntry>;
+  inboxImported: Record<string, InboxImportedEntry>;
+  warnings?: SourceWarning[];
+}
+
+export interface PackageSubscription {
+  id: string;
+  url: string;
+  title: string;
+  packageId?: string;
+  version?: string;
+  expectedSha256?: string;
+  etag?: string;
+  lastModified?: string;
+  catalogUrl?: string;
+  lastSyncedAt?: number;
+  lastStatus?: SourceSyncStatus;
+  lastError?: string;
+  warnings?: SourceWarning[];
+}
+
+export interface CatalogPackageInfo {
+  package_id: string;
+  title: string;
+  description?: string;
+  url: string;
+  version: string;
+  languages: string[];
+  updated_at?: string;
+  author?: string;
+  sha256?: string;
+}
+
+export interface FamilyCatalogSubscription {
+  id: string;
+  url: string;
+  name: string;
+  description?: string;
+  updatedAt?: string;
+  etag?: string;
+  lastFetchedAt?: number;
+  lastError?: string;
+  packages: CatalogPackageInfo[];
+}
+
+export interface SourcesRegistry {
+  googleSources: LinkedGoogleSource[];
+  localFolders: LinkedLocalFolder[];
+  packageSubscriptions: PackageSubscription[];
+  catalogs: FamilyCatalogSubscription[];
+}
+
+export interface GooglePickedFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  url?: string;
+}
+
+export interface GooglePickerAdapter {
+  isConfigured(): boolean;
+  pickSheetsAndDocs(): Promise<GooglePickedFile[]>;
+}
+
+export interface GoogleDriveFileMeta {
+  id: string;
+  name: string;
+  mimeType: string;
+  modifiedTime?: string;
+  canEdit: boolean;
+}
+
+export interface GoogleSheetGrid {
+  spreadsheetId: string;
+  title: string;
+  sheetTitle: string;
+  modifiedTime?: string;
+  values: string[][];
+  readOnly: boolean;
+  embeddedImageRows: number[];
+}
+
+export interface GoogleSourcesClient {
+  getFileMetadata(fileId: string): Promise<GoogleDriveFileMeta>;
+  readSheet(fileId: string, sheetTab?: string): Promise<GoogleSheetGrid>;
+  writeSheetCells(
+    fileId: string,
+    sheetTitle: string,
+    updates: ReadonlyArray<{ a1: string; value: string }>,
+  ): Promise<void>;
+  createSheetFromTemplate(options: {
+    title: string;
+    headers: readonly string[];
+    sampleRows?: ReadonlyArray<readonly string[]>;
+  }): Promise<{ fileId: string; title: string; sheetTitle: string; uri: string }>;
+  exportDocAsMarkdown(
+    fileId: string,
+  ): Promise<{ fileId: string; title: string; markdown: string; modifiedTime?: string }>;
+}
+
+export interface ScannedLocalFileDescriptor {
+  relativePath: string;
+  name: string;
+  kind: 'csv' | 'tsv' | 'xlsx' | 'md' | 'flashpkg';
+  isInbox: boolean;
+  size: number;
+  lastModified: number;
+}
+
+export interface LocalFolderSourcesAdapter {
+  isSupported(): boolean;
+  pickFolder(): Promise<{ id: string; name: string } | null>;
+  removeFolder(folderId: string): Promise<void>;
+  ensurePermission(
+    folderId: string,
+    mode: 'read' | 'readwrite',
+    requestPermission: boolean,
+  ): Promise<boolean>;
+  listFolderFiles(folderId: string): Promise<ScannedLocalFileDescriptor[]>;
+  readFileBytes(folderId: string, relativePath: string, maxBytes?: number): Promise<Uint8Array>;
+  parseXlsxBytes(bytes: Uint8Array): Promise<string[][]>;
+  readRelativeMedia(
+    folderId: string,
+    baseFileRelativePath: string,
+    mediaRelativePath: string,
+  ): Promise<{ bytes: Uint8Array; mime: string; ext: string } | null>;
+  writeFileText(folderId: string, relativePath: string, text: string): Promise<void>;
+  moveInboxFileToImported(folderId: string, fileName: string): Promise<boolean>;
+}
+
+export interface PackageFetchResultNotModified {
+  notModified: true;
+}
+
+export interface PackageFetchResultUpdated {
+  notModified: false;
+  bytes: Uint8Array;
+  etag?: string;
+  lastModified?: string;
+}
+
+export type PackageFetchResult = PackageFetchResultNotModified | PackageFetchResultUpdated;
+
+export interface PackageSubscriptionFetcher {
+  fetchCatalog(
+    url: string,
+    opts?: { etag?: string; lastModified?: string },
+  ): Promise<
+    | { notModified: true }
+    | {
+        notModified: false;
+        rawJson: string;
+        etag?: string;
+        lastModified?: string;
+      }
+  >;
+  fetchPackage(
+    url: string,
+    opts?: { etag?: string; lastModified?: string; maxBytes?: number },
+  ): Promise<PackageFetchResult>;
 }
 
 /** Off-main-thread Web Worker replay client (§4.1 & §8). */
@@ -126,14 +378,76 @@ export interface ReplayWorkerClient {
   terminate(): void;
 }
 
+export type TtsProviderKind = 'none' | 'google' | 'azure';
+
+export interface TtsProviderConfig {
+  provider: TtsProviderKind;
+  apiKey?: string;
+  azureRegion?: string;
+  voices?: Record<string, string>;
+}
+
+export interface TtsSynthesisResult {
+  bytes: Uint8Array;
+  mime: string;
+  ext: string;
+  voiceId: string;
+}
+
+export interface AbortSignalLike {
+  readonly aborted: boolean;
+}
+
 export interface TtsProvider {
   readonly id: string;
-  synthesize(text: string, lang: string): Promise<Uint8Array>;
+  resolveVoiceId(lang: string, voiceOverride?: string): string;
+  synthesize(
+    text: string,
+    lang: string,
+    opts?: { voiceOverride?: string; signal?: AbortSignalLike },
+  ): Promise<TtsSynthesisResult>;
+}
+
+export interface ProcessedAudio {
+  hash: string;
+  ext: string;
+  mime: string;
+  size: number;
+  bytes: Uint8Array;
 }
 
 export interface AudioPlayer {
   unlock(): void;
-  play(bytes: Uint8Array, mime: string, rate?: number): Promise<void>;
+  preload(hash: string, bytes: Uint8Array, mime: string): void;
+  hasPreloaded(hash: string): boolean;
+  retainOnly(keepHashes: ReadonlySet<string>): void;
+  playPreloaded(hash: string, rate?: number): Promise<boolean>;
+  play(bytes: Uint8Array, mime: string, rate?: number, cacheHash?: string): Promise<void>;
+  stop(): void;
+  dispose(): void;
+}
+
+export interface DeviceVoiceInfo {
+  name: string;
+  lang: string;
+  localService: boolean;
+  default?: boolean;
+}
+
+export interface DeviceSpeechResult {
+  status: 'spoken' | 'missing_local_voice' | 'unavailable' | 'error';
+  lang: string;
+  message?: string;
+}
+
+export interface DeviceSpeechPlayer {
+  isAvailable(): boolean;
+  listVoices(langFilter?: string): DeviceVoiceInfo[];
+  speak(
+    text: string,
+    lang: string,
+    opts?: { rate?: number; isOnline?: boolean },
+  ): DeviceSpeechResult;
   stop(): void;
 }
 
@@ -150,10 +464,17 @@ export interface PlatformServices {
   readonly storage: Storage;
   readonly files: Files;
   readonly syncTransport: SyncTransport;
+  readonly audioPlayer?: AudioPlayer;
+  readonly deviceSpeech?: DeviceSpeechPlayer;
   readonly googleOAuthConfigured: boolean;
+  readonly googlePickerConfigured: boolean;
   readonly supportsLocalFolderSync: boolean;
   getGoogleAuth(): Promise<Auth>;
   createGoogleDriveTransport(): Promise<SyncTransport>;
+  getGooglePicker(): Promise<GooglePickerAdapter>;
+  getGoogleSourcesClient(): Promise<GoogleSourcesClient>;
+  getLocalFolderSources(): Promise<LocalFolderSourcesAdapter>;
+  getPackageFetcher(): Promise<PackageSubscriptionFetcher>;
   pickLocalSyncFolder(): Promise<{ name: string; transport: SyncTransport } | null>;
   restoreLocalSyncFolder(opts?: {
     requestPermission?: boolean;
@@ -161,4 +482,13 @@ export interface PlatformServices {
   disconnectLocalSyncFolder(): Promise<void>;
   onDevSyncNotification?: (listener: (path: string) => void) => () => void;
   createReplayWorker?: () => Promise<ReplayWorkerClient | null>;
+  processImage?: (
+    bytes: Uint8Array,
+    mime: string,
+    opts?: ImageProcessOptions,
+  ) => Promise<ProcessedImage>;
+  fetchAndCacheHttpsImage?: (url: string, opts?: ImageProcessOptions) => Promise<ProcessedImage>;
+  createTtsProvider?: (config: TtsProviderConfig) => Promise<TtsProvider | null>;
+  processAudio?: (bytes: Uint8Array, mime: string) => Promise<ProcessedAudio>;
+  fetchAndCacheHttpsAudio?: (url: string) => Promise<ProcessedAudio>;
 }

@@ -463,7 +463,7 @@ function loadGooglePickerApi() {
 
 $('btn-s3-picker').addEventListener('click', async () => {
   try {
-    const { apiKey } = saveOAuthConfig();
+    const { apiKey, clientId } = saveOAuthConfig();
     if (!apiKey) {
       logTo('out-s3', 'Enter your referrer-restricted Browser API Key in Spike 0.2 first.');
       return;
@@ -471,12 +471,24 @@ $('btn-s3-picker').addEventListener('click', async () => {
     const token = await getAccessToken();
     await loadGooglePickerApi();
 
-    const sheetsView = new window.google.picker.DocsView(window.google.picker.ViewId.SPREADSHEETS);
-    const docsView = new window.google.picker.DocsView(window.google.picker.ViewId.DOCUMENTS);
+    const appId = clientId && /^\d+/.test(clientId) ? clientId.split('-')[0] : '932735219487';
+    const combinedView = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+      .setMimeTypes('application/vnd.google-apps.spreadsheet,application/vnd.google-apps.document')
+      .setIncludeFolders(true)
+      .setMode(window.google.picker.DocsViewMode.LIST);
+    const sheetsView = new window.google.picker.DocsView(
+      window.google.picker.ViewId.SPREADSHEETS,
+    ).setIncludeFolders(true);
+    const docsView = new window.google.picker.DocsView(
+      window.google.picker.ViewId.DOCUMENTS,
+    ).setIncludeFolders(true);
     const picker = new window.google.picker.PickerBuilder()
       .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
+      .setAppId(appId)
+      .setOrigin(window.location.origin)
       .setOAuthToken(token)
       .setDeveloperKey(apiKey)
+      .addView(combinedView)
       .addView(sheetsView)
       .addView(docsView)
       .setCallback((data) => {
@@ -494,7 +506,7 @@ $('btn-s3-picker').addEventListener('click', async () => {
               $('inp-doc-id').value = d.id;
             }
           }
-          logTo('out-s3', `Picker selected ${docs.length} file(s)`, docs);
+          logTo('out-s3', `Picker (appId=${appId}) selected ${docs.length} file(s)`, docs);
         }
       })
       .build();
@@ -509,12 +521,24 @@ $('btn-s3-read-sheet').addEventListener('click', async () => {
     const sheetId = $('inp-sheet-id').value.trim();
     if (!sheetId) throw new Error('Pick or enter a Sheet ID first.');
     const token = await getAccessToken();
+    const metaRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(sheetId)}?fields=id,name,mimeType,modifiedTime,version`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const meta = await metaRes.json();
     const res = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/A1:Z20?valueRenderOption=FORMULA`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
     const data = await res.json();
-    logTo('out-s3', `Sheets values.get (FORMULA) HTTP ${res.status}`, data);
+    logTo(
+      'out-s3',
+      `Sheets values.get (FORMULA) HTTP ${res.status} | Drive meta HTTP ${metaRes.status}`,
+      {
+        driveMeta: meta,
+        sheetsValues: data,
+      },
+    );
   } catch (err) {
     logTo('out-s3', `Read sheet error: ${err}`);
   }
@@ -611,18 +635,25 @@ $('btn-s4-pick').addEventListener('click', async () => {
   }
 });
 
-$('btn-s4-restore').addEventListener('click', async () => {
+async function checkSavedDirectoryHandle(trigger) {
   const handle = await idbGet('s4-dir-handle');
   if (!handle) {
-    logTo('out-s4', 'No saved directory handle in IndexedDB yet.');
+    if (trigger !== 'boot') {
+      logTo('out-s4', 'No saved directory handle in IndexedDB yet.');
+    }
     return;
   }
   const readPerm = await handle.queryPermission({ mode: 'read' });
   const rwPerm = await handle.queryPermission({ mode: 'readwrite' });
-  logTo('out-s4', `Restored handle "${handle.name}" from IndexedDB`, {
+  logTo('out-s4', `[${trigger}] Restored handle "${handle.name}" from IndexedDB`, {
+    standalone: window.matchMedia('(display-mode: standalone)').matches,
     readPermission: readPerm,
     readWritePermission: rwPerm,
   });
+}
+
+$('btn-s4-restore').addEventListener('click', () => {
+  void checkSavedDirectoryHandle('manual');
 });
 
 $('btn-s4-scan').addEventListener('click', async () => {
@@ -713,3 +744,4 @@ $('btn-s7-tts').addEventListener('click', async () => {
 loadOAuthConfig();
 void initServiceWorker();
 void handleOAuthCallbackIfPresent();
+void checkSavedDirectoryHandle('boot');

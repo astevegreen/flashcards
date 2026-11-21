@@ -2,7 +2,6 @@ import {
   applyEvents,
   applyEventsWithDiff,
   applyReviewToSchedule,
-  buildSampleDeckEvents,
   createEmptyState,
   createEventFactory,
   createHlcState,
@@ -11,17 +10,18 @@ import {
   getEnabledLayoutsForDeck,
   getTotalAppliedEventCount,
   resolveDeckFsrsConfig,
-  SAMPLE_SEED_EPOCH_MS,
   serializeCollectionState,
   uuidv5,
   uuidv7,
   type Card,
   type CollectionPreferences,
   type CollectionState,
+  type Course,
   type DeckSettings,
   type EventFactory,
   type FlashEvent,
   type KnownEvent,
+  type Layout,
   type Note,
   type ReviewRating,
   type SyncCursorState,
@@ -30,6 +30,7 @@ import type {
   DeviceMeta,
   MaterializedCardRow,
   PlatformServices,
+  SourcesRegistry,
   SyncConfig,
 } from '@flash/platform';
 import {
@@ -42,8 +43,10 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useAudioController, type AudioController } from './useAudioController.ts';
 import { useSyncController, type SyncUiState } from './useSyncController.ts';
 
+export type { AudioController } from './useAudioController.ts';
 export type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
 
 export interface UndoEntry {
@@ -62,6 +65,7 @@ export interface AppContextValue {
   activeDeckId: string | undefined;
   setActiveDeckId: (deckId: string | undefined) => void;
   showBackupBanner: boolean;
+  audio: AudioController;
   syncState: SyncUiState;
   syncNow: () => Promise<void>;
   connectGoogleDrive: () => Promise<void>;
@@ -70,9 +74,35 @@ export interface AppContextValue {
   disconnectSync: () => Promise<void>;
   emitEvents: (events: readonly KnownEvent[]) => void;
   getEventFactory: () => EventFactory;
-  rateCard: (card: Card, rating: ReviewRating, durationMs: number) => void;
+  rateCard: (
+    card: Card,
+    rating: ReviewRating,
+    durationMs: number,
+    options?: { typedAnswer?: string },
+  ) => void;
   undoLastReview: () => boolean;
   updateNote: (note: Note, fields: Record<string, string>, tags: string[]) => void;
+  markNoteReviewed: (note: Note) => void;
+  addMedia: (media: {
+    hash: string;
+    ext: string;
+    mime: string;
+    size: number;
+    bytes: Uint8Array;
+    tts_key?: string;
+    tts_lang_key?: string;
+  }) => Promise<void>;
+  upsertLayout: (layout: Layout, enableOnDeckId?: string) => void;
+  upsertPage: (input: {
+    pageId?: string;
+    slug: string;
+    title: string;
+    markdown: string;
+    lang?: string;
+    tags: string[];
+  }) => string;
+  markPageRead: (pageId: string) => void;
+  upsertCourse: (course: Course) => void;
   createDeck: (name: string, noteTypeId: string, language: string) => string;
   updateDeckSettings: (
     deckId: string,
@@ -141,6 +171,7 @@ export function AppProvider({
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [activeDeckId, setActiveDeckId] = useState<string | undefined>(undefined);
   const persistChainRef = useRef<Promise<void>>(Promise.resolve());
+  const persistPendingRef = useRef(0);
   const lastLocalSnapEventsRef = useRef<number>(getTotalAppliedEventCount(collectionState));
 
   // Request persistent storage on first launch (§4.4)
@@ -149,9 +180,23 @@ export function AppProvider({
   }, [platform.storage]);
 
   const enqueuePersist = useCallback((task: () => Promise<void>): Promise<void> => {
-    const next = persistChainRef.current.then(task, task).catch((err) => {
-      console.error('Failed to persist to storage:', err);
-    });
+    const invoke = (): Promise<void> => {
+      try {
+        return task();
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    };
+    const started =
+      persistPendingRef.current === 0 ? invoke() : persistChainRef.current.then(invoke, invoke);
+    persistPendingRef.current += 1;
+    const next = started
+      .catch((err) => {
+        console.error('Failed to persist to storage:', err);
+      })
+      .finally(() => {
+        persistPendingRef.current -= 1;
+      });
     persistChainRef.current = next;
     return next;
   }, []);
@@ -247,8 +292,41 @@ export function AppProvider({
 
   const getEventFactory = useCallback(() => factoryRef.current ?? eventFactory, [eventFactory]);
 
+  // Non-blocking post-first-paint source check (§3.1 modifiedTime check & §3.2 local folder rescan).
+  // Strictly lazy-loads sourceRunner ONLY if linked sources exist so initial bundle stays lean (§8).
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const saved = await platform.storage.getKv<SourcesRegistry>('linked_sources_v1');
+          const hasAny =
+            Boolean(saved?.googleSources?.length) ||
+            Boolean(saved?.localFolders?.length) ||
+            Boolean(saved?.packageSubscriptions?.length) ||
+            Boolean(saved?.catalogs?.length);
+          if (!hasAny) return;
+          const { refreshAllSources } = await import('../sources/sourceRunner.ts');
+          await refreshAllSources(
+            {
+              platform,
+              getState: () => stateRef.current ?? collectionState,
+              getEventFactory,
+              emitEvents,
+            },
+            { requestFolderPermission: false },
+          );
+        } catch {
+          // Quiet background refresh failure; details surfaced in Library Sources panel
+        }
+      })();
+    }, 50);
+    return () => window.clearTimeout(timer);
+    // Run once on app open
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const rateCard = useCallback(
-    (card: Card, rating: ReviewRating, durationMs: number) => {
+    (card: Card, rating: ReviewRating, durationMs: number, options?: { typedAnswer?: string }) => {
       const factory = factoryRef.current ?? eventFactory;
       const nowMs = Date.now();
       const tzOffset = -new Date(nowMs).getTimezoneOffset();
@@ -269,6 +347,7 @@ export function AppProvider({
           tz_offset: tzOffset,
           duration_ms: Math.max(0, Math.round(durationMs)),
           answer_mode: layout?.answer_mode ?? 'flip',
+          ...(options?.typedAnswer !== undefined ? { typed_answer: options.typedAnswer } : {}),
           fsrs_params_version: paramsVersion,
           resulting_due_at,
         },
@@ -309,6 +388,163 @@ export function AppProvider({
         },
         Date.now(),
       );
+      emitEvents([ev]);
+    },
+    [emitEvents, eventFactory],
+  );
+
+  const markNoteReviewed = useCallback(
+    (note: Note) => {
+      const factory = factoryRef.current ?? eventFactory;
+      const ev = factory.create(
+        'NoteUpserted',
+        {
+          note_id: note.id,
+          deck_id: note.deck_id,
+          source_key: note.source_key,
+          fields: {},
+          provenance: { ...note.provenance, reviewed: true },
+        },
+        Date.now(),
+      );
+      emitEvents([ev]);
+    },
+    [emitEvents, eventFactory],
+  );
+
+  const addMedia = useCallback(
+    async (media: {
+      hash: string;
+      ext: string;
+      mime: string;
+      size: number;
+      bytes: Uint8Array;
+      tts_key?: string;
+      tts_lang_key?: string;
+    }) => {
+      const normHash = media.hash.toLowerCase();
+      await platform.storage.putMedia({
+        hash: normHash,
+        mime: media.mime,
+        bytes: media.bytes,
+      });
+      const st = stateRef.current ?? collectionState;
+      const existing = st.media.get(normHash);
+      const needsEvent =
+        !existing ||
+        (media.tts_key !== undefined && existing.tts_key !== media.tts_key) ||
+        (media.tts_lang_key !== undefined && existing.tts_lang_key !== media.tts_lang_key);
+      if (needsEvent) {
+        const factory = factoryRef.current ?? eventFactory;
+        const ev = factory.create(
+          'MediaAdded',
+          {
+            media: {
+              hash: normHash,
+              ext: media.ext.toLowerCase(),
+              mime: media.mime,
+              size: media.size,
+              ...(media.tts_key !== undefined ? { tts_key: media.tts_key } : {}),
+              ...(media.tts_lang_key !== undefined ? { tts_lang_key: media.tts_lang_key } : {}),
+            },
+          },
+          Date.now(),
+        );
+        emitEvents([ev]);
+      } else {
+        setStateVersion((v) => v + 1);
+      }
+    },
+    [collectionState, emitEvents, eventFactory, platform.storage],
+  );
+
+  const audio = useAudioController({
+    platform,
+    stateRef: stateRef as React.MutableRefObject<CollectionState>,
+    addMedia,
+  });
+
+  const upsertLayout = useCallback(
+    (layout: Layout, enableOnDeckId?: string) => {
+      const factory = factoryRef.current ?? eventFactory;
+      const st = stateRef.current ?? collectionState;
+      const nowMs = Date.now();
+      const events: KnownEvent[] = [factory.create('LayoutChanged', { layout }, nowMs)];
+      if (enableOnDeckId) {
+        const deck = st.decks.get(enableOnDeckId);
+        if (deck) {
+          const currentEnabled = getEnabledLayoutsForDeck(st, deck).map((l) => l.id);
+          if (!currentEnabled.includes(layout.id)) {
+            events.push(
+              factory.create(
+                'DeckSettingsChanged',
+                {
+                  deck_id: enableOnDeckId,
+                  settings: { enabled_layout_ids: [...currentEnabled, layout.id] },
+                },
+                nowMs,
+              ),
+            );
+          }
+        }
+      }
+      emitEvents(events);
+    },
+    [collectionState, emitEvents, eventFactory],
+  );
+
+  const upsertPage = useCallback(
+    (input: {
+      pageId?: string;
+      slug: string;
+      title: string;
+      markdown: string;
+      lang?: string;
+      tags: string[];
+    }): string => {
+      const factory = factoryRef.current ?? eventFactory;
+      const nowMs = Date.now();
+      const cleanSlug =
+        input.slug
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af-]+/g, '-')
+          .replace(/^-+|-+$/g, '') || 'page';
+      const pageId =
+        input.pageId ?? uuidv5(FLASH_NAMESPACE_UUID, `page:native:${cleanSlug}:${uuidv7(nowMs)}`);
+      const ev = factory.create(
+        'PageUpserted',
+        {
+          page_id: pageId,
+          slug: cleanSlug,
+          title: input.title.trim() || cleanSlug,
+          markdown: input.markdown,
+          ...(input.lang ? { lang: input.lang } : {}),
+          tags: input.tags,
+          source: { kind: 'native', last_synced_at: nowMs },
+        },
+        nowMs,
+      );
+      emitEvents([ev]);
+      return pageId;
+    },
+    [emitEvents, eventFactory],
+  );
+
+  const markPageRead = useCallback(
+    (pageId: string) => {
+      const factory = factoryRef.current ?? eventFactory;
+      const nowMs = Date.now();
+      const ev = factory.create('PageRead', { page_id: pageId, read_at: nowMs }, nowMs);
+      emitEvents([ev]);
+    },
+    [emitEvents, eventFactory],
+  );
+
+  const upsertCourse = useCallback(
+    (course: Course) => {
+      const factory = factoryRef.current ?? eventFactory;
+      const ev = factory.create('CourseChanged', { course }, Date.now());
       emitEvents([ev]);
     },
     [emitEvents, eventFactory],
@@ -411,9 +647,11 @@ export function AppProvider({
   );
 
   const loadSampleDecks = useCallback(() => {
-    const factory = factoryRef.current ?? eventFactory;
-    const events = buildSampleDeckEvents(factory, SAMPLE_SEED_EPOCH_MS);
-    emitEvents(events);
+    void import('@flash/core/samples').then(({ buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS }) => {
+      const factory = factoryRef.current ?? eventFactory;
+      const events = buildSampleDeckEvents(factory, SAMPLE_SEED_EPOCH_MS);
+      emitEvents(events);
+    });
   }, [emitEvents, eventFactory]);
 
   const markBackupCompleted = useCallback(async () => {
@@ -455,6 +693,7 @@ export function AppProvider({
     factoryRef.current = createEventFactory(freshMeta.deviceId, 0, freshMeta.hlc);
     lastLocalSnapEventsRef.current = 0;
     syncController.resetSyncState();
+    audio.resetLocalState();
     setMeta(freshMeta);
     setUndoStack([]);
     setActiveDeckId(undefined);
@@ -463,7 +702,7 @@ export function AppProvider({
       await platform.storage.clearAll();
       await platform.storage.setDeviceMeta(freshMeta);
     });
-  }, [enqueuePersist, platform, syncController]);
+  }, [audio, enqueuePersist, platform, syncController]);
 
   const showBackupBanner = useMemo(() => {
     // Auto-hide weekly backup reminder once cloud or local-folder sync is connected and active (§4.4)
@@ -513,6 +752,7 @@ export function AppProvider({
     activeDeckId,
     setActiveDeckId,
     showBackupBanner,
+    audio,
     syncState: syncController.syncState,
     syncNow: syncController.syncNow,
     connectGoogleDrive: syncController.connectGoogleDrive,
@@ -524,6 +764,12 @@ export function AppProvider({
     rateCard,
     undoLastReview,
     updateNote,
+    markNoteReviewed,
+    addMedia,
+    upsertLayout,
+    upsertPage,
+    markPageRead,
+    upsertCourse,
     createDeck,
     updateDeckSettings,
     toggleDeckLayout,

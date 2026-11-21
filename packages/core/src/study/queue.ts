@@ -229,6 +229,9 @@ export function buildStudyQueue(
           if (aIsRec !== bIsRec) return aIsRec - bIsRec;
           return a.layout_id < b.layout_id ? -1 : 1;
         }
+        if (a.variant !== b.variant) {
+          return a.variant - b.variant;
+        }
         return a.id < b.id ? -1 : 1;
       });
     }

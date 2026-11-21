@@ -1,12 +1,10 @@
 import {
   applyEvents,
   applyEventsWithDiff,
-  buildSampleDeckEvents,
   createEmptyState,
   createEventFactory,
   createHlcState,
   deserializeCollectionState,
-  SAMPLE_SEED_EPOCH_MS,
   serializeCollectionState,
   uuidv7,
   type Card,
@@ -44,11 +42,13 @@ async function boot(): Promise<void> {
   const tokenHelperUrl =
     (import.meta.env['VITE_TOKEN_HELPER_URL'] as string | undefined)?.trim() ||
     DEFAULT_TOKEN_HELPER_URL;
+  const googleApiKey = (import.meta.env['VITE_GOOGLE_API_KEY'] as string | undefined)?.trim() || '';
 
   const platform = createWebPlatform({
     isDevMode,
     googleClientId,
     tokenHelperUrl,
+    googleApiKey,
   });
 
   // Zero-overhead OAuth redirect callback check (only lazy-loads GoogleAuth if `?code=` / `?error=` is present)
@@ -77,18 +77,26 @@ async function boot(): Promise<void> {
       const auth = await platform.getGoogleAuth();
       const session = await auth.handleRedirectCallback();
       if (session) {
-        const switchingProvider = syncConfig?.provider !== 'google_drive';
-        syncConfig = { provider: 'google_drive', connectedAt: Date.now() };
-        await platform.storage.setSyncConfig(syncConfig);
-        if (switchingProvider) {
-          const { createInitialSyncCursor } = await import('@flash/core/sync');
-          syncCursor = createInitialSyncCursor();
-          await platform.storage.setSyncCursor(syncCursor);
-          if (meta.collectionId !== undefined) {
-            const { collectionId: _dropped, ...restMeta } = meta;
-            void _dropped;
-            meta = restMeta;
-            await platform.storage.setDeviceMeta(meta);
+        // Only switch sync provider to google_drive when sign-in was initiated for sync (or no provider was configured).
+        // Signing in from Library Sources keeps an existing Local Folder Sync configuration intact.
+        const preserveExistingSync =
+          session.intent === 'sources' &&
+          syncConfig?.provider !== undefined &&
+          syncConfig.provider !== 'none';
+        if (!preserveExistingSync) {
+          const switchingProvider = syncConfig?.provider !== 'google_drive';
+          syncConfig = { provider: 'google_drive', connectedAt: Date.now() };
+          await platform.storage.setSyncConfig(syncConfig);
+          if (switchingProvider) {
+            const { createInitialSyncCursor } = await import('@flash/core/sync');
+            syncCursor = createInitialSyncCursor();
+            await platform.storage.setSyncCursor(syncCursor);
+            if (meta.collectionId !== undefined) {
+              const { collectionId: _dropped, ...restMeta } = meta;
+              void _dropped;
+              meta = restMeta;
+              await platform.storage.setDeviceMeta(meta);
+            }
           }
         }
       }
@@ -125,6 +133,7 @@ async function boot(): Promise<void> {
 
     // Agent-friendly no-login dev mode (§10.2): auto-seed sample decks at fixed baseline epoch
     if (events.length === 0 && isDevMode && !meta.seeded) {
+      const { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } = await import('@flash/core/samples');
       const factory = createEventFactory(meta.deviceId, meta.seq, meta.hlc);
       const seedEvents = buildSampleDeckEvents(factory, SAMPLE_SEED_EPOCH_MS);
       await platform.storage.appendEvents(seedEvents);

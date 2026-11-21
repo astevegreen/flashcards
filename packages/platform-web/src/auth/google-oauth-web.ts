@@ -1,5 +1,5 @@
 import { SyncTransportError } from '@flash/core';
-import type { Auth, AuthSession, Storage } from '@flash/platform';
+import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
 
 export const GOOGLE_OAUTH_SCOPES =
   'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file';
@@ -15,6 +15,7 @@ interface StoredPkce {
   redirectUri: string;
   returnSearch: string;
   createdAt: number;
+  intent?: OAuthSignInIntent;
 }
 
 export interface StoredOAuthTokens {
@@ -135,7 +136,7 @@ export class GoogleOAuthWebAuth implements Auth {
     };
   }
 
-  async signIn(): Promise<AuthSession | null> {
+  async signIn(opts?: { intent?: OAuthSignInIntent }): Promise<AuthSession | null> {
     if (!this.isConfigured()) {
       throw new SyncTransportError(
         'AUTH_REQUIRED',
@@ -164,6 +165,7 @@ export class GoogleOAuthWebAuth implements Auth {
       redirectUri,
       returnSearch,
       createdAt: this.nowMs(),
+      ...(opts?.intent !== undefined ? { intent: opts.intent } : {}),
     };
     await this.storage.setKv(OAUTH_PKCE_KV_KEY, pkce);
 
@@ -297,6 +299,7 @@ export class GoogleOAuthWebAuth implements Auth {
       accessToken,
       expiresAt,
       ...(scope !== undefined ? { scope } : {}),
+      ...(pkce.intent !== undefined ? { intent: pkce.intent } : {}),
     };
   }
 

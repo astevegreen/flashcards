@@ -1,4 +1,15 @@
-import type { Auth, PlatformServices, ReplayWorkerClient, SyncTransport } from '@flash/platform';
+import type {
+  Auth,
+  GooglePickerAdapter,
+  GoogleSourcesClient,
+  LocalFolderSourcesAdapter,
+  PackageSubscriptionFetcher,
+  PlatformServices,
+  ReplayWorkerClient,
+  SyncTransport,
+} from '@flash/platform';
+import { WebDeviceSpeechPlayer } from './audio/device-speech.ts';
+import { WebAudioPlayer } from './audio/web-audio-player.ts';
 import { WebFiles } from './files/web-files.ts';
 import { DexieStorage } from './storage/dexie-storage.ts';
 import { DevChannelSyncTransport, InMemorySyncTransport } from './sync/in-memory-transport.ts';
@@ -6,6 +17,8 @@ import { DevChannelSyncTransport, InMemorySyncTransport } from './sync/in-memory
 export { DexieStorage } from './storage/dexie-storage.ts';
 export { WebFiles } from './files/web-files.ts';
 export { DevChannelSyncTransport, InMemorySyncTransport } from './sync/in-memory-transport.ts';
+export { WebAudioPlayer } from './audio/web-audio-player.ts';
+export { WebDeviceSpeechPlayer, getMissingVoiceInstructions } from './audio/device-speech.ts';
 
 export interface ResolvedDevice {
   slug?: string;
@@ -17,6 +30,7 @@ export interface CreateWebPlatformOptions {
   isDevMode?: boolean;
   googleClientId?: string;
   tokenHelperUrl?: string;
+  googleApiKey?: string;
 }
 
 /**
@@ -43,12 +57,16 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
   const isDevMode = options?.isDevMode ?? Boolean(resolved.slug);
   const storage = new DexieStorage(resolved.slug);
   const files = new WebFiles();
+  const audioPlayer = new WebAudioPlayer();
+  const deviceSpeech = new WebDeviceSpeechPlayer();
   const devTransport = resolved.slug ? new DevChannelSyncTransport() : null;
   const syncTransport: SyncTransport = devTransport ?? new InMemorySyncTransport();
 
   const googleClientId = options?.googleClientId?.trim() ?? '';
   const tokenHelperUrl = options?.tokenHelperUrl?.trim() ?? '';
+  const googleApiKey = options?.googleApiKey?.trim() ?? '';
   const googleOAuthConfigured = Boolean(googleClientId && tokenHelperUrl);
+  const googlePickerConfigured = Boolean(googleOAuthConfigured && googleApiKey);
   const supportsLocalFolderSync =
     typeof window !== 'undefined' &&
     typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker ===
@@ -56,6 +74,10 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
 
   let cachedGoogleAuth: Auth | null = null;
   let cachedDriveTransport: SyncTransport | null = null;
+  let cachedGooglePicker: GooglePickerAdapter | null = null;
+  let cachedGoogleSources: GoogleSourcesClient | null = null;
+  let cachedLocalFolderSources: LocalFolderSourcesAdapter | null = null;
+  let cachedPackageFetcher: PackageSubscriptionFetcher | null = null;
 
   const getGoogleAuth = async (): Promise<Auth> => {
     if (!cachedGoogleAuth) {
@@ -78,6 +100,48 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
       cachedDriveTransport = new GoogleDriveAppDataTransport({ auth });
     }
     return cachedDriveTransport;
+  };
+
+  const getGooglePicker = async (): Promise<GooglePickerAdapter> => {
+    if (!cachedGooglePicker) {
+      const [auth, { WebGooglePicker }] = await Promise.all([
+        getGoogleAuth(),
+        import('./sources/google-picker.ts'),
+      ]);
+      cachedGooglePicker = new WebGooglePicker({
+        auth,
+        apiKey: googleApiKey,
+        clientId: googleClientId,
+      });
+    }
+    return cachedGooglePicker;
+  };
+
+  const getGoogleSourcesClient = async (): Promise<GoogleSourcesClient> => {
+    if (!cachedGoogleSources) {
+      const [auth, { WebGoogleSourcesClient }] = await Promise.all([
+        getGoogleAuth(),
+        import('./sources/google-sheets-docs.ts'),
+      ]);
+      cachedGoogleSources = new WebGoogleSourcesClient({ auth });
+    }
+    return cachedGoogleSources;
+  };
+
+  const getLocalFolderSources = async (): Promise<LocalFolderSourcesAdapter> => {
+    if (!cachedLocalFolderSources) {
+      const { WebLocalFolderSources } = await import('./sources/local-folder-sources.ts');
+      cachedLocalFolderSources = new WebLocalFolderSources({ storage });
+    }
+    return cachedLocalFolderSources;
+  };
+
+  const getPackageFetcher = async (): Promise<PackageSubscriptionFetcher> => {
+    if (!cachedPackageFetcher) {
+      const { WebPackageSubscriptionFetcher } = await import('./sources/package-subscription.ts');
+      cachedPackageFetcher = new WebPackageSubscriptionFetcher();
+    }
+    return cachedPackageFetcher;
   };
 
   const pickLocalSyncFolder = async (): Promise<{
@@ -105,6 +169,36 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     return createWebReplayWorker();
   };
 
+  const processImage: NonNullable<PlatformServices['processImage']> = async (bytes, mime, opts) => {
+    const { processImageBytes } = await import('./media/image-processor.ts');
+    return processImageBytes(bytes, mime, opts);
+  };
+
+  const fetchAndCacheHttpsImage: NonNullable<PlatformServices['fetchAndCacheHttpsImage']> = async (
+    url,
+    opts,
+  ) => {
+    const { fetchAndProcessHttpsImage } = await import('./media/image-processor.ts');
+    return fetchAndProcessHttpsImage(url, opts);
+  };
+
+  const createTtsProvider: NonNullable<PlatformServices['createTtsProvider']> = async (config) => {
+    const { createWebTtsProvider } = await import('./audio/tts-providers.ts');
+    return createWebTtsProvider(config);
+  };
+
+  const processAudio: NonNullable<PlatformServices['processAudio']> = async (bytes, mime) => {
+    const { processAudioBytes } = await import('./media/audio-processor.ts');
+    return processAudioBytes(bytes, mime);
+  };
+
+  const fetchAndCacheHttpsAudio: NonNullable<PlatformServices['fetchAndCacheHttpsAudio']> = async (
+    url,
+  ) => {
+    const { fetchAndProcessHttpsAudio } = await import('./media/audio-processor.ts');
+    return fetchAndProcessHttpsAudio(url);
+  };
+
   return {
     deviceId: resolved.deviceId,
     deviceLabel: resolved.label,
@@ -113,10 +207,17 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     storage,
     files,
     syncTransport,
+    audioPlayer,
+    deviceSpeech,
     googleOAuthConfigured,
+    googlePickerConfigured,
     supportsLocalFolderSync,
     getGoogleAuth,
     createGoogleDriveTransport,
+    getGooglePicker,
+    getGoogleSourcesClient,
+    getLocalFolderSources,
+    getPackageFetcher,
     pickLocalSyncFolder,
     restoreLocalSyncFolder,
     disconnectLocalSyncFolder,
@@ -127,5 +228,10 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
         }
       : {}),
     createReplayWorker,
+    processImage,
+    fetchAndCacheHttpsImage,
+    createTtsProvider,
+    processAudio,
+    fetchAndCacheHttpsAudio,
   };
 }

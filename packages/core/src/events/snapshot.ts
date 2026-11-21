@@ -41,6 +41,8 @@ export interface SerializedCollectionState {
   pages: Page[];
   courses: Course[];
   media: MediaEntry[];
+  ttsMediaByKey?: Record<string, string>;
+  ttsMediaByLangKey?: Record<string, string>;
   preferences: CollectionPreferences;
   unknownEvents: UnknownEvent[];
   fieldHlcs: Record<string, string>;
@@ -174,6 +176,18 @@ export function serializeCollectionState(
     .sort((a, b) => cmpStr(a.hash, b.hash))
     .map((m) => ({ ...m }));
 
+  const ttsMediaByKey: Record<string, string> = {};
+  for (const k of [...state.ttsMediaByKey.keys()].sort(cmpStr)) {
+    const v = state.ttsMediaByKey.get(k);
+    if (v !== undefined) ttsMediaByKey[k] = v;
+  }
+
+  const ttsMediaByLangKey: Record<string, string> = {};
+  for (const k of [...state.ttsMediaByLangKey.keys()].sort(cmpStr)) {
+    const v = state.ttsMediaByLangKey.get(k);
+    if (v !== undefined) ttsMediaByLangKey[k] = v;
+  }
+
   const fieldHlcs: Record<string, string> = {};
   for (const k of [...state.fieldHlcs.keys()].sort(cmpStr)) {
     const v = state.fieldHlcs.get(k);
@@ -214,6 +228,14 @@ export function serializeCollectionState(
     }
   }
 
+  const sortedTtsVoices = state.preferences.tts_voices
+    ? Object.fromEntries(
+        Object.keys(state.preferences.tts_voices)
+          .sort(cmpStr)
+          .map((k) => [k, state.preferences.tts_voices?.[k] ?? '']),
+      )
+    : undefined;
+
   return {
     formatVersion: SERIALIZED_STATE_FORMAT_VERSION,
     totalEvents: getTotalAppliedEventCount(state),
@@ -229,7 +251,12 @@ export function serializeCollectionState(
     pages,
     courses,
     media,
-    preferences: { ...state.preferences },
+    ...(Object.keys(ttsMediaByKey).length > 0 ? { ttsMediaByKey } : {}),
+    ...(Object.keys(ttsMediaByLangKey).length > 0 ? { ttsMediaByLangKey } : {}),
+    preferences: {
+      ...state.preferences,
+      ...(sortedTtsVoices !== undefined ? { tts_voices: sortedTtsVoices } : {}),
+    },
     unknownEvents: state.unknownEvents.map((ev) => cloneJsonValue(ev)),
     fieldHlcs,
     noteArchivedState,
@@ -336,8 +363,28 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
   }
 
   const media = new Map<string, MediaEntry>();
+  const ttsMediaByKey = new Map<string, string>();
+  const ttsMediaByLangKey = new Map<string, string>();
   for (const m of serialized.media) {
-    media.set(m.hash, { ...m });
+    const normHash = m.hash.toLowerCase();
+    const entry: MediaEntry = { ...m, hash: normHash };
+    media.set(normHash, entry);
+    if (entry.tts_key) {
+      ttsMediaByKey.set(entry.tts_key, normHash);
+    }
+    if (entry.tts_lang_key) {
+      ttsMediaByLangKey.set(entry.tts_lang_key, normHash);
+    }
+  }
+  if (serialized.ttsMediaByKey) {
+    for (const [k, v] of Object.entries(serialized.ttsMediaByKey)) {
+      ttsMediaByKey.set(k, v.toLowerCase());
+    }
+  }
+  if (serialized.ttsMediaByLangKey) {
+    for (const [k, v] of Object.entries(serialized.ttsMediaByLangKey)) {
+      ttsMediaByLangKey.set(k, v.toLowerCase());
+    }
   }
 
   const fieldHlcs = new Map<string, string>(Object.entries(serialized.fieldHlcs));
@@ -384,7 +431,12 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
     pages,
     courses,
     media,
-    preferences: { ...serialized.preferences },
+    preferences: {
+      ...serialized.preferences,
+      ...(serialized.preferences.tts_voices !== undefined
+        ? { tts_voices: { ...serialized.preferences.tts_voices } }
+        : {}),
+    },
     unknownEvents: serialized.unknownEvents.map((ev) => cloneJsonValue(ev)),
     fieldHlcs,
     noteArchivedState,
@@ -395,6 +447,8 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
     cardIdsByDeck,
     noteIdsByDeck,
     reviewIdToCardId,
+    ttsMediaByKey,
+    ttsMediaByLangKey,
     snapshotWatermarks,
     snapshotEventCount: serialized.totalEvents,
   };

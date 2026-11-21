@@ -20,6 +20,22 @@
     "./sync": {
       "types": "./src/sync/index.ts",
       "default": "./src/sync/index.ts"
+    },
+    "./sources": {
+      "types": "./src/sources/index.ts",
+      "default": "./src/sources/index.ts"
+    },
+    "./answer-match": {
+      "types": "./src/study/answer-match.ts",
+      "default": "./src/study/answer-match.ts"
+    },
+    "./audio": {
+      "types": "./src/audio/tts.ts",
+      "default": "./src/audio/tts.ts"
+    },
+    "./samples": {
+      "types": "./src/samples/decks.ts",
+      "default": "./src/samples/decks.ts"
     }
   },
   "scripts": {
@@ -29,6 +45,7 @@
   "dependencies": {
     "@flash/content-schema": "workspace:*",
     "fflate": "^0.8.3",
-    "ts-fsrs": "^6.0.0"
+    "ts-fsrs": "^6.0.0",
+    "wanakana": "^5.3.1"
   }
 }

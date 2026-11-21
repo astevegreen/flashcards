@@ -386,6 +386,11 @@ export function useSyncController({
         canBootstrapFromSnapshot: canBootstrap,
         getLocalEventsAfterSeq: (afterSeq) =>
           platform.storage.getDeviceEventsAfterSeq(deviceId, afterSeq),
+        mediaStore: {
+          getLocalMedia: (hash) => platform.storage.getMedia(hash),
+          putLocalMedia: (media) => platform.storage.putMedia(media),
+        },
+        knownMediaEntries: [...stateRef.current.media.values()],
         buildSnapshotState: async (pulledEvents, hydratedSnap) => {
           const baseSerialized = hydratedSnap
             ? hydratedSnap.state
@@ -534,8 +539,8 @@ export function useSyncController({
           }
         });
       } else {
-        if (metaChanged) {
-          onStateMutated(nextMeta);
+        if (metaChanged || (result.pulledMediaCount ?? 0) > 0) {
+          onStateMutated(metaChanged ? nextMeta : undefined);
         }
         void enqueuePersist(async () => {
           if (metaChanged) {

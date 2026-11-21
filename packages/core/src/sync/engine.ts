@@ -1,7 +1,9 @@
 import type { SerializedCollectionState } from '../events/snapshot.ts';
-import type { FlashEvent } from '../events/types.ts';
+import type { FlashEvent, KnownEvent } from '../events/types.ts';
 import { compareHlc } from '../hlc.ts';
 import { uuidv7 } from '../ids.ts';
+import type { MediaEntry } from '../model/types.ts';
+import { sha256Hex } from '../sources/hash.ts';
 import {
   checkManifestCompatibility,
   decodeDeviceHead,
@@ -16,11 +18,13 @@ import {
   encodeManifest,
   encodeSyncSnapshot,
   manifestPath,
+  mediaObjectPath,
   parseDeviceHeadPath,
   parseSnapshotPath,
   sanitizeDeviceId,
   snapshotPath,
   snapshotsPrefix,
+  SYNC_MEDIA_LIMITS,
   SyncCodecError,
 } from './codec.ts';
 import {
@@ -32,6 +36,7 @@ import {
   type SegmentRange,
   type SyncCursorState,
   type SyncManifest,
+  type SyncMediaStore,
   type SyncRunResult,
   type SyncSnapshot,
   type SyncStoreTransport,
@@ -73,6 +78,12 @@ export interface SyncEngineOptions {
   nowMs?: () => number;
   /** Injectable collection ID generator for deterministic tests. */
   generateCollectionId?: () => string;
+  /** Optional local media blob store for syncing `media/<aa>/<sha256>.<ext>` (§4.2). */
+  mediaStore?: SyncMediaStore;
+  /** Known `MediaAdded` entries from current local `CollectionState` (for self-healing push/pull). */
+  knownMediaEntries?: readonly MediaEntry[];
+  /** Max allowed media blob size in bytes (default `SYNC_MEDIA_LIMITS.maxMediaBlobBytes`). */
+  maxMediaBlobBytes?: number;
 }
 
 const DEFAULT_MAX_EVENTS_PER_SEGMENT = 2000;
@@ -89,6 +100,26 @@ function cloneCursor(cursor: SyncCursorState): SyncCursorState {
     remoteSegments: { ...cursor.remoteSegments },
     lastSnapshotTotalEvents: cursor.lastSnapshotTotalEvents,
     ...(cursor.lastSyncedAt !== undefined ? { lastSyncedAt: cursor.lastSyncedAt } : {}),
+    ...(cursor.pushedMediaHashes !== undefined
+      ? { pushedMediaHashes: [...cursor.pushedMediaHashes] }
+      : {}),
+  };
+}
+
+function extractMediaEntryFromEvent(ev: FlashEvent): MediaEntry | null {
+  if (ev.type !== 'MediaAdded') return null;
+  const payload = (ev as KnownEvent & { type: 'MediaAdded' }).payload;
+  const m = payload?.media;
+  if (!m || typeof m.hash !== 'string' || typeof m.ext !== 'string' || typeof m.mime !== 'string') {
+    return null;
+  }
+  return {
+    hash: m.hash.toLowerCase(),
+    ext: m.ext.toLowerCase(),
+    mime: m.mime,
+    size: typeof m.size === 'number' ? m.size : 0,
+    ...(typeof m.tts_key === 'string' ? { tts_key: m.tts_key } : {}),
+    ...(typeof m.tts_lang_key === 'string' ? { tts_lang_key: m.tts_lang_key } : {}),
   };
 }
 
@@ -147,6 +178,9 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
     snapshotThreshold = DEFAULT_SNAPSHOT_THRESHOLD,
     nowMs = () => Date.now(),
     generateCollectionId = () => `col-${uuidv7(nowMs())}`,
+    mediaStore,
+    knownMediaEntries,
+    maxMediaBlobBytes = SYNC_MEDIA_LIMITS.maxMediaBlobBytes,
   } = options;
 
   const deviceId = sanitizeDeviceId(options.deviceId);
@@ -353,16 +387,90 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
   }
 
   // -------------------------------------------------------------------------
-  // 3. Push (Write-once segments first, then update head.json)
+  // 3. Push (Media blobs first for atomic visibility, then write-once segments, then head.json)
   // -------------------------------------------------------------------------
   let pushedEventCount = 0;
   let pushedSegmentsCount = 0;
+  let pushedMediaCount = 0;
+  let pulledMediaCount = 0;
+  const mediaWarnings: string[] = [];
+  const pushedMediaSet = new Set<string>(cursor.pushedMediaHashes ?? []);
 
   if (!readOnly) {
     const rawPending = await getLocalEventsAfterSeq(cursor.lastPushedSeq);
     const pendingEvents = rawPending
       .filter((ev) => ev.device === deviceId && ev.seq > cursor.lastPushedSeq)
       .sort((a, b) => a.seq - b.seq);
+
+    // 3a. Push missing local media blobs BEFORE writing segments/head.json
+    if (mediaStore) {
+      const mediaToPush = new Map<string, { entry: MediaEntry; fromPending: boolean }>();
+      for (const ev of pendingEvents) {
+        const entry = extractMediaEntryFromEvent(ev);
+        if (entry) {
+          mediaToPush.set(entry.hash, { entry, fromPending: true });
+        }
+      }
+      if (knownMediaEntries) {
+        for (const entry of knownMediaEntries) {
+          const normHash = entry.hash.toLowerCase();
+          if (!pushedMediaSet.has(normHash) && !mediaToPush.has(normHash)) {
+            mediaToPush.set(normHash, {
+              entry: { ...entry, hash: normHash, ext: entry.ext.toLowerCase() },
+              fromPending: false,
+            });
+          }
+        }
+      }
+
+      for (const { entry, fromPending } of mediaToPush.values()) {
+        if (pushedMediaSet.has(entry.hash)) continue;
+        let path: string;
+        try {
+          path = mediaObjectPath(entry.hash, entry.ext);
+        } catch (err) {
+          mediaWarnings.push(
+            `Skipped unsafe media entry "${entry.hash}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
+        const localBlob = await mediaStore.getLocalMedia(entry.hash);
+        if (!localBlob) {
+          if (fromPending) {
+            mediaWarnings.push(`Local media blob missing for ${entry.hash.slice(0, 12)}…`);
+          }
+          continue;
+        }
+        if (localBlob.bytes.byteLength > maxMediaBlobBytes) {
+          mediaWarnings.push(
+            `Local media blob ${entry.hash.slice(0, 12)}… exceeds max size (${maxMediaBlobBytes} bytes).`,
+          );
+          continue;
+        }
+        const actualHash = sha256Hex(localBlob.bytes);
+        if (actualHash !== entry.hash) {
+          mediaWarnings.push(
+            `Local media hash mismatch for ${entry.hash.slice(0, 12)}… (got ${actualHash.slice(0, 12)}…).`,
+          );
+          continue;
+        }
+        try {
+          await transport.write(path, localBlob.bytes, { ifAbsent: true });
+          pushedMediaCount += 1;
+          pushedMediaSet.add(entry.hash);
+        } catch (err) {
+          if (isAlreadyExists(err)) {
+            pushedMediaSet.add(entry.hash);
+          } else {
+            throw err;
+          }
+        }
+      }
+
+      if (pushedMediaSet.size > 0) {
+        cursor.pushedMediaHashes = [...pushedMediaSet].sort();
+      }
+    }
 
     if (pendingEvents.length > 0) {
       let nextSeg = cursor.lastPushedSegment;
@@ -443,6 +551,85 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
   }
 
   // -------------------------------------------------------------------------
+  // 3b. Pull missing remote media blobs referenced by snapshot / pulled / known MediaAdded
+  // -------------------------------------------------------------------------
+  if (mediaStore) {
+    const mediaToPull = new Map<string, MediaEntry>();
+    if (hydratedSnapshot?.state.media) {
+      for (const m of hydratedSnapshot.state.media) {
+        mediaToPull.set(m.hash.toLowerCase(), {
+          ...m,
+          hash: m.hash.toLowerCase(),
+          ext: m.ext.toLowerCase(),
+        });
+      }
+    }
+    for (const ev of pulledEvents) {
+      const entry = extractMediaEntryFromEvent(ev);
+      if (entry) {
+        mediaToPull.set(entry.hash, entry);
+      }
+    }
+    if (knownMediaEntries) {
+      for (const m of knownMediaEntries) {
+        const normHash = m.hash.toLowerCase();
+        if (!mediaToPull.has(normHash)) {
+          mediaToPull.set(normHash, { ...m, hash: normHash, ext: m.ext.toLowerCase() });
+        }
+      }
+    }
+
+    for (const entry of mediaToPull.values()) {
+      const existingLocal = await mediaStore.getLocalMedia(entry.hash);
+      if (existingLocal) {
+        continue;
+      }
+      let path: string;
+      try {
+        path = mediaObjectPath(entry.hash, entry.ext);
+      } catch (err) {
+        mediaWarnings.push(
+          `Skipped unsafe remote media entry "${entry.hash}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+        continue;
+      }
+
+      let remoteBytes: Uint8Array;
+      try {
+        remoteBytes = await transport.read(path);
+      } catch (err) {
+        if (isNotFound(err)) {
+          mediaWarnings.push(`Remote media blob not found at "${path}".`);
+          continue;
+        }
+        throw err;
+      }
+
+      if (remoteBytes.byteLength > maxMediaBlobBytes) {
+        mediaWarnings.push(
+          `Rejected remote media "${path}": exceeds max size (${remoteBytes.byteLength} > ${maxMediaBlobBytes} bytes).`,
+        );
+        continue;
+      }
+
+      const actualHash = sha256Hex(remoteBytes);
+      if (actualHash !== entry.hash) {
+        mediaWarnings.push(
+          `Rejected tampered remote media "${path}": SHA-256 mismatch (expected ${entry.hash}, got ${actualHash}).`,
+        );
+        continue;
+      }
+
+      await mediaStore.putLocalMedia({
+        hash: entry.hash,
+        mime: entry.mime,
+        bytes: remoteBytes,
+      });
+      pulledMediaCount += 1;
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // 4. Periodic Snapshot Compaction
   // -------------------------------------------------------------------------
   let snapshotWritten: string | undefined;
@@ -509,6 +696,8 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
     pulledEvents,
     pushedEventCount,
     pushedSegments: pushedSegmentsCount,
+    ...(mediaStore ? { pushedMediaCount, pulledMediaCount } : {}),
+    ...(mediaWarnings.length > 0 ? { mediaWarnings } : {}),
     ...(hydratedSnapshot !== undefined ? { hydratedSnapshot } : {}),
     ...(snapshotWritten !== undefined ? { snapshotWritten } : {}),
     ...(maxRemoteHlc !== undefined ? { maxRemoteHlc } : {}),

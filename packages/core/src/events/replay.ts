@@ -6,6 +6,7 @@ import {
 import { compareHlc, tickHlc, type HlcState } from '../hlc.ts';
 import { deriveCardId, uuidv7 } from '../ids.ts';
 import { BUILTIN_LAYOUTS, BUILTIN_NOTE_TYPES } from '../model/presets.ts';
+import { extractClozeNumbers } from '../parsers/cloze.ts';
 import {
   DEFAULT_COLLECTION_PREFERENCES,
   DEFAULT_DECK_SETTINGS,
@@ -78,6 +79,10 @@ export interface CollectionState {
   noteIdsByDeck: Map<string, Set<string>>;
   /** Secondary index: reviewId -> cardId (O(1) ReviewUndone lookup). */
   reviewIdToCardId: Map<string, string>;
+  /** Derived index: tts_key (`sha256(text + '\0' + voiceId)`) -> media content hash. */
+  ttsMediaByKey: Map<string, string>;
+  /** Derived index: tts_lang_key (`sha256(text + '\0' + normLang)`) -> media content hash. */
+  ttsMediaByLangKey: Map<string, string>;
   /** Per-device max compacted seq hydrated from a snapshot (skips already-compacted events). */
   snapshotWatermarks: Map<string, number>;
   /** Total event count already compacted into a hydrated snapshot. */
@@ -104,6 +109,8 @@ export interface ApplyMutationCollector {
   pageIds: Set<string>;
   courseIds: Set<string>;
   mediaHashes: Set<string>;
+  ttsKeys: Set<string>;
+  ttsLangKeys: Set<string>;
   preferencesChanged: boolean;
   addedUnknownEvents: UnknownEvent[];
   fieldHlcKeys: Set<string>;
@@ -125,6 +132,8 @@ export function createMutationCollector(): ApplyMutationCollector {
     pageIds: new Set(),
     courseIds: new Set(),
     mediaHashes: new Set(),
+    ttsKeys: new Set(),
+    ttsLangKeys: new Set(),
     preferencesChanged: false,
     addedUnknownEvents: [],
     fieldHlcKeys: new Set(),
@@ -180,6 +189,8 @@ export function createEmptyState(): CollectionState {
     cardIdsByDeck: new Map(),
     noteIdsByDeck: new Map(),
     reviewIdToCardId: new Map(),
+    ttsMediaByKey: new Map(),
+    ttsMediaByLangKey: new Map(),
     snapshotWatermarks: new Map(),
     snapshotEventCount: 0,
   };
@@ -397,6 +408,30 @@ export function replaySingleCard(state: CollectionState, cardId: string): Card |
   return updated;
 }
 
+/**
+ * Computes the deterministic list of card variants derived for a `(note, layout)` pair.
+ * - Non-cloze layouts always yield `[0]`.
+ * - Cloze layouts (`answer_mode === 'cloze'`) scan `front_fields` for `{{cN::...}}` numbers
+ *   and return unique ascending `N` values, falling back to `[0]` when no cloze markers exist.
+ */
+export function getVariantsForNoteLayout(note: Note, layout: Layout): number[] {
+  if (layout.answer_mode !== 'cloze') {
+    return [0];
+  }
+  const found = new Set<number>();
+  for (const fieldKey of layout.front_fields) {
+    const val = note.fields[fieldKey];
+    if (!val) continue;
+    for (const num of extractClozeNumbers(val)) {
+      found.add(num);
+    }
+  }
+  if (found.size === 0) {
+    return [0];
+  }
+  return [...found].sort((a, b) => a - b);
+}
+
 function rebuildCardsForDeck(
   state: CollectionState,
   deckId: string,
@@ -421,20 +456,23 @@ function rebuildCardsForDeck(
         const note = state.notes.get(noteId);
         if (!note || note.deck_id !== deckId || note.archived) continue;
         for (const layout of enabledLayouts) {
-          const cardId = deriveCardId(note.id, layout.id, 0);
-          setCardInState(state, {
-            id: cardId,
-            note_id: note.id,
-            deck_id: deckId,
-            layout_id: layout.id,
-            variant: 0,
-            schedule: createInitialSchedule(0),
-          });
-          replaySingleCard(state, cardId);
-          rebuiltIds.add(cardId);
-          replayedCards.add(cardId);
-          changedCards.add(cardId);
-          removedCards.delete(cardId);
+          const variants = getVariantsForNoteLayout(note, layout);
+          for (const variant of variants) {
+            const cardId = deriveCardId(note.id, layout.id, variant);
+            setCardInState(state, {
+              id: cardId,
+              note_id: note.id,
+              deck_id: deckId,
+              layout_id: layout.id,
+              variant,
+              schedule: createInitialSchedule(0),
+            });
+            replaySingleCard(state, cardId);
+            rebuiltIds.add(cardId);
+            replayedCards.add(cardId);
+            changedCards.add(cardId);
+            removedCards.delete(cardId);
+          }
         }
       }
     }
@@ -469,20 +507,23 @@ function rebuildCardsForNote(
     if (deck && !deck.archived) {
       const enabledLayouts = getEnabledLayoutsForDeck(state, deck);
       for (const layout of enabledLayouts) {
-        const cardId = deriveCardId(note.id, layout.id, 0);
-        setCardInState(state, {
-          id: cardId,
-          note_id: note.id,
-          deck_id: deck.id,
-          layout_id: layout.id,
-          variant: 0,
-          schedule: createInitialSchedule(0),
-        });
-        replaySingleCard(state, cardId);
-        rebuiltIds.add(cardId);
-        replayedCards.add(cardId);
-        changedCards.add(cardId);
-        removedCards.delete(cardId);
+        const variants = getVariantsForNoteLayout(note, layout);
+        for (const variant of variants) {
+          const cardId = deriveCardId(note.id, layout.id, variant);
+          setCardInState(state, {
+            id: cardId,
+            note_id: note.id,
+            deck_id: deck.id,
+            layout_id: layout.id,
+            variant,
+            schedule: createInitialSchedule(0),
+          });
+          replaySingleCard(state, cardId);
+          rebuiltIds.add(cardId);
+          replayedCards.add(cardId);
+          changedCards.add(cardId);
+          removedCards.delete(cardId);
+        }
       }
     }
   }
@@ -993,8 +1034,34 @@ function applyKnownEvent(
     }
     case 'MediaAdded': {
       const m = event.payload.media;
-      state.media.set(m.hash, { ...m });
-      collector?.mediaHashes.add(m.hash);
+      const normHash = m.hash.toLowerCase();
+      const prev = state.media.get(normHash);
+      const nextEntry: MediaEntry = {
+        hash: normHash,
+        ext: m.ext.toLowerCase(),
+        mime: m.mime,
+        size: m.size,
+        ...(prev?.tts_key !== undefined ? { tts_key: prev.tts_key } : {}),
+        ...(prev?.tts_lang_key !== undefined ? { tts_lang_key: prev.tts_lang_key } : {}),
+        ...(m.tts_key !== undefined ? { tts_key: m.tts_key } : {}),
+        ...(m.tts_lang_key !== undefined ? { tts_lang_key: m.tts_lang_key } : {}),
+      };
+      state.media.set(normHash, nextEntry);
+      if (
+        nextEntry.tts_key &&
+        shouldApplyLww(state, `tts:key:${nextEntry.tts_key}`, hlc, collector)
+      ) {
+        state.ttsMediaByKey.set(nextEntry.tts_key, normHash);
+        collector?.ttsKeys.add(nextEntry.tts_key);
+      }
+      if (
+        nextEntry.tts_lang_key &&
+        shouldApplyLww(state, `tts:lang:${nextEntry.tts_lang_key}`, hlc, collector)
+      ) {
+        state.ttsMediaByLangKey.set(nextEntry.tts_lang_key, normHash);
+        collector?.ttsLangKeys.add(nextEntry.tts_lang_key);
+      }
+      collector?.mediaHashes.add(normHash);
       break;
     }
     case 'SourceLinked': {
@@ -1049,6 +1116,46 @@ function applyKnownEvent(
       ) {
         state.preferences.pinyin_tone_colors = pref.pinyin_tone_colors;
         changed = true;
+      }
+      if (
+        pref.ja_kana_equivalent !== undefined &&
+        shouldApplyLww(state, 'prefs:ja_kana_equivalent', hlc, collector)
+      ) {
+        state.preferences.ja_kana_equivalent = pref.ja_kana_equivalent;
+        changed = true;
+      }
+      if (
+        pref.zh_ignore_tones !== undefined &&
+        shouldApplyLww(state, 'prefs:zh_ignore_tones', hlc, collector)
+      ) {
+        state.preferences.zh_ignore_tones = pref.zh_ignore_tones;
+        changed = true;
+      }
+      if (
+        pref.auto_play_audio !== undefined &&
+        shouldApplyLww(state, 'prefs:auto_play_audio', hlc, collector)
+      ) {
+        state.preferences.auto_play_audio = pref.auto_play_audio;
+        changed = true;
+      }
+      if (pref.tts_voices !== undefined) {
+        for (const [langKey, voiceVal] of Object.entries(pref.tts_voices)) {
+          if (shouldApplyLww(state, `prefs:tts_voices:${langKey}`, hlc, collector)) {
+            const trimmed = voiceVal.trim();
+            const entries = Object.entries(state.preferences.tts_voices ?? {}).filter(
+              ([k]) => k !== langKey,
+            );
+            if (trimmed) {
+              entries.push([langKey, trimmed]);
+            }
+            if (entries.length > 0) {
+              state.preferences.tts_voices = Object.fromEntries(entries);
+            } else {
+              delete state.preferences.tts_voices;
+            }
+            changed = true;
+          }
+        }
       }
       if (changed && collector) {
         collector.preferencesChanged = true;

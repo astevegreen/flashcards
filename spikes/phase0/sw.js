@@ -1,4 +1,4 @@
-const CACHE_NAME = 'flashcards-phase0-v1';
+const CACHE_NAME = 'flashcards-phase0-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -37,15 +37,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   event.respondWith(
-    caches.match(event.request, { ignoreSearch: true }).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((res) => {
+    fetch(event.request)
+      .then((res) => {
         if (res.ok) {
           const copy = res.clone();
           void caches.open(CACHE_NAME).then((c) => c.put(event.request, copy));
         }
         return res;
-      });
-    }),
+      })
+      .catch(() => caches.match(event.request, { ignoreSearch: true })),
   );
 });

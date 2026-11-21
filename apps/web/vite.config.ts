@@ -15,18 +15,32 @@ function resolveTokenHelperOrigin(): string {
 }
 
 function productionCspPlugin(): Plugin {
-  const tokenHelperOrigin = resolveTokenHelperOrigin();
+  resolveTokenHelperOrigin();
   return {
     name: 'production-csp',
     apply: 'build',
     transformIndexHtml(html) {
-      const connectSrc = [
-        "'self'",
-        'https://www.googleapis.com',
-        'https://oauth2.googleapis.com',
-        tokenHelperOrigin,
-      ].join(' ');
-      const csp = `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src ${connectSrc}; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self'; manifest-src 'self';`;
+      // Option A CSP (§13):
+      // - script-src strictly pinned to 'self' + Google Picker loader origins (zero unsafe-inline / unsafe-eval / wildcards)
+      // - frame-src strictly pinned to Google Picker iframe origins (docs.google.com / accounts.google.com)
+      // - connect-src allows 'self' + https: for Google APIs, token helper, and user-subscribed https: .flashpkg / index.json URLs
+      // - img-src remains strictly 'self' blob: data: (blocks external tracking pixels)
+      const csp =
+        [
+          "default-src 'self'",
+          "script-src 'self' https://apis.google.com https://www.gstatic.com",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' blob: data:",
+          "media-src 'self' blob:",
+          "font-src 'self'",
+          "frame-src 'self' https://docs.google.com https://accounts.google.com",
+          "connect-src 'self' https:",
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+          "worker-src 'self'",
+          "manifest-src 'self'",
+        ].join('; ') + ';';
       return html.replace(
         '<head>',
         `<head>\n    <meta http-equiv="Content-Security-Policy" content="${csp}" />`,

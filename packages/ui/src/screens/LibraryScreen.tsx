@@ -2,25 +2,63 @@ import {
   buildStudyQueue,
   decodeUtf8,
   getEnabledLayoutsForDeck,
+  uuidv7,
+  type AnswerMode,
   type Deck,
   type DeckSettings,
+  type Layout,
   type NewCardOrder,
+  type NoteType,
+  type Page,
+  type SpeakTiming,
 } from '@flash/core';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { CoursesPanel } from '../components/CoursesPanel.tsx';
+import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
+
+const LazyPageViewer = lazy(() => import('../pages/PageViewer.tsx'));
+const LazyPageEditor = lazy(() => import('../pages/PageEditor.tsx'));
 
 function DeckOptionsPanel({
   deck,
+  noteType,
   onUpdateSettings,
   onExportDeck,
+  onAddLayout,
 }: {
   deck: Deck;
+  noteType: NoteType | undefined;
   onUpdateSettings: (deckId: string, patch: { settings: Partial<DeckSettings> }) => void;
   onExportDeck: (deck: Deck) => void;
+  onAddLayout: (layout: Layout, deckId: string) => void;
 }) {
   const [newPerDayDraft, setNewPerDayDraft] = useState(String(deck.settings.new_cards_per_day));
   const [maxRevDraft, setMaxRevDraft] = useState(String(deck.settings.max_reviews_per_day));
   const [retentionDraft, setRetentionDraft] = useState(String(deck.settings.target_retention));
+
+  // New Answer Mode Layout form
+  const textFields = useMemo(
+    () =>
+      (noteType?.fields ?? []).filter(
+        (f) => f.kind !== 'image' && f.kind !== 'audio' && f.key !== 'audio',
+      ),
+    [noteType],
+  );
+  const [layoutMode, setLayoutMode] = useState<AnswerMode>('typed');
+  const [layoutName, setLayoutName] = useState('');
+  const [frontFieldKey, setFrontFieldKey] = useState(textFields[0]?.key ?? 'word');
+  const [answerFieldKey, setAnswerFieldKey] = useState(
+    textFields.find((f) => f.key === 'meaning' || f.key === 'reading')?.key ??
+      textFields[1]?.key ??
+      textFields[0]?.key ??
+      'meaning',
+  );
+  const [speakFieldKey, setSpeakFieldKey] = useState(
+    textFields.find((f) => f.tts)?.key ?? textFields[0]?.key ?? 'word',
+  );
+  const [speakOn, setSpeakOn] = useState<SpeakTiming>('front');
+  const [clozeTyped, setClozeTyped] = useState(false);
 
   useEffect(() => {
     setNewPerDayDraft(String(deck.settings.new_cards_per_day));
@@ -73,83 +111,254 @@ function DeckOptionsPanel({
     }
   };
 
+  const handleCreateLayout = (e: FormEvent) => {
+    e.preventDefault();
+    const effectiveFront = frontFieldKey || textFields[0]?.key || 'word';
+    const effectiveAnswer = answerFieldKey || textFields[1]?.key || effectiveFront;
+    const allFieldKeys = (noteType?.fields ?? [])
+      .filter((f) => f.kind !== 'audio' && f.key !== 'audio')
+      .map((f) => f.key);
+    const remainingFields = allFieldKeys.filter(
+      (k) => k !== effectiveFront && k !== effectiveAnswer,
+    );
+    const step1 = [effectiveAnswer, ...(remainingFields.includes('image') ? ['image'] : [])];
+    const step2 = remainingFields.filter((k) => k !== 'image');
+    const modeTitle =
+      layoutName.trim() ||
+      (layoutMode === 'typed'
+        ? 'Typed'
+        : layoutMode === 'choice'
+          ? 'Choice'
+          : layoutMode === 'cloze'
+            ? 'Cloze'
+            : layoutMode === 'listen'
+              ? 'Listen'
+              : 'Flip');
+
+    const newLayout: Layout = {
+      id: `layout:custom:${deck.note_type_id}:${layoutMode}:${uuidv7().slice(0, 8)}`,
+      note_type_id: deck.note_type_id,
+      name: modeTitle,
+      front_fields: [effectiveFront],
+      reveal_steps: step2.length > 0 ? [step1, step2] : [step1],
+      answer_mode: layoutMode,
+      speak_field: speakFieldKey || effectiveFront,
+      speak_on: layoutMode === 'listen' ? 'front' : speakOn,
+      hide_furigana_on_front: layoutMode !== 'typed',
+      enabled: false,
+      ...(layoutMode === 'typed' || layoutMode === 'choice'
+        ? { answer_field: effectiveAnswer }
+        : {}),
+      ...(layoutMode === 'cloze' && clozeTyped ? { cloze_typed: true } : {}),
+    };
+    onAddLayout(newLayout, deck.id);
+    setLayoutName('');
+  };
+
   return (
-    <div className="mt-4 grid gap-3 border-t border-[var(--border)] pt-4 sm:grid-cols-2 lg:grid-cols-4">
-      <label className="flex flex-col gap-1 text-xs">
-        <span className="text-[var(--muted)]">New cards / day</span>
-        <input
-          type="number"
-          min={0}
-          max={999}
-          value={newPerDayDraft}
-          onChange={(e) => {
-            setNewPerDayDraft(e.target.value);
-            const v = Number(e.target.value);
-            if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 0 && v <= 999) {
-              onUpdateSettings(deck.id, { settings: { new_cards_per_day: Math.round(v) } });
-            }
-          }}
-          onBlur={commitNewPerDay}
-          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
-        />
-      </label>
+    <div className="mt-4 flex flex-col gap-4 border-t border-[var(--border)] pt-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="text-[var(--muted)]">New cards / day</span>
+          <input
+            type="number"
+            min={0}
+            max={999}
+            value={newPerDayDraft}
+            onChange={(e) => {
+              setNewPerDayDraft(e.target.value);
+              const v = Number(e.target.value);
+              if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 0 && v <= 999) {
+                onUpdateSettings(deck.id, { settings: { new_cards_per_day: Math.round(v) } });
+              }
+            }}
+            onBlur={commitNewPerDay}
+            className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+          />
+        </label>
 
-      <label className="flex flex-col gap-1 text-xs">
-        <span className="text-[var(--muted)]">Max reviews / day</span>
-        <input
-          type="number"
-          min={1}
-          max={9999}
-          value={maxRevDraft}
-          onChange={(e) => {
-            setMaxRevDraft(e.target.value);
-            const v = Number(e.target.value);
-            if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 1 && v <= 9999) {
-              onUpdateSettings(deck.id, { settings: { max_reviews_per_day: Math.round(v) } });
-            }
-          }}
-          onBlur={commitMaxRev}
-          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
-        />
-      </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="text-[var(--muted)]">Max reviews / day</span>
+          <input
+            type="number"
+            min={1}
+            max={9999}
+            value={maxRevDraft}
+            onChange={(e) => {
+              setMaxRevDraft(e.target.value);
+              const v = Number(e.target.value);
+              if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 1 && v <= 9999) {
+                onUpdateSettings(deck.id, { settings: { max_reviews_per_day: Math.round(v) } });
+              }
+            }}
+            onBlur={commitMaxRev}
+            className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+          />
+        </label>
 
-      <label className="flex flex-col gap-1 text-xs">
-        <span className="text-[var(--muted)]">Target retention (0.70–0.99)</span>
-        <input
-          type="number"
-          step={0.01}
-          min={0.7}
-          max={0.99}
-          aria-label="Target retention"
-          value={retentionDraft}
-          onChange={(e) => setRetentionDraft(e.target.value)}
-          onBlur={commitRetention}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              commitRetention();
-            }
-          }}
-          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
-        />
-      </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="text-[var(--muted)]">Target retention (0.70–0.99)</span>
+          <input
+            type="number"
+            step={0.01}
+            min={0.7}
+            max={0.99}
+            aria-label="Target retention"
+            value={retentionDraft}
+            onChange={(e) => setRetentionDraft(e.target.value)}
+            onBlur={commitRetention}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                commitRetention();
+              }
+            }}
+            className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+          />
+        </label>
 
-      <label className="flex flex-col gap-1 text-xs">
-        <span className="text-[var(--muted)]">New card order</span>
-        <select
-          value={deck.settings.new_card_order}
-          onChange={(e) =>
-            onUpdateSettings(deck.id, {
-              settings: { new_card_order: e.target.value as NewCardOrder },
-            })
-          }
-          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="text-[var(--muted)]">New card order</span>
+          <select
+            value={deck.settings.new_card_order}
+            onChange={(e) =>
+              onUpdateSettings(deck.id, {
+                settings: { new_card_order: e.target.value as NewCardOrder },
+              })
+            }
+            className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+          >
+            <option value="source">Source order</option>
+            <option value="random">Random (daily)</option>
+          </select>
+        </label>
+      </div>
+
+      {/* Add Answer Mode Layout (§5.2) */}
+      <form
+        onSubmit={handleCreateLayout}
+        data-testid={`add-layout-form-${deck.id}`}
+        className="flex flex-wrap items-end gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3"
+      >
+        <div className="w-full text-xs font-semibold text-[var(--fg)]">Add Answer Mode Layout</div>
+        <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
+          <span>Mode</span>
+          <select
+            aria-label="Answer mode"
+            value={layoutMode}
+            onChange={(e) => setLayoutMode(e.target.value as AnswerMode)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
+          >
+            <option value="typed">Typed Answer</option>
+            <option value="choice">Multiple Choice (4)</option>
+            <option value="cloze">Cloze Deletion</option>
+            <option value="listen">Listen (Audio Prompt)</option>
+            <option value="flip">Flip</option>
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
+          <span>Label</span>
+          <input
+            type="text"
+            aria-label="Layout label"
+            placeholder={layoutMode}
+            value={layoutName}
+            onChange={(e) => setLayoutName(e.target.value)}
+            className="w-28 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
+          />
+        </label>
+
+        {textFields.length > 0 && (
+          <>
+            <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
+              <span>Prompt field</span>
+              <select
+                aria-label="Prompt field"
+                value={frontFieldKey}
+                onChange={(e) => setFrontFieldKey(e.target.value)}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
+              >
+                {textFields.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {(layoutMode === 'typed' || layoutMode === 'choice') && (
+              <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
+                <span>Answer field</span>
+                <select
+                  aria-label="Answer field"
+                  value={answerFieldKey}
+                  onChange={(e) => setAnswerFieldKey(e.target.value)}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
+                >
+                  {textFields.map((f) => (
+                    <option key={f.key} value={f.key}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
+              <span>Speak field</span>
+              <select
+                aria-label="Speak field"
+                value={speakFieldKey}
+                onChange={(e) => setSpeakFieldKey(e.target.value)}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
+              >
+                {textFields.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {layoutMode !== 'listen' && (
+              <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
+                <span>Auto-speak</span>
+                <select
+                  aria-label="Auto-speak"
+                  value={speakOn}
+                  onChange={(e) => setSpeakOn(e.target.value as SpeakTiming)}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
+                >
+                  <option value="front">Front</option>
+                  <option value="reveal">On reveal</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </label>
+            )}
+          </>
+        )}
+
+        {layoutMode === 'cloze' && (
+          <label className="flex items-center gap-1.5 pb-1 text-xs text-[var(--muted)]">
+            <input
+              type="checkbox"
+              checked={clozeTyped}
+              onChange={(e) => setClozeTyped(e.target.checked)}
+            />
+            <span>Type blanks</span>
+          </label>
+        )}
+
+        <button
+          type="submit"
+          data-testid={`add-layout-submit-${deck.id}`}
+          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
         >
-          <option value="source">Source order</option>
-          <option value="random">Random (daily)</option>
-        </select>
-      </label>
+          + Add Layout
+        </button>
+      </form>
 
-      <div className="flex items-end sm:col-span-2 lg:col-span-4">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={() => onExportDeck(deck)}
@@ -157,6 +366,17 @@ function DeckOptionsPanel({
         >
           Export Deck (.flashpkg)
         </button>
+        {deck.source?.kind === 'google_sheets' &&
+          deck.source.uri?.startsWith('https://docs.google.com/spreadsheets/') && (
+            <a
+              href={deck.source.uri}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] hover:bg-[var(--surface-2)]"
+            >
+              Open Source Sheet ↗
+            </a>
+          )}
       </div>
     </div>
   );
@@ -176,6 +396,8 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     createDeck,
     updateDeckSettings,
     toggleDeckLayout,
+    upsertLayout,
+    upsertPage,
     markBackupCompleted,
   } = useApp();
 
@@ -188,11 +410,21 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Lazy Lesson Page Viewer / Editor modal-like view state
+  const [viewingPageId, setViewingPageId] = useState<string | null>(null);
+  const [editingPage, setEditingPage] = useState<Page | 'new' | null>(null);
+
   const decks = useMemo(
     () =>
       [...state.decks.values()]
         .filter((d) => !d.archived)
         .sort((a, b) => a.name.localeCompare(b.name)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, stateVersion],
+  );
+
+  const pages = useMemo(
+    () => [...state.pages.values()].sort((a, b) => a.title.localeCompare(b.title)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
@@ -207,6 +439,19 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
 
   const effectiveCsvDeckId = csvTargetDeckId || decks[0]?.id || '';
+
+  const viewingPage = viewingPageId ? state.pages.get(viewingPageId) : undefined;
+
+  const collectMediaBlobs = async (): Promise<Map<string, Uint8Array>> => {
+    const map = new Map<string, Uint8Array>();
+    for (const hash of state.media.keys()) {
+      const blob = await platform.storage.getMedia(hash);
+      if (blob) {
+        map.set(hash, blob.bytes);
+      }
+    }
+    return map;
+  };
 
   const handleCreateDeck = (e: FormEvent) => {
     e.preventDefault();
@@ -276,11 +521,18 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       if (!picked) return;
       const { importFlashpkg } = await import('@flash/core/flashpkg');
       const result = importFlashpkg(picked.bytes, state, getEventFactory());
+      for (const media of result.extractedMedia) {
+        await platform.storage.putMedia({
+          hash: media.hash,
+          mime: media.mime,
+          bytes: media.bytes,
+        });
+      }
       if (result.events.length > 0) {
         emitEvents(result.events);
       }
       setStatusMessage(
-        `Imported "${result.manifest.name}" (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.upgradedDecks} upgraded).`,
+        `Imported "${result.manifest.name}" (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.pagesImported} page(s), ${result.upgradedDecks} upgraded).`,
       );
       setErrorMessage(null);
     } catch (err) {
@@ -291,7 +543,8 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const handleExportDeck = async (deck: Deck) => {
     try {
       const { exportFlashpkg } = await import('@flash/core/flashpkg');
-      const bytes = exportFlashpkg(state, { deckId: deck.id, name: deck.name });
+      const mediaBlobs = await collectMediaBlobs();
+      const bytes = exportFlashpkg(state, { deckId: deck.id, name: deck.name, mediaBlobs });
       const slug =
         deck.name
           .toLowerCase()
@@ -309,7 +562,11 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const handleExportAll = async () => {
     try {
       const { exportFlashpkg } = await import('@flash/core/flashpkg');
-      const bytes = exportFlashpkg(state, { name: 'Flashcards Collection Backup' });
+      const mediaBlobs = await collectMediaBlobs();
+      const bytes = exportFlashpkg(state, {
+        name: 'Flashcards Collection Backup',
+        mediaBlobs,
+      });
       const dateStamp = new Date().toISOString().slice(0, 10);
       await platform.files.downloadFile(
         `flashcards-backup-${dateStamp}.flashpkg`,
@@ -324,13 +581,56 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     }
   };
 
+  // Active Lesson Page Editor or Reader (strictly lazy-loaded)
+  if (editingPage !== null) {
+    return (
+      <section className="flex flex-col gap-4">
+        <Suspense
+          fallback={
+            <div className="py-12 text-center text-sm text-[var(--muted)]">Loading editor…</div>
+          }
+        >
+          <LazyPageEditor
+            initialPage={editingPage === 'new' ? null : editingPage}
+            onSave={(input) => {
+              const savedId = upsertPage(input);
+              setEditingPage(null);
+              setViewingPageId(savedId);
+              setStatusMessage(`Saved lesson page "${input.title}".`);
+            }}
+            onCancel={() => setEditingPage(null)}
+          />
+        </Suspense>
+      </section>
+    );
+  }
+
+  if (viewingPage) {
+    return (
+      <section className="flex flex-col gap-4">
+        <Suspense
+          fallback={
+            <div className="py-12 text-center text-sm text-[var(--muted)]">Loading lesson…</div>
+          }
+        >
+          <LazyPageViewer
+            page={viewingPage}
+            onBack={() => setViewingPageId(null)}
+            onEdit={(p) => setEditingPage(p)}
+            onStudyDeck={onStudyDeck}
+          />
+        </Suspense>
+      </section>
+    );
+  }
+
   return (
     <section className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Library</h1>
           <p className="text-xs text-[var(--muted)]">
-            Manage decks, toggle Recognition/Production layouts, and import or export offline files.
+            Manage decks, answer-mode layouts, courses, lesson pages, and offline files.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -380,6 +680,15 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
         </div>
       )}
 
+      {/* Phase 3 Sources & Subscriptions */}
+      <SourcesPanel
+        onStatusMessage={(msg) => {
+          setStatusMessage(msg);
+          setErrorMessage(null);
+        }}
+        onErrorMessage={(msg) => setErrorMessage(msg)}
+      />
+
       {/* Deck List */}
       <div className="flex flex-col gap-3">
         {decks.map((deck) => {
@@ -401,11 +710,22 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h2 className="truncate text-base font-semibold">{deck.name}</h2>
                     <span className="rounded-md bg-[var(--surface-2)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--muted)]">
                       {deck.language}
                     </span>
+                    {deck.source && deck.source.kind !== 'native' && (
+                      <span className="rounded-md bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">
+                        {deck.source.kind === 'google_sheets'
+                          ? 'Google Sheet'
+                          : deck.source.kind === 'local_file'
+                            ? 'Local Folder'
+                            : deck.source.kind === 'package_url'
+                              ? `Subscribed${deck.source.package_version ? ` v${deck.source.package_version}` : ''}`
+                              : 'Package'}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
                     <span>{noteCount} notes</span>
@@ -419,7 +739,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
                   </div>
                 </div>
 
-                {/* 1-tap Recognition / Production layout toggles */}
+                {/* 1-tap Layout toggles (Recognition, Production, custom Typed/Choice/Cloze/Listen) */}
                 <div className="flex flex-wrap items-center gap-1.5">
                   {deckLayouts.map((layout) => {
                     const active = enabledIds.has(layout.id);
@@ -462,14 +782,100 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
               {isExpanded && (
                 <DeckOptionsPanel
                   deck={deck}
+                  noteType={state.noteTypes.get(deck.note_type_id)}
                   onUpdateSettings={updateDeckSettings}
                   onExportDeck={(d) => void handleExportDeck(d)}
+                  onAddLayout={(layout, dId) => {
+                    upsertLayout(layout, dId);
+                    setStatusMessage(`Added "${layout.name}" (${layout.answer_mode}) layout.`);
+                  }}
                 />
               )}
             </div>
           );
         })}
       </div>
+
+      {/* Phase 4 Courses (§2.3) */}
+      <CoursesPanel
+        onOpenPage={(pageId) => {
+          if (state.pages.has(pageId)) {
+            setViewingPageId(pageId);
+          }
+        }}
+        onStudyDeck={onStudyDeck}
+      />
+
+      {/* Phase 4 Lesson Pages (§2.3) */}
+      <section
+        data-testid="pages-panel"
+        className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">Lesson Pages ({pages.length})</h2>
+            <p className="text-xs text-[var(--muted)]">
+              Markdown grammar guides with ruby, audio prompts, examples, and inline study cards.
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="new-page-btn"
+            onClick={() => setEditingPage('new')}
+            className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
+          >
+            + New Page
+          </button>
+        </div>
+
+        {pages.length === 0 ? (
+          <p className="text-xs text-[var(--muted)]">No lesson pages yet.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {pages.map((page) => (
+              <div
+                key={page.id}
+                data-testid={`page-row-${page.slug}`}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate text-sm font-semibold">{page.title}</span>
+                    {page.lang && (
+                      <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
+                        {page.lang}
+                      </span>
+                    )}
+                    {page.read_at !== undefined && (
+                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                        Read ✓
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    data-testid={`open-page-${page.slug}`}
+                    onClick={() => setViewingPageId(page.id)}
+                    className="rounded-lg bg-[var(--accent)] px-3 py-1 text-xs font-semibold text-white hover:opacity-90"
+                  >
+                    Read
+                  </button>
+                  <button
+                    type="button"
+                    data-testid={`edit-page-${page.slug}`}
+                    onClick={() => setEditingPage(page)}
+                    className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Create Deck & Quick CSV/TSV Paste */}
       <div className="grid gap-4 md:grid-cols-2">

@@ -333,8 +333,8 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
 
     // Trigger Sync Now to pull & replay 500 events via Web Worker
     await page.getByTestId('sync-now-btn').click();
-    // Wait until all 500 remote events are reflected in "Events stored" (16 seed + 500 = 516)
-    await expect(page.getByText('516')).toBeVisible({ timeout: 10_000 });
+    // Wait until all 500 remote events are reflected in "Events stored" (22 Phase 4 seed + 500 = 522)
+    await expect(page.getByText('522')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('sync-status-pill')).toHaveText('Synced');
 
     const totalMainThreadLongTaskMs = await page.evaluate(() => {

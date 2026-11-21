@@ -37,3 +37,13 @@ Run from repository root using `pnpm`:
 3. **Performance budget (§8):** Initial study-screen JS `<= 150 KB` gzipped, `0` default web fonts (system CJK font stacks only), `<= 16 ms` optimistic flip/rate UI transition (persistence async), virtualized Browse list.
 4. **Phased scope discipline (§15):** Keep `packages/core` data structures ready for future phases (Pages, Courses, Answer Modes, Sync), but keep Phase 1 UI focused on offline Flip study, FSRS, Undo, Deck/Browse/Settings, and CSV/TSV + `.flashpkg` import/export.
 5. **Security (§13):** Never render raw HTML from note/package content; validate `.flashpkg` archives against zip path-traversal, file count, and uncompressed byte caps.
+
+## Workflow Checkpoints
+
+Default to normal single-agent execution; never force a slash command for small, linear, or tightly coupled work. Only pause at a natural boundary and suggest a slash command (with a concise ready-to-run prompt) when it clearly pays off:
+
+- **`/plan`** — starting a new Phase or major architectural change.
+- **`/boost`** — immediately before tricky, high-stakes logic (e.g., event replay, FSRS, sync convergence, race-safe Sheets `Card ID` write-back, untrusted import security).
+- **`/teamwork`** — after shared interfaces (`packages/core`, `packages/platform`) are frozen and `pnpm typecheck` passes, when 2+ independent package slices can run in parallel without file collisions.
+- **`/goal`** — once features are wired and only a mechanical green-CI burn-down remains (`typecheck`, `lint`, `test`, `build`, `size`, `test:e2e`).
+- **`/browser`** — when the PWA is ready for live visual, mobile-viewport, or `?device=a` / `?device=b` interactive QA.

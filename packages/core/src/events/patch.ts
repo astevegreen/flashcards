@@ -40,6 +40,8 @@ export interface CollectionStatePatch {
   pages: Page[];
   courses: Course[];
   media: MediaEntry[];
+  ttsMediaByKey?: Record<string, string>;
+  ttsMediaByLangKey?: Record<string, string>;
   preferences?: CollectionPreferences;
   addedUnknownEvents: UnknownEvent[];
   fieldHlcs: Record<string, string>;
@@ -181,6 +183,18 @@ export function computeStatePatch(
     if (m) media.push({ ...m });
   }
 
+  const ttsMediaByKey: Record<string, string> = {};
+  for (const key of collector.ttsKeys) {
+    const val = state.ttsMediaByKey.get(key);
+    if (val !== undefined) ttsMediaByKey[key] = val;
+  }
+
+  const ttsMediaByLangKey: Record<string, string> = {};
+  for (const key of collector.ttsLangKeys) {
+    const val = state.ttsMediaByLangKey.get(key);
+    if (val !== undefined) ttsMediaByLangKey[key] = val;
+  }
+
   const fieldHlcs: Record<string, string> = {};
   for (const key of collector.fieldHlcKeys) {
     const val = state.fieldHlcs.get(key);
@@ -237,7 +251,18 @@ export function computeStatePatch(
     pages,
     courses,
     media,
-    ...(collector.preferencesChanged ? { preferences: { ...state.preferences } } : {}),
+    ...(Object.keys(ttsMediaByKey).length > 0 ? { ttsMediaByKey } : {}),
+    ...(Object.keys(ttsMediaByLangKey).length > 0 ? { ttsMediaByLangKey } : {}),
+    ...(collector.preferencesChanged
+      ? {
+          preferences: {
+            ...state.preferences,
+            ...(state.preferences.tts_voices !== undefined
+              ? { tts_voices: { ...state.preferences.tts_voices } }
+              : {}),
+          },
+        }
+      : {}),
     addedUnknownEvents: collector.addedUnknownEvents,
     fieldHlcs,
     noteArchivedState,
@@ -357,11 +382,29 @@ export function mergeStatePatch(
   }
 
   for (const m of patch.media) {
-    target.media.set(m.hash, { ...m });
+    const normHash = m.hash.toLowerCase();
+    const entry: MediaEntry = { ...m, hash: normHash };
+    target.media.set(normHash, entry);
+  }
+
+  if (patch.ttsMediaByKey) {
+    for (const [k, v] of Object.entries(patch.ttsMediaByKey)) {
+      target.ttsMediaByKey.set(k, v.toLowerCase());
+    }
+  }
+  if (patch.ttsMediaByLangKey) {
+    for (const [k, v] of Object.entries(patch.ttsMediaByLangKey)) {
+      target.ttsMediaByLangKey.set(k, v.toLowerCase());
+    }
   }
 
   if (patch.preferences) {
-    target.preferences = { ...patch.preferences };
+    target.preferences = {
+      ...patch.preferences,
+      ...(patch.preferences.tts_voices !== undefined
+        ? { tts_voices: { ...patch.preferences.tts_voices } }
+        : {}),
+    };
   }
 
   for (const ev of patch.addedUnknownEvents) {

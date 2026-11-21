@@ -159,7 +159,10 @@ export class DexieStorage implements Storage {
     }
 
     await this.db.transaction('rw', this.db.events, this.db.kv, async () => {
-      const existing = await this.db.events.bulkGet(unique.map((ev) => ev.id));
+      const [existing, counterRow] = await Promise.all([
+        this.db.events.bulkGet(unique.map((ev) => ev.id)),
+        this.db.kv.get(LOCAL_SEQ_COUNTER_KEY),
+      ]);
       const toInsert: FlashEvent[] = [];
       for (let i = 0; i < unique.length; i++) {
         const ev = unique[i];
@@ -169,7 +172,6 @@ export class DexieStorage implements Storage {
       }
       if (toInsert.length === 0) return;
 
-      const counterRow = await this.db.kv.get(LOCAL_SEQ_COUNTER_KEY);
       let counter = typeof counterRow?.value === 'number' ? counterRow.value : 0;
       if (counter === 0) {
         const lastByLocalSeq = await this.db.events.orderBy('local_seq').last();
@@ -196,8 +198,10 @@ export class DexieStorage implements Storage {
         };
       });
 
-      await this.db.events.bulkPut(rows);
-      await this.db.kv.put({ key: LOCAL_SEQ_COUNTER_KEY, value: counter });
+      await Promise.all([
+        this.db.events.bulkPut(rows),
+        this.db.kv.put({ key: LOCAL_SEQ_COUNTER_KEY, value: counter }),
+      ]);
     });
   }
 
@@ -346,6 +350,10 @@ export class DexieStorage implements Storage {
     const row = await this.db.media.get(hash);
     if (!row) return undefined;
     return { hash: row.hash, mime: row.mime, bytes: row.bytes };
+  }
+
+  async listMediaHashes(): Promise<string[]> {
+    return this.db.media.toCollection().primaryKeys();
   }
 
   async requestPersistence(): Promise<boolean> {

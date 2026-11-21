@@ -23,6 +23,9 @@ export type NoteTypeDef = z.infer<typeof NoteTypeDefSchema>;
 export const AnswerModeSchema = z.enum(['flip', 'typed', 'choice', 'cloze', 'listen', 'draw']);
 export type AnswerMode = z.infer<typeof AnswerModeSchema>;
 
+export const SpeakTimingSchema = z.enum(['front', 'reveal', 'manual']);
+export type SpeakTiming = z.infer<typeof SpeakTimingSchema>;
+
 export const LayoutDefSchema = z.object({
   id: z.string().min(1),
   note_type_id: z.string().min(1),
@@ -31,8 +34,11 @@ export const LayoutDefSchema = z.object({
   reveal_steps: z.array(z.array(z.string().min(1)).min(1)).min(1),
   answer_mode: AnswerModeSchema.default('flip'),
   speak_field: z.string().min(1).optional(),
+  speak_on: SpeakTimingSchema.optional(),
   hide_furigana_on_front: z.boolean().default(false),
   enabled: z.boolean().default(true),
+  cloze_typed: z.boolean().optional(),
+  answer_field: z.string().min(1).optional(),
 });
 export type LayoutDef = z.infer<typeof LayoutDefSchema>;
 
@@ -94,6 +100,94 @@ export const CourseDefSchema = z.object({
 });
 export type CourseDef = z.infer<typeof CourseDefSchema>;
 
+function hasWhitespaceOrControlChar(raw: string): boolean {
+  for (let i = 0; i < raw.length; i++) {
+    const code = raw.charCodeAt(i);
+    if (code <= 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+/** Pure ES2023 strict HTTPS URL validator (§13 — rejects http:, javascript:, data:, credentials, backslashes). */
+export function isStrictHttpsUrl(raw: string): boolean {
+  if (!raw || hasWhitespaceOrControlChar(raw)) return false;
+  if (!/^https:\/\//i.test(raw)) return false;
+  const rest = raw.slice(8);
+  const endAuthority = rest.search(/[/?#]/);
+  const authority = endAuthority === -1 ? rest : rest.slice(0, endAuthority);
+  if (!authority || authority.includes('@') || authority.includes('\\')) return false;
+
+  let host = authority;
+  let portStr = '';
+  if (authority.startsWith('[')) {
+    const closeIdx = authority.indexOf(']');
+    if (closeIdx <= 1) return false;
+    host = authority.slice(1, closeIdx);
+    const after = authority.slice(closeIdx + 1);
+    if (after.length > 0) {
+      if (!after.startsWith(':')) return false;
+      portStr = after.slice(1);
+    }
+    if (!/^[0-9a-fA-F:]+$/.test(host)) return false;
+  } else {
+    const colonIdx = authority.lastIndexOf(':');
+    if (colonIdx !== -1) {
+      host = authority.slice(0, colonIdx);
+      portStr = authority.slice(colonIdx + 1);
+    }
+    if (!host || host.length > 253 || host.startsWith('.') || host.endsWith('.')) return false;
+    const labels = host.split('.');
+    if (labels.length < 2) return false;
+    for (const label of labels) {
+      if (
+        !label ||
+        label.length > 63 ||
+        !/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(label)
+      ) {
+        return false;
+      }
+    }
+  }
+
+  if (portStr !== '') {
+    if (!/^\d{1,5}$/.test(portStr)) return false;
+    const port = Number(portStr);
+    if (port < 1 || port > 65535) return false;
+  }
+
+  return true;
+}
+
+/** Strict HTTPS URL schema (§13 — rejects http:, javascript:, data:, credentials). */
+export const HttpsUrlSchema = z.string().min(1).refine(isStrictHttpsUrl, {
+  message: 'URL must use https: scheme with a valid host and no embedded credentials.',
+});
+
+export const FamilyCatalogEntrySchema = z.object({
+  package_id: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  url: HttpsUrlSchema,
+  version: z.string().min(1),
+  languages: z.array(z.string().min(1)).default([]),
+  updated_at: z.string().optional(),
+  author: z.string().optional(),
+  sha256: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/i, 'sha256 must be a 64-character hex string')
+    .optional(),
+});
+export type FamilyCatalogEntry = z.infer<typeof FamilyCatalogEntrySchema>;
+
+export const FamilyCatalogSchema = z.object({
+  format_version: z.literal(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  updated_at: z.string().optional(),
+  packages: z.array(FamilyCatalogEntrySchema),
+});
+export type FamilyCatalog = z.infer<typeof FamilyCatalogSchema>;
+
 export interface SchemaValidationError {
   path: string;
   code: string;
@@ -151,6 +245,14 @@ export function validateCourses(input: unknown): ValidationResult<CourseDef[]> {
   return { ok: false, errors: formatZodIssues(result.error.issues) };
 }
 
+export function validateFamilyCatalog(input: unknown): ValidationResult<FamilyCatalog> {
+  const result = FamilyCatalogSchema.safeParse(input);
+  if (result.success) {
+    return { ok: true, data: result.data };
+  }
+  return { ok: false, errors: formatZodIssues(result.error.issues) };
+}
+
 export function getPackageJsonSchemas(): Record<string, unknown> {
   return {
     manifest: z.toJSONSchema(PackageManifestSchema),
@@ -159,5 +261,6 @@ export function getPackageJsonSchemas(): Record<string, unknown> {
     note_record: z.toJSONSchema(PackageNoteRecordSchema),
     page_frontmatter: z.toJSONSchema(PageFrontmatterSchema),
     course: z.toJSONSchema(CourseDefSchema),
+    family_catalog: z.toJSONSchema(FamilyCatalogSchema),
   };
 }

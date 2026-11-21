@@ -16,7 +16,13 @@ import { Unzip, UnzipInflate, UnzipPassThrough, zipSync } from 'fflate';
 import type { CollectionState, EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { decodeUtf8, deriveNoteId, encodeUtf8, uuidv5, FLASH_NAMESPACE_UUID } from '../ids.ts';
-import type { Note } from '../model/types.ts';
+import type { Note, SourceRef } from '../model/types.ts';
+import { computeNoteContentHash, sha256Hex } from '../sources/hash.ts';
+import {
+  normalizeMarkdownPage,
+  parseMarkdownFrontmatter,
+  type PageNormalizeWarning,
+} from '../sources/pages.ts';
 
 export const FLASHPKG_SECURITY_LIMITS = {
   maxFiles: 10_000,
@@ -33,6 +39,15 @@ export interface FlashpkgExportOptions {
   license?: string;
   /** Optional single deckId to export; omits to export entire collection. */
   deckId?: string;
+  /** Optional local media blobs keyed by SHA-256 hex to pack under `media/<sha256>.<ext>`. */
+  mediaBlobs?: ReadonlyMap<string, Uint8Array>;
+}
+
+export interface ExtractedPackageMedia {
+  hash: string;
+  ext: string;
+  mime: string;
+  bytes: Uint8Array;
 }
 
 export interface FlashpkgImportResult {
@@ -40,7 +55,10 @@ export interface FlashpkgImportResult {
   events: KnownEvent[];
   decksImported: number;
   notesImported: number;
+  pagesImported: number;
   upgradedDecks: number;
+  extractedMedia: ExtractedPackageMedia[];
+  warnings: PageNormalizeWarning[];
 }
 
 export class FlashpkgSecurityError extends Error {
@@ -164,8 +182,11 @@ export function exportFlashpkg(
           reveal_steps: layout.reveal_steps,
           answer_mode: layout.answer_mode,
           ...(layout.speak_field !== undefined ? { speak_field: layout.speak_field } : {}),
+          ...(layout.speak_on !== undefined ? { speak_on: layout.speak_on } : {}),
           hide_furigana_on_front: layout.hide_furigana_on_front,
           enabled: layout.enabled,
+          ...(layout.cloze_typed !== undefined ? { cloze_typed: layout.cloze_typed } : {}),
+          ...(layout.answer_field !== undefined ? { answer_field: layout.answer_field } : {}),
         });
       }
     }
@@ -206,6 +227,64 @@ export function exportFlashpkg(
       })),
     }));
     files['courses.json'] = encodeUtf8(JSON.stringify(courses, null, 2));
+  }
+
+  // Pack Markdown Pages (`pages/<slug>.md`) on full collection backup
+  const exportedPages =
+    options.deckId === undefined
+      ? [...state.pages.values()].sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
+      : [];
+  const usedSlugs = new Set<string>();
+  for (const page of exportedPages) {
+    let slug = safeSlug(page.slug || page.title, 'page');
+    let suffix = 2;
+    while (usedSlugs.has(slug)) {
+      slug = `${safeSlug(page.slug || page.title, 'page')}-${suffix}`;
+      suffix += 1;
+    }
+    usedSlugs.add(slug);
+    const fmLines = [
+      '---',
+      `id: ${JSON.stringify(page.id)}`,
+      `slug: ${JSON.stringify(page.slug)}`,
+      `title: ${JSON.stringify(page.title)}`,
+      ...(page.lang ? [`lang: ${JSON.stringify(page.lang)}`] : []),
+      ...(page.tags.length > 0
+        ? [`tags: [${page.tags.map((t) => JSON.stringify(t)).join(', ')}]`]
+        : []),
+      '---',
+      '',
+    ];
+    files[`pages/${slug}.md`] = encodeUtf8(fmLines.join('\n') + page.markdown + '\n');
+  }
+
+  // Pack media/<sha256>.<ext> blobs when provided
+  if (options.mediaBlobs && options.mediaBlobs.size > 0) {
+    const referencedHashes = new Set<string>();
+    if (options.deckId !== undefined) {
+      const mediaRe = /media:([0-9a-f]{64})/gi;
+      for (const deck of targetDecks) {
+        for (const note of state.notes.values()) {
+          if (note.deck_id !== deck.id || note.archived) continue;
+          for (const val of Object.values(note.fields)) {
+            let m: RegExpExecArray | null;
+            while ((m = mediaRe.exec(val)) !== null) {
+              if (m[1]) referencedHashes.add(m[1].toLowerCase());
+            }
+          }
+        }
+      }
+    }
+
+    for (const [hash, entry] of state.media.entries()) {
+      const normHash = hash.toLowerCase();
+      if (options.deckId !== undefined && !referencedHashes.has(normHash)) continue;
+      const blob = options.mediaBlobs.get(normHash) ?? options.mediaBlobs.get(hash);
+      if (!blob) continue;
+      const ext = entry.ext.toLowerCase().replace(/^\./, '');
+      if (!SAFE_MEDIA_MIME_BY_EXT[ext]) continue;
+      files[`media/${normHash}.${ext}`] = blob;
+    }
   }
 
   return zipSync(files, { level: 6 });
@@ -350,6 +429,18 @@ function safeUnzipArchive(
   return extracted;
 }
 
+const SAFE_MEDIA_MIME_BY_EXT: Readonly<Record<string, string>> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  mp3: 'audio/mpeg',
+  ogg: 'audio/ogg',
+  wav: 'audio/wav',
+  m4a: 'audio/mp4',
+};
+
 /**
  * Safely unpacks, validates, and converts a `.flashpkg` archive into events.
  * - Security (§13): blocks path traversal, file-count bombs, and uncompressed size bombs (including spoofed headers).
@@ -360,7 +451,12 @@ export function importFlashpkg(
   archiveBytes: Uint8Array,
   state: CollectionState,
   eventFactory: EventFactory,
-  options?: { nowMs?: number; limits?: Partial<typeof FLASHPKG_SECURITY_LIMITS> },
+  options?: {
+    nowMs?: number;
+    limits?: Partial<typeof FLASHPKG_SECURITY_LIMITS>;
+    sourceOverride?: Partial<SourceRef>;
+    archiveRemovedOnUpgrade?: boolean;
+  },
 ): FlashpkgImportResult {
   const limits = { ...FLASHPKG_SECURITY_LIMITS, ...options?.limits };
   const nowMs = options?.nowMs ?? Date.now();
@@ -371,8 +467,20 @@ export function importFlashpkg(
     throw new FlashpkgValidationError('Invalid manifest.json', manifestValidation.errors);
   }
   const manifest = manifestValidation.data;
+  const baseSource: SourceRef = {
+    kind: options?.sourceOverride?.kind ?? 'package',
+    ...(options?.sourceOverride?.uri !== undefined ? { uri: options.sourceOverride.uri } : {}),
+    ...(options?.sourceOverride?.external_id !== undefined
+      ? { external_id: options.sourceOverride.external_id }
+      : {}),
+    package_id: manifest.package_id,
+    package_version: manifest.version,
+    last_synced_at: nowMs,
+  };
 
   const events: KnownEvent[] = [];
+  const extractedMedia: ExtractedPackageMedia[] = [];
+  const warnings: PageNormalizeWarning[] = [];
   let firstImportedNoteTypeId: string | undefined;
 
   if (extracted.has('note_types.json')) {
@@ -423,37 +531,11 @@ export function importFlashpkg(
               reveal_steps: layout.reveal_steps,
               answer_mode: layout.answer_mode,
               ...(layout.speak_field !== undefined ? { speak_field: layout.speak_field } : {}),
+              ...(layout.speak_on !== undefined ? { speak_on: layout.speak_on } : {}),
               hide_furigana_on_front: layout.hide_furigana_on_front,
               enabled: layout.enabled,
-            },
-          },
-          nowMs,
-        ),
-      );
-    }
-  }
-
-  if (extracted.has('courses.json')) {
-    const coursesRes = validateCourses(parseJsonFile(extracted, 'courses.json'));
-    if (!coursesRes.ok) {
-      throw new FlashpkgValidationError('Invalid courses.json', coursesRes.errors);
-    }
-    for (const course of coursesRes.data) {
-      events.push(
-        eventFactory.create(
-          'CourseChanged',
-          {
-            course: {
-              id: course.id,
-              name: course.name,
-              ...(course.description !== undefined ? { description: course.description } : {}),
-              items: course.items.map((item) => ({
-                kind: item.kind,
-                ref_id: item.ref_id,
-                ...(item.unlocks_after_page_id !== undefined
-                  ? { unlocks_after_page_id: item.unlocks_after_page_id }
-                  : {}),
-              })),
+              ...(layout.cloze_typed !== undefined ? { cloze_typed: layout.cloze_typed } : {}),
+              ...(layout.answer_field !== undefined ? { answer_field: layout.answer_field } : {}),
             },
           },
           nowMs,
@@ -465,6 +547,8 @@ export function importFlashpkg(
   let decksImported = 0;
   let notesImported = 0;
   let upgradedDecks = 0;
+  const deckIdMap = new Map<string, string>();
+  const pageIdMap = new Map<string, string>();
 
   // Build list of deck entries from manifest (or discover decks/*.jsonl if manifest.decks is empty)
   const deckEntries: PackageDeckEntry[] =
@@ -506,6 +590,7 @@ export function importFlashpkg(
       );
 
     const targetDeckId = existingDeck ? existingDeck.id : deterministicDeckId;
+    deckIdMap.set(deckEntry.id, targetDeckId);
 
     if (existingDeck) {
       upgradedDecks += 1;
@@ -527,12 +612,7 @@ export function importFlashpkg(
           {
             target_kind: 'deck',
             target_id: targetDeckId,
-            source: {
-              kind: 'package',
-              package_id: manifest.package_id,
-              package_version: manifest.version,
-              last_synced_at: nowMs,
-            },
+            source: baseSource,
           },
           nowMs,
         ),
@@ -546,12 +626,7 @@ export function importFlashpkg(
             name: deckEntry.name,
             note_type_id: deckEntry.note_type_id,
             language: deckEntry.language ?? manifest.languages[0] ?? 'en',
-            source: {
-              kind: 'package',
-              package_id: manifest.package_id,
-              package_version: manifest.version,
-              last_synced_at: nowMs,
-            },
+            source: baseSource,
             created_at: nowMs,
           },
           nowMs,
@@ -561,10 +636,14 @@ export function importFlashpkg(
     decksImported += 1;
 
     // Pre-index existing notes for this deck by source_key for O(1) upgrade matching
+    const existingDeckNotes: Note[] = [];
     const existingNotesBySourceKey = new Map<string, Note>();
     for (const note of state.notes.values()) {
-      if (note.deck_id === targetDeckId && note.source_key) {
-        existingNotesBySourceKey.set(note.source_key, note);
+      if (note.deck_id === targetDeckId) {
+        existingDeckNotes.push(note);
+        if (note.source_key) {
+          existingNotesBySourceKey.set(note.source_key, note);
+        }
       }
     }
 
@@ -572,6 +651,8 @@ export function importFlashpkg(
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
+
+    const seenNoteIds = new Set<string>();
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -596,23 +677,164 @@ export function importFlashpkg(
       // Upgrade-safe note matching: find existing note in targetDeck by source_key, else derive deterministically
       const existingNote = existingNotesBySourceKey.get(rec.id);
       const noteId = existingNote ? existingNote.id : deriveNoteId(targetDeckId, rec.id);
+      seenNoteIds.add(noteId);
 
+      if (existingNote) {
+        const prevHash = computeNoteContentHash(existingNote.fields, existingNote.tags);
+        const nextHash = computeNoteContentHash(rec.fields, rec.tags);
+        if (existingNote.archived) {
+          events.push(eventFactory.create('NoteRestored', { note_id: noteId }, nowMs));
+        }
+        if (prevHash !== nextHash) {
+          events.push(
+            eventFactory.create(
+              'NoteUpserted',
+              {
+                note_id: noteId,
+                deck_id: targetDeckId,
+                source_key: rec.id,
+                fields: rec.fields,
+                tags: rec.tags,
+                provenance: rec.provenance ?? { source: 'import', reviewed: true },
+                created_order: i,
+              },
+              nowMs,
+            ),
+          );
+        }
+      } else {
+        events.push(
+          eventFactory.create(
+            'NoteUpserted',
+            {
+              note_id: noteId,
+              deck_id: targetDeckId,
+              source_key: rec.id,
+              fields: rec.fields,
+              tags: rec.tags,
+              provenance: rec.provenance ?? { source: 'import', reviewed: true },
+              created_order: i,
+            },
+            nowMs,
+          ),
+        );
+      }
+      notesImported += 1;
+    }
+
+    // Soft-archive notes removed in an upgraded package version when requested (preserves reviews)
+    if (existingDeck && options?.archiveRemovedOnUpgrade) {
+      for (const existing of existingDeckNotes) {
+        if (!existing.archived && !seenNoteIds.has(existing.id)) {
+          events.push(eventFactory.create('NoteArchived', { note_id: existing.id }, nowMs));
+        }
+      }
+    }
+  }
+
+  // Import pages/<slug>.md entries (enforcing §13 raw HTML stripping)
+  let pagesImported = 0;
+  const pagePaths = [...extracted.keys()]
+    .filter((k) => k.startsWith('pages/') && k.endsWith('.md'))
+    .sort();
+  for (const pagePath of pagePaths) {
+    const mdBytes = extracted.get(pagePath);
+    if (!mdBytes) continue;
+    const rawMd = decodeUtf8(mdBytes);
+    const fm = parseMarkdownFrontmatter(rawMd);
+    const slugFromFile = pagePath.slice('pages/'.length, -'.md'.length);
+    const pageRes = normalizeMarkdownPage({
+      sourceKey: `pkg:${manifest.package_id}:${slugFromFile}`,
+      fallbackTitle: slugFromFile,
+      rawMarkdown: rawMd,
+      source: baseSource,
+      state,
+      eventFactory,
+      nowMs,
+    });
+    if (fm.id) {
+      pageIdMap.set(fm.id, pageRes.pageId);
+    }
+    pageIdMap.set(slugFromFile, pageRes.pageId);
+    pageIdMap.set(pageRes.slug, pageRes.pageId);
+    events.push(...pageRes.events);
+    warnings.push(...pageRes.warnings);
+    pagesImported += 1;
+  }
+
+  // Import courses.json AFTER decks & pages so course references remap cleanly to resolved IDs
+  if (extracted.has('courses.json')) {
+    const coursesRes = validateCourses(parseJsonFile(extracted, 'courses.json'));
+    if (!coursesRes.ok) {
+      throw new FlashpkgValidationError('Invalid courses.json', coursesRes.errors);
+    }
+    for (const course of coursesRes.data) {
       events.push(
         eventFactory.create(
-          'NoteUpserted',
+          'CourseChanged',
           {
-            note_id: noteId,
-            deck_id: targetDeckId,
-            source_key: rec.id,
-            fields: rec.fields,
-            tags: rec.tags,
-            provenance: rec.provenance ?? { source: 'import', reviewed: true },
-            created_order: i,
+            course: {
+              id: course.id,
+              name: course.name,
+              ...(course.description !== undefined ? { description: course.description } : {}),
+              items: course.items.map((item) => {
+                const resolvedRefId =
+                  item.kind === 'deck'
+                    ? (deckIdMap.get(item.ref_id) ?? item.ref_id)
+                    : (pageIdMap.get(item.ref_id) ?? item.ref_id);
+                const resolvedPrereq =
+                  item.unlocks_after_page_id !== undefined
+                    ? (pageIdMap.get(item.unlocks_after_page_id) ?? item.unlocks_after_page_id)
+                    : undefined;
+                return {
+                  kind: item.kind,
+                  ref_id: resolvedRefId,
+                  ...(resolvedPrereq !== undefined
+                    ? { unlocks_after_page_id: resolvedPrereq }
+                    : {}),
+                };
+              }),
+            },
           },
           nowMs,
         ),
       );
-      notesImported += 1;
+    }
+  }
+
+  // Extract media/<sha256>.<ext> entries and emit MediaAdded
+  const mediaPaths = [...extracted.keys()].filter((k) => k.startsWith('media/')).sort();
+  for (const mediaPath of mediaPaths) {
+    const mediaBytes = extracted.get(mediaPath);
+    if (!mediaBytes) continue;
+    const match = /^media\/([0-9a-f]{64})\.([a-z0-9]{1,8})$/i.exec(mediaPath);
+    if (!match) continue;
+    const declaredHash = (match[1] ?? '').toLowerCase();
+    const ext = (match[2] ?? '').toLowerCase();
+    const mime = SAFE_MEDIA_MIME_BY_EXT[ext];
+    if (!mime) continue;
+    const actualHash = sha256Hex(mediaBytes);
+    if (actualHash !== declaredHash) {
+      throw new FlashpkgSecurityError(
+        `Media hash mismatch for "${mediaPath}": expected ${declaredHash}, got ${actualHash}.`,
+      );
+    }
+    extractedMedia.push({ hash: actualHash, ext, mime, bytes: mediaBytes });
+    if (!state.media.has(actualHash)) {
+      events.push(
+        eventFactory.create(
+          'MediaAdded',
+          {
+            media: {
+              hash: actualHash,
+              ext,
+              mime,
+              size: mediaBytes.byteLength,
+            },
+          },
+          nowMs,
+        ),
+      );
     }
   }
 
@@ -621,6 +843,9 @@ export function importFlashpkg(
     events,
     decksImported,
     notesImported,
+    pagesImported,
     upgradedDecks,
+    extractedMedia,
+    warnings,
   };
 }
