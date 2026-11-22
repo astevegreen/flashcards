@@ -341,21 +341,26 @@ export function AppProvider({
 
   const getEventFactory = useCallback(() => factoryRef.current ?? eventFactory, [eventFactory]);
 
-  // Leech backfill: cards that reached the leech threshold before leech tagging existed (or on an
-  // older build, or through an imported history) get the `leech` tag as set-union events, which
-  // converge when several devices backfill concurrently. Waits while a sync is pulling so the plan
-  // sees the merged log (an earlier add or a later removal of the tag elsewhere). Idempotent.
-  const syncBusy = syncController.syncState.status === 'syncing';
+  // Leech backfill, once per app launch: cards that reached the leech threshold before leech
+  // tagging existed (or on an older build, or through an imported history) get the `leech` tag as
+  // set-union events, which converge when several devices backfill concurrently. With a sync
+  // provider it waits for the first completed sync, so the plan sees the merged log (an earlier
+  // add, or a removal of the tag elsewhere, both skip the note). Leeches that arrive later are
+  // picked up at the next launch. Idempotent.
+  const { provider: syncProvider, status: syncStatus, readOnly } = syncController.syncState;
+  const backfillReady = !readOnly && (syncProvider === 'none' || syncStatus === 'synced');
+  const backfillDoneRef = useRef(false);
   const emitEventsRef = useRef(emitEvents);
   emitEventsRef.current = emitEvents;
   useEffect(() => {
-    if (syncBusy) return;
+    if (!backfillReady || backfillDoneRef.current) return;
+    backfillDoneRef.current = true;
     const plan = planLeechBackfill(stateRef.current ?? collectionState);
     if (plan.length === 0) return;
     const factory = factoryRef.current ?? eventFactory;
     const nowMs = Date.now();
     emitEventsRef.current(plan.map((payload) => factory.create('NoteTagsAdded', payload, nowMs)));
-  }, [collectionState, eventFactory, stateVersion, syncBusy]);
+  }, [backfillReady, collectionState, eventFactory]);
 
   // Non-blocking post-first-paint source check (§3.1 modifiedTime check & §3.2 local folder rescan).
   // Strictly lazy-loads sourceRunner ONLY if linked sources exist so initial bundle stays lean (§8).
