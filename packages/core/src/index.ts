@@ -8,6 +8,7 @@ export * from './events/snapshot.ts';
 export * from './events/patch.ts';
 export * from './fsrs/scheduler.ts';
 export * from './events/suspension.ts';
+export * from './events/tag-adds.ts';
 export * from './study/filter.ts';
 export * from './tags/index.ts';
 export * from './tags/bulk.ts';

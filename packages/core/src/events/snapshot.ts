@@ -18,6 +18,7 @@ import {
   type PendingPagePatch,
 } from './replay.ts';
 import { foldSuspensionEventsFromUnknown } from './suspension.ts';
+import { foldTagAddEventsFromUnknown } from './tag-adds.ts';
 import type { UnknownEvent } from './types.ts';
 
 export const SERIALIZED_STATE_FORMAT_VERSION = 1;
@@ -434,7 +435,7 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
     }
   }
 
-  return {
+  const state: CollectionState = {
     noteTypes,
     layouts,
     decks,
@@ -470,4 +471,7 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
     snapshotWatermarks,
     snapshotEventCount: serialized.totalEvents,
   };
+  // Snapshots from builds that predate `NoteTagsAdded` carry those events as unknown.
+  state.unknownEvents = foldTagAddEventsFromUnknown(state, unknownEvents);
+  return state;
 }

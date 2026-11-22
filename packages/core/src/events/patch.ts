@@ -18,6 +18,7 @@ import {
   type PendingDeckPatch,
   type PendingPagePatch,
 } from './replay.ts';
+import { recordTagAddKeys } from './tag-adds.ts';
 import type { FlashEvent, UnknownEvent } from './types.ts';
 
 /**
@@ -420,6 +421,7 @@ export function mergeStatePatch(
   for (const [k, v] of Object.entries(patch.fieldHlcs)) {
     target.fieldHlcs.set(k, v);
   }
+  recordTagAddKeys(target, Object.keys(patch.fieldHlcs));
 
   for (const [k, v] of Object.entries(patch.noteArchivedState)) {
     target.noteArchivedState.set(k, v);
