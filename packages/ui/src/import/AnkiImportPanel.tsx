@@ -1,6 +1,13 @@
-import type { AnkiImportResult, AnkiSkippedReviews } from '@flash/core/anki';
+import type {
+  ANKI_FIELD_LANGUAGES,
+  AnkiFieldLanguageOption,
+  ankiFieldLanguageEvents,
+  AnkiImportedNoteType,
+  AnkiImportResult,
+  AnkiSkippedReviews,
+} from '@flash/core/anki';
 import { canCreateOrImportDeck } from '@flash/core/license';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
 import { useApp } from '../state/AppContext.tsx';
 import { ANKI_IMPORT_PANEL_HEIGHT } from './anki-import-layout.ts';
@@ -17,6 +24,12 @@ const PHASE_TEXT: Record<Phase, string> = {
   done: '',
   error: '',
 };
+
+/** What the panel keeps of the lazily loaded `@flash/core/anki` after an import. */
+interface AnkiModule {
+  ANKI_FIELD_LANGUAGES: typeof ANKI_FIELD_LANGUAGES;
+  ankiFieldLanguageEvents: typeof ankiFieldLanguageEvents;
+}
 
 function plural(count: number, one: string, many = `${one}s`): string {
   return `${count} ${count === 1 ? one : many}`;
@@ -38,6 +51,9 @@ export function describeAnkiImport(result: AnkiImportResult, includeHistory: boo
   const lines = [
     `Imported ${plural(summary.notes, 'note')} into ${plural(summary.decks, 'deck')} (${summary.newDecks} new): ${summary.changedNotes} added or updated, ${plural(summary.noteTypes, 'new note type')}, ${plural(summary.media, 'media file')}.`,
   ];
+  if (summary.suspended > 0) {
+    lines.push(`Suspended ${plural(summary.suspended, 'card')}, as in Anki.`);
+  }
   if (includeHistory) {
     const skipped = describeSkipped(summary.skippedReviews);
     const skippedText = skipped ? ` Skipped: ${skipped}.` : '';
@@ -46,9 +62,94 @@ export function describeAnkiImport(result: AnkiImportResult, includeHistory: boo
   return lines.join('\n');
 }
 
+/** The language codes offered for one field: the shared list plus its current value. */
+function optionsFor(
+  languages: readonly AnkiFieldLanguageOption[],
+  current: string,
+): AnkiFieldLanguageOption[] {
+  if (languages.some((l) => l.code === current)) return [...languages];
+  return [...languages, { code: current, label: current }];
+}
+
+interface FieldLanguagesProps {
+  noteTypes: readonly AnkiImportedNoteType[];
+  languages: readonly AnkiFieldLanguageOption[];
+  onChange: (noteType: AnkiImportedNoteType, fieldKey: string, lang: string) => void;
+}
+
+/**
+ * Phase 14: the language detected for each imported field, with an accessible select to correct
+ * it. Values come from the collection (so a correction shows at once and survives re-imports).
+ */
+function AnkiFieldLanguages({ noteTypes, languages, onChange }: Readonly<FieldLanguagesProps>) {
+  const { state } = useApp();
+  if (noteTypes.length === 0) return null;
+  return (
+    <div data-testid="anki-field-languages" className="mt-3 flex flex-col gap-2">
+      <div>
+        <p className="font-semibold text-[var(--fg)]">Field languages</p>
+        <p className="text-[11px] text-[var(--muted)]">
+          Detected from the text. Change any that are wrong: speech and text display use it.
+        </p>
+      </div>
+      {noteTypes.map((nt) => {
+        const current = new Map(
+          (state.noteTypes.get(nt.noteTypeId)?.fields ?? []).map((f) => [f.key, f.lang]),
+        );
+        return (
+          <fieldset
+            key={nt.noteTypeId}
+            className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-[var(--border)] p-2"
+          >
+            <legend className="max-w-full px-1 text-[11px] font-semibold break-words">
+              {nt.name}
+            </legend>
+            {nt.fields.map((field) => {
+              const value = current.get(field.key) ?? field.lang;
+              return (
+                <label
+                  key={field.key}
+                  className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1"
+                >
+                  <span className="min-w-0 break-words">{field.name}</span>
+                  <select
+                    aria-label={`Language of ${field.name} (${nt.name})`}
+                    data-testid={`anki-field-lang-${field.key}`}
+                    value={value}
+                    onChange={(e) => onChange(nt, field.key, e.target.value)}
+                    className="max-w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-xs"
+                  >
+                    {optionsFor(languages, value).map((l) => (
+                      <option key={l.code} value={l.code}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              );
+            })}
+          </fieldset>
+        );
+      })}
+    </div>
+  );
+}
+
+export interface PendingAnkiFile {
+  name: string;
+  bytes: Uint8Array;
+}
+
 export interface AnkiImportPanelProps {
   /** Called after a successful import with the decks the package filled. */
   onImported?: (deckIds: readonly string[]) => void;
+  /**
+   * A package the guided "Bring my cards" flow already detected: imported once on mount (review
+   * history off, the owner default), after which the panel works as usual.
+   */
+  pendingFile?: PendingAnkiFile;
+  /** Drop the panel's own border and fixed height (it sits inside another fixed-height box). */
+  embedded?: boolean;
 }
 
 /**
@@ -56,12 +157,19 @@ export interface AnkiImportPanelProps {
  * SQLite/zstd reader runs in a Web Worker behind `platform.getAnkiPackageReader`. Review history
  * is opt-in (off by default). Every message renders as plain text.
  */
-export function AnkiImportPanel({ onImported }: Readonly<AnkiImportPanelProps>) {
+export function AnkiImportPanel({
+  onImported,
+  pendingFile,
+  embedded = false,
+}: Readonly<AnkiImportPanelProps>) {
   const { platform, state, entitlement, emitEvents, getEventFactory } = useApp();
   const [includeHistory, setIncludeHistory] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [message, setMessage] = useState(PHASE_TEXT.idle);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [imported, setImported] = useState<AnkiImportedNoteType[]>([]);
+  const ankiModule = useRef<AnkiModule | null>(null);
+  const startedPending = useRef<PendingAnkiFile | null>(null);
   const busy = phase === 'reading' || phase === 'converting' || phase === 'saving';
   const readerAvailable = typeof platform.getAnkiPackageReader === 'function';
 
@@ -75,15 +183,16 @@ export function AnkiImportPanel({ onImported }: Readonly<AnkiImportPanelProps>) 
     setMessage(text);
   };
 
-  const runImport = async (bytes: Uint8Array) => {
+  const runImport = async (bytes: Uint8Array, withHistory: boolean) => {
     if (!platform.getAnkiPackageReader) return;
     go('reading');
     const reader = await platform.getAnkiPackageReader();
-    const raw = await reader.read(bytes, { includeReviewHistory: includeHistory });
+    const raw = await reader.read(bytes, { includeReviewHistory: withHistory });
     go('converting');
-    const { importAnkiPackage } = await import('@flash/core/anki');
-    const result = importAnkiPackage(raw, state, getEventFactory(), {
-      includeReviewHistory: includeHistory,
+    const mod = await import('@flash/core/anki');
+    ankiModule.current = mod;
+    const result = mod.importAnkiPackage(raw, state, getEventFactory(), {
+      includeReviewHistory: withHistory,
       tzOffsetMinutes: -new Date().getTimezoneOffset(),
     });
     if (result.summary.newDecks > 0) {
@@ -100,30 +209,55 @@ export function AnkiImportPanel({ onImported }: Readonly<AnkiImportPanelProps>) 
     }
     if (result.events.length > 0) emitEvents(result.events);
     setWarnings([...new Set(result.warnings)]);
+    setImported(result.noteTypes);
     setPhase('done');
-    setMessage(describeAnkiImport(result, includeHistory));
+    setMessage(describeAnkiImport(result, withHistory));
     onImported?.(result.deckIds);
   };
 
-  const handlePick = async () => {
+  const importSafely = async (bytes: Uint8Array, withHistory: boolean) => {
     setWarnings([]);
+    setImported([]);
     try {
-      const picked = await platform.files.pickFile({ accept: '.apkg' });
-      if (!picked) return;
-      await runImport(picked.bytes);
+      await runImport(bytes, withHistory);
     } catch (err) {
       fail(describeImportError(err));
     }
   };
 
+  const handlePick = async () => {
+    try {
+      const picked = await platform.files.pickFile({ accept: '.apkg' });
+      if (!picked) return;
+      await importSafely(picked.bytes, includeHistory);
+    } catch (err) {
+      fail(describeImportError(err));
+    }
+  };
+
+  useEffect(() => {
+    if (!pendingFile || startedPending.current === pendingFile) return;
+    startedPending.current = pendingFile;
+    void importSafely(pendingFile.bytes, false);
+    // The pending file is imported exactly once; later renders must not re-run it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingFile]);
+
+  const handleLanguage = (noteType: AnkiImportedNoteType, fieldKey: string, lang: string) => {
+    const mod = ankiModule.current;
+    if (!mod) return;
+    const events = mod.ankiFieldLanguageEvents(state, noteType, fieldKey, lang, getEventFactory());
+    if (events.length > 0) emitEvents(events);
+  };
+
   const statusTone = phase === 'error' ? 'text-rose-700 dark:text-rose-300' : 'text-[var(--muted)]';
+  const frame = embedded
+    ? 'flex h-full min-h-0 flex-col gap-3'
+    : `flex flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 ${ANKI_IMPORT_PANEL_HEIGHT}`;
+  const pickLabel = pendingFile ? 'Choose another .apkg…' : 'Choose .apkg file…';
 
   return (
-    <section
-      data-testid="anki-import-panel"
-      aria-label="Import from Anki"
-      className={`flex flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 ${ANKI_IMPORT_PANEL_HEIGHT}`}
-    >
+    <section data-testid="anki-import-panel" aria-label="Import from Anki" className={frame}>
       <div className="shrink-0">
         <h2 className="text-sm font-semibold">Import from Anki</h2>
         <p className="text-xs text-[var(--muted)]">
@@ -149,7 +283,7 @@ export function AnkiImportPanel({ onImported }: Readonly<AnkiImportPanelProps>) 
           onClick={() => void handlePick()}
           className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-xs font-semibold text-[var(--fg)] hover:opacity-90 disabled:opacity-40"
         >
-          Choose .apkg file…
+          {pickLabel}
         </button>
       </div>
       {/* One fixed box for the status and any warnings: it fills the rest of the fixed-height
@@ -175,6 +309,13 @@ export function AnkiImportPanel({ onImported }: Readonly<AnkiImportPanelProps>) 
               <li>…and {warnings.length - MAX_LISTED_WARNINGS} more</li>
             )}
           </ul>
+        )}
+        {phase === 'done' && ankiModule.current && (
+          <AnkiFieldLanguages
+            noteTypes={imported}
+            languages={ankiModule.current.ANKI_FIELD_LANGUAGES}
+            onChange={handleLanguage}
+          />
         )}
       </div>
     </section>
