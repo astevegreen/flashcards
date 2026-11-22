@@ -25,6 +25,7 @@ import {
   type ReviewRecord,
   type SourceRef,
 } from '../model/types.ts';
+import { applySuspensionRegister, isCardSuspendedIn } from './suspension.ts';
 import {
   isKnownEventType,
   type EventPayloadMap,
@@ -1198,7 +1199,19 @@ function applyKnownEvent(
       }
       break;
     }
+    case 'CardSuspended':
+    case 'CardUnsuspended': {
+      // Grow-only HLC registers in `fieldHlcs` (see ./suspension.ts); no card rebuild needed.
+      const key = applySuspensionRegister(state.fieldHlcs, event.type, event.payload, hlc);
+      if (key !== undefined) collector?.fieldHlcKeys.add(key);
+      break;
+    }
   }
+}
+
+/** True when `cardId` is currently suspended (Phase 9 `CardSuspended` / `CardUnsuspended`). */
+export function isCardSuspended(state: CollectionState, cardId: string): boolean {
+  return isCardSuspendedIn(state.fieldHlcs, cardId);
 }
 
 function isEventAlreadyCompacted(state: CollectionState, event: FlashEvent): boolean {
