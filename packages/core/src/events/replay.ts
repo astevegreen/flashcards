@@ -28,6 +28,7 @@ import {
 import { applySuspensionRegister, isCardSuspendedIn } from './suspension.ts';
 import {
   isKnownEventType,
+  type DeckFSRSParamsChangedPayload,
   type EventPayloadMap,
   type FlashEvent,
   type KnownEvent,
@@ -363,6 +364,31 @@ export function getActiveFsrsParamsVersion(state: CollectionState, deckId: strin
   const versions = state.deckFsrsParams.get(deckId);
   const latest = versions?.[versions.length - 1];
   return latest ? latest.params_version : 0;
+}
+
+/**
+ * Builds the `DeckFSRSParamsChanged` payload for a target-retention edit. The new version
+ * carries the deck's current weights (optimized ones included, Phase 11) so changing only the
+ * retention never resets them to the defaults.
+ */
+export function buildRetentionParamsPayload(
+  state: CollectionState,
+  deckId: string,
+  requestRetention: number,
+  nowMs: number,
+): DeckFSRSParamsChangedPayload {
+  const currentW = resolveDeckFsrsConfig(state, deckId, nowMs).w;
+  return {
+    deck_id: deckId,
+    params_version: getActiveFsrsParamsVersion(state, deckId) + 1,
+    effective_from: nowMs,
+    params: {
+      request_retention: requestRetention,
+      enable_fuzz: false,
+      enable_short_term: true,
+      ...(currentW ? { w: [...currentW] } : {}),
+    },
+  };
 }
 
 /** Returns active layouts enabled for a given deck. */

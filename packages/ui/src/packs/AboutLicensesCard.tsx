@@ -1,5 +1,6 @@
 import { OPEN_DATA_ATTRIBUTIONS } from '@flash/core/dictionary';
 import type { InstalledPackInfo } from '@flash/platform';
+import { THIRD_PARTY_NOTICES } from './third-party-notices.ts';
 
 export interface AboutLicensesCardProps {
   installedPacks?: readonly InstalledPackInfo[];
@@ -81,6 +82,41 @@ export function AboutLicensesCard({ installedPacks = [] }: AboutLicensesCardProp
             </details>
           );
         })}
+      </div>
+
+      <div className="flex flex-col gap-2" data-testid="third-party-notices">
+        <h3 className="text-xs font-semibold">Third-party software</h3>
+        {THIRD_PARTY_NOTICES.map((notice) => (
+          <details
+            key={notice.id}
+            data-testid={`third-party-notice-${notice.id}`}
+            className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs"
+          >
+            <summary className="cursor-pointer select-none font-medium text-[var(--fg)]">
+              <span>
+                {notice.name} {notice.version}
+              </span>{' '}
+              <span className="ml-1 rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+                {notice.licenseName}
+              </span>
+            </summary>
+            <div className="mt-2 flex flex-col gap-1.5 border-t border-[var(--border)] pt-2 text-[11px] text-[var(--muted)]">
+              <p>{notice.usage}</p>
+              <p className="text-[var(--fg)]">{notice.copyright}</p>
+              {notice.paragraphs.map((paragraph) => (
+                <p key={paragraph.slice(0, 24)}>{paragraph}</p>
+              ))}
+              <a
+                href={notice.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="self-start font-medium text-[var(--accent)] hover:underline"
+              >
+                Upstream Source ↗
+              </a>
+            </div>
+          </details>
+        ))}
       </div>
     </section>
   );

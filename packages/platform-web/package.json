@@ -70,6 +70,7 @@
     "@flash/core": "workspace:*",
     "@flash/platform": "workspace:*",
     "dexie": "^4.4.7",
+    "fsrs-browser": "6.6.0",
     "read-excel-file": "^9.3.20"
   }
 }

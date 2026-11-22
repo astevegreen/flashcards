@@ -1,5 +1,6 @@
 import {
   buildStudyQueue,
+  compareCodeUnits,
   decodeUtf8,
   getEnabledLayoutsForDeck,
   uuidv7,
@@ -21,6 +22,8 @@ import { useApp } from '../state/AppContext.tsx';
 
 const LazyPageViewer = lazy(() => import('../pages/PageViewer.tsx'));
 const LazyPageEditor = lazy(() => import('../pages/PageEditor.tsx'));
+const LazyCategoryExportPanel = lazy(() => import('../library/CategoryExportPanel.tsx'));
+const LazyFsrsOptimizerPanel = lazy(() => import('../fsrs/FsrsOptimizerPanel.tsx'));
 
 function DeckOptionsPanel({
   deck,
@@ -393,6 +396,10 @@ function DeckOptionsPanel({
         </span>
       </div>
 
+      <Suspense fallback={null}>
+        <LazyFsrsOptimizerPanel deck={deck} />
+      </Suspense>
+
       {/* Add Answer Mode Layout (§5.2) */}
       <form
         onSubmit={handleCreateLayout}
@@ -630,7 +637,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     () =>
       [...state.decks.values()]
         .filter((d) => !d.archived)
-        .sort((a, b) => a.name.localeCompare(b.name)),
+        .sort((a, b) => compareCodeUnits(a.name, b.name) || compareCodeUnits(a.id, b.id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
@@ -639,13 +646,16 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     () =>
       [...state.decks.values()]
         .filter((d) => d.archived)
-        .sort((a, b) => a.name.localeCompare(b.name)),
+        .sort((a, b) => compareCodeUnits(a.name, b.name) || compareCodeUnits(a.id, b.id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
 
   const pages = useMemo(
-    () => [...state.pages.values()].sort((a, b) => a.title.localeCompare(b.title)),
+    () =>
+      [...state.pages.values()].sort(
+        (a, b) => compareCodeUnits(a.title, b.title) || compareCodeUnits(a.id, b.id),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
@@ -1133,6 +1143,18 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
           </div>
         )}
       </div>
+
+      {/* Phase 9: export one category (CSV / .flashpkg); Browse keeps the selection export. */}
+      <Suspense fallback={null}>
+        <LazyCategoryExportPanel
+          collectMediaBlobs={collectMediaBlobs}
+          onStatus={(msg) => {
+            setStatusMessage(msg);
+            setErrorMessage(null);
+          }}
+          onError={(msg) => setErrorMessage(msg)}
+        />
+      </Suspense>
 
       {/* Phase 4 Courses (§2.3) */}
       <CoursesPanel

@@ -10,7 +10,7 @@ See [docs/design_blueprint.md](./docs/design_blueprint.md) for the full architec
 - **Content Schema (`@flash/content-schema`)**: Zod + JSON Schema validation for `.flashpkg` archives, family/starter catalogs (`index.json`), and pack catalogs (`packs.json`).
 - **Platform Boundary (`@flash/platform`, `@flash/platform-web`, `@flash/platform-capacitor`, `@flash/platform-tauri`)**: Dexie IndexedDB & SQLite storage, Google Drive `appDataFolder` / Local Folder / Dropbox / iCloud sync transports, Google Picker & Sheets/Docs incremental sync, File System Access API local folders & `Inbox/` auto-import, Web Audio lookahead preloader + BYO Cloud TTS (Google / Azure) + offline `speechSynthesis`, offline dictionary & stroke pack storage, and StoreKit 2 / Play Billing / Ed25519 purchase adapters.
 - **Offline PWA (`@flash/ui`, `@flash/web`)**: Zero-login study screen with `flip`, `typed`, `choice`, `cloze`, `listen`, and `draw` answer modes, Markdown Lesson Pages & prerequisite Courses, virtualized Browse & standalone bidirectional offline Dictionary + Draw-to-Lookup, zero default web fonts, and Workbox offline precaching.
-- **AI Tooling (`@flash/cli`)**: Node CLI (`validate`, `build`, `audio`, `inbox`) and local JSON-RPC 2.0 MCP server (`list_decks`, `get_weak_cards`, `get_stats`, `propose_package`).
+- **AI Tooling (`@flash/cli`)**: Node CLI (`validate`, `build`, `audio`, `inbox`) and local JSON-RPC 2.0 MCP server (`list_decks`, `search_notes`, `get_weak_cards`, `get_stats`, `propose_package`; MCP protocol 2026-07-28 with `initialize` fallback for older clients).
 
 ## Quick Start
 

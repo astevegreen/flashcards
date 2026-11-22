@@ -74,6 +74,11 @@ export const PackageManifestSchema = z.object({
   license: z.string().optional(),
   languages: z.array(z.string().min(1)).default([]),
   decks: z.array(PackageDeckEntrySchema).default([]),
+  /**
+   * True when the decks hold only part of their notes (e.g. one category). Importers then never
+   * archive the deck's other notes or relink the existing deck to this package.
+   */
+  subset: z.boolean().optional(),
 });
 export type PackageManifest = z.infer<typeof PackageManifestSchema>;
 

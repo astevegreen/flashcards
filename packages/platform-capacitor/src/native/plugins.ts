@@ -13,6 +13,7 @@ import { App } from '@capacitor/app';
 import { registerPlugin } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
 import { Directory, Filesystem } from '@capacitor/filesystem';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { Share } from '@capacitor/share';
 import { FilePicker } from '@capawesome/capacitor-file-picker';
 import { SocialLogin } from '@capgo/capacitor-social-login';
@@ -22,6 +23,7 @@ import type { NativeGoogleSignInPlugin } from '../auth/native-google-auth.ts';
 import type { MlKitDigitalInkPlugin } from '../drawing/mlkit-ink-recognizer.ts';
 import type { CapacitorFileBridge } from '../files/capacitor-files.ts';
 import type { StoreBillingPlugin } from '../purchase/store-purchase.ts';
+import type { LocalNotificationsBridge } from '../reminders/local-notification-reminders.ts';
 import type { SystemBrowserLauncher } from '../sources/native-picker-bridge.ts';
 import type { SqliteDriver } from '../storage/sqlite-storage.ts';
 import type { ICloudDocumentPlugin } from '../sync/icloud-transport.ts';
@@ -283,6 +285,24 @@ export function createStoreBillingPlugin(): StoreBillingPlugin {
         .filter((p) => !p.revocationDate && p.isActive !== false)
         .map((p) => p.productIdentifier);
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Study reminders (@capacitor/local-notifications)
+// ---------------------------------------------------------------------------
+
+export function createLocalNotificationsBridge(): LocalNotificationsBridge {
+  return {
+    checkPermissions: () => LocalNotifications.checkPermissions(),
+    requestPermissions: () => LocalNotifications.requestPermissions(),
+    schedule: (options) => LocalNotifications.schedule(options),
+    getPending: async () => ({
+      notifications: (await LocalNotifications.getPending()).notifications.map((n) => ({
+        id: n.id,
+      })),
+    }),
+    cancel: (options) => LocalNotifications.cancel(options),
   };
 }
 

@@ -896,8 +896,6 @@ export interface KoreanQueryAnalysis {
 const MAX_ROMANIZED_FOR_DEINFLECTION = 24;
 const MAX_ROMANIZED_LEMMAS = 400;
 
-let lastAnalysis: { raw: string; value: KoreanQueryAnalysis } | undefined;
-
 /** Adds the deinflected lemmas of the best romanization parses (`meogeosseoyo` → `먹다`). */
 function addDeinflectedRomanizations(
   roms: readonly RomanizationCandidate[],
@@ -956,11 +954,11 @@ function buildKoreanQueryAnalysis(raw: string): KoreanQueryAnalysis {
   return { lemmas: new Map(), romanized: new Map(), romanizedJamoPrefixes: [] };
 }
 
-/** Analyzes a raw query once (memoized for the last query, since ranking re-asks per entry). */
+/**
+ * Analyzes a raw query. Pure (no module-level cache): `planDictionarySearch` and
+ * `rankDictionaryResults` each call it once per query and pass the result down, so ranking never
+ * re-analyzes per entry.
+ */
 export function analyzeKoreanQuery(rawQuery: string): KoreanQueryAnalysis {
-  const raw = rawQuery.normalize('NFC').trim();
-  if (lastAnalysis && lastAnalysis.raw === raw) return lastAnalysis.value;
-  const value = buildKoreanQueryAnalysis(raw);
-  lastAnalysis = { raw, value };
-  return value;
+  return buildKoreanQueryAnalysis(rawQuery.normalize('NFC').trim());
 }

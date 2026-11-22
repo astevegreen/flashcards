@@ -22,12 +22,18 @@ import {
   writeFile,
 } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import {
+  isPermissionGranted,
+  requestPermission as requestNotificationPermission,
+  sendNotification,
+} from '@tauri-apps/plugin-notification';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import Database from '@tauri-apps/plugin-sql';
 import type { Files, PickedFile } from '@flash/platform';
 import type { SystemBrowserLauncher } from '@flash/platform-capacitor';
 import type { SecureSecretBackend } from '../auth/refresh-token-store.ts';
 import type { TauriLoopbackOAuthPlugin } from '../auth/tauri-google-auth.ts';
+import type { DesktopNotificationBridge } from '../reminders/desktop-reminders.ts';
 import type { TauriFsBridge, TauriFsDirEntry } from '../sources/tauri-fs-watcher.ts';
 import type { TauriSqlPluginDatabase } from '../storage/tauri-sqlite-storage.ts';
 
@@ -65,6 +71,18 @@ export function createSecureSecretBackend(): SecureSecretBackend {
     delete: async (account) => {
       await invoke('secure_store_delete', { account });
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Study reminders (tauri-plugin-notification)
+// ---------------------------------------------------------------------------
+
+export function createDesktopNotificationBridge(): DesktopNotificationBridge {
+  return {
+    isPermissionGranted: () => isPermissionGranted(),
+    requestPermission: () => requestNotificationPermission(),
+    notify: ({ title, body }) => sendNotification({ title, body }),
   };
 }
 

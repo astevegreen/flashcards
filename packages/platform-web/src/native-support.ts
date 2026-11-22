@@ -30,7 +30,8 @@ type OptionalServiceKey =
   | 'getPackManager'
   | 'getStrokeDataProvider'
   | 'getHandwritingRecognizer'
-  | 'getDictionaryService';
+  | 'getDictionaryService'
+  | 'getFsrsOptimizer';
 
 const BORROWED_KEYS: readonly OptionalServiceKey[] = [
   'audioPlayer',
@@ -45,6 +46,7 @@ const BORROWED_KEYS: readonly OptionalServiceKey[] = [
   'getStrokeDataProvider',
   'getHandwritingRecognizer',
   'getDictionaryService',
+  'getFsrsOptimizer',
 ];
 
 /**

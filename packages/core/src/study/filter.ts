@@ -1,6 +1,7 @@
 import { default_w } from 'ts-fsrs';
 import { isCardSuspended, resolveDeckFsrsConfig, type CollectionState } from '../events/replay.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
+import type { NoteUpsertedPayload } from '../events/types.ts';
 import type { Card, Note } from '../model/types.ts';
 
 /**
@@ -13,7 +14,11 @@ import type { Card, Note } from '../model/types.ts';
 /** Lapse count at which a card is treated as a leech (Anki / Flashcards Deluxe default). */
 export const LEECH_LAPSE_THRESHOLD = 8;
 
-/** Virtual category matched by cards whose lapses reached {@link LEECH_LAPSE_THRESHOLD}. */
+/**
+ * The `leech` category. Reaching {@link LEECH_LAPSE_THRESHOLD} lapses tags the note `leech` (a real
+ * tag, see {@link planLeechTag}); the filter also keeps matching such cards virtually, so leeches
+ * from before the tag existed (or imported histories) still match.
+ */
 export const LEECH_CATEGORY = 'leech';
 
 export type CardStateKind = 'new' | 'learning' | 'review' | 'due' | 'suspended' | 'leech';
@@ -251,6 +256,60 @@ export function shouldAutoSuspendLeech(
   );
 }
 
+/** True when one of the note's stored tags is exactly the `leech` category (any spelling). */
+function hasLeechTag(note: Note): boolean {
+  return note.tags.some((t) => normalizeTag(t) === LEECH_CATEGORY);
+}
+
+/**
+ * Leech tag (Phase 9): the review that takes a card's lapses from below
+ * {@link LEECH_LAPSE_THRESHOLD} to the threshold or above also tags its note `leech`, as one
+ * tag-only `NoteUpserted` appended next to the `ReviewRecorded` by the reviewing device (so every
+ * build replays the same tag). `undefined` when the review doesn't cross the threshold or the note
+ * is already tagged. Other tags are kept exactly as stored.
+ */
+export function planLeechTag(
+  state: CollectionState,
+  card: Card,
+  lapsesBefore: number,
+  lapsesAfter: number,
+): NoteUpsertedPayload | undefined {
+  if (lapsesBefore >= LEECH_LAPSE_THRESHOLD || lapsesAfter < LEECH_LAPSE_THRESHOLD)
+    return undefined;
+  const note = state.notes.get(card.note_id);
+  if (!note || hasLeechTag(note)) return undefined;
+  return {
+    note_id: note.id,
+    deck_id: note.deck_id,
+    source_key: note.source_key,
+    fields: {},
+    tags: [...note.tags, LEECH_CATEGORY],
+  };
+}
+
+/**
+ * Undo of the review that tagged a note `leech` (see {@link planLeechTag}): removes the tag again
+ * unless another card of the note is still a leech. `undefined` when nothing changes.
+ */
+export function planLeechTagUndo(
+  state: CollectionState,
+  card: Card,
+): NoteUpsertedPayload | undefined {
+  const note = state.notes.get(card.note_id);
+  if (!note || !hasLeechTag(note)) return undefined;
+  for (const siblingId of state.cardIdsByNote.get(note.id) ?? []) {
+    const sibling = state.cards.get(siblingId);
+    if (siblingId !== card.id && sibling && isLeechCard(sibling)) return undefined;
+  }
+  return {
+    note_id: note.id,
+    deck_id: note.deck_id,
+    source_key: note.source_key,
+    fields: {},
+    tags: note.tags.filter((t) => normalizeTag(t) !== LEECH_CATEGORY),
+  };
+}
+
 function tagMatches(noteTagsLower: readonly string[], wanted: string): boolean {
   for (const t of noteTagsLower) {
     if (t === wanted || t.startsWith(`${wanted}::`)) return true;
@@ -335,6 +394,57 @@ export function compareHardestCards(a: Card, b: Card): number {
     round4(b.schedule.difficulty) - round4(a.schedule.difficulty) ||
     cmpStr(a.id, b.id)
   );
+}
+
+/** The `n` hardest of `cards` ({@link compareHardestCards} order). */
+export function rankHardestCards(cards: readonly Card[], n: number): Card[] {
+  return [...cards].sort(compareHardestCards).slice(0, n);
+}
+
+/**
+ * The "hardest N" cap of a due-only queue, bounded per study day. Each card of the selection
+ * already reviewed today holds one of the N slots (and stays queued while it is due again, e.g.
+ * in a learning step); the slots left go to the hardest due cards not reviewed yet today.
+ * Answering a card therefore never frees a slot for the (N+1)th hardest one: the session stops
+ * after N cards and the cap resets at the next study day. Deterministic from `ReviewRecorded`.
+ *
+ * `reviewedToday` holds the ids of the selection's cards (the filter without `hardest`) with an
+ * active review today. Returns the ids of `due` to keep.
+ */
+export function keepHardestDueToday(
+  due: readonly Card[],
+  hardest: number,
+  reviewedToday: ReadonlySet<string>,
+): Set<string> {
+  const keep = new Set<string>();
+  const fresh: Card[] = [];
+  for (const card of due) {
+    if (reviewedToday.has(card.id)) keep.add(card.id);
+    else fresh.push(card);
+  }
+  const slots = Math.max(0, hardest - reviewedToday.size);
+  for (const card of rankHardestCards(fresh, slots)) keep.add(card.id);
+  return keep;
+}
+
+/**
+ * Splits a filter into its `performance.hardest` cap and everything else. Queues that only take
+ * due cards (on-schedule Study Sets, review ahead) apply the other criteria, then the due check,
+ * and rank the hardest N last, so "the 50 hardest" means the 50 hardest cards that are due rather
+ * than whichever of the 50 hardest overall happen to be due.
+ */
+export function splitHardestCriterion(filter: CardFilter): {
+  base: CardFilter;
+  hardest: number | undefined;
+} {
+  const hardest = filter.performance?.hardest;
+  if (hardest === undefined || !filter.performance) return { base: filter, hardest: undefined };
+  const performance: PerformanceCriterion = { ...filter.performance };
+  delete performance.hardest;
+  const base: CardFilter = { ...filter };
+  if (Object.keys(performance).length > 0) base.performance = performance;
+  else delete base.performance;
+  return { base, hardest };
 }
 
 function countAgain(

@@ -18,6 +18,7 @@ import type { KnownEvent } from '../events/types.ts';
 import { decodeUtf8, deriveNoteId, encodeUtf8, uuidv5, FLASH_NAMESPACE_UUID } from '../ids.ts';
 import type { Deck, Note, SourceRef } from '../model/types.ts';
 import { computeNoteContentHash, sha256Hex } from '../sources/hash.ts';
+import { compareCodeUnits } from '../study/queue.ts';
 import { normalizeTagList } from '../tags/index.ts';
 import {
   normalizeMarkdownPage,
@@ -44,6 +45,12 @@ export interface FlashpkgExportOptions {
   pageId?: string;
   /** Optional single course to export, with every deck and page it references. */
   courseId?: string;
+  /**
+   * Optional subset of notes (e.g. one category): only these active notes are exported, under
+   * the decks that contain them (narrowed further by `deckId` when both are given). No pages or
+   * courses; media is limited to what those notes reference.
+   */
+  noteIds?: Iterable<string>;
   /** Optional local media blobs keyed by SHA-256 hex to pack under `media/<sha256>.<ext>`. */
   mediaBlobs?: ReadonlyMap<string, Uint8Array>;
 }
@@ -122,25 +129,61 @@ interface ExportScope {
   defaultName: (decks: readonly Deck[]) => string;
 }
 
-function resolveExportScope(state: CollectionState, options: FlashpkgExportOptions): ExportScope {
-  if (options.courseId !== undefined) {
-    const course = state.courses.get(options.courseId);
-    const deckIds = new Set<string>();
-    const pageIds = new Set<string>();
-    for (const item of course?.items ?? []) {
-      if (item.kind === 'deck') deckIds.add(item.ref_id);
-      else pageIds.add(item.ref_id);
-      if (item.unlocks_after_page_id !== undefined) pageIds.add(item.unlocks_after_page_id);
+/** Scope of a note-subset export (see {@link FlashpkgExportOptions.noteIds}). */
+function noteSubsetScope(
+  state: CollectionState,
+  noteIds: ReadonlySet<string>,
+  deckId: string | undefined,
+): ExportScope {
+  const deckIds = new Set<string>();
+  for (const id of noteIds) {
+    const note = state.notes.get(id);
+    if (note && !note.archived && (deckId === undefined || note.deck_id === deckId)) {
+      deckIds.add(note.deck_id);
     }
-    return {
-      full: false,
-      deckIds,
-      pageIds,
-      courseIds: new Set(course ? [course.id] : []),
-      defaultPackageId: () => `pkg:course-${options.courseId}`,
-      defaultName: () => course?.name ?? 'Course',
-    };
   }
+  return {
+    full: false,
+    deckIds,
+    pageIds: new Set(),
+    courseIds: new Set(),
+    defaultPackageId: (decks) =>
+      `pkg:notes-${uuidv5(FLASH_NAMESPACE_UUID, [...decks.map((d) => d.id), ...[...noteIds].sort(compareCodeUnits)].join(','))}`,
+    defaultName: (decks) => decks[0]?.name ?? 'Flashcards Export',
+  };
+}
+
+/** An active note inside the optional note subset. */
+function isExportedNote(note: Note, subset: ReadonlySet<string> | undefined): boolean {
+  return !note.archived && (subset === undefined || subset.has(note.id));
+}
+
+function courseScope(state: CollectionState, courseId: string): ExportScope {
+  const course = state.courses.get(courseId);
+  const deckIds = new Set<string>();
+  const pageIds = new Set<string>();
+  for (const item of course?.items ?? []) {
+    if (item.kind === 'deck') deckIds.add(item.ref_id);
+    else pageIds.add(item.ref_id);
+    if (item.unlocks_after_page_id !== undefined) pageIds.add(item.unlocks_after_page_id);
+  }
+  return {
+    full: false,
+    deckIds,
+    pageIds,
+    courseIds: new Set(course ? [course.id] : []),
+    defaultPackageId: () => `pkg:course-${courseId}`,
+    defaultName: () => course?.name ?? 'Course',
+  };
+}
+
+function resolveExportScope(
+  state: CollectionState,
+  options: FlashpkgExportOptions,
+  noteSubset: ReadonlySet<string> | undefined,
+): ExportScope {
+  if (noteSubset !== undefined) return noteSubsetScope(state, noteSubset, options.deckId);
+  if (options.courseId !== undefined) return courseScope(state, options.courseId);
   if (options.pageId !== undefined) {
     const page = state.pages.get(options.pageId);
     return {
@@ -182,7 +225,8 @@ export function exportFlashpkg(
   state: CollectionState,
   options: FlashpkgExportOptions = {},
 ): Uint8Array {
-  const scope = resolveExportScope(state, options);
+  const noteSubset = options.noteIds === undefined ? undefined : new Set(options.noteIds);
+  const scope = resolveExportScope(state, options, noteSubset);
   const targetDecks = [...state.decks.values()].filter(
     (d) => !d.archived && (scope.deckIds === null || scope.deckIds.has(d.id)),
   );
@@ -209,7 +253,7 @@ export function exportFlashpkg(
     });
 
     const deckNotes = [...state.notes.values()]
-      .filter((n) => n.deck_id === deck.id && !n.archived)
+      .filter((n) => n.deck_id === deck.id && isExportedNote(n, noteSubset))
       .sort((a, b) => a.created_order - b.created_order || (a.id < b.id ? -1 : 1));
 
     const lines = deckNotes.map((n) => {
@@ -274,6 +318,7 @@ export function exportFlashpkg(
     ...(options.license !== undefined ? { license: options.license } : {}),
     languages: [...languages].sort(),
     decks: deckEntries,
+    ...(noteSubset === undefined ? {} : { subset: true }),
   };
 
   files['manifest.json'] = encodeUtf8(JSON.stringify(manifest, null, 2));
@@ -340,7 +385,7 @@ export function exportFlashpkg(
       };
       const deckIdSet = new Set(targetDecks.map((d) => d.id));
       for (const note of state.notes.values()) {
-        if (!deckIdSet.has(note.deck_id) || note.archived) continue;
+        if (!deckIdSet.has(note.deck_id) || !isExportedNote(note, noteSubset)) continue;
         for (const val of Object.values(note.fields)) collect(val);
       }
       for (const page of exportedPages) collect(page.markdown);
@@ -512,6 +557,43 @@ const SAFE_MEDIA_MIME_BY_EXT: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Events for re-importing into a deck that already exists. A full package renames, unarchives and
+ * links the deck to itself. A subset package (`manifest.subset`, e.g. one exported category)
+ * only unarchives it: the deck keeps its own name and source, since the package holds just part
+ * of its notes.
+ */
+function upgradeExistingDeckEvents(
+  eventFactory: EventFactory,
+  input: {
+    deckId: string;
+    entry: PackageDeckEntry;
+    source: SourceRef;
+    subset: boolean;
+    nowMs: number;
+  },
+): KnownEvent[] {
+  const { deckId, entry, source, nowMs } = input;
+  if (input.subset) {
+    return [
+      eventFactory.create('DeckSettingsChanged', { deck_id: deckId, archived: false }, nowMs),
+    ];
+  }
+  return [
+    eventFactory.create(
+      'DeckSettingsChanged',
+      {
+        deck_id: deckId,
+        name: entry.name,
+        ...(entry.language === undefined ? {} : { language: entry.language }),
+        archived: false,
+      },
+      nowMs,
+    ),
+    eventFactory.create('SourceLinked', { target_kind: 'deck', target_id: deckId, source }, nowMs),
+  ];
+}
+
+/**
  * Safely unpacks, validates, and converts a `.flashpkg` archive into events.
  * - Security (§13): blocks path traversal, file-count bombs, and uncompressed size bombs (including spoofed headers).
  * - Upgrades (§3.4): matches existing decks by `(source.package_id, packageDeckId)` and
@@ -537,6 +619,7 @@ export function importFlashpkg(
     throw new FlashpkgValidationError('Invalid manifest.json', manifestValidation.errors);
   }
   const manifest = manifestValidation.data;
+  const subset = manifest.subset === true;
   const baseSource: SourceRef = {
     kind: options?.sourceOverride?.kind ?? 'package',
     ...(options?.sourceOverride?.uri !== undefined ? { uri: options.sourceOverride.uri } : {}),
@@ -665,27 +748,13 @@ export function importFlashpkg(
     if (existingDeck) {
       upgradedDecks += 1;
       events.push(
-        eventFactory.create(
-          'DeckSettingsChanged',
-          {
-            deck_id: targetDeckId,
-            name: deckEntry.name,
-            ...(deckEntry.language !== undefined ? { language: deckEntry.language } : {}),
-            archived: false,
-          },
+        ...upgradeExistingDeckEvents(eventFactory, {
+          deckId: targetDeckId,
+          entry: deckEntry,
+          source: baseSource,
+          subset,
           nowMs,
-        ),
-      );
-      events.push(
-        eventFactory.create(
-          'SourceLinked',
-          {
-            target_kind: 'deck',
-            target_id: targetDeckId,
-            source: baseSource,
-          },
-          nowMs,
-        ),
+        }),
       );
     } else {
       events.push(
@@ -794,7 +863,8 @@ export function importFlashpkg(
     }
 
     // Soft-archive notes removed in an upgraded package version when requested (preserves reviews)
-    if (existingDeck && options?.archiveRemovedOnUpgrade) {
+    // A subset package (one category) never archives the deck's other notes.
+    if (existingDeck && options?.archiveRemovedOnUpgrade && !subset) {
       for (const existing of existingDeckNotes) {
         if (!existing.archived && !seenNoteIds.has(existing.id)) {
           events.push(eventFactory.create('NoteArchived', { note_id: existing.id }, nowMs));

@@ -64,7 +64,8 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        // `wasm`: the lazy FSRS optimizer (Phase 11) must work offline like everything else.
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,wasm}'],
         globIgnores: ['packs/**', 'picker.html'],
         ignoreURLParametersMatching: [
           /^device$/,
@@ -84,6 +85,8 @@ export default defineConfig({
       },
     }),
   ],
+  // fsrs-browser resolves its `.wasm` via `import.meta.url`; pre-bundling would break that in dev.
+  optimizeDeps: { exclude: ['fsrs-browser'] },
   build: {
     target: 'es2023',
     sourcemap: false,

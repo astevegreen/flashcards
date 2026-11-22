@@ -68,12 +68,25 @@ test.describe('Phase 13 dictionary split view', () => {
     await expect(results.getByTestId('dict-add-bar-한국')).toBeVisible();
   });
 
+  test('Settings never scrolls sideways on a small phone', async ({ page }) => {
+    // A select sized to its longest option used to push Settings wider than the viewport; with
+    // Linux CI fonts that was 8 px at 390 px, enough to shift the Install button under the pointer.
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.goto('/?device=dictsplit');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await expect(page.getByTestId('pack-row-dict-krdict')).toBeVisible({ timeout: 10_000 });
+    const overflow = await page.evaluate(() => {
+      const root = document.scrollingElement ?? document.documentElement;
+      return root.scrollWidth - root.clientWidth;
+    });
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+
   test('phones keep the single-column list with inline senses', async ({ page }) => {
-    // Install the pack at the default tablet size, then switch to a phone: on the Linux CI runner
-    // the Settings pack row shifts under the pointer at 390 px, and this test is about the
-    // dictionary layout, not Settings.
-    await openKoreanDictionary(page);
+    // Installs the pack at phone size too: Settings no longer reflows when the first sync lands.
     await page.setViewportSize({ width: 390, height: 844 });
+    await openKoreanDictionary(page);
     await page.getByTestId('dictionary-search-input').fill('먹었어요');
     const results = page.getByTestId('dictionary-results');
     await expect(results.getByTestId('dict-entry-먹다').first()).toBeVisible({ timeout: 5_000 });

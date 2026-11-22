@@ -5,12 +5,12 @@ import { createInterface } from 'node:readline';
 import {
   applyEvents,
   buildStudyQueue,
-  cardFilterToStatsFilter,
   createEmptyState,
   createEventFactory,
   createHlcState,
   filterCards,
   normalizeCardFilter,
+  searchNotes,
   type Card,
   type CardFilter,
   type CollectionState,
@@ -19,13 +19,26 @@ import {
 } from '@flash/core';
 import { importFlashpkg } from '@flash/core/flashpkg';
 import { deserializeCollectionState } from '@flash/core/snapshot';
-import { computeCollectionStats, type CollectionStatsOptions } from '@flash/core/stats';
+import {
+  computeCollectionStats,
+  computeFilteredCollectionStats,
+  type CollectionStatsOptions,
+} from '@flash/core/stats';
 import { decodeEventsSegment, decodeSyncSnapshot, SYNC_V1_PREFIX } from '@flash/core/sync';
 import {
   buildPackageFromSpec,
   type BuildDeckNoteInput,
   type BuildPageSpec,
 } from './commands/build.ts';
+import { createMirrorStateCache, type MirrorStateCache } from './mirror-cache.ts';
+import {
+  discoverResult,
+  JSONRPC_INVALID_PARAMS,
+  legacyInitializeResult,
+  readRequestEra,
+  withModernEnvelope,
+  type McpProtocolError,
+} from './mcp-protocol.ts';
 
 export interface McpServerContext {
   state?: CollectionState;
@@ -104,9 +117,22 @@ export function loadCollectionFromMirror(mirrorPath: string): CollectionState {
   return state;
 }
 
+// One cache per server context: the mirror is reloaded only when its files change (Phase 13).
+const mirrorCaches = new WeakMap<McpServerContext, { path: string; cache: MirrorStateCache }>();
+
 function resolveState(ctx: McpServerContext): CollectionState {
   if (ctx.state) return ctx.state;
-  if (ctx.mirrorPath) return loadCollectionFromMirror(ctx.mirrorPath);
+  if (ctx.mirrorPath) {
+    let entry = mirrorCaches.get(ctx);
+    if (entry?.path !== ctx.mirrorPath) {
+      entry = {
+        path: ctx.mirrorPath,
+        cache: createMirrorStateCache(ctx.mirrorPath, loadCollectionFromMirror),
+      };
+      mirrorCaches.set(ctx, entry);
+    }
+    return entry.cache.get();
+  }
   return createEmptyState();
 }
 
@@ -165,6 +191,9 @@ function resolveFilterArg(
   return normalizeCardFilter({ ...filter, deckIds: wanted });
 }
 
+const SEARCH_NOTES_DEFAULT_LIMIT = 50;
+const SEARCH_NOTES_MAX_LIMIT = 500;
+
 export const MCP_TOOLS = [
   {
     name: 'list_decks',
@@ -173,6 +202,35 @@ export const MCP_TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'search_notes',
+    description:
+      'Find notes exactly as the Browse screen does: a Phase 9 filter (decks, categories with any/all/none, card states, performance) plus the Browse search text ("#tag" matches a category, other text matches fields or tags). Returns notes in Browse order (or hardest first when the filter ranks hardest cards) with `total` before `limit`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Browse search text (default: every note).' },
+        filter: CARD_FILTER_SCHEMA,
+        deckIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Restrict to these deck ids (AND-ed with filter.deckIds).',
+        },
+        archived: { type: 'boolean', description: 'Search archived notes instead (false).' },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: SEARCH_NOTES_MAX_LIMIT,
+          description: `Maximum notes returned (default ${SEARCH_NOTES_DEFAULT_LIMIT}).`,
+        },
+        tzOffsetMinutes: {
+          type: 'integer',
+          description: 'Minutes east of UTC for day-based criteria (default: this machine).',
+        },
+      },
       additionalProperties: false,
     },
   },
@@ -341,6 +399,44 @@ function listDecksTool(
   return { decks };
 }
 
+function searchNotesTool(
+  args: Record<string, unknown>,
+  ctx: McpServerContext,
+  now: number,
+): unknown {
+  const state = resolveState(ctx);
+  const rawLimit =
+    typeof args['limit'] === 'number' && Number.isFinite(args['limit'])
+      ? Math.floor(args['limit'])
+      : SEARCH_NOTES_DEFAULT_LIMIT;
+  const limit = Math.max(1, Math.min(SEARCH_NOTES_MAX_LIMIT, rawLimit));
+  const filter = resolveFilterArg(args['filter'], stringArray(args['deckIds']));
+  if (!filter) return { total: 0, notes: [] };
+  const { notes, total } = searchNotes(
+    state,
+    filter,
+    { nowMs: now, tzOffsetMinutes: resolveTz(args, now) },
+    {
+      query: typeof args['query'] === 'string' ? args['query'] : '',
+      archived: args['archived'] === true,
+      limit,
+    },
+  );
+  return {
+    total,
+    notes: notes.map((note) => ({
+      noteId: note.id,
+      deckId: note.deck_id,
+      deckName: state.decks.get(note.deck_id)?.name ?? '',
+      fields: note.fields,
+      tags: note.tags,
+      archived: note.archived,
+      cardIds: [...(state.cardIdsByNote.get(note.id) ?? [])],
+      needsReview: isUnreviewedAiNote(note),
+    })),
+  };
+}
+
 /** A ranked card as a `get_weak_cards` row. */
 function toWeakCardRow(state: CollectionState, card: Card): WeakCardCandidate {
   const note = state.notes.get(card.note_id);
@@ -443,12 +539,11 @@ function getStatsTool(args: Record<string, unknown>, ctx: McpServerContext, now:
   let stats = collectionStats;
   if (deckIds !== undefined || args['filter'] !== undefined) {
     const filter = resolveFilterArg(args['filter'], deckIds);
-    stats = computeCollectionStats(state, {
-      ...statsOptions,
-      filter: filter
-        ? cardFilterToStatsFilter(state, filter, { nowMs: now, tzOffsetMinutes })
-        : { deckIds: [] },
-    });
+    // The Stats screen calls the same `computeFilteredCollectionStats` for its deck / category
+    // filter; contradicting `deckIds` and `filter.deckIds` select no deck at all.
+    stats = filter
+      ? computeFilteredCollectionStats(state, filter, statsOptions)
+      : computeCollectionStats(state, { ...statsOptions, filter: { deckIds: [] } });
   }
   const { totals } = collectionStats;
 
@@ -553,6 +648,7 @@ function proposePackageTool(
 
 const MCP_TOOL_HANDLERS: ReadonlyMap<string, McpToolHandler> = new Map<string, McpToolHandler>([
   ['list_decks', listDecksTool],
+  ['search_notes', searchNotesTool],
   ['get_weak_cards', getWeakCardsTool],
   ['get_stats', getStatsTool],
   ['propose_package', proposePackageTool],
@@ -569,73 +665,84 @@ export function executeMcpTool(
   return handler(args, ctx, now);
 }
 
+type McpMethodOutcome = { result: unknown } | { error: McpProtocolError };
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
- * Handles a single JSON-RPC 2.0 MCP request (returns `null` for notifications with no `id`).
+ * `tools/call`: an unknown tool is a protocol error (-32602); a failing tool is a result with
+ * `isError: true`, so the model sees the message and can retry with corrected arguments.
+ */
+function callTool(params: Record<string, unknown>, ctx: McpServerContext): McpMethodOutcome {
+  const toolName = typeof params['name'] === 'string' ? params['name'] : '';
+  if (!MCP_TOOL_HANDLERS.has(toolName)) {
+    return { error: { code: JSONRPC_INVALID_PARAMS, message: `Unknown tool: ${toolName}` } };
+  }
+  try {
+    const data = executeMcpTool(toolName, asRecord(params['arguments']), ctx);
+    return {
+      result: {
+        content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
+        structuredContent: data,
+        isError: false,
+      },
+    };
+  } catch (err) {
+    return { result: { content: [{ type: 'text', text: errorMessage(err) }], isError: true } };
+  }
+}
+
+function dispatchMcpMethod(req: JsonRpcRequest, ctx: McpServerContext): McpMethodOutcome {
+  switch (req.method) {
+    case 'initialize':
+      return { result: legacyInitializeResult(req.params) };
+    case 'server/discover':
+      return { result: discoverResult() };
+    case 'ping':
+      return { result: {} };
+    case 'tools/list':
+      return { result: { tools: MCP_TOOLS } };
+    case 'tools/call':
+      return callTool(req.params ?? {}, ctx);
+    default:
+      return { error: { code: -32601, message: `Method not found: ${req.method}` } };
+  }
+}
+
+/**
+ * Handles a single JSON-RPC 2.0 MCP request (returns `null` for notifications: any message
+ * without an `id`).
+ *
+ * Serves both protocol eras (see `mcp-protocol.ts`): a request whose `params._meta` names a
+ * protocol version is answered in the modern stateless form, anything else keeps the legacy
+ * `initialize`-handshake behavior.
  */
 export function handleMcpRequest(
   req: JsonRpcRequest,
   ctx: McpServerContext,
 ): JsonRpcResponse | null {
-  const id = req.id ?? null;
+  // JSON-RPC 2.0: a message without an `id` is a notification and never gets a reply. Every
+  // method served here is a request, so a notification (`notifications/*` or a request method
+  // sent without an id) is ignored rather than run.
+  if (req.id === undefined) return null;
+  const id = req.id;
+  const era = readRequestEra(req.params);
+  if (era.era === 'error') return { jsonrpc: '2.0', id, error: era.error };
 
-  if (req.method === 'notifications/initialized' || req.id === undefined) {
-    if (req.method === 'notifications/initialized') return null;
-  }
-
+  let outcome: McpMethodOutcome;
   try {
-    if (req.method === 'initialize') {
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: {
-          protocolVersion: '2024-11-05',
-          capabilities: { tools: {} },
-          serverInfo: { name: 'flashcards-local-mcp', version: '0.1.0' },
-        },
-      };
-    }
-
-    if (req.method === 'tools/list') {
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: { tools: MCP_TOOLS },
-      };
-    }
-
-    if (req.method === 'tools/call') {
-      const params = req.params ?? {};
-      const toolName = typeof params['name'] === 'string' ? params['name'] : '';
-      const rawArgs =
-        params['arguments'] && typeof params['arguments'] === 'object'
-          ? (params['arguments'] as Record<string, unknown>)
-          : {};
-      const data = executeMcpTool(toolName, rawArgs, ctx);
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: {
-          content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
-          structuredContent: data,
-        },
-      };
-    }
-
-    return {
-      jsonrpc: '2.0',
-      id,
-      error: { code: -32601, message: `Method not found: ${req.method}` },
-    };
+    outcome = dispatchMcpMethod(req, ctx);
   } catch (err) {
-    return {
-      jsonrpc: '2.0',
-      id,
-      error: {
-        code: -32000,
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    outcome = { error: { code: -32603, message: errorMessage(err) } };
   }
+  if ('error' in outcome) return { jsonrpc: '2.0', id, error: outcome.error };
+  return {
+    jsonrpc: '2.0',
+    id,
+    result: era.era === 'modern' ? withModernEnvelope(outcome.result) : outcome.result,
+  };
 }
 
 export async function runMcpStdioServer(ctx: McpServerContext): Promise<void> {

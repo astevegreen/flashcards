@@ -1,14 +1,14 @@
 import {
+  compareCodeUnits,
   filterBrowseNoteIds,
   isCardSuspended,
   isLeechCard,
   LEECH_CATEGORY,
   listCategories,
-  matchesCategoryCriterion,
   normalizeCardFilter,
   normalizeTagList,
+  noteMatchesSearchText,
   stripCloze,
-  stripRuby,
   type CardStateKind,
   type CategoryCriterion,
   type KnownEvent,
@@ -31,33 +31,8 @@ const STATE_FILTER_OPTIONS: ReadonlyArray<{ value: CardStateKind; label: string 
   { value: 'leech', label: 'Leech' },
 ];
 
-const lower = (t: string) => t.normalize('NFC').toLowerCase();
-
 const isUnreviewedAiNote = (note: Note) =>
   note.provenance.source === 'ai' && !note.provenance.reviewed;
-
-/** Field text match, also against the ruby / cloze-stripped text of marked-up fields. */
-function fieldMatchesQuery(val: string, q: string): boolean {
-  if (val.toLowerCase().includes(q)) return true;
-  if (val.includes('[') || val.includes('{')) {
-    return stripRuby(stripCloze(val)).toLowerCase().includes(q);
-  }
-  return false;
-}
-
-/** Search box match for a non-empty, lowercased query. */
-function noteMatchesQuery(note: Note, q: string): boolean {
-  if (q.startsWith('#')) {
-    // `#tag` shortcut: same category matching as the picker (exact tag or `tag::child`).
-    const tagNeedle = q.slice(1);
-    const tagCriterion: CategoryCriterion = { mode: 'any', tags: [tagNeedle] };
-    return tagNeedle !== '' && matchesCategoryCriterion(note.tags.map(lower), tagCriterion);
-  }
-  return (
-    Object.values(note.fields).some((val) => fieldMatchesQuery(val, q)) ||
-    note.tags.some((t) => lower(t).includes(q))
-  );
-}
 
 const LazyDictionaryPanel = lazy(() =>
   import('../dictionary/DictionaryPanel.tsx').then((m) => ({ default: m.DictionaryPanel })),
@@ -71,6 +46,12 @@ const LazyTagManagerPanel = lazy(() =>
 const LazyBulkEditBar = lazy(() =>
   import('../browse/BulkEditBar.tsx').then((m) => ({ default: m.BulkEditBar })),
 );
+const LazyNoteDetailPane = lazy(() =>
+  import('../browse/NoteDetailPane.tsx').then((m) => ({ default: m.NoteDetailPane })),
+);
+
+/** Selected split-view row: highlighted only once the detail pane is beside the list. */
+const SELECTED_BROWSE_ROW_CLASS = '@3xl:bg-[var(--accent-soft)]';
 
 export interface BrowseScreenProps {
   onOpenSettings?: () => void;
@@ -104,12 +85,14 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   // Bulk edit selection (Phase 9). Only notes in the visible list count; see `selectedVisible`.
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const parentRef = useRef<HTMLDivElement | null>(null);
+  // Tablet / desktop list + detail split view (Phase 13): the detail pane shows this note.
+  const [detailNoteId, setDetailNoteId] = useState<string | null>(null);
 
   const decks = useMemo(
     () =>
       [...state.decks.values()]
         .filter((d) => !d.archived)
-        .sort((a, b) => a.name.localeCompare(b.name)),
+        .sort((a, b) => compareCodeUnits(a.name, b.name) || compareCodeUnits(a.id, b.id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
@@ -173,7 +156,6 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   }, [state, stateVersion, deckFilter]);
 
   const filteredNotes = useMemo(() => {
-    const q = query.normalize('NFC').trim().toLowerCase();
     const nowMs = Date.now();
     // "Due today" leaves suspended cards out, like Study (Phase 9).
     const matchingNoteIds = filterBrowseNoteIds(
@@ -186,7 +168,8 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
     for (const note of state.notes.values()) {
       if (!matchingNoteIds.has(note.id)) continue;
       if (needsReviewOnly && !isUnreviewedAiNote(note)) continue;
-      if (q && !noteMatchesQuery(note, q)) continue;
+      // One search rule with MCP `search_notes` (core `noteMatchesSearchText`).
+      if (!noteMatchesSearchText(note, query)) continue;
       list.push(note);
     }
     list.sort((a, b) => a.created_order - b.created_order || (a.id < b.id ? -1 : 1));
@@ -234,6 +217,8 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
     });
   };
 
+  const detailNote = filteredNotes.find((n) => n.id === detailNoteId) ?? filteredNotes[0];
+
   const rowVirtualizer = useVirtualizer({
     count: filteredNotes.length,
     getScrollElement: () => parentRef.current,
@@ -242,7 +227,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   });
 
   return (
-    <section className="flex flex-1 flex-col gap-4">
+    <section className="@container flex flex-1 flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold tracking-tight">
@@ -473,11 +458,11 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
             </Suspense>
           )}
 
-          {/* Virtualized scroll container (§8) */}
+          {/* Virtualized scroll container (§8); 3/5 of the width in the split view */}
           <div
             ref={parentRef}
             data-testid="browse-list"
-            className="h-[calc(100dvh-13rem)] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)]"
+            className="h-[calc(100dvh-13rem)] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] @3xl:w-[calc(60%-0.375rem)]"
           >
             {filteredNotes.length === 0 ? (
               <div className="flex h-full items-center justify-center p-8 text-sm text-[var(--muted)]">
@@ -531,7 +516,10 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                         height: `${virtualRow.size}px`,
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
-                      className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4"
+                      data-selected={detailNote?.id === note.id ? 'true' : undefined}
+                      className={`flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 ${
+                        detailNote?.id === note.id ? SELECTED_BROWSE_ROW_CLASS : ''
+                      }`}
                     >
                       <input
                         type="checkbox"
@@ -593,7 +581,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                           {note.tags.slice(0, 2).map((tag) => (
                             <span
                               key={tag}
-                              className="hidden rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[11px] text-[var(--muted)] sm:inline"
+                              className="hidden rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[11px] text-[var(--muted)] sm:inline @3xl:hidden"
                             >
                               #{tag}
                             </span>
@@ -602,6 +590,17 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                             {deck?.language ?? ''}
                           </span>
                         </div>
+                      </button>
+
+                      {/* Split view: picks the note shown in the detail pane (keyboard / D-pad too) */}
+                      <button
+                        type="button"
+                        data-testid={`browse-show-${note.id}`}
+                        aria-pressed={detailNote?.id === note.id}
+                        onClick={() => setDetailNoteId(note.id)}
+                        className="hidden shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-[11px] font-semibold text-[var(--fg)] hover:border-[var(--accent)] @3xl:inline-flex"
+                      >
+                        Details
                       </button>
 
                       {note.archived && (
@@ -648,6 +647,15 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
               </div>
             )}
           </div>
+
+          {/* Split view detail pane: beside the list (pulled up by the list height + gap) */}
+          {detailNote && (
+            <div className="hidden @3xl:-mt-[calc(100dvh-12rem)] @3xl:ml-[calc(60%+0.375rem)] @3xl:block @3xl:h-[calc(100dvh-13rem)] @3xl:overflow-y-auto">
+              <Suspense fallback={null}>
+                <LazyNoteDetailPane note={detailNote} onEdit={setEditingNote} />
+              </Suspense>
+            </div>
+          )}
 
           <NoteEditDialog
             note={editingNote}

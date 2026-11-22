@@ -160,6 +160,19 @@ export function RatingBar({
               data-testid="reveal-more-button"
               data-focus-default=""
               onClick={onRevealNext}
+              onKeyDown={(e) => {
+                // Arrow keys on "Reveal more" move focus into the rating buttons, never rate
+                // (the global ← / → / ↑ / ↓ shortcuts only apply when no button has focus).
+                const step = ARROW_STEP[e.key];
+                if (step === undefined) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (step > 0) {
+                  barRef.current
+                    ?.querySelector<HTMLButtonElement>('[role="toolbar"] button')
+                    ?.focus();
+                }
+              }}
               className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] py-2 text-xs font-medium text-[var(--muted)] hover:bg-[var(--surface-2)]"
             >
               Reveal more ({revealStep}/{totalRevealSteps}) · Space

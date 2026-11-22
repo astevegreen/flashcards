@@ -14,6 +14,8 @@ export * from './tags/bulk.ts';
 export * from './tags/browse.ts';
 export * from './study/queue.ts';
 export * from './study/custom-study.ts';
+export * from './study/study-set-tags.ts';
+export * from './study/reminders.ts';
 export * from './study/choice.ts';
 export * from './study/courses.ts';
 export * from './parsers/ruby.ts';

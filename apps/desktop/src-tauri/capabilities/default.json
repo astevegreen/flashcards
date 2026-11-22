@@ -28,6 +28,7 @@
       "identifier": "http:default",
       "allow": [{ "url": "https://oauth2.googleapis.com/*" }]
     },
+    "notification:default",
     "oauth:allow-start",
     "oauth:allow-cancel"
   ]

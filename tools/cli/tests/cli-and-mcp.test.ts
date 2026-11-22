@@ -20,6 +20,7 @@ import {
 import { importFlashpkg } from '../../../packages/core/src/import/flashpkg.ts';
 import {
   computeCollectionStats,
+  computeFilteredCollectionStats,
   type CollectionStats,
 } from '../../../packages/core/src/stats/index.ts';
 import {
@@ -409,7 +410,13 @@ describe('Phase 7 tools/cli & Local MCP Server (§7.1, §10.3)', () => {
     const toolNames = (listToolsResp?.result as { tools: Array<{ name: string }> }).tools.map(
       (t) => t.name,
     );
-    expect(toolNames).toEqual(['list_decks', 'get_weak_cards', 'get_stats', 'propose_package']);
+    expect(toolNames).toEqual([
+      'list_decks',
+      'search_notes',
+      'get_weak_cards',
+      'get_stats',
+      'propose_package',
+    ]);
 
     const decksResp = handleMcpRequest(
       {
@@ -611,6 +618,16 @@ describe('Phase 7 tools/cli & Local MCP Server (§7.1, §10.3)', () => {
     );
     expect(stats.totals.cards).toBe(1);
     expect(stats.totals.reviews).toBe(4);
+    // The Stats screen's deck + category filter goes through the same core function as MCP.
+    for (const screenFilter of [
+      { deckIds: [koDeck], categories: { mode: 'any', tags: ['daily'] } },
+      { deckIds: [koDeck] },
+      {},
+    ]) {
+      expect(call('get_stats', { tzOffsetMinutes: 540, filter: screenFilter })['stats']).toEqual(
+        computeFilteredCollectionStats(state, screenFilter, { nowMs: now, tzOffsetMinutes: 540 }),
+      );
+    }
     const scoped = call('get_stats', {
       tzOffsetMinutes: 540,
       deckIds: [jaDeck],
