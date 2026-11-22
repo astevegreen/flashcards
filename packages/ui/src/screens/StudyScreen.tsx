@@ -26,6 +26,7 @@ import {
   setStudyFilter,
   useStudyFilter,
   type ActiveStudyFilter,
+  type StudySession,
 } from '../study/filterStore.ts';
 import { RatingBar } from '../study/RatingBar.tsx';
 import { StudyCard, type SwipeIntent } from '../study/StudyCard.tsx';
@@ -183,6 +184,12 @@ function resolveStudyKeyAction(
   if (letter !== undefined) return letter;
   const rating = isRevealed ? RATING_KEYS[key] : undefined;
   return rating && Number(ratingMode) >= rating[1] ? rating[0] : undefined;
+}
+
+/** Undo is enabled only when there is something to undo: the session's last answer, else a review. */
+function canUndo(session: StudySession | undefined, reviewUndoDepth: number): boolean {
+  if (session?.undo) return session.canUndo?.() ?? true;
+  return reviewUndoDepth > 0;
 }
 
 function layoutLabelFor(layout: Layout, card: Card): string {
@@ -800,7 +807,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           <button
             type="button"
             onClick={handleUndo}
-            disabled={undoStack.length === 0 && !studyFilter?.session?.undo}
+            disabled={!canUndo(studyFilter?.session, undoStack.length)}
             title="Undo last review (Z)"
             className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)] disabled:opacity-40"
           >
