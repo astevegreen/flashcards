@@ -9,6 +9,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./onedrive": {
+      "types": "./src/onedrive-services.ts",
+      "default": "./src/onedrive-services.ts"
+    },
     "./sync-drive": {
       "types": "./src/sync/google-drive-transport.ts",
       "default": "./src/sync/google-drive-transport.ts"

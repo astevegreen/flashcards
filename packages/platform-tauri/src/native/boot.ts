@@ -1,5 +1,5 @@
 import type { PlatformServices } from '@flash/platform';
-import { composeNativePlatform } from '@flash/platform-web/native-support';
+import { composeNativePlatform, lazyOneDriveFields } from '@flash/platform-web/native-support';
 import {
   createSqliteRefreshTokenStore,
   resolveRefreshTokenStore,
@@ -27,6 +27,9 @@ export interface TauriBootConfig {
   pickerPageUrl?: string;
   isPersonalBuild: boolean;
   licensePublicKeyHex?: string;
+  /** Entra client ID for OneDrive (public client, loopback redirect `http://localhost`). */
+  microsoftClientId?: string;
+  microsoftTenant?: string;
   packCatalogUrl?: string;
   starterCatalogUrl?: string;
 }
@@ -85,8 +88,37 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
     ...(oauthPlugin && secureStorageWarning ? { secureStorageWarning } : {}),
   });
 
+  const microsoftClientId = config.microsoftClientId;
+  const oneDrive = microsoftClientId
+    ? lazyOneDriveFields(async () => {
+        const [{ createMicrosoftLoopbackBridge }, { createNativeOneDriveServices }] =
+          await Promise.all([
+            import('./microsoft-loopback.ts'),
+            import('@flash/platform-web/onedrive'),
+          ]);
+        // Runs after the Google store above, so its one-time SQLite -> keychain move is done.
+        const msTokens = await resolveRefreshTokenStore({
+          secure: createSecureSecretBackend(),
+          legacy: createSqliteRefreshTokenStore(sqlDb, 'microsoft'),
+          account: 'microsoft-refresh-token',
+          onInsecureFallback: (reason) => {
+            console.warn(`Microsoft refresh token stays in SQLite: ${reason}`);
+          },
+        });
+        return createNativeOneDriveServices({
+          bridge: createMicrosoftLoopbackBridge({
+            clientId: microsoftClientId,
+            ...(config.microsoftTenant ? { tenant: config.microsoftTenant } : {}),
+            tokenStore: msTokens.store,
+          }),
+          storage: native.storage,
+        });
+      })
+    : {};
+
   return {
     ...composeNativePlatform(native, base),
+    ...oneDrive,
     // Phase 13 study reminders: desktop notifications while the app runs. The notification
     // plugin cannot schedule on desktop, so nothing fires after the app quits (Settings says so).
     studyReminderDelivery: 'while-app-runs',
