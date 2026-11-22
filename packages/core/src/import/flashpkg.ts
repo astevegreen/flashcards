@@ -18,6 +18,7 @@ import type { KnownEvent } from '../events/types.ts';
 import { decodeUtf8, deriveNoteId, encodeUtf8, uuidv5, FLASH_NAMESPACE_UUID } from '../ids.ts';
 import type { Deck, Note, SourceRef } from '../model/types.ts';
 import { computeNoteContentHash, sha256Hex } from '../sources/hash.ts';
+import { compareCodeUnits } from '../study/queue.ts';
 import { normalizeTagList } from '../tags/index.ts';
 import {
   normalizeMarkdownPage,
@@ -44,6 +45,12 @@ export interface FlashpkgExportOptions {
   pageId?: string;
   /** Optional single course to export, with every deck and page it references. */
   courseId?: string;
+  /**
+   * Optional subset of notes (e.g. one category): only these active notes are exported, under
+   * the decks that contain them (narrowed further by `deckId` when both are given). No pages or
+   * courses; media is limited to what those notes reference.
+   */
+  noteIds?: Iterable<string>;
   /** Optional local media blobs keyed by SHA-256 hex to pack under `media/<sha256>.<ext>`. */
   mediaBlobs?: ReadonlyMap<string, Uint8Array>;
 }
@@ -122,7 +129,41 @@ interface ExportScope {
   defaultName: (decks: readonly Deck[]) => string;
 }
 
-function resolveExportScope(state: CollectionState, options: FlashpkgExportOptions): ExportScope {
+/** Scope of a note-subset export (see {@link FlashpkgExportOptions.noteIds}). */
+function noteSubsetScope(
+  state: CollectionState,
+  noteIds: ReadonlySet<string>,
+  deckId: string | undefined,
+): ExportScope {
+  const deckIds = new Set<string>();
+  for (const id of noteIds) {
+    const note = state.notes.get(id);
+    if (note && !note.archived && (deckId === undefined || note.deck_id === deckId)) {
+      deckIds.add(note.deck_id);
+    }
+  }
+  return {
+    full: false,
+    deckIds,
+    pageIds: new Set(),
+    courseIds: new Set(),
+    defaultPackageId: (decks) =>
+      `pkg:notes-${uuidv5(FLASH_NAMESPACE_UUID, [...decks.map((d) => d.id), ...[...noteIds].sort(compareCodeUnits)].join(','))}`,
+    defaultName: (decks) => decks[0]?.name ?? 'Flashcards Export',
+  };
+}
+
+/** An active note inside the optional note subset. */
+function isExportedNote(note: Note, subset: ReadonlySet<string> | undefined): boolean {
+  return !note.archived && (subset === undefined || subset.has(note.id));
+}
+
+function resolveExportScope(
+  state: CollectionState,
+  options: FlashpkgExportOptions,
+  noteSubset: ReadonlySet<string> | undefined,
+): ExportScope {
+  if (noteSubset !== undefined) return noteSubsetScope(state, noteSubset, options.deckId);
   if (options.courseId !== undefined) {
     const course = state.courses.get(options.courseId);
     const deckIds = new Set<string>();
@@ -182,7 +223,8 @@ export function exportFlashpkg(
   state: CollectionState,
   options: FlashpkgExportOptions = {},
 ): Uint8Array {
-  const scope = resolveExportScope(state, options);
+  const noteSubset = options.noteIds === undefined ? undefined : new Set(options.noteIds);
+  const scope = resolveExportScope(state, options, noteSubset);
   const targetDecks = [...state.decks.values()].filter(
     (d) => !d.archived && (scope.deckIds === null || scope.deckIds.has(d.id)),
   );
@@ -209,7 +251,7 @@ export function exportFlashpkg(
     });
 
     const deckNotes = [...state.notes.values()]
-      .filter((n) => n.deck_id === deck.id && !n.archived)
+      .filter((n) => n.deck_id === deck.id && isExportedNote(n, noteSubset))
       .sort((a, b) => a.created_order - b.created_order || (a.id < b.id ? -1 : 1));
 
     const lines = deckNotes.map((n) => {
@@ -340,7 +382,7 @@ export function exportFlashpkg(
       };
       const deckIdSet = new Set(targetDecks.map((d) => d.id));
       for (const note of state.notes.values()) {
-        if (!deckIdSet.has(note.deck_id) || note.archived) continue;
+        if (!deckIdSet.has(note.deck_id) || !isExportedNote(note, noteSubset)) continue;
         for (const val of Object.values(note.fields)) collect(val);
       }
       for (const page of exportedPages) collect(page.markdown);

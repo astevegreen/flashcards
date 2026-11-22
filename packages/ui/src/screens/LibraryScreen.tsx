@@ -22,6 +22,7 @@ import { useApp } from '../state/AppContext.tsx';
 
 const LazyPageViewer = lazy(() => import('../pages/PageViewer.tsx'));
 const LazyPageEditor = lazy(() => import('../pages/PageEditor.tsx'));
+const LazyCategoryExportPanel = lazy(() => import('../library/CategoryExportPanel.tsx'));
 
 function DeckOptionsPanel({
   deck,
@@ -1134,6 +1135,18 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
           </div>
         )}
       </div>
+
+      {/* Phase 9: export one category (CSV / .flashpkg); Browse keeps the selection export. */}
+      <Suspense fallback={null}>
+        <LazyCategoryExportPanel
+          collectMediaBlobs={collectMediaBlobs}
+          onStatus={(msg) => {
+            setStatusMessage(msg);
+            setErrorMessage(null);
+          }}
+          onError={(msg) => setErrorMessage(msg)}
+        />
+      </Suspense>
 
       {/* Phase 4 Courses (§2.3) */}
       <CoursesPanel
