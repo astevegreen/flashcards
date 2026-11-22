@@ -106,7 +106,7 @@ export function decomposeHangulSyllable(ch: string): HangulSyllableParts | undef
 }
 
 export function composeHangulSyllable(l: number, v: number, t = 0): string {
-  return String.fromCharCode(S_BASE + (l * V_COUNT + v) * T_COUNT + t);
+  return String.fromCodePoint(S_BASE + (l * V_COUNT + v) * T_COUNT + t);
 }
 
 /** `한국어` → `ㅎㄱㅇ`. Non-Hangul characters are dropped; typed compatibility consonants are kept. */

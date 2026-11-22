@@ -188,10 +188,10 @@ export const KRDICT_STARTER_ROWS = [
 
 const esc = (s) =>
   String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 const feat = (att, val) => `<feat att="${esc(att)}" val="${esc(val)}"/>`;
 
 /** Renders the starter rows as KRDict LMF XML (the shape of the "사전 전체 내려받기" export). */

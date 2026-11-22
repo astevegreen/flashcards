@@ -176,7 +176,9 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
 
   /** Suspends / unsuspends every card of a note (one `CardSuspended` event per changed card). */
   const setNoteCardsSuspended = (noteId: string, suspended: boolean) => {
-    const cardIds = [...(state.cardIdsByNote.get(noteId) ?? [])].sort();
+    const cardIds = [...(state.cardIdsByNote.get(noteId) ?? [])].sort((a, b) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    );
     const factory = getEventFactory();
     const nowMs = Date.now();
     const events: KnownEvent[] = [];

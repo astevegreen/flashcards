@@ -168,7 +168,8 @@ export function buildEnglishReverseIndex(
   });
   // Null prototype: keys come from pack data, so "__proto__" must stay an ordinary key.
   const out = Object.create(null) as Record<string, string[]>;
-  for (const key of [...buckets.keys()].sort()) {
+  // Code-unit order (not localeCompare) so the index is identical on every machine and locale.
+  for (const key of [...buckets.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     out[key] = (buckets.get(key) ?? [])
       .sort((a, b) => a.rank - b.rank || a.order - b.order)
       .map((x) => x.headword);
