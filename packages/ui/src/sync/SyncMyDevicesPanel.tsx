@@ -1,4 +1,5 @@
 import { useApp } from '../state/AppContext.tsx';
+import { peekAddDeviceExpectation } from './addDeviceExpectation.ts';
 import type { AddDeviceLink, AddDeviceProvider } from './addDeviceLink.ts';
 import { describeSyncProvider } from './syncProviderLabel.ts';
 import { planSyncMyDevices, syncProviderInfo, type SyncProviderInfo } from './syncProviders.ts';
@@ -131,8 +132,13 @@ export function SyncMyDevicesPanel({
   /** `panel` only: a link to every sync setting. */
   onOpenSettings?: (() => void) | undefined;
 }>) {
-  const { platform, syncState, addDeviceLink } = useApp();
+  const { platform, syncState, addDeviceLink: openedLink } = useApp();
   const { connect, connecting, error } = useConnectSyncProvider();
+  // Back from a sign-in that did not finish, the page-load link is gone but the stored one still
+  // says which provider the other device uses.
+  const addDeviceLink =
+    openedLink ??
+    (syncState.provider === 'none' ? peekAddDeviceExpectation(platform.storage) : undefined);
   const plan = planSyncMyDevices(platform, addDeviceLink);
   const isPanel = variant === 'panel';
   // In the panel, a device that already syncs just says so (unless a link asks to switch).

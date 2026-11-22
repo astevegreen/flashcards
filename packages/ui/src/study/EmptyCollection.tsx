@@ -1,9 +1,15 @@
 import type { Storage } from '@flash/platform';
 import { use, useState } from 'react';
+import { planEmptyCollection, syncsWithRealProvider } from '../onboarding/emptyCollectionPlan.ts';
 import { FirstRunOnboarding } from '../onboarding/FirstRunOnboarding.tsx';
 import { onboardingRecordResource, saveOnboardingRecord } from '../onboarding/onboardingState.ts';
 import type { OnboardingDeckInfo } from '../onboarding/starterDecks.ts';
+import { useApp } from '../state/AppContext.tsx';
 import { AddDeviceCollectionNotice } from '../sync/AddDeviceCollectionNotice.tsx';
+import {
+  addDeviceExpectationResource,
+  clearAddDeviceExpectation,
+} from '../sync/addDeviceExpectation.ts';
 import { SyncMyDevicesPanel } from '../sync/SyncMyDevicesPanel.tsx';
 
 const SECONDARY_BUTTON_CLASS =
@@ -21,11 +27,14 @@ const INTRO: Readonly<Record<View, string>> = {
 
 /**
  * Empty collection screen (production zero-deck state). A device that has never been onboarded
- * and has no decks at all gets first-run onboarding (pick a language, then a starter deck); a
- * device opened with an add-device link gets "Sync my devices" with that provider instead. Below
- * them: "Bring my cards" (the Library's import) and "I already use this app: sync my devices".
- * The per-device onboarding record is read with `use()` inside the same Suspense boundary as this
- * lazily loaded screen, so the screen paints once, complete, and nothing shifts under the pointer.
+ * and has no decks at all gets first-run onboarding (pick a language, then a starter deck). A
+ * device that is joining an existing collection (opened with an add-device link, or back from the
+ * sign-in redirect with its first sync still to land) gets "Sync my devices" instead and is never
+ * offered onboarding meanwhile (`planEmptyCollection`). Below them: "Bring my cards" (the
+ * Library's import) and "I already use this app: sync my devices". The per-device onboarding
+ * record and any stored add-device link are read with `use()` inside the same Suspense boundary
+ * as this lazily loaded screen, so it paints once, complete, and only the user's own taps switch
+ * between the views (nothing swaps under the pointer when a sync lands).
  */
 export function EmptyCollection({
   storage,
@@ -36,7 +45,7 @@ export function EmptyCollection({
   onOpenSettings,
   onStartWithDeck,
 }: Readonly<{
-  storage: Pick<Storage, 'getKv' | 'setKv'>;
+  storage: Pick<Storage, 'getKv' | 'setKv' | 'deleteKv'>;
   starterCatalogUrl: string | undefined;
   /** No decks at all (archived ones included): only then is onboarding offered. */
   collectionEmpty: boolean;
@@ -48,12 +57,22 @@ export function EmptyCollection({
   onStartWithDeck: (deck: OnboardingDeckInfo) => Promise<void>;
 }>) {
   const record = use(onboardingRecordResource(storage));
-  const [onboardingOffered, setOnboardingOffered] = useState(
-    record === undefined && collectionEmpty,
-  );
-  const [syncOpen, setSyncOpen] = useState(openedFromAddDeviceLink);
+  const storedLink = use(addDeviceExpectationResource(storage));
+  const { syncState, meta } = useApp();
+  const [linkPending, setLinkPending] = useState(storedLink !== undefined);
+  const plan = planEmptyCollection({
+    record,
+    collectionEmpty,
+    syncProvider: syncState.provider,
+    collectionId: meta?.collectionId,
+    openedFromAddDeviceLink,
+    addDeviceLinkPending: linkPending,
+  });
+  const [skipped, setSkipped] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(plan.syncOpen);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | undefined>(undefined);
+  const onboardingOffered = plan.offerOnboarding && !skipped;
 
   let view: View = 'none';
   if (syncOpen) view = 'sync';
@@ -61,8 +80,21 @@ export function EmptyCollection({
 
   const skipOnboarding = () => {
     if (!onboardingOffered) return;
-    setOnboardingOffered(false);
+    setSkipped(true);
     void saveOnboardingRecord(storage, { status: 'skipped', at: Date.now() });
+  };
+
+  const forgetLink = () => {
+    setLinkPending(false);
+    void clearAddDeviceExpectation(storage);
+  };
+
+  // Closing "Sync my devices" before this device syncs anywhere turns away from the add-device
+  // link it was opened with: the link is forgotten, so this is an ordinary new device again.
+  const toggleSync = () => {
+    const turningAway = syncOpen && !syncsWithRealProvider(syncState.provider);
+    if (turningAway && (linkPending || openedFromAddDeviceLink)) forgetLink();
+    setSyncOpen(!syncOpen);
   };
 
   // The device is marked onboarded only once the deck is in the collection: if the deck chunk
@@ -131,14 +163,14 @@ export function EmptyCollection({
           type="button"
           data-testid="empty-sync-my-devices-btn"
           aria-expanded={syncOpen}
-          onClick={() => setSyncOpen((open) => !open)}
+          onClick={toggleSync}
           className={SECONDARY_BUTTON_CLASS}
         >
           I already use this app: sync my devices
         </button>
       </div>
       <div className="w-full max-w-md min-w-0">
-        <AddDeviceCollectionNotice />
+        <AddDeviceCollectionNotice onDismiss={forgetLink} />
       </div>
     </section>
   );

@@ -13,9 +13,15 @@ import {
   sampleDeckId,
 } from '../../core/src/samples/decks.ts';
 import { DexieStorage } from '../../platform-web/src/storage/dexie-storage.ts';
+import {
+  isJoiningCollection,
+  planEmptyCollection,
+  type EmptyCollectionInput,
+} from '../src/onboarding/emptyCollectionPlan.ts';
 import { onboardingLanguages, starterDecksFor } from '../src/onboarding/FirstRunOnboarding.tsx';
 import { isKoreanLocale, orderOnboardingLanguages } from '../src/onboarding/languageOrder.ts';
 import {
+  isOnboardingRecordSettled,
   loadOnboardingRecord,
   forgetOnboardingRecord,
   ONBOARDING_KV_KEY,
@@ -189,5 +195,86 @@ describe('Reset Local Device Data and the onboarding record', () => {
     } finally {
       storage.close();
     }
+  });
+});
+
+describe('the one-time prompt waits for the record read', () => {
+  it('"no record" and "not read yet" are told apart, so an answered prompt is never asked again', async () => {
+    const kv = memoryKv({
+      [ONBOARDING_KV_KEY]: { status: 'skipped', at: 1, syncPrompt: 'dismissed' },
+    });
+    expect(isOnboardingRecordSettled(kv)).toBe(false);
+    expect(peekOnboardingRecord(kv)).toBeUndefined();
+    await onboardingRecordResource(kv);
+    await Promise.resolve();
+    expect(isOnboardingRecordSettled(kv)).toBe(true);
+    expect(wantsSyncPrompt(peekOnboardingRecord(kv))).toBe(false);
+
+    const empty = memoryKv();
+    await onboardingRecordResource(empty);
+    await Promise.resolve();
+    expect(isOnboardingRecordSettled(empty)).toBe(true);
+    expect(wantsSyncPrompt(peekOnboardingRecord(empty))).toBe(true);
+  });
+});
+
+describe('the empty-collection screen: existing users never see onboarding', () => {
+  const COLLECTION = 'col-0190f5c2-1234-7abc-8def-0123456789ab';
+  const fresh: EmptyCollectionInput = {
+    record: undefined,
+    collectionEmpty: true,
+    syncProvider: 'none',
+    collectionId: undefined,
+    openedFromAddDeviceLink: false,
+    addDeviceLinkPending: false,
+  };
+
+  it('offers onboarding on a fresh, empty device that syncs nowhere', () => {
+    expect(planEmptyCollection(fresh)).toEqual({ offerOnboarding: true, syncOpen: false });
+  });
+
+  it('never offers it to a device back from the sign-in redirect whose first sync has not landed', () => {
+    expect(isJoiningCollection('onedrive', undefined)).toBe(true);
+    expect(planEmptyCollection({ ...fresh, syncProvider: 'onedrive' })).toEqual({
+      offerOnboarding: false,
+      syncOpen: true,
+    });
+    expect(planEmptyCollection({ ...fresh, syncProvider: 'google_drive' }).offerOnboarding).toBe(
+      false,
+    );
+  });
+
+  it('never offers it while an add-device link waits to be confirmed (sign-in cancelled)', () => {
+    expect(planEmptyCollection({ ...fresh, addDeviceLinkPending: true })).toEqual({
+      offerOnboarding: false,
+      syncOpen: true,
+    });
+  });
+
+  it('opens Sync my devices first for a link, still leaving onboarding behind it for a provider-only link', () => {
+    expect(planEmptyCollection({ ...fresh, openedFromAddDeviceLink: true })).toEqual({
+      offerOnboarding: true,
+      syncOpen: true,
+    });
+  });
+
+  it('offers it once a finished first sync shows the synced collection is empty too', () => {
+    expect(
+      planEmptyCollection({ ...fresh, syncProvider: 'onedrive', collectionId: COLLECTION }),
+    ).toEqual({ offerOnboarding: true, syncOpen: false });
+  });
+
+  it('the dev-only channel does not count as joining a collection', () => {
+    expect(isJoiningCollection('dev_channel', undefined)).toBe(false);
+    expect(planEmptyCollection({ ...fresh, syncProvider: 'dev_channel' }).offerOnboarding).toBe(
+      true,
+    );
+  });
+
+  it('never offers it to a device that was already onboarded or skipped, or that has decks', () => {
+    expect(
+      planEmptyCollection({ ...fresh, record: { status: 'skipped', at: 1 } }).offerOnboarding,
+    ).toBe(false);
+    expect(planEmptyCollection({ ...fresh, collectionEmpty: false }).offerOnboarding).toBe(false);
   });
 });
