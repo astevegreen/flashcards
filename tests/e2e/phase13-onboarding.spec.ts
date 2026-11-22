@@ -37,7 +37,10 @@ test.describe('Phase 13 first-run onboarding', () => {
 
     await onboarding.getByTestId('onboarding-language-ko').click();
     await expect(onboarding.getByRole('heading', { name: 'Pick a starter deck' })).toBeVisible();
-    await onboarding.getByTestId('onboarding-deck-sample-ko-vocab').click();
+    await onboarding
+      .getByTestId(/^onboarding-deck-/)
+      .first()
+      .click();
 
     await expect(page.getByTestId('study-card')).toBeVisible();
     await expect(page.getByTestId('onboarding')).toHaveCount(0);
@@ -70,7 +73,10 @@ test.describe('Phase 13 first-run onboarding', () => {
   test('sync is offered once, after the first finished session, never before', async ({ page }) => {
     await page.goto('/');
     await page.getByTestId('onboarding-language-ko').click();
-    await page.getByTestId('onboarding-deck-sample-ko-vocab').click();
+    await page
+      .getByTestId(/^onboarding-deck-/)
+      .first()
+      .click();
     await expect(page.getByTestId('study-card')).toBeVisible();
     await expect(page.getByTestId('onboarding-sync-prompt')).toHaveCount(0);
 
@@ -96,7 +102,10 @@ test.describe('Phase 13 first-run onboarding', () => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto('/');
       await page.getByTestId('onboarding-language-ko').click();
-      await page.getByTestId('onboarding-deck-sample-ko-vocab').click();
+      await page
+        .getByTestId(/^onboarding-deck-/)
+        .first()
+        .click();
       await expect(page.getByTestId('study-card')).toBeVisible();
       // Sample the caught-up buttons every frame, from before the panel first paints.
       await page.evaluate(() => {
