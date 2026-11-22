@@ -42,6 +42,29 @@ async function readEvents(page: Page): Promise<EventRow[]> {
   }, dbNameFor(page));
 }
 
+/** The stored sync cursor's `lastSyncedAt`, read straight from IndexedDB. */
+async function readSyncedAt(page: Page): Promise<number | null> {
+  return page.evaluate(async (dbName) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(dbName);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      return await new Promise<number | null>((resolve, reject) => {
+        const req = db.transaction('kv', 'readonly').objectStore('kv').get('sync_cursor');
+        req.onsuccess = () => {
+          const row = req.result as { value?: { lastSyncedAt?: number } } | undefined;
+          resolve(row?.value?.lastSyncedAt ?? null);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, dbNameFor(page));
+}
+
 /** Writes a legacy history for `cardId`: graduated, then `lapses` x (Again, Good, Good). */
 async function seedLegacyLapses(page: Page, cardId: string, lapses: number): Promise<void> {
   await page.evaluate(
@@ -131,8 +154,11 @@ test.describe('Phase 9 leech backfill', () => {
     await page.reload();
     await expect(page.getByTestId('study-card')).toBeVisible();
     await syncNow(page);
-    // Give the (async) event persistence a moment: a second backfill would have landed by now.
-    await page.waitForTimeout(500);
+    // Persistence is one serial queue. A backfill planned after that sync is queued before the
+    // cursor write of the NEXT sync, so once that cursor is on disk any second backfill would be.
+    const cursorBefore = await readSyncedAt(page);
+    await page.getByTestId('sync-now-btn').click();
+    await expect.poll(() => readSyncedAt(page)).not.toBe(cursorBefore);
     expect(backfills(await readEvents(page))).toHaveLength(1);
   });
 });

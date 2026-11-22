@@ -49,6 +49,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useAudioController, type AudioController } from './useAudioController.ts';
+import { isLeechBackfillReady } from './leechBackfillGate.ts';
 import { useSyncController, type SyncUiState } from './useSyncController.ts';
 
 export type { AudioController } from './useAudioController.ts';
@@ -344,11 +345,12 @@ export function AppProvider({
   // Leech backfill, once per app launch: cards that reached the leech threshold before leech
   // tagging existed (or on an older build, or through an imported history) get the `leech` tag as
   // set-union events, which converge when several devices backfill concurrently. With a sync
-  // provider it waits for the first completed sync, so the plan sees the merged log (an earlier
-  // add, or a removal of the tag elsewhere, both skip the note). Leeches that arrive later are
-  // picked up at the next launch. Idempotent.
-  const { provider: syncProvider, status: syncStatus, readOnly } = syncController.syncState;
-  const backfillReady = !readOnly && (syncProvider === 'none' || syncStatus === 'synced');
+  // provider it waits for a sync that completed during THIS launch (not the stale `synced` status
+  // a stored cursor shows at boot), so the plan sees the merged log (an earlier add, or a removal
+  // of the tag elsewhere, both skip the note). Leeches that arrive later are picked up at the next
+  // launch. Idempotent.
+  const [launchedAtMs] = useState(() => Date.now());
+  const backfillReady = isLeechBackfillReady(syncController.syncState, launchedAtMs);
   const backfillDoneRef = useRef(false);
   const emitEventsRef = useRef(emitEvents);
   emitEventsRef.current = emitEvents;
