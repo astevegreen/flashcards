@@ -55,8 +55,13 @@ async function installMicrosoftFakes(
   fakes: MicrosoftFakes,
   devParams: () => string,
 ): Promise<void> {
+  // The production preview build takes its test client ID only from this init script.
+  await context.addInitScript((clientId) => {
+    (window as unknown as { __FLASH_TEST_MS_CLIENT_ID__?: string }).__FLASH_TEST_MS_CLIENT_ID__ =
+      clientId;
+  }, CLIENT_ID);
   // Sign-in page: consent is instant, so answer with the redirect straight back to the app. The
-  // real redirect URI has no query; the fake keeps the dev-only `?device=` / `?msClientId=` params.
+  // real redirect URI has no query; the fake keeps the dev `?device=` param.
   await context.route('https://login.microsoftonline.com/**', async (route) => {
     const url = new URL(route.request().url());
     const redirect = new URL(url.searchParams.get('redirect_uri') ?? '/', url);
@@ -112,12 +117,12 @@ test.describe('Phase 12 OneDrive storage connector (fake Graph)', () => {
     // Separate contexts: no shared BroadcastChannel, so OneDrive is the only path between them.
     const contextA = await browser.newContext();
     const contextB = await browser.newContext();
-    await installMicrosoftFakes(contextA, fakes, () => `device=oda&msClientId=${CLIENT_ID}`);
-    await installMicrosoftFakes(contextB, fakes, () => `device=odb&msClientId=${CLIENT_ID}`);
+    await installMicrosoftFakes(contextA, fakes, () => `device=oda`);
+    await installMicrosoftFakes(contextB, fakes, () => `device=odb`);
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
 
-    await pageA.goto(`/?device=oda&msClientId=${CLIENT_ID}`);
+    await pageA.goto(`/?device=oda`);
     await expect(pageA.getByTestId('study-card')).toBeVisible();
     await pageA.getByLabel('Select deck to study').selectOption({ label: 'Korean Core + Hanja' });
     await expect(pageA.getByTestId('count-new')).toHaveText('4');
@@ -137,7 +142,7 @@ test.describe('Phase 12 OneDrive storage connector (fake Graph)', () => {
     await expect(pageA.getByTestId('sync-status-pill')).toHaveText('Synced');
 
     // B connects to the same app folder and pulls A's review.
-    await pageB.goto(`/?device=odb&msClientId=${CLIENT_ID}`);
+    await pageB.goto(`/?device=odb`);
     await expect(pageB.getByTestId('study-card')).toBeVisible();
     await connectOneDrive(pageB);
     await pageB.getByRole('button', { name: 'Study' }).first().click();
@@ -161,9 +166,9 @@ test.describe('Phase 12 OneDrive storage connector (fake Graph)', () => {
     fakes.graph.drive.put('Decks/notes.txt', new TextEncoder().encode('ignored'), Date.now());
 
     const context = await browser.newContext();
-    await installMicrosoftFakes(context, fakes, () => `device=odpick&msClientId=${CLIENT_ID}`);
+    await installMicrosoftFakes(context, fakes, () => `device=odpick`);
     const page = await context.newPage();
-    await page.goto(`/?device=odpick&msClientId=${CLIENT_ID}`);
+    await page.goto(`/?device=odpick`);
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     await page.getByRole('button', { name: 'Library' }).first().click();
@@ -189,6 +194,46 @@ test.describe('Phase 12 OneDrive storage connector (fake Graph)', () => {
     await page.getByRole('button', { name: 'Study' }).first().click();
     await page.getByLabel('Select deck to study').selectOption({ label: 'OneDrive Animals' });
     await expect(page.getByTestId('count-new')).toHaveText('2');
+    await context.close();
+  });
+
+  test('the OneDrive picker keeps one height from lazy load to a long listing', async ({
+    browser,
+  }) => {
+    const fakes: MicrosoftFakes = { graph: new FakeGraphServer(), exchanges: [] };
+    for (let i = 0; i < 30; i++) {
+      fakes.graph.drive.put(`Folder ${String(i).padStart(2, '0')}/a.csv`, new Uint8Array(), 0);
+    }
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await installMicrosoftFakes(context, fakes, () => `device=odlayout`);
+    const page = await context.newPage();
+    await page.goto(`/?device=odlayout`);
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByTestId('onedrive-import-btn').click();
+    await page.getByTestId('onedrive-grant-access-btn').click();
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await page.getByRole('button', { name: 'Library' }).first().click();
+
+    // Every frame from the click on: the fallback or panel height (with the state it is in).
+    await page.evaluate(() => {
+      const samples: string[] = [];
+      (window as unknown as { __pickerSamples: string[] }).__pickerSamples = samples;
+      const tick = () => {
+        const el =
+          document.querySelector('[data-testid="onedrive-picker-panel"]') ??
+          document.querySelector('[data-testid="onedrive-picker-fallback"]');
+        if (el) samples.push(String(Math.round(el.getBoundingClientRect().height)));
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await page.getByTestId('onedrive-import-btn').click();
+    await expect(page.getByTestId('onedrive-folder-Folder 29')).toBeAttached();
+    const read = () =>
+      page.evaluate(() => (window as unknown as { __pickerSamples: string[] }).__pickerSamples);
+    await expect.poll(async () => (await read()).length).toBeGreaterThan(20);
+    expect(new Set(await read()).size).toBe(1);
     await context.close();
   });
 });

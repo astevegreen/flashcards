@@ -26,6 +26,13 @@ const DEFAULT_GOOGLE_CLIENT_ID =
   '932735219487-p20rc5hu0gegb2bh43q8phe8lgi957v3.apps.googleusercontent.com';
 const DEFAULT_TOKEN_HELPER_URL = 'https://flashcards-token-helper.yodc.workers.dev';
 
+/** The e2e-only OneDrive client ID set by a Playwright init script (see `boot`). */
+function testMicrosoftClientId(): string {
+  const value = (window as unknown as { __FLASH_TEST_MS_CLIENT_ID__?: unknown })
+    .__FLASH_TEST_MS_CLIENT_ID__;
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 type NativeRuntime = 'capacitor' | 'tauri' | null;
 
 /** Detects the native shell without importing any native SDK into the initial chunk. */
@@ -82,10 +89,14 @@ async function boot(): Promise<void> {
   const dropboxAppKey =
     (import.meta.env['VITE_DROPBOX_APP_KEY'] as string | undefined)?.trim() || '';
   const searchParams = new URLSearchParams(window.location.search);
-  // OneDrive (Microsoft Entra) client ID. `?msClientId=` is a dev/test-only override (`?device=`
-  // sessions), used by the e2e suite against a fake Graph; production reads only the env var.
+  // OneDrive (Microsoft Entra) client ID, from the build env. Overrides exist for tests only and
+  // can never come from a link: `?msClientId=` works in the Vite dev server only, and the e2e
+  // suite (a production preview build) sets `window.__FLASH_TEST_MS_CLIENT_ID__` with an init
+  // script, which only code already running in the page can do. A crafted link therefore cannot
+  // send users to the consent screen of another Entra app.
   const microsoftClientId =
-    (isDevMode ? searchParams.get('msClientId')?.trim() : '') ||
+    testMicrosoftClientId() ||
+    (import.meta.env.DEV ? searchParams.get('msClientId')?.trim() : '') ||
     (import.meta.env['VITE_MS_CLIENT_ID'] as string | undefined)?.trim() ||
     '';
   const microsoftTenant = (import.meta.env['VITE_MS_TENANT'] as string | undefined)?.trim() || '';

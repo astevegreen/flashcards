@@ -781,11 +781,15 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         </button>
       </div>
 
-      {/* Optional OneDrive file picker: lazy, below the action row, with its height reserved. */}
+      {/* Optional OneDrive file picker: lazy, below the action row. The fallback reserves the
+          panel's fixed height (h-[26rem], ONEDRIVE_PICKER_PANEL_HEIGHT), so nothing below moves. */}
       {showOneDrivePicker && (
         <Suspense
           fallback={
-            <div className="min-h-[16rem] rounded-xl border border-[var(--border)] bg-[var(--bg)]" />
+            <div
+              data-testid="onedrive-picker-fallback"
+              className="h-[26rem] rounded-xl border border-[var(--border)] bg-[var(--bg)]"
+            />
           }
         >
           <LazyOneDrivePickerPanel

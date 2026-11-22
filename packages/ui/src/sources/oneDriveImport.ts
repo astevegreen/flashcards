@@ -1,4 +1,11 @@
-import { decodeUtf8, type CollectionState, type EventFactory, type KnownEvent } from '@flash/core';
+import {
+  createEventFactory,
+  createHlcState,
+  decodeUtf8,
+  type CollectionState,
+  type EventFactory,
+  type KnownEvent,
+} from '@flash/core';
 import { canCreateOrImportDeck, type EntitlementState } from '@flash/core/license';
 import type { PickedFile, PlatformServices } from '@flash/platform';
 
@@ -57,14 +64,22 @@ async function importSpreadsheet(
   }
   const { buildEventsFromCsv } = await import('@flash/core/csv');
   const deckName = picked.name.slice(0, picked.name.length - ext.length).trim() || 'OneDrive Deck';
+  const build = (deckId: string, eventFactory: EventFactory) =>
+    buildEventsFromCsv(text, {
+      deckId,
+      noteType,
+      eventFactory,
+      ...(ext === '.tsv' ? { delimiter: '\t' as const } : {}),
+      existingNotes: ctx.state.notes.values(),
+    });
+  // Parse first with a throwaway factory (no sequence numbers used), so a file that fails to
+  // parse or holds no notes never leaves an empty deck behind.
+  const dryRunFactory = createEventFactory('dry-run', 0, createHlcState('dry-run', Date.now()));
+  if (build('onedrive-import-dry-run', dryRunFactory).importedCount === 0) {
+    throw new Error(`"${picked.name}" has no notes to import, so no deck was created.`);
+  }
   const deckId = ctx.createDeck(deckName, noteType.id, ctx.language);
-  const result = buildEventsFromCsv(text, {
-    deckId,
-    noteType,
-    eventFactory: ctx.getEventFactory(),
-    ...(ext === '.tsv' ? { delimiter: '\t' as const } : {}),
-    existingNotes: ctx.state.notes.values(),
-  });
+  const result = build(deckId, ctx.getEventFactory());
   if (result.events.length > 0) ctx.emitEvents(result.events);
   const warn = result.warnings.length > 0 ? ` (${result.warnings.length} warning(s))` : '';
   return `Imported ${result.importedCount} note(s) from OneDrive into "${deckName}"${warn}.`;

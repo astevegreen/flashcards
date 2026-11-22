@@ -130,15 +130,19 @@ VITE_MS_TENANT=consumers
 ```
 
 On the web, OneDrive also needs the token-helper URL (`VITE_TOKEN_HELPER_URL`, or the built-in
-default). For dev and e2e sessions only, `?device=<slug>&msClientId=<id>` overrides the client ID;
-production builds ignore that query parameter.
+default). Builds always use `VITE_MS_CLIENT_ID`. For testing only, the Vite dev server (`pnpm dev`)
+accepts a `?msClientId=<id>` override, and the e2e suite sets `window.__FLASH_TEST_MS_CLIENT_ID__`
+from a Playwright init script. Production and preview builds ignore the query parameter, so a link
+cannot point the app at a different Entra app.
 
 **Content Security Policy:**
 
 - The app calls these origins:
   - `https://graph.microsoft.com`
   - `https://login.microsoftonline.com` (native token requests)
-  - the OneDrive download and upload hosts (`*.files.1drv.com`, `*.sharepoint.com`, `api.onedrive.com`)
+  - the OneDrive download and upload hosts (`*.files.1drv.com`, `*.1drv.com`, `*.sharepoint.com`,
+    `api.onedrive.com`, and `*.microsoftpersonalcontent.com`, which recent personal-account
+    download URLs use; not checked against live Graph)
 - Sign-in is a top-level navigation, and the picker is built into the app (no Microsoft iframe or script).
 - If your deployment narrows `connect-src`, allow those origins.
 - The Tauri shell already allows `https://login.microsoftonline.com/*` in `capabilities/default.json`.
