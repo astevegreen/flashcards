@@ -56,6 +56,10 @@
     "./license": {
       "types": "./src/license/index.ts",
       "default": "./src/license/index.ts"
+    },
+    "./stats": {
+      "types": "./src/stats/index.ts",
+      "default": "./src/stats/index.ts"
     }
   },
   "scripts": {
