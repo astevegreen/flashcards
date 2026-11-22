@@ -27,3 +27,7 @@ Thumbs.db
 /*.tsv
 /*.xlsx
 /*.flashpkg
+
+# Raw upstream open data for `build-packs.mjs --full` and its output
+.cache/
+dist-packs/
