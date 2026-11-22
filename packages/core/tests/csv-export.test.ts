@@ -92,7 +92,7 @@ describe('CSV export (Phase 9 categories round trip)', () => {
       'Category 2',
       'Category 3',
     ]);
-    expect(exported.text.startsWith('﻿')).toBe(true);
+    expect(exported.text.startsWith('\uFEFF')).toBe(true);
 
     // Card IDs are the random source keys minted by the first import; pin them for the golden.
     const keys = notesOf(first).map((n) => n.source_key);

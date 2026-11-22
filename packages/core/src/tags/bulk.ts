@@ -1,6 +1,6 @@
-import { isCardSuspended, type CollectionState } from '../events/replay.ts';
-import type { EventPayloadMap } from '../events/types.ts';
-import type { Note } from '../model/types.ts';
+import { isCardSuspended, type CollectionState, type EventFactory } from '../events/replay.ts';
+import type { EventPayloadMap, KnownEvent } from '../events/types.ts';
+import type { Deck, Note } from '../model/types.ts';
 import {
   isTagInSubtree,
   normalizeTagList,
@@ -80,10 +80,19 @@ function tagsPayload(note: Note, tags: string[]): BulkEventDraft {
   };
 }
 
+/**
+ * True for decks fed by a source (Google Sheet / Doc, local folder file, `.flashpkg` package
+ * or package URL). Their next pull re-creates or moves a moved note back, so Browse doesn't
+ * move notes into or out of them. Decks made in the app (`native`) are not linked.
+ */
+export function isLinkedDeck(deck: Deck | undefined): boolean {
+  return deck?.source !== undefined && deck.source.kind !== 'native';
+}
+
 /** Decks a note can move to without losing its cards: same note type, not archived, not linked. */
 export function listMoveTargetDecks(state: CollectionState, noteTypeId: string): string[] {
   return [...state.decks.values()]
-    .filter((d) => !d.archived && d.source === undefined && d.note_type_id === noteTypeId)
+    .filter((d) => !d.archived && !isLinkedDeck(d) && d.note_type_id === noteTypeId)
     .map((d) => d.id)
     .sort(cmpStr);
 }
@@ -130,9 +139,7 @@ export function planBulkNoteAction(
       }
       const linked = notes
         .filter((n) => n.deck_id !== deck.id)
-        .filter(
-          (n) => deck.source !== undefined || state.decks.get(n.deck_id)?.source !== undefined,
-        )
+        .filter((n) => isLinkedDeck(deck) || isLinkedDeck(state.decks.get(n.deck_id)))
         .map((n) => n.id);
       if (linked.length > 0) {
         return {
@@ -196,4 +203,26 @@ export function planBulkNoteAction(
     }
   }
   return { events, changedNoteCount };
+}
+
+/** Turns planned drafts into events (one batch, one timestamp). */
+export function createBulkEvents(
+  factory: EventFactory,
+  drafts: readonly BulkEventDraft[],
+  nowMs: number,
+): KnownEvent[] {
+  return drafts.map((d) => {
+    switch (d.type) {
+      case 'NoteUpserted':
+        return factory.create(d.type, d.payload, nowMs);
+      case 'NoteArchived':
+        return factory.create(d.type, d.payload, nowMs);
+      case 'NoteRestored':
+        return factory.create(d.type, d.payload, nowMs);
+      case 'CardSuspended':
+        return factory.create(d.type, d.payload, nowMs);
+      case 'CardUnsuspended':
+        return factory.create(d.type, d.payload, nowMs);
+    }
+  });
 }

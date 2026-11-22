@@ -108,7 +108,7 @@ export function exportCsv(state: CollectionState, options: CsvExportOptions): Cs
 
   const body = lines.join('\r\n') + '\r\n';
   return {
-    text: (options.bom === false ? '' : '﻿') + body,
+    text: (options.bom === false ? '' : '\uFEFF') + body,
     headers,
     noteCount: notes.length,
   };

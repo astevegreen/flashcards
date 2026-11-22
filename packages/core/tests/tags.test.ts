@@ -11,7 +11,8 @@ import type { KnownEvent, NoteUpsertedPayload } from '../src/events/types.ts';
 import { createHlcState } from '../src/hlc.ts';
 import { deriveNoteId } from '../src/ids.ts';
 import { filterNoteIds } from '../src/study/filter.ts';
-import { planBulkNoteAction, type BulkEventDraft } from '../src/tags/bulk.ts';
+import { filterBrowseNoteIds } from '../src/tags/browse.ts';
+import { createBulkEvents, planBulkNoteAction, type BulkEventDraft } from '../src/tags/bulk.ts';
 import {
   normalizeTagList,
   planTagOperation,
@@ -49,7 +50,13 @@ function makeWorld(notes: ReadonlyArray<{ key: string; tags: string[]; deck?: st
     ),
     factory.create(
       'DeckCreated',
-      { deck_id: DECK2, name: 'Korean 2', note_type_id: 'preset:vocab-ko', language: 'ko' },
+      {
+        deck_id: DECK2,
+        name: 'Korean 2',
+        note_type_id: 'preset:vocab-ko',
+        language: 'ko',
+        source: { kind: 'native' },
+      },
       (t += 1),
     ),
     factory.create(
@@ -85,25 +92,7 @@ function makeWorld(notes: ReadonlyArray<{ key: string; tags: string[]; deck?: st
     },
     applyDrafts(drafts) {
       t += 1;
-      for (const d of drafts) {
-        switch (d.type) {
-          case 'NoteUpserted':
-            events.push(factory.create(d.type, d.payload, t));
-            break;
-          case 'NoteArchived':
-            events.push(factory.create(d.type, d.payload, t));
-            break;
-          case 'NoteRestored':
-            events.push(factory.create(d.type, d.payload, t));
-            break;
-          case 'CardSuspended':
-            events.push(factory.create(d.type, d.payload, t));
-            break;
-          case 'CardUnsuspended':
-            events.push(factory.create(d.type, d.payload, t));
-            break;
-        }
-      }
+      events.push(...createBulkEvents(factory, drafts, t));
     },
   };
   return world;
@@ -526,5 +515,49 @@ describe('Phase 9 Browse bulk edit', () => {
     ]);
     world.applyDrafts(archive.events);
     expect(world.state().notes.get(noteId('학교'))?.archived).toBe(true);
+  });
+});
+
+describe('Phase 9 Browse "Due today" filter', () => {
+  it('leaves suspended cards out of Due today but keeps them under Suspended', () => {
+    const world = makeWorld(KOREAN_NOTES);
+    // 2026-03-01 00:00 UTC = 09:00 KST: rate one card of 학교 and 도서관 Again (due again in minutes).
+    const at = T0 + 60_000;
+    const st0 = world.state();
+    const cardOf = (key: string) => [...(st0.cardIdsByNote.get(noteId(key)) ?? [])].sort()[0] ?? '';
+    for (const [i, key] of ['학교', '도서관'].entries()) {
+      world.events.push(
+        world.factory.create(
+          'ReviewRecorded',
+          {
+            review_id: `rev-${i}`,
+            card_id: cardOf(key),
+            rating: 1,
+            reviewed_at: at,
+            tz_offset: 540,
+            duration_ms: 1000,
+            answer_mode: 'flip',
+            fsrs_params_version: 0,
+            resulting_due_at: at,
+          },
+          at,
+        ),
+      );
+    }
+    const ctx = { nowMs: at + 3_600_000, tzOffsetMinutes: 540 };
+    const due = { states: ['due' as const] };
+    expect([...filterBrowseNoteIds(world.state(), due, ctx)].sort()).toEqual(
+      [noteId('학교'), noteId('도서관')].sort(),
+    );
+
+    world.events.push(world.factory.create('CardSuspended', { card_id: cardOf('학교') }, at + 1));
+    const st = world.state();
+    expect([...filterBrowseNoteIds(st, due, ctx)]).toEqual([noteId('도서관')]);
+    // The plain shared filter still reports the suspended card as due (Study excludes it itself).
+    expect(filterNoteIds(st, due, ctx).has(noteId('학교'))).toBe(true);
+    expect(filterBrowseNoteIds(st, { states: ['suspended'] }, ctx).has(noteId('학교'))).toBe(true);
+    expect(filterBrowseNoteIds(st, { states: ['due', 'suspended'] }, ctx).has(noteId('학교'))).toBe(
+      true,
+    );
   });
 });
