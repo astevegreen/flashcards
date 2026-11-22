@@ -10,6 +10,7 @@ import type { InstalledPackInfo, TtsProviderKind } from '@flash/platform';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
+import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
 
 const LazyPackManagerPanel = lazy(() =>
   import('../packs/PackManagerPanel.tsx').then((m) => ({ default: m.PackManagerPanel })),
@@ -709,6 +710,8 @@ export function SettingsScreen() {
           />
         </label>
       </div>
+
+      <CardTextSizeSetting />
 
       {/* Audio & TTS (Phase 5, §7) */}
       <div
