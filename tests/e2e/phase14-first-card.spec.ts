@@ -10,6 +10,11 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const TAP_TARGET = 3;
 const TIME_TARGET_MS = 30_000;
+/**
+ * Regression bound, well inside the target: measured runs take well under a second, so a run
+ * that needs 10 s means something got much slower (the 30 s target stays the documented bar).
+ */
+const TIME_REGRESSION_MS = 10_000;
 
 interface FirstCardRun {
   taps: number;
@@ -56,6 +61,7 @@ test.describe('Phase 14 first card on screen', () => {
     expect(run.firstLanguage).toBe('onboarding-language-ko');
     expect(run.taps).toBeLessThanOrEqual(TAP_TARGET);
     expect(run.elapsedMs).toBeLessThan(TIME_TARGET_MS);
+    expect(run.elapsedMs, 'well under the 30 s target').toBeLessThan(TIME_REGRESSION_MS);
     // No sign-in: the page never left the app.
     expect(new URL(page.url()).origin).toBe(origin);
   });
@@ -74,6 +80,7 @@ test.describe('Phase 14 first card on screen', () => {
     report('phone 390x844 touch', run, testInfo);
     expect(run.taps).toBeLessThanOrEqual(TAP_TARGET);
     expect(run.elapsedMs).toBeLessThan(TIME_TARGET_MS);
+    expect(run.elapsedMs, 'well under the 30 s target').toBeLessThan(TIME_REGRESSION_MS);
     await context.close();
   });
 });

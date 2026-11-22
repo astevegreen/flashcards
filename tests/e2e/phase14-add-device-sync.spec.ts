@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import {
   FakeGraphServer,
   installMicrosoftFakes,
@@ -39,6 +39,32 @@ async function syncMyDevicesFromSettings(page: Page): Promise<void> {
   await openSettings(page);
   await expect(page.getByText('OneDrive (App Folder)')).toBeVisible();
   await expect(page.getByTestId('sync-status-pill')).toHaveText('Synced');
+}
+
+/** Device A: dev-seeded cards, connected to the faked OneDrive and synced once. */
+async function syncingDeviceA(
+  browser: Browser,
+  fakes: MicrosoftFakes,
+): Promise<{ context: BrowserContext; page: Page }> {
+  const context = await browser.newContext();
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await installMicrosoftFakes(context, fakes, () => 'device=ada');
+  const page = await context.newPage();
+  await page.goto('/?device=ada');
+  await expect(page.getByTestId('study-card')).toBeVisible();
+  await openSettings(page);
+  await page.getByTestId('connect-onedrive-btn').click();
+  await expect(page.getByTestId('study-card')).toBeVisible();
+  await openSettings(page);
+  await expect(page.getByTestId('sync-status-pill')).toHaveText('Synced');
+  return { context, page };
+}
+
+/** The add-device link device A shows (Settings > Cloud Sync > Add a device). */
+async function addDeviceLinkOf(page: Page): Promise<URL> {
+  await page.getByTestId('add-device-btn').click();
+  const link = (await page.getByTestId('add-device-link').textContent()) ?? '';
+  return new URL(link);
 }
 
 test.describe('Phase 14 Sync my devices', () => {
@@ -102,17 +128,7 @@ test.describe('Phase 14 Sync my devices', () => {
   }) => {
     test.setTimeout(90_000);
     const fakes: MicrosoftFakes = { graph: new FakeGraphServer(), exchanges: [] };
-    const contextA = await browser.newContext();
-    await contextA.grantPermissions(['clipboard-read', 'clipboard-write']);
-    await installMicrosoftFakes(contextA, fakes, () => 'device=ada');
-    const pageA = await contextA.newPage();
-    await pageA.goto('/?device=ada');
-    await expect(pageA.getByTestId('study-card')).toBeVisible();
-    await openSettings(pageA);
-    await pageA.getByTestId('connect-onedrive-btn').click();
-    await expect(pageA.getByTestId('study-card')).toBeVisible();
-    await openSettings(pageA);
-    await expect(pageA.getByTestId('sync-status-pill')).toHaveText('Synced');
+    const { context: contextA, page: pageA } = await syncingDeviceA(browser, fakes);
 
     // Device A shows the code at phone width without sideways scrolling.
     await pageA.setViewportSize({ width: 320, height: 800 });
@@ -164,11 +180,76 @@ test.describe('Phase 14 Sync my devices', () => {
       'data-check',
       'mismatch',
     );
+    // Someone who means to keep this collection dismisses the notice, and it stays gone.
+    await pageC.getByTestId('add-device-collection-dismiss').click();
+    await expect(pageC.getByTestId('add-device-collection-check')).toHaveCount(0);
+    await pageC.reload();
+    await openSettings(pageC);
+    await expect(pageC.getByText('OneDrive (App Folder)')).toBeVisible();
+    await expect(pageC.getByTestId('add-device-collection-check')).toHaveCount(0);
 
     expect(fakes.graph.authLeaks).toEqual([]);
     await contextA.close();
     await contextB.close();
     await contextC.close();
+  });
+
+  test('an empty new device joins through the link and its sign-in redirect, never offered onboarding', async ({
+    browser,
+  }) => {
+    test.setTimeout(90_000);
+    const fakes: MicrosoftFakes = { graph: new FakeGraphServer(), exchanges: [] };
+    const { context: contextA, page: pageA } = await syncingDeviceA(browser, fakes);
+    const url = await addDeviceLinkOf(pageA);
+
+    // Device B is a fresh install: no dev slug, so no seeded cards, and an empty collection.
+    const contextB = await browser.newContext();
+    await installMicrosoftFakes(contextB, fakes, () => '');
+    // Records whether onboarding is ever in the page, across the sign-in redirect's reload.
+    await contextB.addInitScript(() => {
+      const mark = () => {
+        if (document.querySelector('[data-testid="onboarding"]')) {
+          sessionStorage.setItem('e2e-onboarding-seen', '1');
+        }
+      };
+      new MutationObserver(mark).observe(document, { childList: true, subtree: true });
+    });
+    const pageB = await contextB.newPage();
+    await pageB.goto(`${url.pathname}${url.search}`);
+    const panel = pageB.getByTestId('sync-my-devices');
+    await expect(panel.getByTestId('sync-my-devices-primary')).toHaveText('Continue with OneDrive');
+    await panel.getByTestId('sync-my-devices-primary').click();
+    // Full-page round trip through the faked Microsoft sign-in; then the first pull brings A's cards.
+    await expect(pageB.getByTestId('study-card')).toBeVisible({ timeout: 30_000 });
+    expect(await pageB.evaluate(() => sessionStorage.getItem('e2e-onboarding-seen'))).toBeNull();
+    await expect(pageB.getByTestId('onboarding')).toHaveCount(0);
+
+    await openSettings(pageB);
+    await expect(pageB.getByText('OneDrive (App Folder)')).toBeVisible();
+    expect(fakes.graph.authLeaks).toEqual([]);
+    await contextA.close();
+    await contextB.close();
+  });
+
+  test('Reset Local Device Data after opening a link behaves like a fresh install', async ({
+    page,
+  }) => {
+    await page.goto('/?sync=google&col=col-0190f5c2-1234-7abc-8def-0123456789ab');
+    await expect(page.getByTestId('sync-my-devices')).toBeVisible();
+    await expect(page.getByTestId('onboarding')).toHaveCount(0);
+    await openSettings(page);
+    await expect(
+      page.getByTestId('cloud-sync-card').getByTestId('sync-my-devices-link-note'),
+    ).toContainText('Google Drive');
+    await page.getByRole('button', { name: 'Reset Local Device Data' }).click();
+    await expect(page.getByText('Local device storage cleared.')).toBeVisible();
+    // No link survives the reset: Settings offers the default provider again.
+    await expect(
+      page.getByTestId('cloud-sync-card').getByTestId('sync-my-devices-link-note'),
+    ).toHaveCount(0);
+    await page.getByRole('button', { name: 'Study', exact: true }).first().click();
+    await expect(page.getByTestId('onboarding')).toBeVisible();
+    await expect(page.getByTestId('sync-my-devices')).toHaveCount(0);
   });
 
   test('cards that did not come through onboarding still get the one-time sync prompt', async ({

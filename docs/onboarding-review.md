@@ -33,8 +33,9 @@ fresh browser context with empty storage, production preview build):
 | Phone viewport 390×844, touch    | 2    | 0.48 s                                      | 0        |
 
 The taps were "Korean" (first in the language list) and the first starter deck. The test fails if
-the flow needs more than 3 taps or takes 30 s or more, so it guards the targets from now on. Times
-vary between runs and machines; treat them as an order of magnitude.
+the flow needs more than 3 taps or takes 30 s or more (the Phase 14 target), and also if it takes
+10 s or more, a regression bound well inside the target, so a large slowdown is caught long before
+the target is at risk. Times vary between runs and machines; treat them as an order of magnitude.
 
 What the baseline covers, as automated checks (all in `tests/e2e/`):
 
@@ -46,8 +47,10 @@ What the baseline covers, as automated checks (all in `tests/e2e/`):
   after the first finished session (it never moves the study controls).
 - `phase14-add-device-sync.spec.ts`: "Sync my devices" defaults, the add-device QR code and link
   (provider and collection only), a second device joining through the link (OneDrive faked end to
-  end) and being told whether it reached the same collection, malformed links being ignored, and
-  the prompt for collections that did not come through onboarding.
+  end) and being told whether it reached the same collection (and dismissing that notice), an
+  empty new device joining through the link and the sign-in redirect without ever being offered
+  onboarding, malformed links being ignored, and the prompt for collections that did not come
+  through onboarding.
 
 Not measured here: "second device fully synced ≤ 2 min with exactly one sign-in". The automated
 OneDrive run uses an instant fake sign-in, so its timing means nothing for real people.
@@ -127,7 +130,10 @@ Time to fully synced: \_\_\_ s. Sign-ins: \_\_\_.
 - **macOS has no iCloud transport.** iCloud Drive sync exists only in the iOS app, so "Sync my
   devices" defaults to Google Drive on the macOS desktop app.
 - **The add-device link opens the web app.** In the native apps (Android, iOS, desktop) there is no
-  app link for it yet, so they show which provider to pick instead of a QR code.
+  app link for it yet, so they show which provider to pick instead of a QR code, and a native new
+  device can't open a link. Open owner decision: encode a public web address (waits on the
+  domain decision in the pre-launch checklist) or a `flashcards://add-device` deep link handled by
+  the native shells.
 - **Sign-in screens are the provider's.** Count Google, Microsoft and Dropbox consent screens as
   steps; they can't be removed, only explained.
 
@@ -141,6 +147,8 @@ Time to fully synced: \_\_\_ s. Sign-ins: \_\_\_.
 | 2026-11-22 | Collections from before onboarding never got the prompt  | The one-time "Sync my devices" prompt covers every device with cards and no sync            |
 | 2026-11-22 | Reset Local Device Data didn't re-offer onboarding       | Reset clears the onboarding record, like a fresh install                                    |
 | 2026-11-22 | The empty screen offered sample decks next to onboarding | Removed; "Bring my cards" and "I already use this app: sync my devices" remain              |
+| 2026-11-22 | A new second device saw onboarding during its first sync | Onboarding waits until the device has finished its first sync or forgotten the link         |
+| 2026-11-22 | The "different collection" notice could not be dismissed | It has a Dismiss button, which forgets the stored add-device link on that device            |
 
 ## 4. Sign-off checklist
 
