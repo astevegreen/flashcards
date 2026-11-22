@@ -226,7 +226,7 @@ interface SyncTransport {
 | **Local folder** | **v1 (PC)** | PC | Reads/writes a local folder (useful for local-only backups or desktop sync tools like Syncthing/OneDrive). |
 | **Dropbox (`App folder`)** | **Future plugin** | All | Pluggable `SyncTransport` using browser PKCE with offline refresh tokens; deferred until needed. |
 | **iCloud Drive** | **Future plugin** | iOS / macOS (Capacitor) | Optional zero-login sync for iOS-only App Store users. |
-| **Microsoft OneDrive (App folder)** | **Planned (Phase 12)** | All | Microsoft Graph `/me/drive/special/approot` with `Files.ReadWrite.AppFolder` (personal Microsoft accounts; work/school accounts would need broader `Files.ReadWrite`). Web/PWA routes the code exchange and refresh through `apps/token-helper` as a confidential client, because Microsoft gives SPA-registered clients 24-hour refresh tokens; native shells use MSAL public clients with rolling refresh tokens. Until then, PC users can already sync through the OneDrive desktop folder with the Local folder transport. |
+| **Microsoft OneDrive (App folder)** | **v1 (Phase 12, optional)** | All | Microsoft Graph `/me/drive/special/approot` with `Files.ReadWrite.AppFolder` (personal Microsoft accounts; work/school accounts would need broader `Files.ReadWrite`). Web/PWA routes the code exchange and refresh through `apps/token-helper` as a confidential client, because Microsoft gives SPA-registered clients 24-hour refresh tokens; native shells are public clients using the authorization-code + PKCE flow that MSAL implements (Tauri: loopback redirect, refresh token in the OS keychain; Capacitor: the generic OAuth2 provider of `@capgo/capacitor-social-login`, because no maintained MSAL plugin supports Capacitor 8). Setup: [`setup-microsoft.md`](./setup-microsoft.md). |
 | **In-memory** | **v1 (Dev/Test)** | Tests / Dev | Powers `?device=a` / `?device=b` local dev mode and multi-device tests. |
 
 **Google OAuth & Silent Refresh on Web/PWA (Solving iOS Standalone PWA):**
@@ -582,14 +582,14 @@ Goal: the best offline Korean↔English lookup in any flashcard app, built on op
 - **On-device FSRS optimizer:** `fsrs-browser` WASM (verified in ADR 0001) runs in a Worker per deck or preset. It emits `DeckFSRSParamsChanged`, with an optional "Reschedule existing cards".
 - The MCP `get_stats` output matches the screen.
 
-### Phase 12 — Import & Sync Breadth — *Planned*
+### Phase 12 — Import & Sync Breadth — *Implemented*
 - **Anki `.apkg` import:** note types, fields, cloze, media, tags as categories, optional review history (converted to `ReviewRecorded` events), and Anki ruby conversion.
 - **Microsoft OneDrive `SyncTransport`** (§4.3):
   - Graph app folder storage, with `@microsoft.graph.conflictBehavior=fail` for `ifAbsent` writes and upload sessions for files over 4 MB
   - token-helper `/ms/exchange` and `/ms/refresh` routes for web, MSAL on native
   - optional OneDrive file picker as a content source for `.csv` / `.xlsx` / `.flashpkg`
 
-### Phase 13 — Launch Polish — *Planned*
+### Phase 13 — Launch Polish — *Implemented (onboarding pending the Phase 14 review)*
 - **Study reminders:** native local notifications on Capacitor and Tauri at a user-chosen time with the due count. The PWA gets an in-app badge only.
 - **MCP server upgrades:**
   - `search_notes` with the Phase 9 filter
