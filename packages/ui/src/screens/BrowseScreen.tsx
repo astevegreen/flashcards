@@ -32,6 +32,32 @@ const STATE_FILTER_OPTIONS: ReadonlyArray<{ value: CardStateKind; label: string 
 
 const lower = (t: string) => t.toLowerCase();
 
+const isUnreviewedAiNote = (note: Note) =>
+  note.provenance.source === 'ai' && !note.provenance.reviewed;
+
+/** Field text match, also against the ruby / cloze-stripped text of marked-up fields. */
+function fieldMatchesQuery(val: string, q: string): boolean {
+  if (val.toLowerCase().includes(q)) return true;
+  if (val.includes('[') || val.includes('{')) {
+    return stripRuby(stripCloze(val)).toLowerCase().includes(q);
+  }
+  return false;
+}
+
+/** Search box match for a non-empty, lowercased query. */
+function noteMatchesQuery(note: Note, q: string): boolean {
+  if (q.startsWith('#')) {
+    // `#tag` shortcut: same category matching as the picker (exact tag or `tag::child`).
+    const tagNeedle = q.slice(1);
+    const tagCriterion: CategoryCriterion = { mode: 'any', tags: [tagNeedle] };
+    return tagNeedle !== '' && matchesCategoryCriterion(note.tags.map(lower), tagCriterion);
+  }
+  return (
+    Object.values(note.fields).some((val) => fieldMatchesQuery(val, q)) ||
+    note.tags.some((t) => t.toLowerCase().includes(q))
+  );
+}
+
 const LazyDictionaryPanel = lazy(() =>
   import('../dictionary/DictionaryPanel.tsx').then((m) => ({ default: m.DictionaryPanel })),
 );
@@ -133,8 +159,6 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
 
   const filteredNotes = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const isTagOnlyQuery = q.startsWith('#');
-    const tagNeedle = isTagOnlyQuery ? q.slice(1) : q;
     const nowMs = Date.now();
     const matchingNoteIds = filterNoteIds(
       state,
@@ -145,28 +169,8 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
     const list: Note[] = [];
     for (const note of state.notes.values()) {
       if (!matchingNoteIds.has(note.id)) continue;
-      if (needsReviewOnly && !(note.provenance.source === 'ai' && !note.provenance.reviewed)) {
-        continue;
-      }
-      if (q) {
-        if (isTagOnlyQuery) {
-          // `#tag` shortcut: same category matching as the picker (exact tag or `tag::child`).
-          const tagCriterion: CategoryCriterion = { mode: 'any', tags: [tagNeedle] };
-          if (!tagNeedle || !matchesCategoryCriterion(note.tags.map(lower), tagCriterion)) {
-            continue;
-          }
-        } else {
-          const matchesTag = note.tags.some((t) => t.toLowerCase().includes(tagNeedle));
-          const matchesField = Object.values(note.fields).some((val) => {
-            if (val.toLowerCase().includes(q)) return true;
-            if (val.includes('[') || val.includes('{')) {
-              return stripRuby(stripCloze(val)).toLowerCase().includes(q);
-            }
-            return false;
-          });
-          if (!matchesField && !matchesTag) continue;
-        }
-      }
+      if (needsReviewOnly && !isUnreviewedAiNote(note)) continue;
+      if (q && !noteMatchesQuery(note, q)) continue;
       list.push(note);
     }
     list.sort((a, b) => a.created_order - b.created_order || (a.id < b.id ? -1 : 1));

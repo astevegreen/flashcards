@@ -246,29 +246,31 @@ export function resolveStatsScope(
   filter: StatsFilter = {},
 ): { decks: Deck[]; cards: Card[] } {
   const wanted = filter.deckIds !== undefined ? new Set(filter.deckIds) : undefined;
-  const decks: Deck[] = [];
-  for (const deck of state.decks.values()) {
-    if (wanted && !wanted.has(deck.id)) continue;
-    if (deck.archived) continue;
-    decks.push(deck);
-  }
-  decks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const decks = [...state.decks.values()]
+    .filter((deck) => (!wanted || wanted.has(deck.id)) && !deck.archived)
+    .sort(compareById);
 
   const cards: Card[] = [];
   for (const deck of decks) {
-    const cardIds = state.cardIdsByDeck.get(deck.id);
-    if (!cardIds) continue;
-    for (const cardId of cardIds) {
+    for (const cardId of state.cardIdsByDeck.get(deck.id) ?? []) {
       const card = state.cards.get(cardId);
-      if (!card) continue;
-      const note = state.notes.get(card.note_id);
-      if (!note || note.archived) continue;
-      if (filter.includeCard && !filter.includeCard(card)) continue;
-      cards.push(card);
+      if (card && isCardInScope(state, card, filter)) cards.push(card);
     }
   }
-  cards.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  cards.sort(compareById);
   return { decks, cards };
+}
+
+function compareById(a: { id: string }, b: { id: string }): number {
+  if (a.id < b.id) return -1;
+  return a.id > b.id ? 1 : 0;
+}
+
+/** A card counts when its note is active and the optional predicate accepts it. */
+function isCardInScope(state: CollectionState, card: Card, filter: StatsFilter): boolean {
+  const note = state.notes.get(card.note_id);
+  if (!note || note.archived) return false;
+  return !filter.includeCard || filter.includeCard(card);
 }
 
 /**
@@ -284,6 +286,271 @@ export function resolveAggregateDayStart(decks: readonly Deck[], globalDayStart:
     else if (shared !== ds) return globalDayStart;
   }
   return shared ?? globalDayStart;
+}
+
+/** Study-day boundaries shared by every aggregate view of one stats computation. */
+interface StatsCalendar {
+  dayStart: number;
+  today: number;
+  historyStart: number;
+  heatmapStart: number;
+  retentionStart: number;
+}
+
+/** Running totals filled while walking the included cards. */
+interface StatsAccumulator {
+  reviewDays: ReviewDayStats[];
+  heatCounts: number[];
+  studiedDays: Set<number>;
+  forecast: ForecastDay[];
+  overdue: number;
+  maturity: MaturityBreakdown;
+  totalReviews: number;
+  totalPassed: number;
+  totalTimeMs: number;
+  retention: { maturePassed: number; matureTotal: number; youngPassed: number; youngTotal: number };
+  cardsPerDeck: Map<string, number>;
+}
+
+function createStatsAccumulator(
+  calendar: StatsCalendar,
+  heatmapDays: number,
+  forecastDays: number,
+): StatsAccumulator {
+  const reviewDays: ReviewDayStats[] = [];
+  for (let d = calendar.historyStart; d <= calendar.today; d++) {
+    reviewDays.push({ ...dayRef(d), count: 0, passed: 0, again: 0, newCards: 0, timeMs: 0 });
+  }
+  const forecast: ForecastDay[] = [];
+  for (let i = 0; i < forecastDays; i++) {
+    forecast.push({ ...dayRef(calendar.today + i), offset: i, count: 0, learning: 0, review: 0 });
+  }
+  return {
+    reviewDays,
+    heatCounts: new Array<number>(heatmapDays).fill(0),
+    studiedDays: new Set<number>(),
+    forecast,
+    overdue: 0,
+    maturity: { new: 0, learning: 0, young: 0, mature: 0, total: 0 },
+    totalReviews: 0,
+    totalPassed: 0,
+    totalTimeMs: 0,
+    retention: { maturePassed: 0, matureTotal: 0, youngPassed: 0, youngTotal: 0 },
+    cardsPerDeck: new Map<string, number>(),
+  };
+}
+
+/** A review's study day under the aggregate boundary, clamped to today. */
+function reviewStudyDay(r: ReviewRecord, calendar: StatsCalendar): number {
+  return Math.min(calendar.today, getStudyDayIndex(r.reviewed_at, r.tz_offset, calendar.dayStart));
+}
+
+/**
+ * Due forecast: every non-new card lands on its due study day (overdue folds into today).
+ * Suspended cards never come due (Phase 9), so they are left out of the forecast only; their
+ * history still counts towards reviews, retention and maturity.
+ */
+function addCardToForecast(
+  state: CollectionState,
+  card: Card,
+  tzOffsetMinutes: number,
+  calendar: StatsCalendar,
+  acc: StatsAccumulator,
+): void {
+  if (card.schedule.state === 0 || isCardSuspended(state, card.id)) return;
+  const dueDay = getStudyDayIndex(card.schedule.due, tzOffsetMinutes, calendar.dayStart);
+  const rel = dueDay - calendar.today;
+  if (rel < 0) acc.overdue += 1;
+  const slot = acc.forecast[Math.max(0, rel)];
+  if (!slot) return;
+  slot.count += 1;
+  if (card.schedule.state === 2) slot.review += 1;
+  else slot.learning += 1;
+}
+
+function addReviewToHistoryDay(slot: ReviewDayStats, r: ReviewRecord, isFirst: boolean): void {
+  slot.count += 1;
+  if (r.rating >= 2) slot.passed += 1;
+  if (r.rating === 1) slot.again += 1;
+  if (isFirst) slot.newCards += 1;
+  slot.timeMs += r.duration_ms;
+}
+
+/**
+ * Adds a card's active reviews to the totals, history, heatmap and studied days. Returns whether
+ * any review falls inside the retention window (so the card needs a retention replay).
+ */
+function tallyCardReviews(
+  reviews: readonly ReviewRecord[],
+  calendar: StatsCalendar,
+  acc: StatsAccumulator,
+): boolean {
+  let needsRetentionReplay = false;
+  for (const [i, r] of reviews.entries()) {
+    acc.totalReviews += 1;
+    if (r.rating >= 2) acc.totalPassed += 1;
+    acc.totalTimeMs += r.duration_ms;
+
+    const day = reviewStudyDay(r, calendar);
+    acc.studiedDays.add(day);
+    if (day >= calendar.retentionStart) needsRetentionReplay = true;
+
+    const historySlot =
+      day >= calendar.historyStart ? acc.reviewDays[day - calendar.historyStart] : undefined;
+    if (historySlot) addReviewToHistoryDay(historySlot, r, i === 0);
+    if (day >= calendar.heatmapStart) {
+      const h = day - calendar.heatmapStart;
+      acc.heatCounts[h] = (acc.heatCounts[h] ?? 0) + 1;
+    }
+  }
+  return needsRetentionReplay;
+}
+
+/**
+ * True retention needs the pre-review schedule: replays the card's active reviews under their
+ * recorded FSRS parameter versions and counts window reviews of Review-state cards.
+ */
+function tallyTrueRetention(
+  state: CollectionState,
+  card: Card,
+  reviews: readonly ReviewRecord[],
+  calendar: StatsCalendar,
+  retention: StatsAccumulator['retention'],
+): void {
+  let schedule = createInitialSchedule(0);
+  for (const r of reviews) {
+    const inWindow = reviewStudyDay(r, calendar) >= calendar.retentionStart;
+    if (inWindow && schedule.state === 2) {
+      const passed = r.rating >= 2 ? 1 : 0;
+      if (isMatureSchedule(schedule)) {
+        retention.matureTotal += 1;
+        retention.maturePassed += passed;
+      } else {
+        retention.youngTotal += 1;
+        retention.youngPassed += passed;
+      }
+    }
+    const config = resolveDeckFsrsConfig(state, card.deck_id, r.reviewed_at, r.fsrs_params_version);
+    schedule = applyReviewToSchedule(schedule, r.rating, r.reviewed_at, config).next;
+  }
+}
+
+function tallyCard(
+  state: CollectionState,
+  card: Card,
+  tzOffsetMinutes: number,
+  calendar: StatsCalendar,
+  acc: StatsAccumulator,
+): void {
+  acc.cardsPerDeck.set(card.deck_id, (acc.cardsPerDeck.get(card.deck_id) ?? 0) + 1);
+
+  // Maturity breakdown from the current (replayed) schedule.
+  acc.maturity[classifyCardMaturity(card.schedule)] += 1;
+  acc.maturity.total += 1;
+
+  addCardToForecast(state, card, tzOffsetMinutes, calendar, acc);
+
+  const reviews = activeReviews(state, card.id);
+  if (reviews.length === 0) return;
+  // Only replay cards reviewed in the retention window.
+  if (tallyCardReviews(reviews, calendar, acc)) {
+    tallyTrueRetention(state, card, reviews, calendar, acc.retention);
+  }
+}
+
+/** Retention targets: the desired retention the scheduler uses for new reviews on each deck. */
+function computeRetentionTargets(
+  state: CollectionState,
+  decks: readonly Deck[],
+  cardsPerDeck: Map<string, number>,
+  nowMs: number,
+): { target: number | null; deckTargets: Array<{ deckId: string; target: number }> } {
+  const deckTargets: Array<{ deckId: string; target: number }> = [];
+  let weightedTarget = 0;
+  let weight = 0;
+  for (const deck of decks) {
+    const config = resolveDeckFsrsConfig(
+      state,
+      deck.id,
+      nowMs,
+      getActiveFsrsParamsVersion(state, deck.id),
+    );
+    const target = config.request_retention;
+    deckTargets.push({ deckId: deck.id, target });
+    const w = cardsPerDeck.get(deck.id) ?? 0;
+    weightedTarget += target * w;
+    weight += w;
+  }
+  let target: number | null = null;
+  if (weight > 0) {
+    target = round4(weightedTarget / weight);
+  } else if (deckTargets.length > 0) {
+    target = round4(deckTargets.reduce((s, t) => s + t.target, 0) / deckTargets.length);
+  }
+  return { target, deckTargets };
+}
+
+function summarizeReviewsPerDay(
+  reviewDays: ReviewDayStats[],
+  historyDays: number,
+): ReviewsPerDayStats {
+  let windowReviews = 0;
+  let windowTime = 0;
+  let windowStudied = 0;
+  for (const d of reviewDays) {
+    windowReviews += d.count;
+    windowTime += d.timeMs;
+    if (d.count > 0) windowStudied += 1;
+  }
+  return {
+    days: reviewDays,
+    totalReviews: windowReviews,
+    totalTimeMs: windowTime,
+    averagePerDay: round4(windowReviews / historyDays),
+    daysStudied: windowStudied,
+  };
+}
+
+function longestStudyStreak(studiedDays: ReadonlySet<number>): number {
+  let longestStreak = 0;
+  let run = 0;
+  let prev: number | undefined;
+  for (const d of [...studiedDays].sort((a, b) => a - b)) {
+    run = prev !== undefined && d === prev + 1 ? run + 1 : 1;
+    if (run > longestStreak) longestStreak = run;
+    prev = d;
+  }
+  return longestStreak;
+}
+
+function buildHeatmap(
+  heatCounts: readonly number[],
+  studiedDays: ReadonlySet<number>,
+  calendar: StatsCalendar,
+  heatmapDays: number,
+): HeatmapStats {
+  const { today, heatmapStart } = calendar;
+  const heatDays: HeatmapDay[] = [];
+  let maxCount = 0;
+  for (let i = 0; i < heatmapDays; i++) {
+    const day = heatmapStart + i;
+    const count = heatCounts[i] ?? 0;
+    if (count > maxCount) maxCount = count;
+    heatDays.push({ ...dayRef(day), count, weekday: studyDayWeekday(day) });
+  }
+  const studiedToday = studiedDays.has(today);
+  let currentStreak = 0;
+  for (let d = studiedToday ? today : today - 1; studiedDays.has(d); d--) {
+    currentStreak += 1;
+  }
+  return {
+    days: heatDays,
+    maxCount,
+    currentStreak,
+    longestStreak: longestStudyStreak(studiedDays),
+    studiedToday,
+    totalDaysStudied: studiedDays.size,
+  };
 }
 
 /**
@@ -308,173 +575,22 @@ export function computeCollectionStats(
 
   const dayStart = resolveAggregateDayStart(decks, globalDayStart);
   const today = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
+  const calendar: StatsCalendar = {
+    dayStart,
+    today,
+    historyStart: today - historyDays + 1,
+    heatmapStart: today - heatmapDays + 1,
+    retentionStart: today - retentionDays + 1,
+  };
 
-  const historyStart = today - historyDays + 1;
-  const heatmapStart = today - heatmapDays + 1;
-  const retentionStart = today - retentionDays + 1;
+  const acc = createStatsAccumulator(calendar, heatmapDays, forecastDays);
+  for (const card of cards) tallyCard(state, card, tzOffsetMinutes, calendar, acc);
 
-  const reviewDays: ReviewDayStats[] = [];
-  for (let d = historyStart; d <= today; d++) {
-    reviewDays.push({ ...dayRef(d), count: 0, passed: 0, again: 0, newCards: 0, timeMs: 0 });
-  }
-  const heatCounts = new Array<number>(heatmapDays).fill(0);
-  const studiedDays = new Set<number>();
-
-  const forecast: ForecastDay[] = [];
-  for (let i = 0; i < forecastDays; i++) {
-    forecast.push({ ...dayRef(today + i), offset: i, count: 0, learning: 0, review: 0 });
-  }
-  let overdue = 0;
-
-  const maturity: MaturityBreakdown = { new: 0, learning: 0, young: 0, mature: 0, total: 0 };
-  let totalReviews = 0;
-  let totalPassed = 0;
-  let totalTimeMs = 0;
-  let maturePassed = 0;
-  let matureTotal = 0;
-  let youngPassed = 0;
-  let youngTotal = 0;
-  const cardsPerDeck = new Map<string, number>();
-
-  for (const card of cards) {
-    cardsPerDeck.set(card.deck_id, (cardsPerDeck.get(card.deck_id) ?? 0) + 1);
-
-    // Maturity breakdown from the current (replayed) schedule.
-    const cls = classifyCardMaturity(card.schedule);
-    maturity[cls] += 1;
-    maturity.total += 1;
-
-    // Due forecast: every non-new card lands on its due study day (overdue folds into today).
-    // Suspended cards never come due (Phase 9), so they are left out of the forecast only; their
-    // history still counts towards reviews, retention and maturity.
-    if (card.schedule.state !== 0 && !isCardSuspended(state, card.id)) {
-      const dueDay = getStudyDayIndex(card.schedule.due, tzOffsetMinutes, dayStart);
-      const rel = dueDay - today;
-      if (rel < 0) overdue += 1;
-      const offset = Math.max(0, rel);
-      const slot = forecast[offset];
-      if (slot) {
-        slot.count += 1;
-        if (card.schedule.state === 2) slot.review += 1;
-        else slot.learning += 1;
-      }
-    }
-
-    const reviews = activeReviews(state, card.id);
-    if (reviews.length === 0) continue;
-
-    let needsRetentionReplay = false;
-    for (let i = 0; i < reviews.length; i++) {
-      const r = reviews[i] as ReviewRecord;
-      const passed = r.rating >= 2;
-      totalReviews += 1;
-      if (passed) totalPassed += 1;
-      totalTimeMs += r.duration_ms;
-
-      const day = Math.min(today, getStudyDayIndex(r.reviewed_at, r.tz_offset, dayStart));
-      studiedDays.add(day);
-      if (day >= retentionStart) needsRetentionReplay = true;
-
-      if (day >= historyStart) {
-        const slot = reviewDays[day - historyStart];
-        if (slot) {
-          slot.count += 1;
-          if (passed) slot.passed += 1;
-          if (r.rating === 1) slot.again += 1;
-          if (i === 0) slot.newCards += 1;
-          slot.timeMs += r.duration_ms;
-        }
-      }
-      if (day >= heatmapStart) {
-        heatCounts[day - heatmapStart] = (heatCounts[day - heatmapStart] ?? 0) + 1;
-      }
-    }
-
-    // True retention needs the pre-review schedule; only replay cards reviewed in the window.
-    if (needsRetentionReplay) {
-      let schedule = createInitialSchedule(0);
-      for (const r of reviews) {
-        const day = Math.min(today, getStudyDayIndex(r.reviewed_at, r.tz_offset, dayStart));
-        if (day >= retentionStart && schedule.state === 2) {
-          const passed = r.rating >= 2;
-          if (isMatureSchedule(schedule)) {
-            matureTotal += 1;
-            if (passed) maturePassed += 1;
-          } else {
-            youngTotal += 1;
-            if (passed) youngPassed += 1;
-          }
-        }
-        const config = resolveDeckFsrsConfig(
-          state,
-          card.deck_id,
-          r.reviewed_at,
-          r.fsrs_params_version,
-        );
-        schedule = applyReviewToSchedule(schedule, r.rating, r.reviewed_at, config).next;
-      }
-    }
-  }
-
-  // Retention targets: the desired retention the scheduler uses for new reviews on each deck.
-  const deckTargets: Array<{ deckId: string; target: number }> = [];
-  let weightedTarget = 0;
-  let weight = 0;
-  for (const deck of decks) {
-    const config = resolveDeckFsrsConfig(
-      state,
-      deck.id,
-      nowMs,
-      getActiveFsrsParamsVersion(state, deck.id),
-    );
-    const target = config.request_retention;
-    deckTargets.push({ deckId: deck.id, target });
-    const w = cardsPerDeck.get(deck.id) ?? 0;
-    weightedTarget += target * w;
-    weight += w;
-  }
-  let target: number | null = null;
-  if (weight > 0) {
-    target = round4(weightedTarget / weight);
-  } else if (deckTargets.length > 0) {
-    target = round4(deckTargets.reduce((s, t) => s + t.target, 0) / deckTargets.length);
-  }
-
-  // Reviews per day summary.
-  let windowReviews = 0;
-  let windowTime = 0;
-  let windowStudied = 0;
-  for (const d of reviewDays) {
-    windowReviews += d.count;
-    windowTime += d.timeMs;
-    if (d.count > 0) windowStudied += 1;
-  }
-
-  // Heatmap + streaks.
-  const heatDays: HeatmapDay[] = [];
-  let maxCount = 0;
-  for (let i = 0; i < heatmapDays; i++) {
-    const day = heatmapStart + i;
-    const count = heatCounts[i] ?? 0;
-    if (count > maxCount) maxCount = count;
-    heatDays.push({ ...dayRef(day), count, weekday: studyDayWeekday(day) });
-  }
-  const studiedToday = studiedDays.has(today);
-  let currentStreak = 0;
-  for (let d = studiedToday ? today : today - 1; studiedDays.has(d); d--) {
-    currentStreak += 1;
-  }
-  let longestStreak = 0;
-  let run = 0;
-  let prev: number | undefined;
-  for (const d of [...studiedDays].sort((a, b) => a - b)) {
-    run = prev !== undefined && d === prev + 1 ? run + 1 : 1;
-    if (run > longestStreak) longestStreak = run;
-    prev = d;
-  }
+  const { target, deckTargets } = computeRetentionTargets(state, decks, acc.cardsPerDeck, nowMs);
+  const { maturePassed, matureTotal, youngPassed, youngTotal } = acc.retention;
 
   let forecastTotal = 0;
-  for (const f of forecast) forecastTotal += f.count;
+  for (const f of acc.forecast) forecastTotal += f.count;
 
   return {
     nowMs,
@@ -482,17 +598,11 @@ export function computeCollectionStats(
     deckIds: decks.map((d) => d.id),
     totals: {
       cards: cards.length,
-      reviews: totalReviews,
-      passed: totalPassed,
-      timeMs: totalTimeMs,
+      reviews: acc.totalReviews,
+      passed: acc.totalPassed,
+      timeMs: acc.totalTimeMs,
     },
-    reviewsPerDay: {
-      days: reviewDays,
-      totalReviews: windowReviews,
-      totalTimeMs: windowTime,
-      averagePerDay: round4(windowReviews / historyDays),
-      daysStudied: windowStudied,
-    },
+    reviewsPerDay: summarizeReviewsPerDay(acc.reviewDays, historyDays),
     retention: {
       windowDays: retentionDays,
       target,
@@ -501,15 +611,8 @@ export function computeCollectionStats(
       young: bucket(youngPassed, youngTotal),
       all: bucket(maturePassed + youngPassed, matureTotal + youngTotal),
     },
-    forecast: { days: forecast, overdue, total: forecastTotal },
-    heatmap: {
-      days: heatDays,
-      maxCount,
-      currentStreak,
-      longestStreak,
-      studiedToday,
-      totalDaysStudied: studiedDays.size,
-    },
-    maturity,
+    forecast: { days: acc.forecast, overdue: acc.overdue, total: forecastTotal },
+    heatmap: buildHeatmap(acc.heatCounts, acc.studiedDays, calendar, heatmapDays),
+    maturity: acc.maturity,
   };
 }

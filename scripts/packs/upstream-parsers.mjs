@@ -436,6 +436,113 @@ export function cleanKrdictOrigin(origin) {
   );
 }
 
+/** Pronunciations (`WordForm[type=발음]`) and listed conjugations (`WordForm[type=활용]`). */
+function parseKrdictWordForms(block) {
+  const readings = [];
+  const forms = [];
+  for (const wf of elements(block, 'WordForm')) {
+    const own = new Map(ownFeats(wf));
+    const type = own.get('type');
+    if (type === '발음') {
+      const p = own.get('pronunciation');
+      if (p) readings.push(p);
+    } else if (type === '활용') {
+      const f = own.get('writtenForm');
+      if (f) forms.push(f);
+    }
+  }
+  return { readings, forms };
+}
+
+/** English equivalents of one sense, plus the first English definition. */
+function parseKrdictEquivalents(senseBlock) {
+  const equivalents = [];
+  let definition;
+  for (const eq of elements(senseBlock, 'Equivalent')) {
+    const f = new Map(feats(eq));
+    if (f.get('language') !== '영어') continue;
+    if (f.get('lemma')) equivalents.push(...splitDefinition(f.get('lemma')));
+    if (!definition && f.get('definition')) definition = f.get('definition');
+  }
+  return { equivalents, definition };
+}
+
+/** The first few examples of one sense (`SenseExample/{type,example}`). */
+function parseKrdictExamples(senseBlock) {
+  const examples = [];
+  for (const ex of elements(senseBlock, 'SenseExample')) {
+    if (examples.length >= KRDICT_MAX_EXAMPLES_PER_SENSE) break;
+    const pairs = feats(ex);
+    const type = KRDICT_EXAMPLE_TYPE[pairs.find(([a]) => a === 'type')?.[1]];
+    const text = pairs
+      .filter(([a]) => a === 'example')
+      .map(([, v]) => v)
+      .filter(Boolean)
+      .join(' / ');
+    if (text) examples.push({ text, ...(type ? { type } : {}) });
+  }
+  return examples;
+}
+
+/** One `<Sense>`, or `undefined` when it has neither an English equivalent nor a definition. */
+function parseKrdictSense(senseBlock) {
+  const { equivalents, definition } = parseKrdictEquivalents(senseBlock);
+  if (equivalents.length === 0 && !definition) return undefined;
+  const examples = parseKrdictExamples(senseBlock);
+  const definitionNative = new Map(ownFeats(senseBlock)).get('definition');
+  return {
+    equivalents: uniq(equivalents),
+    ...(definition ? { definition } : {}),
+    ...(definitionNative ? { definitionNative } : {}),
+    ...(examples.length > 0 ? { examples } : {}),
+    source: 'krdict',
+  };
+}
+
+/** The entry-level optional fields from the `<LexicalEntry>`'s own feats. */
+function krdictEntryMeta(own) {
+  const pos = KRDICT_POS[own.get('partOfSpeech')];
+  const level = KRDICT_LEVEL[own.get('vocabularyLevel')];
+  const origin = cleanKrdictOrigin(own.get('origin'));
+  const hanja = origin ? HAN_RUN.exec(origin)?.[0] : undefined;
+  const homonym = Number.parseInt(own.get('homonym_number') ?? '', 10);
+  return {
+    hanja,
+    pos,
+    level,
+    origin,
+    homonym: Number.isInteger(homonym) && homonym > 0 ? homonym : undefined,
+  };
+}
+
+/** One `<LexicalEntry>` as a pack entry, or `undefined` when it has no headword or usable sense. */
+function parseKrdictEntry(block) {
+  const lemmaBlock = elements(block, 'Lemma')[0] ?? '';
+  const headword = feat(lemmaBlock, 'writtenForm');
+  if (!headword) return undefined;
+  const own = new Map(ownFeats(block));
+  const { readings, forms } = parseKrdictWordForms(block);
+  const senses = elements(block, 'Sense')
+    .map(parseKrdictSense)
+    .filter((s) => s !== undefined);
+  if (senses.length === 0) return undefined;
+  const { hanja, pos, level, origin, homonym } = krdictEntryMeta(own);
+  return {
+    headword: headword.normalize('NFC'),
+    ...(hanja ? { altForms: [hanja] } : {}),
+    readings: uniq(readings),
+    meanings: senses.map((s) =>
+      s.equivalents.length > 0 ? s.equivalents.join('; ') : s.definition,
+    ),
+    ...(pos ? { pos: [pos] } : {}),
+    ...(level ? { level } : {}),
+    ...(origin ? { origin } : {}),
+    ...(homonym === undefined ? {} : { homonym }),
+    ...(forms.length > 0 ? { forms: uniq(forms) } : {}),
+    senses,
+  };
+}
+
 /**
  * Parses one KRDict LMF XML file (the "사전 전체 내려받기" export; English edition or the full
  * multilingual one — only `영어` equivalents are kept). Shape per `<LexicalEntry>`:
@@ -447,78 +554,8 @@ export function cleanKrdictOrigin(origin) {
 export function parseKrdictXml(xml) {
   const entries = [];
   for (const block of elements(xml, 'LexicalEntry')) {
-    const lemmaBlock = elements(block, 'Lemma')[0] ?? '';
-    const headword = feat(lemmaBlock, 'writtenForm');
-    if (!headword) continue;
-    const own = new Map(ownFeats(block));
-
-    const readings = [];
-    const forms = [];
-    for (const wf of elements(block, 'WordForm')) {
-      const type = new Map(ownFeats(wf)).get('type');
-      if (type === '발음') {
-        const p = new Map(ownFeats(wf)).get('pronunciation');
-        if (p) readings.push(p);
-      } else if (type === '활용') {
-        const f = new Map(ownFeats(wf)).get('writtenForm');
-        if (f) forms.push(f);
-      }
-    }
-
-    const senses = [];
-    for (const senseBlock of elements(block, 'Sense')) {
-      const equivalents = [];
-      let definition;
-      for (const eq of elements(senseBlock, 'Equivalent')) {
-        const f = new Map(feats(eq));
-        if (f.get('language') !== '영어') continue;
-        if (f.get('lemma')) equivalents.push(...splitDefinition(f.get('lemma')));
-        if (!definition && f.get('definition')) definition = f.get('definition');
-      }
-      if (equivalents.length === 0 && !definition) continue;
-      const examples = [];
-      for (const ex of elements(senseBlock, 'SenseExample')) {
-        if (examples.length >= KRDICT_MAX_EXAMPLES_PER_SENSE) break;
-        const pairs = feats(ex);
-        const type = KRDICT_EXAMPLE_TYPE[pairs.find(([a]) => a === 'type')?.[1]];
-        const text = pairs
-          .filter(([a]) => a === 'example')
-          .map(([, v]) => v)
-          .filter(Boolean)
-          .join(' / ');
-        if (text) examples.push({ text, ...(type ? { type } : {}) });
-      }
-      const definitionNative = new Map(ownFeats(senseBlock)).get('definition');
-      senses.push({
-        equivalents: uniq(equivalents),
-        ...(definition ? { definition } : {}),
-        ...(definitionNative ? { definitionNative } : {}),
-        ...(examples.length > 0 ? { examples } : {}),
-        source: 'krdict',
-      });
-    }
-    if (senses.length === 0) continue;
-
-    const pos = KRDICT_POS[own.get('partOfSpeech')];
-    const level = KRDICT_LEVEL[own.get('vocabularyLevel')];
-    const origin = cleanKrdictOrigin(own.get('origin'));
-    const hanja = origin ? HAN_RUN.exec(origin)?.[0] : undefined;
-    const homonym = Number.parseInt(own.get('homonym_number') ?? '', 10);
-
-    entries.push({
-      headword: headword.normalize('NFC'),
-      ...(hanja ? { altForms: [hanja] } : {}),
-      readings: uniq(readings),
-      meanings: senses.map((s) =>
-        s.equivalents.length > 0 ? s.equivalents.join('; ') : s.definition,
-      ),
-      ...(pos ? { pos: [pos] } : {}),
-      ...(level ? { level } : {}),
-      ...(origin ? { origin } : {}),
-      ...(Number.isInteger(homonym) && homonym > 0 ? { homonym } : {}),
-      ...(forms.length > 0 ? { forms: uniq(forms) } : {}),
-      senses,
-    });
+    const entry = parseKrdictEntry(block);
+    if (entry) entries.push(entry);
   }
   return entries;
 }

@@ -124,6 +124,67 @@ function normalizeTag(tag: string): string {
   return tag.trim().toLowerCase();
 }
 
+function normalizeDeckIds(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const ids = [
+    ...new Set(raw.filter((v): v is string => typeof v === 'string' && v.length > 0)),
+  ].sort(cmpStr);
+  return ids.length > 0 ? ids : undefined;
+}
+
+function normalizeTagList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [
+    ...new Set(
+      raw
+        .filter((v): v is string => typeof v === 'string')
+        .map(normalizeTag)
+        .filter((v) => v.length > 0),
+    ),
+  ].sort(cmpStr);
+}
+
+function isCategoryMatchMode(value: unknown): value is CategoryMatchMode {
+  return value === 'any' || value === 'all' || value === 'none';
+}
+
+function normalizeCategories(raw: unknown): CategoryCriterion | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const c = raw as Record<string, unknown>;
+  const mode = c['mode'];
+  const tags = normalizeTagList(c['tags']);
+  return isCategoryMatchMode(mode) && tags.length > 0 ? { mode, tags } : undefined;
+}
+
+function normalizeStates(raw: unknown): CardStateKind[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const states = CARD_STATE_KINDS.filter((k) => (raw as unknown[]).includes(k));
+  return states.length > 0 ? states : undefined;
+}
+
+/** Integer performance criteria (>= 1), in canonical key order. */
+const POSITIVE_INT_PERFORMANCE_KEYS = [
+  'minLapses',
+  'minAgainCount',
+  'failedWithinDays',
+  'hardest',
+] as const;
+
+function normalizePerformance(raw: unknown): PerformanceCriterion | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const p = raw as Record<string, unknown>;
+  const next: PerformanceCriterion = {};
+  for (const key of POSITIVE_INT_PERFORMANCE_KEYS) {
+    const value = positiveInt(p[key]);
+    if (value !== undefined) next[key] = value;
+  }
+  const maxR = p['maxRetrievability'];
+  if (typeof maxR === 'number' && Number.isFinite(maxR) && maxR > 0 && maxR <= 1) {
+    next.maxRetrievability = maxR;
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
 /**
  * Sanitizes an untrusted / partially filled filter into canonical form: dedupes and sorts ids
  * and tags, drops empty criteria and invalid numbers. Idempotent; safe for persistence.
@@ -133,55 +194,14 @@ export function normalizeCardFilter(raw: unknown): CardFilter {
   if (typeof raw !== 'object' || raw === null) return out;
   const r = raw as Record<string, unknown>;
 
-  if (Array.isArray(r['deckIds'])) {
-    const ids = [
-      ...new Set(r['deckIds'].filter((v): v is string => typeof v === 'string' && v.length > 0)),
-    ].sort(cmpStr);
-    if (ids.length > 0) out.deckIds = ids;
-  }
-
-  const cat = r['categories'];
-  if (typeof cat === 'object' && cat !== null) {
-    const c = cat as Record<string, unknown>;
-    const mode = c['mode'];
-    const tags = Array.isArray(c['tags'])
-      ? [
-          ...new Set(
-            c['tags']
-              .filter((v): v is string => typeof v === 'string')
-              .map(normalizeTag)
-              .filter((v) => v.length > 0),
-          ),
-        ].sort(cmpStr)
-      : [];
-    if ((mode === 'any' || mode === 'all' || mode === 'none') && tags.length > 0) {
-      out.categories = { mode, tags };
-    }
-  }
-
-  if (Array.isArray(r['states'])) {
-    const states = CARD_STATE_KINDS.filter((k) => (r['states'] as unknown[]).includes(k));
-    if (states.length > 0) out.states = states;
-  }
-
-  const perf = r['performance'];
-  if (typeof perf === 'object' && perf !== null) {
-    const p = perf as Record<string, unknown>;
-    const next: PerformanceCriterion = {};
-    const minLapses = positiveInt(p['minLapses']);
-    if (minLapses !== undefined) next.minLapses = minLapses;
-    const minAgainCount = positiveInt(p['minAgainCount']);
-    if (minAgainCount !== undefined) next.minAgainCount = minAgainCount;
-    const failedWithinDays = positiveInt(p['failedWithinDays']);
-    if (failedWithinDays !== undefined) next.failedWithinDays = failedWithinDays;
-    const hardest = positiveInt(p['hardest']);
-    if (hardest !== undefined) next.hardest = hardest;
-    const maxR = p['maxRetrievability'];
-    if (typeof maxR === 'number' && Number.isFinite(maxR) && maxR > 0 && maxR <= 1) {
-      next.maxRetrievability = maxR;
-    }
-    if (Object.keys(next).length > 0) out.performance = next;
-  }
+  const deckIds = normalizeDeckIds(r['deckIds']);
+  if (deckIds) out.deckIds = deckIds;
+  const categories = normalizeCategories(r['categories']);
+  if (categories) out.categories = categories;
+  const states = normalizeStates(r['states']);
+  if (states) out.states = states;
+  const performance = normalizePerformance(r['performance']);
+  if (performance) out.performance = performance;
 
   return out;
 }
@@ -326,6 +346,67 @@ function countAgain(
   return { total, recent };
 }
 
+function matchesCategories(
+  card: Card,
+  note: Note,
+  filter: CardFilter,
+  ctx: CardFilterContext,
+): boolean {
+  if (!filter.categories || filter.categories.tags.length === 0) return true;
+  const tags = note.tags.map(normalizeTag);
+  if (isLeechCard(card, ctx.leechThreshold)) tags.push(LEECH_CATEGORY);
+  return matchesCategoryCriterion(tags, filter.categories);
+}
+
+function matchesStates(
+  state: CollectionState,
+  card: Card,
+  filter: CardFilter,
+  ctx: CardFilterContext,
+): boolean {
+  if (!filter.states || filter.states.length === 0) return true;
+  const kinds = getCardStateKinds(state, card, ctx);
+  return filter.states.some((k) => kinds.has(k));
+}
+
+function matchesAgainCriteria(
+  state: CollectionState,
+  card: Card,
+  perf: PerformanceCriterion,
+  ctx: CardFilterContext,
+): boolean {
+  if (perf.minAgainCount === undefined && perf.failedWithinDays === undefined) return true;
+  const again = countAgain(state, card, ctx, perf.failedWithinDays);
+  if (perf.minAgainCount !== undefined && again.total < perf.minAgainCount) return false;
+  return perf.failedWithinDays === undefined || again.recent > 0;
+}
+
+function matchesRetrievability(
+  state: CollectionState,
+  card: Card,
+  perf: PerformanceCriterion,
+  nowMs: number,
+): boolean {
+  if (perf.maxRetrievability === undefined) return true;
+  const r = computeCardRetrievability(state, card, nowMs);
+  return r !== undefined && r < perf.maxRetrievability;
+}
+
+function matchesPerformance(
+  state: CollectionState,
+  card: Card,
+  perf: PerformanceCriterion | undefined,
+  ctx: CardFilterContext,
+): boolean {
+  if (!perf) return true;
+  if (perf.minLapses !== undefined && card.schedule.lapses < perf.minLapses) return false;
+  if (!matchesAgainCriteria(state, card, perf, ctx)) return false;
+  if (!matchesRetrievability(state, card, perf, ctx.nowMs)) return false;
+  // `hardest` ranks reviewed cards only.
+  const unreviewed = card.schedule.reps === 0 && card.schedule.lapses === 0;
+  return perf.hardest === undefined || !unreviewed;
+}
+
 function cardMatches(
   state: CollectionState,
   card: Card,
@@ -333,35 +414,19 @@ function cardMatches(
   filter: CardFilter,
   ctx: CardFilterContext,
 ): boolean {
-  const leech = isLeechCard(card, ctx.leechThreshold);
-  if (filter.categories && filter.categories.tags.length > 0) {
-    const tags = note.tags.map(normalizeTag);
-    if (leech) tags.push(LEECH_CATEGORY);
-    if (!matchesCategoryCriterion(tags, filter.categories)) return false;
-  }
+  return (
+    matchesCategories(card, note, filter, ctx) &&
+    matchesStates(state, card, filter, ctx) &&
+    matchesPerformance(state, card, filter.performance, ctx)
+  );
+}
 
-  if (filter.states && filter.states.length > 0) {
-    const kinds = getCardStateKinds(state, card, ctx);
-    if (!filter.states.some((k) => kinds.has(k))) return false;
-  }
-
-  const perf = filter.performance;
-  if (perf) {
-    if (perf.minLapses !== undefined && card.schedule.lapses < perf.minLapses) return false;
-    if (perf.minAgainCount !== undefined || perf.failedWithinDays !== undefined) {
-      const again = countAgain(state, card, ctx, perf.failedWithinDays);
-      if (perf.minAgainCount !== undefined && again.total < perf.minAgainCount) return false;
-      if (perf.failedWithinDays !== undefined && again.recent === 0) return false;
-    }
-    if (perf.maxRetrievability !== undefined) {
-      const r = computeCardRetrievability(state, card, ctx.nowMs);
-      if (r === undefined || !(r < perf.maxRetrievability)) return false;
-    }
-    if (perf.hardest !== undefined && card.schedule.reps === 0 && card.schedule.lapses === 0) {
-      return false;
-    }
-  }
-  return true;
+/** The card's note when both its deck and its note are active (not archived). */
+function activeNoteOf(state: CollectionState, card: Card): Note | undefined {
+  const deck = state.decks.get(card.deck_id);
+  if (!deck || deck.archived) return undefined;
+  const note = state.notes.get(card.note_id);
+  return note && !note.archived ? note : undefined;
 }
 
 /**
@@ -377,10 +442,8 @@ export function filterCards(
   const matched: Card[] = [];
   for (const card of state.cards.values()) {
     if (deckSet && !deckSet.has(card.deck_id)) continue;
-    const deck = state.decks.get(card.deck_id);
-    if (!deck || deck.archived) continue;
-    const note = state.notes.get(card.note_id);
-    if (!note || note.archived) continue;
+    const note = activeNoteOf(state, card);
+    if (!note) continue;
     // Suspended cards are never studied, even when the filter explicitly asks for them.
     if (ctx.excludeSuspended && isCardSuspended(state, card.id)) continue;
     if (!cardMatches(state, card, note, filter, ctx)) continue;
@@ -439,6 +502,20 @@ export interface CategoryCount {
   noteCount: number;
 }
 
+/** A note's lowercased tags plus every hierarchy parent (`a`, `a::b` for `a::b::c`). */
+function noteCategoriesWithParents(note: Note): Set<string> {
+  const seen = new Set<string>();
+  for (const raw of note.tags) {
+    const tag = normalizeTag(raw);
+    if (!tag) continue;
+    const parts = tag.split('::');
+    for (let i = 1; i <= parts.length; i++) {
+      seen.add(parts.slice(0, i).join('::'));
+    }
+  }
+  return seen;
+}
+
 /** Every category used by active notes (optionally limited to decks), with note counts. */
 export function listCategories(
   state: CollectionState,
@@ -449,16 +526,7 @@ export function listCategories(
   for (const note of state.notes.values()) {
     if (note.archived) continue;
     if (deckSet && !deckSet.has(note.deck_id)) continue;
-    const seen = new Set<string>();
-    for (const raw of note.tags) {
-      const tag = normalizeTag(raw);
-      if (!tag) continue;
-      const parts = tag.split('::');
-      for (let i = 1; i <= parts.length; i++) {
-        seen.add(parts.slice(0, i).join('::'));
-      }
-    }
-    for (const tag of seen) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    for (const tag of noteCategoriesWithParents(note)) counts.set(tag, (counts.get(tag) ?? 0) + 1);
   }
   return [...counts.entries()]
     .map(([tag, noteCount]) => ({ tag, noteCount }))

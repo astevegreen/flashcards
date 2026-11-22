@@ -8,8 +8,10 @@ import {
   createEmptyState,
   createEventFactory,
   createHlcState,
+  type Card,
   type CollectionState,
   type FlashEvent,
+  type Note,
 } from '@flash/core';
 import { importFlashpkg } from '@flash/core/flashpkg';
 import { deserializeCollectionState } from '@flash/core/snapshot';
@@ -200,256 +202,302 @@ export const MCP_TOOLS = [
   },
 ] as const;
 
+type McpToolHandler = (
+  args: Record<string, unknown>,
+  ctx: McpServerContext,
+  now: number,
+) => unknown;
+
+interface WeakCardCandidate {
+  cardId: string;
+  deckId: string;
+  deckName: string;
+  noteId: string;
+  frontPreview: string;
+  lapses: number;
+  stability: number;
+  difficulty: number;
+  reps: number;
+  state: number;
+  lastReviewedAt?: number;
+}
+
+function isUnreviewedAiNote(note: Note): boolean {
+  return note.provenance.source === 'ai' && !note.provenance.reviewed;
+}
+
+function compareByName(a: { name: string }, b: { name: string }): number {
+  if (a.name < b.name) return -1;
+  return a.name > b.name ? 1 : 0;
+}
+
+function stringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? value.filter((t): t is string => typeof t === 'string') : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+}
+
+function trimmedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function listDecksTool(
+  _args: Record<string, unknown>,
+  ctx: McpServerContext,
+  now: number,
+): unknown {
+  const state = resolveState(ctx);
+  const decks = [...state.decks.values()]
+    .filter((d) => !d.archived)
+    .sort(compareByName)
+    .map((deck) => {
+      let activeNotes = 0;
+      let needsReviewCount = 0;
+      for (const nId of state.noteIdsByDeck.get(deck.id) ?? new Set<string>()) {
+        const n = state.notes.get(nId);
+        if (!n || n.archived) continue;
+        activeNotes += 1;
+        if (isUnreviewedAiNote(n)) needsReviewCount += 1;
+      }
+      const tzOffsetMinutes = -new Date(now).getTimezoneOffset();
+      const queue = buildStudyQueue(state, { deckId: deck.id, nowMs: now, tzOffsetMinutes });
+      return {
+        id: deck.id,
+        name: deck.name,
+        language: deck.language,
+        noteTypeId: deck.note_type_id,
+        noteCount: activeNotes,
+        dueCounts: queue.counts,
+        needsReviewCount,
+      };
+    });
+  return { decks };
+}
+
+/** A reviewed card of an active deck and note as a `get_weak_cards` row, else `undefined`. */
+function toWeakCardCandidate(state: CollectionState, card: Card): WeakCardCandidate | undefined {
+  const deck = state.decks.get(card.deck_id);
+  const note = state.notes.get(card.note_id);
+  if (!deck || deck.archived || !note || note.archived) return undefined;
+  if (card.schedule.reps === 0 && card.schedule.lapses === 0) return undefined;
+
+  const preview =
+    Object.values(note.fields)
+      .find((v) => v.trim().length > 0)
+      ?.slice(0, 120) ?? '';
+  return {
+    cardId: card.id,
+    deckId: deck.id,
+    deckName: deck.name,
+    noteId: note.id,
+    frontPreview: preview,
+    lapses: card.schedule.lapses,
+    stability: Number(card.schedule.stability.toFixed(4)),
+    difficulty: Number(card.schedule.difficulty.toFixed(4)),
+    reps: card.schedule.reps,
+    state: card.schedule.state,
+    ...(card.last_reviewed_at !== undefined ? { lastReviewedAt: card.last_reviewed_at } : {}),
+  };
+}
+
+function getWeakCardsTool(args: Record<string, unknown>, ctx: McpServerContext): unknown {
+  const state = resolveState(ctx);
+  const deckFilter = typeof args['deckId'] === 'string' ? args['deckId'] : undefined;
+  const rawLimit = typeof args['limit'] === 'number' ? Math.floor(args['limit']) : 20;
+  const limit = Math.max(1, Math.min(200, rawLimit));
+
+  const candidates: WeakCardCandidate[] = [];
+  for (const card of state.cards.values()) {
+    if (deckFilter && card.deck_id !== deckFilter) continue;
+    const candidate = toWeakCardCandidate(state, card);
+    if (candidate) candidates.push(candidate);
+  }
+
+  candidates.sort(
+    (a, b) =>
+      b.lapses - a.lapses ||
+      a.stability - b.stability ||
+      b.difficulty - a.difficulty ||
+      (a.cardId < b.cardId ? -1 : 1),
+  );
+
+  return { cards: candidates.slice(0, limit) };
+}
+
+/** Active deck / note counts and read pages for the legacy `get_stats` fields. */
+function countCollectionContent(state: CollectionState): {
+  activeDecks: number;
+  activeNotes: number;
+  needsReviewNotes: number;
+  pagesRead: number;
+} {
+  let activeDecks = 0;
+  for (const d of state.decks.values()) {
+    if (!d.archived) activeDecks += 1;
+  }
+  let activeNotes = 0;
+  let needsReviewNotes = 0;
+  for (const n of state.notes.values()) {
+    if (n.archived) continue;
+    activeNotes += 1;
+    if (isUnreviewedAiNote(n)) needsReviewNotes += 1;
+  }
+  let pagesRead = 0;
+  for (const p of state.pages.values()) {
+    if (p.read_at !== undefined) pagesRead += 1;
+  }
+  return { activeDecks, activeNotes, needsReviewNotes, pagesRead };
+}
+
+const STATS_WINDOW_KEYS = [
+  'historyDays',
+  'forecastDays',
+  'heatmapDays',
+  'retentionWindowDays',
+] as const;
+
+function getStatsTool(args: Record<string, unknown>, ctx: McpServerContext, now: number): unknown {
+  const state = resolveState(ctx);
+  const { activeDecks, activeNotes, needsReviewNotes, pagesRead } = countCollectionContent(state);
+
+  const rawTz = args['tzOffsetMinutes'];
+  const tzOffsetMinutes =
+    typeof rawTz === 'number' && Number.isFinite(rawTz)
+      ? Math.round(rawTz)
+      : -new Date(now).getTimezoneOffset();
+  const queue = buildStudyQueue(state, { nowMs: now, tzOffsetMinutes });
+
+  const statsOptions: CollectionStatsOptions = { nowMs: now, tzOffsetMinutes };
+  for (const key of STATS_WINDOW_KEYS) {
+    const v = args[key];
+    if (typeof v === 'number' && Number.isFinite(v)) statsOptions[key] = v;
+  }
+  // The collection-wide legacy fields come from the same core stats module as `stats`, so the
+  // two always agree (archived notes/decks and undone reviews are excluded from both).
+  const collectionStats = computeCollectionStats(state, statsOptions);
+  const deckIds = stringArray(args['deckIds']);
+  const stats = deckIds
+    ? computeCollectionStats(state, { ...statsOptions, filter: { deckIds } })
+    : collectionStats;
+  const { totals } = collectionStats;
+
+  return {
+    totalDecks: activeDecks,
+    totalNotes: activeNotes,
+    totalCards: totals.cards,
+    totalReviews: totals.reviews,
+    retentionEstimate:
+      totals.reviews > 0 ? Number((totals.passed / totals.reviews).toFixed(4)) : null,
+    needsReviewNotes,
+    totalPages: state.pages.size,
+    pagesRead,
+    dueCounts: queue.counts,
+    stats,
+  };
+}
+
+function toProposedNote(item: unknown, idx: number, now: number): BuildDeckNoteInput {
+  const obj = asRecord(item);
+  const fields: Record<string, string> = {};
+  for (const [k, v] of Object.entries(asRecord(obj['fields']))) {
+    if (typeof v === 'string') fields[k] = v;
+  }
+  const tags = stringArray(obj['tags']);
+  return {
+    ...(typeof obj['id'] === 'string' ? { id: obj['id'] } : { id: `ai-${now}-${idx + 1}` }),
+    fields,
+    ...(tags ? { tags } : {}),
+  };
+}
+
+function toProposedPage(item: unknown, idx: number): BuildPageSpec {
+  const obj = asRecord(item);
+  const tags = stringArray(obj['tags']);
+  return {
+    slug: typeof obj['slug'] === 'string' ? obj['slug'] : `ai-page-${idx + 1}`,
+    title: typeof obj['title'] === 'string' ? obj['title'] : `AI Page ${idx + 1}`,
+    markdown: typeof obj['markdown'] === 'string' ? obj['markdown'] : '',
+    ...(typeof obj['lang'] === 'string' ? { lang: obj['lang'] } : {}),
+    ...(tags ? { tags } : {}),
+  };
+}
+
+function packageSlug(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'proposed'
+  );
+}
+
+function proposePackageTool(
+  args: Record<string, unknown>,
+  ctx: McpServerContext,
+  now: number,
+): unknown {
+  const name = trimmedString(args['name']);
+  const language = trimmedString(args['language']);
+  const rawNotes = Array.isArray(args['notes']) ? args['notes'] : [];
+  const rawPages = Array.isArray(args['pages']) ? args['pages'] : [];
+  if (!name || !language || (rawNotes.length === 0 && rawPages.length === 0)) {
+    throw new Error('propose_package requires non-empty name, language, and notes or pages.');
+  }
+
+  const notes = rawNotes.map((item, idx) => toProposedNote(item, idx, now));
+  const pages = rawPages.map((item, idx) => toProposedPage(item, idx));
+  const noteTypeId = typeof args['noteTypeId'] === 'string' ? args['noteTypeId'] : undefined;
+
+  const built = buildPackageFromSpec({
+    ...(typeof args['packageId'] === 'string' ? { packageId: args['packageId'] } : {}),
+    name,
+    version: '1.0.0',
+    aiProvenance: true,
+    nowMs: now,
+    decks:
+      notes.length > 0
+        ? [{ name, language, ...(noteTypeId !== undefined ? { noteTypeId } : {}), notes }]
+        : [],
+    pages,
+  });
+
+  const filename = `${packageSlug(name)}-${now}.flashpkg`;
+  let writtenPath: string | undefined;
+  if (ctx.inboxDir) {
+    mkdirSync(ctx.inboxDir, { recursive: true });
+    writtenPath = join(ctx.inboxDir, filename);
+    writeFileSync(writtenPath, built.bytes);
+  }
+
+  return {
+    packageId: built.packageId,
+    filename,
+    ...(writtenPath ? { path: writtenPath } : {}),
+    bytesLength: built.bytes.byteLength,
+    notesProposed: built.notesCount,
+    pagesProposed: built.pagesCount,
+    aiProvenance: true,
+  };
+}
+
+const MCP_TOOL_HANDLERS: ReadonlyMap<string, McpToolHandler> = new Map<string, McpToolHandler>([
+  ['list_decks', listDecksTool],
+  ['get_weak_cards', getWeakCardsTool],
+  ['get_stats', getStatsTool],
+  ['propose_package', proposePackageTool],
+]);
+
 export function executeMcpTool(
   toolName: string,
   args: Record<string, unknown>,
   ctx: McpServerContext,
 ): unknown {
   const now = ctx.nowMs ? ctx.nowMs() : Date.now();
-
-  if (toolName === 'list_decks') {
-    const state = resolveState(ctx);
-    const decks = [...state.decks.values()]
-      .filter((d) => !d.archived)
-      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-      .map((deck) => {
-        const noteIds = state.noteIdsByDeck.get(deck.id) ?? new Set<string>();
-        let activeNotes = 0;
-        let needsReviewCount = 0;
-        for (const nId of noteIds) {
-          const n = state.notes.get(nId);
-          if (!n || n.archived) continue;
-          activeNotes += 1;
-          if (n.provenance.source === 'ai' && !n.provenance.reviewed) {
-            needsReviewCount += 1;
-          }
-        }
-        const tzOffsetMinutes = -new Date(now).getTimezoneOffset();
-        const queue = buildStudyQueue(state, { deckId: deck.id, nowMs: now, tzOffsetMinutes });
-        return {
-          id: deck.id,
-          name: deck.name,
-          language: deck.language,
-          noteTypeId: deck.note_type_id,
-          noteCount: activeNotes,
-          dueCounts: queue.counts,
-          needsReviewCount,
-        };
-      });
-    return { decks };
-  }
-
-  if (toolName === 'get_weak_cards') {
-    const state = resolveState(ctx);
-    const deckFilter = typeof args['deckId'] === 'string' ? args['deckId'] : undefined;
-    const rawLimit = typeof args['limit'] === 'number' ? Math.floor(args['limit']) : 20;
-    const limit = Math.max(1, Math.min(200, rawLimit));
-
-    const candidates: Array<{
-      cardId: string;
-      deckId: string;
-      deckName: string;
-      noteId: string;
-      frontPreview: string;
-      lapses: number;
-      stability: number;
-      difficulty: number;
-      reps: number;
-      state: number;
-      lastReviewedAt?: number;
-    }> = [];
-
-    for (const card of state.cards.values()) {
-      if (deckFilter && card.deck_id !== deckFilter) continue;
-      const deck = state.decks.get(card.deck_id);
-      const note = state.notes.get(card.note_id);
-      if (!deck || deck.archived || !note || note.archived) continue;
-      if (card.schedule.reps === 0 && card.schedule.lapses === 0) continue;
-
-      const preview =
-        Object.values(note.fields)
-          .find((v) => v.trim().length > 0)
-          ?.slice(0, 120) ?? '';
-      candidates.push({
-        cardId: card.id,
-        deckId: deck.id,
-        deckName: deck.name,
-        noteId: note.id,
-        frontPreview: preview,
-        lapses: card.schedule.lapses,
-        stability: Number(card.schedule.stability.toFixed(4)),
-        difficulty: Number(card.schedule.difficulty.toFixed(4)),
-        reps: card.schedule.reps,
-        state: card.schedule.state,
-        ...(card.last_reviewed_at !== undefined ? { lastReviewedAt: card.last_reviewed_at } : {}),
-      });
-    }
-
-    candidates.sort(
-      (a, b) =>
-        b.lapses - a.lapses ||
-        a.stability - b.stability ||
-        b.difficulty - a.difficulty ||
-        (a.cardId < b.cardId ? -1 : 1),
-    );
-
-    return { cards: candidates.slice(0, limit) };
-  }
-
-  if (toolName === 'get_stats') {
-    const state = resolveState(ctx);
-    let activeDecks = 0;
-    for (const d of state.decks.values()) {
-      if (!d.archived) activeDecks += 1;
-    }
-    let activeNotes = 0;
-    let needsReviewNotes = 0;
-    for (const n of state.notes.values()) {
-      if (n.archived) continue;
-      activeNotes += 1;
-      if (n.provenance.source === 'ai' && !n.provenance.reviewed) {
-        needsReviewNotes += 1;
-      }
-    }
-
-    let pagesRead = 0;
-    for (const p of state.pages.values()) {
-      if (p.read_at !== undefined) pagesRead += 1;
-    }
-
-    const tzOffsetMinutes =
-      typeof args['tzOffsetMinutes'] === 'number' && Number.isFinite(args['tzOffsetMinutes'])
-        ? Math.round(args['tzOffsetMinutes'])
-        : -new Date(now).getTimezoneOffset();
-    const queue = buildStudyQueue(state, { nowMs: now, tzOffsetMinutes });
-
-    const statsOptions: CollectionStatsOptions = { nowMs: now, tzOffsetMinutes };
-    for (const key of [
-      'historyDays',
-      'forecastDays',
-      'heatmapDays',
-      'retentionWindowDays',
-    ] as const) {
-      const v = args[key];
-      if (typeof v === 'number' && Number.isFinite(v)) statsOptions[key] = v;
-    }
-    // The collection-wide legacy fields come from the same core stats module as `stats`, so the
-    // two always agree (archived notes/decks and undone reviews are excluded from both).
-    const collectionStats = computeCollectionStats(state, statsOptions);
-    const stats = Array.isArray(args['deckIds'])
-      ? computeCollectionStats(state, {
-          ...statsOptions,
-          filter: {
-            deckIds: args['deckIds'].filter((id): id is string => typeof id === 'string'),
-          },
-        })
-      : collectionStats;
-    const { totals } = collectionStats;
-
-    return {
-      totalDecks: activeDecks,
-      totalNotes: activeNotes,
-      totalCards: totals.cards,
-      totalReviews: totals.reviews,
-      retentionEstimate:
-        totals.reviews > 0 ? Number((totals.passed / totals.reviews).toFixed(4)) : null,
-      needsReviewNotes,
-      totalPages: state.pages.size,
-      pagesRead,
-      dueCounts: queue.counts,
-      stats,
-    };
-  }
-
-  if (toolName === 'propose_package') {
-    const name = typeof args['name'] === 'string' ? args['name'].trim() : '';
-    const language = typeof args['language'] === 'string' ? args['language'].trim() : '';
-    const rawNotes = Array.isArray(args['notes']) ? args['notes'] : [];
-    const rawPages = Array.isArray(args['pages']) ? args['pages'] : [];
-    if (!name || !language || (rawNotes.length === 0 && rawPages.length === 0)) {
-      throw new Error('propose_package requires non-empty name, language, and notes or pages.');
-    }
-
-    const notes: BuildDeckNoteInput[] = rawNotes.map((item, idx) => {
-      const obj = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
-      const fieldsObj = (
-        obj['fields'] && typeof obj['fields'] === 'object' ? obj['fields'] : {}
-      ) as Record<string, unknown>;
-      const fields: Record<string, string> = {};
-      for (const [k, v] of Object.entries(fieldsObj)) {
-        if (typeof v === 'string') fields[k] = v;
-      }
-      const tags = Array.isArray(obj['tags'])
-        ? obj['tags'].filter((t): t is string => typeof t === 'string')
-        : undefined;
-      return {
-        ...(typeof obj['id'] === 'string' ? { id: obj['id'] } : { id: `ai-${now}-${idx + 1}` }),
-        fields,
-        ...(tags ? { tags } : {}),
-      };
-    });
-
-    const pages: BuildPageSpec[] = rawPages.map((item, idx) => {
-      const obj = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
-      const tags = Array.isArray(obj['tags'])
-        ? obj['tags'].filter((t): t is string => typeof t === 'string')
-        : undefined;
-      return {
-        slug: typeof obj['slug'] === 'string' ? obj['slug'] : `ai-page-${idx + 1}`,
-        title: typeof obj['title'] === 'string' ? obj['title'] : `AI Page ${idx + 1}`,
-        markdown: typeof obj['markdown'] === 'string' ? obj['markdown'] : '',
-        ...(typeof obj['lang'] === 'string' ? { lang: obj['lang'] } : {}),
-        ...(tags ? { tags } : {}),
-      };
-    });
-
-    const built = buildPackageFromSpec({
-      ...(typeof args['packageId'] === 'string' ? { packageId: args['packageId'] } : {}),
-      name,
-      version: '1.0.0',
-      aiProvenance: true,
-      nowMs: now,
-      decks:
-        notes.length > 0
-          ? [
-              {
-                name,
-                language,
-                ...(typeof args['noteTypeId'] === 'string'
-                  ? { noteTypeId: args['noteTypeId'] }
-                  : {}),
-                notes,
-              },
-            ]
-          : [],
-      pages,
-    });
-
-    const slug =
-      name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '') || 'proposed';
-    const filename = `${slug}-${now}.flashpkg`;
-    let writtenPath: string | undefined;
-    if (ctx.inboxDir) {
-      mkdirSync(ctx.inboxDir, { recursive: true });
-      writtenPath = join(ctx.inboxDir, filename);
-      writeFileSync(writtenPath, built.bytes);
-    }
-
-    return {
-      packageId: built.packageId,
-      filename,
-      ...(writtenPath ? { path: writtenPath } : {}),
-      bytesLength: built.bytes.byteLength,
-      notesProposed: built.notesCount,
-      pagesProposed: built.pagesCount,
-      aiProvenance: true,
-    };
-  }
-
-  throw new Error(`Unknown MCP tool: ${toolName}`);
+  const handler = MCP_TOOL_HANDLERS.get(toolName);
+  if (!handler) throw new Error(`Unknown MCP tool: ${toolName}`);
+  return handler(args, ctx, now);
 }
 
 /**

@@ -179,46 +179,64 @@ const LEVELS: ReadonlySet<string> = new Set<DictionaryLevel>([
 const EXAMPLE_TYPES: ReadonlySet<string> = new Set(['phrase', 'sentence', 'dialogue']);
 const SENSE_SOURCES: ReadonlySet<string> = new Set<DictionarySenseSource>(['krdict']);
 
+function asRecord(val: unknown): Record<string, unknown> | undefined {
+  return val && typeof val === 'object' ? (val as Record<string, unknown>) : undefined;
+}
+
+function decodeExample(raw: unknown): DictionaryExample | undefined {
+  const ex = asRecord(raw);
+  if (!ex) return undefined;
+  const text = cleanString(ex['text']);
+  if (!text) return undefined;
+  const translation = cleanString(ex['translation']);
+  const type = typeof ex['type'] === 'string' && EXAMPLE_TYPES.has(ex['type']) ? ex['type'] : '';
+  return {
+    text,
+    ...(translation ? { translation } : {}),
+    ...(type ? { type: type as NonNullable<DictionaryExample['type']> } : {}),
+  };
+}
+
+function decodeExamples(val: unknown): DictionaryExample[] {
+  if (!Array.isArray(val)) return [];
+  const examples: DictionaryExample[] = [];
+  for (const rawEx of val) {
+    if (examples.length >= WORD_FIELD_LIMITS.maxExamplesPerSense) break;
+    const ex = decodeExample(rawEx);
+    if (ex) examples.push(ex);
+  }
+  return examples;
+}
+
+/** One sense, or `undefined` when it carries neither an equivalent nor a definition. */
+function decodeSense(raw: unknown): DictionarySense | undefined {
+  const s = asRecord(raw);
+  if (!s) return undefined;
+  const equivalents = cleanStringList(s['equivalents']);
+  const definition = cleanString(s['definition']);
+  const definitionNative = cleanString(s['definitionNative']);
+  if (equivalents.length === 0 && !definition && !definitionNative) return undefined;
+  const examples = decodeExamples(s['examples']);
+  const source =
+    typeof s['source'] === 'string' && SENSE_SOURCES.has(s['source'])
+      ? (s['source'] as DictionarySenseSource)
+      : undefined;
+  return {
+    equivalents,
+    ...(definition ? { definition } : {}),
+    ...(definitionNative ? { definitionNative } : {}),
+    ...(examples.length > 0 ? { examples } : {}),
+    ...(source ? { source } : {}),
+  };
+}
+
 function decodeSenses(val: unknown): DictionarySense[] {
   if (!Array.isArray(val)) return [];
   const senses: DictionarySense[] = [];
   for (const raw of val) {
     if (senses.length >= WORD_FIELD_LIMITS.maxSenses) break;
-    if (!raw || typeof raw !== 'object') continue;
-    const s = raw as Record<string, unknown>;
-    const equivalents = cleanStringList(s['equivalents']);
-    const definition = cleanString(s['definition']);
-    const definitionNative = cleanString(s['definitionNative']);
-    if (equivalents.length === 0 && !definition && !definitionNative) continue;
-    const examples: DictionaryExample[] = [];
-    if (Array.isArray(s['examples'])) {
-      for (const rawEx of s['examples']) {
-        if (examples.length >= WORD_FIELD_LIMITS.maxExamplesPerSense) break;
-        if (!rawEx || typeof rawEx !== 'object') continue;
-        const ex = rawEx as Record<string, unknown>;
-        const text = cleanString(ex['text']);
-        if (!text) continue;
-        const translation = cleanString(ex['translation']);
-        const type =
-          typeof ex['type'] === 'string' && EXAMPLE_TYPES.has(ex['type']) ? ex['type'] : '';
-        examples.push({
-          text,
-          ...(translation ? { translation } : {}),
-          ...(type ? { type: type as NonNullable<DictionaryExample['type']> } : {}),
-        });
-      }
-    }
-    const source =
-      typeof s['source'] === 'string' && SENSE_SOURCES.has(s['source'])
-        ? (s['source'] as DictionarySenseSource)
-        : undefined;
-    senses.push({
-      equivalents,
-      ...(definition ? { definition } : {}),
-      ...(definitionNative ? { definitionNative } : {}),
-      ...(examples.length > 0 ? { examples } : {}),
-      ...(source ? { source } : {}),
-    });
+    const sense = decodeSense(raw);
+    if (sense) senses.push(sense);
   }
   return senses;
 }

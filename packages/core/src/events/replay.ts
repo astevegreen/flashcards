@@ -628,6 +628,693 @@ function getOrCreatePendingPagePatch(state: CollectionState, pageId: string): Pe
   return pending;
 }
 
+/** Per-event mutable context shared by the known-event handlers below. */
+interface ApplyEventContext {
+  state: CollectionState;
+  hlc: string;
+  dirtyCards: Set<string>;
+  dirtyDecks: Set<string>;
+  dirtyNotes: Set<string>;
+  collector?: ApplyMutationCollector | undefined;
+}
+
+function markDeckCardsDirty(state: CollectionState, deckId: string, dirtyCards: Set<string>): void {
+  const deckCards = state.cardIdsByDeck.get(deckId);
+  if (deckCards) {
+    for (const cardId of deckCards) {
+      dirtyCards.add(cardId);
+    }
+  }
+}
+
+function applyNoteTypeChanged(
+  ctx: ApplyEventContext,
+  payload: EventPayloadMap['NoteTypeChanged'],
+): void {
+  const { state, hlc, collector } = ctx;
+  const nt = payload.note_type;
+  if (shouldApplyLww(state, `noteType:${nt.id}`, hlc, collector)) {
+    state.noteTypes.set(nt.id, {
+      ...nt,
+      fields: nt.fields.map((f) => ({ ...f })),
+    });
+    collector?.noteTypeIds.add(nt.id);
+  }
+}
+
+function applyLayoutChanged(
+  ctx: ApplyEventContext,
+  payload: EventPayloadMap['LayoutChanged'],
+): void {
+  const { state, hlc, collector, dirtyDecks } = ctx;
+  const layout = payload.layout;
+  if (shouldApplyLww(state, `layout:${layout.id}`, hlc, collector)) {
+    state.layouts.set(layout.id, {
+      ...layout,
+      front_fields: [...layout.front_fields],
+      reveal_steps: layout.reveal_steps.map((s) => [...s]),
+    });
+    collector?.layoutIds.add(layout.id);
+    for (const deck of state.decks.values()) {
+      if (deck.note_type_id === layout.note_type_id) {
+        dirtyDecks.add(deck.id);
+      }
+    }
+  }
+}
+
+function buildMergedDeckSettings(pendingSettings: Partial<DeckSettings> | undefined): DeckSettings {
+  const mergedSettings: DeckSettings = { ...DEFAULT_DECK_SETTINGS };
+  if (pendingSettings) {
+    if (pendingSettings.new_cards_per_day !== undefined) {
+      mergedSettings.new_cards_per_day = pendingSettings.new_cards_per_day;
+    }
+    if (pendingSettings.max_reviews_per_day !== undefined) {
+      mergedSettings.max_reviews_per_day = pendingSettings.max_reviews_per_day;
+    }
+    if (pendingSettings.target_retention !== undefined) {
+      mergedSettings.target_retention = pendingSettings.target_retention;
+    }
+    if (pendingSettings.new_card_order !== undefined) {
+      mergedSettings.new_card_order = pendingSettings.new_card_order;
+    }
+    if (pendingSettings.enabled_layout_ids !== undefined) {
+      mergedSettings.enabled_layout_ids = [...pendingSettings.enabled_layout_ids];
+    }
+    if (pendingSettings.day_start_hour !== undefined) {
+      mergedSettings.day_start_hour = pendingSettings.day_start_hour;
+    }
+  }
+  return mergedSettings;
+}
+
+/** DeckCreated's own fields for a deck it just created (includes the `archived` reset). */
+function applyNewDeckCreatedFields(
+  ctx: ApplyEventContext,
+  deck: Deck,
+  p: EventPayloadMap['DeckCreated'],
+  initialRet: number,
+): void {
+  const { state, hlc, collector } = ctx;
+  // Apply DeckCreated's own fields strictly via LWW so newer out-of-order patches win
+  if (shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)) deck.name = p.name;
+  if (shouldApplyLww(state, `deck:${p.deck_id}:note_type_id`, hlc, collector)) {
+    deck.note_type_id = p.note_type_id;
+  }
+  if (shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)) {
+    deck.language = p.language;
+  }
+  if (shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc, collector)) {
+    deck.archived = false;
+  }
+  if (shouldApplyLww(state, `deck:${p.deck_id}:initial_retention`, hlc, collector)) {
+    deck.initial_retention = initialRet;
+  }
+  if (p.source !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc, collector)) {
+    deck.source = { ...p.source };
+  }
+}
+
+/** DeckCreated's own fields for a deck that already exists (no `archived` reset). */
+function applyExistingDeckCreatedFields(
+  ctx: ApplyEventContext,
+  deck: Deck,
+  p: EventPayloadMap['DeckCreated'],
+  initialRet: number,
+): void {
+  const { state, hlc, collector } = ctx;
+  if (shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)) deck.name = p.name;
+  if (shouldApplyLww(state, `deck:${p.deck_id}:note_type_id`, hlc, collector)) {
+    deck.note_type_id = p.note_type_id;
+  }
+  if (shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)) {
+    deck.language = p.language;
+  }
+  if (shouldApplyLww(state, `deck:${p.deck_id}:initial_retention`, hlc, collector)) {
+    deck.initial_retention = initialRet;
+  }
+  if (p.source !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc, collector)) {
+    deck.source = { ...p.source };
+  }
+}
+
+function createDeckFromPending(
+  ctx: ApplyEventContext,
+  p: EventPayloadMap['DeckCreated'],
+  initialRet: number,
+): Deck {
+  const { state, collector } = ctx;
+  const pending = state.pendingDeckPatches.get(p.deck_id);
+  if (pending) {
+    state.pendingDeckPatches.delete(p.deck_id);
+    collector?.pendingDeckPatchKeys.add(p.deck_id);
+  }
+
+  const mergedSettings = buildMergedDeckSettings(pending?.settings);
+
+  const deck: Deck = {
+    id: p.deck_id,
+    name: pending?.name ?? p.name,
+    note_type_id: p.note_type_id,
+    language: pending?.language ?? p.language,
+    settings: mergedSettings,
+    initial_retention: initialRet,
+    archived: pending?.archived ?? false,
+    created_at: p.created_at ?? 0,
+  };
+  if (pending?.source !== undefined) {
+    deck.source = { ...pending.source };
+  }
+  state.decks.set(p.deck_id, deck);
+
+  applyNewDeckCreatedFields(ctx, deck, p, initialRet);
+  return deck;
+}
+
+function applyDeckCreated(ctx: ApplyEventContext, p: EventPayloadMap['DeckCreated']): void {
+  const { state, hlc, collector, dirtyDecks } = ctx;
+  let deck = state.decks.get(p.deck_id);
+  const initialRet = p.settings?.target_retention ?? DEFAULT_FSRS_CONFIG.request_retention;
+  if (!deck) {
+    deck = createDeckFromPending(ctx, p, initialRet);
+  } else {
+    applyExistingDeckCreatedFields(ctx, deck, p, initialRet);
+  }
+  if (p.settings) {
+    applyDeckSettingsPatchTarget(state, p.deck_id, deck.settings, p.settings, hlc, collector);
+  }
+  collector?.deckIds.add(p.deck_id);
+  dirtyDecks.add(p.deck_id);
+}
+
+/** Buffer out-of-order patch until DeckCreated arrives. */
+function bufferPendingDeckSettings(
+  ctx: ApplyEventContext,
+  p: EventPayloadMap['DeckSettingsChanged'],
+): void {
+  const { state, hlc, collector } = ctx;
+  const pending = getOrCreatePendingDeckPatch(state, p.deck_id);
+  if (p.name !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)) {
+    pending.name = p.name;
+  }
+  if (
+    p.language !== undefined &&
+    shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)
+  ) {
+    pending.language = p.language;
+  }
+  if (
+    p.archived !== undefined &&
+    shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc, collector)
+  ) {
+    pending.archived = p.archived;
+  }
+  if (p.settings) {
+    applyDeckSettingsPatchTarget(state, p.deck_id, pending.settings, p.settings, hlc, collector);
+  }
+  collector?.pendingDeckPatchKeys.add(p.deck_id);
+}
+
+function applyDeckSettingsChanged(
+  ctx: ApplyEventContext,
+  p: EventPayloadMap['DeckSettingsChanged'],
+): void {
+  const { state, hlc, collector, dirtyCards, dirtyDecks } = ctx;
+  const deck = state.decks.get(p.deck_id);
+  if (!deck) {
+    bufferPendingDeckSettings(ctx, p);
+    return;
+  }
+  let mustRebuildDeck = false;
+  if (p.name !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)) {
+    deck.name = p.name;
+  }
+  if (
+    p.language !== undefined &&
+    shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)
+  ) {
+    deck.language = p.language;
+  }
+  if (
+    p.archived !== undefined &&
+    shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc, collector)
+  ) {
+    deck.archived = p.archived;
+    mustRebuildDeck = true;
+  }
+  if (p.settings) {
+    const layoutsChanged = applyDeckSettingsPatchTarget(
+      state,
+      p.deck_id,
+      deck.settings,
+      p.settings,
+      hlc,
+      collector,
+    );
+    if (layoutsChanged) mustRebuildDeck = true;
+  }
+  collector?.deckIds.add(p.deck_id);
+  if (mustRebuildDeck) {
+    dirtyDecks.add(p.deck_id);
+  } else if (p.settings?.target_retention !== undefined) {
+    markDeckCardsDirty(state, p.deck_id, dirtyCards);
+  }
+}
+
+function applyDeckFsrsParamsChanged(
+  ctx: ApplyEventContext,
+  p: EventPayloadMap['DeckFSRSParamsChanged'],
+): void {
+  const { state, hlc, collector, dirtyCards } = ctx;
+  if (!shouldApplyLww(state, `deck:${p.deck_id}:fsrs:${p.params_version}`, hlc, collector)) {
+    return;
+  }
+  const existing = state.deckFsrsParams.get(p.deck_id) ?? [];
+  const filtered = existing.filter((v) => v.params_version !== p.params_version);
+  const entry: DeckFSRSParamsVersion = {
+    params_version: p.params_version,
+    effective_from: p.effective_from,
+    params: { ...p.params },
+  };
+  if (p.reschedule_existing !== undefined) {
+    entry.reschedule_existing = p.reschedule_existing;
+  }
+  filtered.push(entry);
+  filtered.sort((a, b) => a.params_version - b.params_version);
+  state.deckFsrsParams.set(p.deck_id, filtered);
+  collector?.fsrsDeckIds.add(p.deck_id);
+  markDeckCardsDirty(state, p.deck_id, dirtyCards);
+}
+
+function createUpsertedNote(ctx: ApplyEventContext, p: EventPayloadMap['NoteUpserted']): Note {
+  const { state, hlc, collector } = ctx;
+  const note: Note = {
+    id: p.note_id,
+    deck_id: p.deck_id,
+    fields: {},
+    tags: [],
+    source_key: p.source_key,
+    provenance: p.provenance ? { ...p.provenance } : { source: 'user', reviewed: true },
+    archived: state.noteArchivedState.get(p.note_id) ?? false,
+    created_order: p.created_order ?? 0,
+  };
+  state.notes.set(p.note_id, note);
+  addToMapSet(state.noteIdsByDeck, note.deck_id, note.id);
+  shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc, collector);
+  shouldApplyLww(state, `note:${p.note_id}:source_key`, hlc, collector);
+  if (p.provenance) shouldApplyLww(state, `note:${p.note_id}:provenance`, hlc, collector);
+  if (p.created_order !== undefined) {
+    shouldApplyLww(state, `note:${p.note_id}:created_order`, hlc, collector);
+  }
+  return note;
+}
+
+function updateUpsertedNoteHeader(
+  ctx: ApplyEventContext,
+  note: Note,
+  p: EventPayloadMap['NoteUpserted'],
+): void {
+  const { state, hlc, collector, dirtyDecks } = ctx;
+  if (shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc, collector)) {
+    if (note.deck_id !== p.deck_id) {
+      removeFromMapSet(state.noteIdsByDeck, note.deck_id, note.id);
+      dirtyDecks.add(note.deck_id);
+      note.deck_id = p.deck_id;
+      addToMapSet(state.noteIdsByDeck, note.deck_id, note.id);
+    }
+  }
+  if (shouldApplyLww(state, `note:${p.note_id}:source_key`, hlc, collector)) {
+    note.source_key = p.source_key;
+  }
+  if (p.provenance && shouldApplyLww(state, `note:${p.note_id}:provenance`, hlc, collector)) {
+    note.provenance = { ...p.provenance };
+  }
+  if (
+    p.created_order !== undefined &&
+    shouldApplyLww(state, `note:${p.note_id}:created_order`, hlc, collector)
+  ) {
+    note.created_order = p.created_order;
+  }
+}
+
+function applyNoteUpserted(ctx: ApplyEventContext, p: EventPayloadMap['NoteUpserted']): void {
+  const { state, hlc, collector, dirtyNotes } = ctx;
+  let note = state.notes.get(p.note_id);
+  if (!note) {
+    note = createUpsertedNote(ctx, p);
+  } else {
+    updateUpsertedNoteHeader(ctx, note, p);
+  }
+
+  // Per-field LWW for note fields
+  for (const [fieldKey, fieldValue] of Object.entries(p.fields)) {
+    if (shouldApplyLww(state, `note:${p.note_id}:field:${fieldKey}`, hlc, collector)) {
+      note.fields[fieldKey] = fieldValue;
+    }
+  }
+
+  if (p.tags !== undefined && shouldApplyLww(state, `note:${p.note_id}:tags`, hlc, collector)) {
+    note.tags = [...p.tags];
+  }
+
+  collector?.noteIds.add(p.note_id);
+  dirtyNotes.add(p.note_id);
+}
+
+function applyNoteArchived(ctx: ApplyEventContext, p: EventPayloadMap['NoteArchived']): void {
+  const { state, hlc, collector, dirtyNotes } = ctx;
+  if (shouldApplyLww(state, `note:${p.note_id}:archived`, hlc, collector)) {
+    state.noteArchivedState.set(p.note_id, true);
+    collector?.noteArchivedKeys.add(p.note_id);
+    const note = state.notes.get(p.note_id);
+    if (note) {
+      note.archived = true;
+      collector?.noteIds.add(p.note_id);
+      dirtyNotes.add(p.note_id);
+    }
+  }
+}
+
+function applyNoteRestored(ctx: ApplyEventContext, p: EventPayloadMap['NoteRestored']): void {
+  const { state, hlc, collector, dirtyNotes } = ctx;
+  if (shouldApplyLww(state, `note:${p.note_id}:archived`, hlc, collector)) {
+    state.noteArchivedState.set(p.note_id, false);
+    collector?.noteArchivedKeys.add(p.note_id);
+    const note = state.notes.get(p.note_id);
+    if (note) {
+      note.archived = false;
+      collector?.noteIds.add(p.note_id);
+      dirtyNotes.add(p.note_id);
+    }
+  }
+}
+
+function applyReviewRecorded(ctx: ApplyEventContext, p: EventPayloadMap['ReviewRecorded']): void {
+  const { state, hlc, collector, dirtyCards } = ctx;
+  const list = state.reviewsByCard.get(p.card_id) ?? [];
+  if (!list.some((r) => r.review_id === p.review_id)) {
+    const record: ReviewRecord = {
+      review_id: p.review_id,
+      card_id: p.card_id,
+      rating: p.rating,
+      reviewed_at: p.reviewed_at,
+      tz_offset: p.tz_offset,
+      duration_ms: p.duration_ms,
+      answer_mode: p.answer_mode,
+      fsrs_params_version: p.fsrs_params_version,
+      resulting_due_at: p.resulting_due_at,
+      hlc,
+    };
+    if (p.typed_answer !== undefined) {
+      record.typed_answer = p.typed_answer;
+    }
+    list.push(record);
+    state.reviewsByCard.set(p.card_id, list);
+    state.reviewIdToCardId.set(p.review_id, p.card_id);
+    collector?.reviewCardIds.add(p.card_id);
+  }
+  dirtyCards.add(p.card_id);
+}
+
+function applyReviewUndone(ctx: ApplyEventContext, p: EventPayloadMap['ReviewUndone']): void {
+  const { state, collector, dirtyCards } = ctx;
+  if (!state.undoneReviewIds.has(p.review_id)) {
+    state.undoneReviewIds.add(p.review_id);
+    collector?.addedUndoneReviewIds.add(p.review_id);
+  }
+  const cardId = state.reviewIdToCardId.get(p.review_id);
+  if (cardId !== undefined) {
+    dirtyCards.add(cardId);
+  }
+}
+
+function buildUpsertedPage(
+  ctx: ApplyEventContext,
+  p: EventPayloadMap['PageUpserted'],
+  existing: Page | undefined,
+  pending: PendingPagePatch | undefined,
+): Page {
+  const { state, hlc, collector } = ctx;
+  const page: Page = {
+    id: p.page_id,
+    slug: p.slug,
+    title: p.title,
+    markdown: p.markdown,
+    tags: p.tags ? [...p.tags] : [],
+  };
+  if (p.lang !== undefined) page.lang = p.lang;
+  const resolvedSource = existing?.source ?? pending?.source;
+  if (resolvedSource !== undefined) page.source = { ...resolvedSource };
+  if (p.source !== undefined && shouldApplyLww(state, `page:${p.page_id}:source`, hlc, collector)) {
+    page.source = { ...p.source };
+  }
+  const resolvedReadAt = existing?.read_at ?? pending?.read_at;
+  if (resolvedReadAt !== undefined) page.read_at = resolvedReadAt;
+  return page;
+}
+
+function applyPageUpserted(ctx: ApplyEventContext, p: EventPayloadMap['PageUpserted']): void {
+  const { state, hlc, collector } = ctx;
+  const pending = state.pendingPagePatches.get(p.page_id);
+  if (pending) {
+    state.pendingPagePatches.delete(p.page_id);
+    collector?.pendingPagePatchKeys.add(p.page_id);
+  }
+  const existing = state.pages.get(p.page_id);
+
+  if (shouldApplyLww(state, `page:${p.page_id}`, hlc, collector)) {
+    const page = buildUpsertedPage(ctx, p, existing, pending);
+    state.pages.set(p.page_id, page);
+    collector?.pageIds.add(p.page_id);
+  } else if (existing && p.source !== undefined) {
+    if (shouldApplyLww(state, `page:${p.page_id}:source`, hlc, collector)) {
+      existing.source = { ...p.source };
+      collector?.pageIds.add(p.page_id);
+    }
+  }
+}
+
+function applyPageRead(ctx: ApplyEventContext, p: EventPayloadMap['PageRead']): void {
+  const { state, hlc, collector } = ctx;
+  if (shouldApplyLww(state, `page:${p.page_id}:read_at`, hlc, collector)) {
+    const page = state.pages.get(p.page_id);
+    if (page) {
+      page.read_at = p.read_at;
+      collector?.pageIds.add(p.page_id);
+    } else {
+      const pending = getOrCreatePendingPagePatch(state, p.page_id);
+      pending.read_at = p.read_at;
+      collector?.pendingPagePatchKeys.add(p.page_id);
+    }
+  }
+}
+
+function applyCourseChanged(
+  ctx: ApplyEventContext,
+  payload: EventPayloadMap['CourseChanged'],
+): void {
+  const { state, hlc, collector } = ctx;
+  const c = payload.course;
+  if (shouldApplyLww(state, `course:${c.id}`, hlc, collector)) {
+    state.courses.set(c.id, {
+      ...c,
+      items: c.items.map((item) => ({ ...item })),
+    });
+    collector?.courseIds.add(c.id);
+  }
+}
+
+function applyMediaAdded(ctx: ApplyEventContext, payload: EventPayloadMap['MediaAdded']): void {
+  const { state, hlc, collector } = ctx;
+  const m = payload.media;
+  const normHash = m.hash.toLowerCase();
+  const prev = state.media.get(normHash);
+  const nextEntry: MediaEntry = {
+    hash: normHash,
+    ext: m.ext.toLowerCase(),
+    mime: m.mime,
+    size: m.size,
+    ...(prev?.tts_key !== undefined ? { tts_key: prev.tts_key } : {}),
+    ...(prev?.tts_lang_key !== undefined ? { tts_lang_key: prev.tts_lang_key } : {}),
+    ...(m.tts_key !== undefined ? { tts_key: m.tts_key } : {}),
+    ...(m.tts_lang_key !== undefined ? { tts_lang_key: m.tts_lang_key } : {}),
+  };
+  state.media.set(normHash, nextEntry);
+  if (nextEntry.tts_key && shouldApplyLww(state, `tts:key:${nextEntry.tts_key}`, hlc, collector)) {
+    state.ttsMediaByKey.set(nextEntry.tts_key, normHash);
+    collector?.ttsKeys.add(nextEntry.tts_key);
+  }
+  if (
+    nextEntry.tts_lang_key &&
+    shouldApplyLww(state, `tts:lang:${nextEntry.tts_lang_key}`, hlc, collector)
+  ) {
+    state.ttsMediaByLangKey.set(nextEntry.tts_lang_key, normHash);
+    collector?.ttsLangKeys.add(nextEntry.tts_lang_key);
+  }
+  collector?.mediaHashes.add(normHash);
+}
+
+function linkDeckSource(ctx: ApplyEventContext, p: EventPayloadMap['SourceLinked']): void {
+  const { state, hlc, collector } = ctx;
+  if (shouldApplyLww(state, `deck:${p.target_id}:source`, hlc, collector)) {
+    const deck = state.decks.get(p.target_id);
+    if (deck) {
+      deck.source = { ...p.source };
+      collector?.deckIds.add(p.target_id);
+    } else {
+      const pending = getOrCreatePendingDeckPatch(state, p.target_id);
+      pending.source = { ...p.source };
+      collector?.pendingDeckPatchKeys.add(p.target_id);
+    }
+  }
+}
+
+function linkPageSource(ctx: ApplyEventContext, p: EventPayloadMap['SourceLinked']): void {
+  const { state, hlc, collector } = ctx;
+  if (shouldApplyLww(state, `page:${p.target_id}:source`, hlc, collector)) {
+    const page = state.pages.get(p.target_id);
+    if (page) {
+      page.source = { ...p.source };
+      collector?.pageIds.add(p.target_id);
+    } else {
+      const pending = getOrCreatePendingPagePatch(state, p.target_id);
+      pending.source = { ...p.source };
+      collector?.pendingPagePatchKeys.add(p.target_id);
+    }
+  }
+}
+
+function applySourceLinked(ctx: ApplyEventContext, p: EventPayloadMap['SourceLinked']): void {
+  if (p.target_kind === 'deck') {
+    linkDeckSource(ctx, p);
+  } else {
+    linkPageSource(ctx, p);
+  }
+}
+
+type PreferencesPatch = EventPayloadMap['PreferencesChanged']['preferences'];
+
+/** Scalar preference fields; returns true when any field was applied. */
+function applyScalarPreferences(ctx: ApplyEventContext, pref: PreferencesPatch): boolean {
+  const { state, hlc, collector } = ctx;
+  let changed = false;
+  if (
+    pref.rating_button_mode !== undefined &&
+    shouldApplyLww(state, 'prefs:rating_button_mode', hlc, collector)
+  ) {
+    state.preferences.rating_button_mode = pref.rating_button_mode;
+    changed = true;
+  }
+  if (
+    pref.day_start_hour !== undefined &&
+    shouldApplyLww(state, 'prefs:day_start_hour', hlc, collector)
+  ) {
+    state.preferences.day_start_hour = pref.day_start_hour;
+    changed = true;
+  }
+  if (
+    pref.pinyin_tone_colors !== undefined &&
+    shouldApplyLww(state, 'prefs:pinyin_tone_colors', hlc, collector)
+  ) {
+    state.preferences.pinyin_tone_colors = pref.pinyin_tone_colors;
+    changed = true;
+  }
+  if (
+    pref.ja_kana_equivalent !== undefined &&
+    shouldApplyLww(state, 'prefs:ja_kana_equivalent', hlc, collector)
+  ) {
+    state.preferences.ja_kana_equivalent = pref.ja_kana_equivalent;
+    changed = true;
+  }
+  if (
+    pref.zh_ignore_tones !== undefined &&
+    shouldApplyLww(state, 'prefs:zh_ignore_tones', hlc, collector)
+  ) {
+    state.preferences.zh_ignore_tones = pref.zh_ignore_tones;
+    changed = true;
+  }
+  if (
+    pref.auto_play_audio !== undefined &&
+    shouldApplyLww(state, 'prefs:auto_play_audio', hlc, collector)
+  ) {
+    state.preferences.auto_play_audio = pref.auto_play_audio;
+    changed = true;
+  }
+  return changed;
+}
+
+function setTtsVoicePreference(state: CollectionState, langKey: string, voiceVal: string): void {
+  const trimmed = voiceVal.trim();
+  const entries = Object.entries(state.preferences.tts_voices ?? {}).filter(([k]) => k !== langKey);
+  if (trimmed) {
+    entries.push([langKey, trimmed]);
+  }
+  if (entries.length > 0) {
+    state.preferences.tts_voices = Object.fromEntries(entries);
+  } else {
+    delete state.preferences.tts_voices;
+  }
+}
+
+/** Per-language TTS voice preferences; returns true when any entry was applied. */
+function applyTtsVoicePreferences(ctx: ApplyEventContext, pref: PreferencesPatch): boolean {
+  const { state, hlc, collector } = ctx;
+  let changed = false;
+  if (pref.tts_voices !== undefined) {
+    for (const [langKey, voiceVal] of Object.entries(pref.tts_voices)) {
+      if (shouldApplyLww(state, `prefs:tts_voices:${langKey}`, hlc, collector)) {
+        setTtsVoicePreference(state, langKey, voiceVal);
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+/** Per-language drawing-mode preferences; returns true when any entry was applied. */
+function applyDrawingModePreferences(ctx: ApplyEventContext, pref: PreferencesPatch): boolean {
+  const { state, hlc, collector } = ctx;
+  let changed = false;
+  if (pref.drawing_modes !== undefined) {
+    for (const [langKey, modeVal] of Object.entries(pref.drawing_modes)) {
+      if (
+        (modeVal === 'graded' || modeVal === 'lookup' || modeVal === 'off') &&
+        shouldApplyLww(state, `prefs:drawing_modes:${langKey}`, hlc, collector)
+      ) {
+        state.preferences.drawing_modes = {
+          ...(state.preferences.drawing_modes ?? {}),
+          [langKey]: modeVal,
+        };
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+function applyPreferencesChanged(
+  ctx: ApplyEventContext,
+  payload: EventPayloadMap['PreferencesChanged'],
+): void {
+  const { collector } = ctx;
+  const pref = payload.preferences;
+  let changed = applyScalarPreferences(ctx, pref);
+  if (applyTtsVoicePreferences(ctx, pref)) changed = true;
+  if (applyDrawingModePreferences(ctx, pref)) changed = true;
+  if (changed && collector) {
+    collector.preferencesChanged = true;
+  }
+}
+
+function applyCardSuspension(
+  ctx: ApplyEventContext,
+  event: Extract<KnownEvent, { type: 'CardSuspended' | 'CardUnsuspended' }>,
+): void {
+  // Grow-only HLC registers in `fieldHlcs` (see ./suspension.ts); no card rebuild needed.
+  const key = applySuspensionRegister(ctx.state.fieldHlcs, event.type, event.payload, ctx.hlc);
+  if (key !== undefined) ctx.collector?.fieldHlcKeys.add(key);
+}
+
 function applyKnownEvent(
   state: CollectionState,
   event: KnownEvent,
@@ -636,576 +1323,67 @@ function applyKnownEvent(
   dirtyNotes: Set<string>,
   collector?: ApplyMutationCollector,
 ): void {
-  const { hlc } = event;
+  const ctx: ApplyEventContext = {
+    state,
+    hlc: event.hlc,
+    dirtyCards,
+    dirtyDecks,
+    dirtyNotes,
+    collector,
+  };
   switch (event.type) {
-    case 'NoteTypeChanged': {
-      const nt = event.payload.note_type;
-      if (shouldApplyLww(state, `noteType:${nt.id}`, hlc, collector)) {
-        state.noteTypes.set(nt.id, {
-          ...nt,
-          fields: nt.fields.map((f) => ({ ...f })),
-        });
-        collector?.noteTypeIds.add(nt.id);
-      }
+    case 'NoteTypeChanged':
+      applyNoteTypeChanged(ctx, event.payload);
       break;
-    }
-    case 'LayoutChanged': {
-      const layout = event.payload.layout;
-      if (shouldApplyLww(state, `layout:${layout.id}`, hlc, collector)) {
-        state.layouts.set(layout.id, {
-          ...layout,
-          front_fields: [...layout.front_fields],
-          reveal_steps: layout.reveal_steps.map((s) => [...s]),
-        });
-        collector?.layoutIds.add(layout.id);
-        for (const deck of state.decks.values()) {
-          if (deck.note_type_id === layout.note_type_id) {
-            dirtyDecks.add(deck.id);
-          }
-        }
-      }
+    case 'LayoutChanged':
+      applyLayoutChanged(ctx, event.payload);
       break;
-    }
-    case 'DeckCreated': {
-      const p = event.payload;
-      let deck = state.decks.get(p.deck_id);
-      const initialRet = p.settings?.target_retention ?? DEFAULT_FSRS_CONFIG.request_retention;
-      if (!deck) {
-        const pending = state.pendingDeckPatches.get(p.deck_id);
-        if (pending) {
-          state.pendingDeckPatches.delete(p.deck_id);
-          collector?.pendingDeckPatchKeys.add(p.deck_id);
-        }
-
-        const mergedSettings: DeckSettings = { ...DEFAULT_DECK_SETTINGS };
-        if (pending?.settings) {
-          if (pending.settings.new_cards_per_day !== undefined) {
-            mergedSettings.new_cards_per_day = pending.settings.new_cards_per_day;
-          }
-          if (pending.settings.max_reviews_per_day !== undefined) {
-            mergedSettings.max_reviews_per_day = pending.settings.max_reviews_per_day;
-          }
-          if (pending.settings.target_retention !== undefined) {
-            mergedSettings.target_retention = pending.settings.target_retention;
-          }
-          if (pending.settings.new_card_order !== undefined) {
-            mergedSettings.new_card_order = pending.settings.new_card_order;
-          }
-          if (pending.settings.enabled_layout_ids !== undefined) {
-            mergedSettings.enabled_layout_ids = [...pending.settings.enabled_layout_ids];
-          }
-          if (pending.settings.day_start_hour !== undefined) {
-            mergedSettings.day_start_hour = pending.settings.day_start_hour;
-          }
-        }
-
-        deck = {
-          id: p.deck_id,
-          name: pending?.name ?? p.name,
-          note_type_id: p.note_type_id,
-          language: pending?.language ?? p.language,
-          settings: mergedSettings,
-          initial_retention: initialRet,
-          archived: pending?.archived ?? false,
-          created_at: p.created_at ?? 0,
-        };
-        if (pending?.source !== undefined) {
-          deck.source = { ...pending.source };
-        }
-        state.decks.set(p.deck_id, deck);
-
-        // Apply DeckCreated's own fields strictly via LWW so newer out-of-order patches win
-        if (shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)) deck.name = p.name;
-        if (shouldApplyLww(state, `deck:${p.deck_id}:note_type_id`, hlc, collector)) {
-          deck.note_type_id = p.note_type_id;
-        }
-        if (shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)) {
-          deck.language = p.language;
-        }
-        if (shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc, collector)) {
-          deck.archived = false;
-        }
-        if (shouldApplyLww(state, `deck:${p.deck_id}:initial_retention`, hlc, collector)) {
-          deck.initial_retention = initialRet;
-        }
-        if (
-          p.source !== undefined &&
-          shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc, collector)
-        ) {
-          deck.source = { ...p.source };
-        }
-      } else {
-        if (shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)) deck.name = p.name;
-        if (shouldApplyLww(state, `deck:${p.deck_id}:note_type_id`, hlc, collector)) {
-          deck.note_type_id = p.note_type_id;
-        }
-        if (shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)) {
-          deck.language = p.language;
-        }
-        if (shouldApplyLww(state, `deck:${p.deck_id}:initial_retention`, hlc, collector)) {
-          deck.initial_retention = initialRet;
-        }
-        if (
-          p.source !== undefined &&
-          shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc, collector)
-        ) {
-          deck.source = { ...p.source };
-        }
-      }
-      if (p.settings) {
-        applyDeckSettingsPatchTarget(state, p.deck_id, deck.settings, p.settings, hlc, collector);
-      }
-      collector?.deckIds.add(p.deck_id);
-      dirtyDecks.add(p.deck_id);
+    case 'DeckCreated':
+      applyDeckCreated(ctx, event.payload);
       break;
-    }
-    case 'DeckSettingsChanged': {
-      const p = event.payload;
-      const deck = state.decks.get(p.deck_id);
-      if (!deck) {
-        // Buffer out-of-order patch until DeckCreated arrives
-        const pending = getOrCreatePendingDeckPatch(state, p.deck_id);
-        if (
-          p.name !== undefined &&
-          shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)
-        ) {
-          pending.name = p.name;
-        }
-        if (
-          p.language !== undefined &&
-          shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)
-        ) {
-          pending.language = p.language;
-        }
-        if (
-          p.archived !== undefined &&
-          shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc, collector)
-        ) {
-          pending.archived = p.archived;
-        }
-        if (p.settings) {
-          applyDeckSettingsPatchTarget(
-            state,
-            p.deck_id,
-            pending.settings,
-            p.settings,
-            hlc,
-            collector,
-          );
-        }
-        collector?.pendingDeckPatchKeys.add(p.deck_id);
-        break;
-      }
-      let mustRebuildDeck = false;
-      if (p.name !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)) {
-        deck.name = p.name;
-      }
-      if (
-        p.language !== undefined &&
-        shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)
-      ) {
-        deck.language = p.language;
-      }
-      if (
-        p.archived !== undefined &&
-        shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc, collector)
-      ) {
-        deck.archived = p.archived;
-        mustRebuildDeck = true;
-      }
-      if (p.settings) {
-        const layoutsChanged = applyDeckSettingsPatchTarget(
-          state,
-          p.deck_id,
-          deck.settings,
-          p.settings,
-          hlc,
-          collector,
-        );
-        if (layoutsChanged) mustRebuildDeck = true;
-      }
-      collector?.deckIds.add(p.deck_id);
-      if (mustRebuildDeck) {
-        dirtyDecks.add(p.deck_id);
-      } else if (p.settings?.target_retention !== undefined) {
-        const deckCards = state.cardIdsByDeck.get(p.deck_id);
-        if (deckCards) {
-          for (const cardId of deckCards) {
-            dirtyCards.add(cardId);
-          }
-        }
-      }
+    case 'DeckSettingsChanged':
+      applyDeckSettingsChanged(ctx, event.payload);
       break;
-    }
-    case 'DeckFSRSParamsChanged': {
-      const p = event.payload;
-      if (!shouldApplyLww(state, `deck:${p.deck_id}:fsrs:${p.params_version}`, hlc, collector)) {
-        break;
-      }
-      const existing = state.deckFsrsParams.get(p.deck_id) ?? [];
-      const filtered = existing.filter((v) => v.params_version !== p.params_version);
-      const entry: DeckFSRSParamsVersion = {
-        params_version: p.params_version,
-        effective_from: p.effective_from,
-        params: { ...p.params },
-      };
-      if (p.reschedule_existing !== undefined) {
-        entry.reschedule_existing = p.reschedule_existing;
-      }
-      filtered.push(entry);
-      filtered.sort((a, b) => a.params_version - b.params_version);
-      state.deckFsrsParams.set(p.deck_id, filtered);
-      collector?.fsrsDeckIds.add(p.deck_id);
-      const deckCards = state.cardIdsByDeck.get(p.deck_id);
-      if (deckCards) {
-        for (const cardId of deckCards) {
-          dirtyCards.add(cardId);
-        }
-      }
+    case 'DeckFSRSParamsChanged':
+      applyDeckFsrsParamsChanged(ctx, event.payload);
       break;
-    }
-    case 'NoteUpserted': {
-      const p = event.payload;
-      let note = state.notes.get(p.note_id);
-      if (!note) {
-        note = {
-          id: p.note_id,
-          deck_id: p.deck_id,
-          fields: {},
-          tags: [],
-          source_key: p.source_key,
-          provenance: p.provenance ? { ...p.provenance } : { source: 'user', reviewed: true },
-          archived: state.noteArchivedState.get(p.note_id) ?? false,
-          created_order: p.created_order ?? 0,
-        };
-        state.notes.set(p.note_id, note);
-        addToMapSet(state.noteIdsByDeck, note.deck_id, note.id);
-        shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc, collector);
-        shouldApplyLww(state, `note:${p.note_id}:source_key`, hlc, collector);
-        if (p.provenance) shouldApplyLww(state, `note:${p.note_id}:provenance`, hlc, collector);
-        if (p.created_order !== undefined) {
-          shouldApplyLww(state, `note:${p.note_id}:created_order`, hlc, collector);
-        }
-      } else {
-        if (shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc, collector)) {
-          if (note.deck_id !== p.deck_id) {
-            removeFromMapSet(state.noteIdsByDeck, note.deck_id, note.id);
-            dirtyDecks.add(note.deck_id);
-            note.deck_id = p.deck_id;
-            addToMapSet(state.noteIdsByDeck, note.deck_id, note.id);
-          }
-        }
-        if (shouldApplyLww(state, `note:${p.note_id}:source_key`, hlc, collector)) {
-          note.source_key = p.source_key;
-        }
-        if (p.provenance && shouldApplyLww(state, `note:${p.note_id}:provenance`, hlc, collector)) {
-          note.provenance = { ...p.provenance };
-        }
-        if (
-          p.created_order !== undefined &&
-          shouldApplyLww(state, `note:${p.note_id}:created_order`, hlc, collector)
-        ) {
-          note.created_order = p.created_order;
-        }
-      }
-
-      // Per-field LWW for note fields
-      for (const [fieldKey, fieldValue] of Object.entries(p.fields)) {
-        if (shouldApplyLww(state, `note:${p.note_id}:field:${fieldKey}`, hlc, collector)) {
-          note.fields[fieldKey] = fieldValue;
-        }
-      }
-
-      if (p.tags !== undefined && shouldApplyLww(state, `note:${p.note_id}:tags`, hlc, collector)) {
-        note.tags = [...p.tags];
-      }
-
-      collector?.noteIds.add(p.note_id);
-      dirtyNotes.add(p.note_id);
+    case 'NoteUpserted':
+      applyNoteUpserted(ctx, event.payload);
       break;
-    }
-    case 'NoteArchived': {
-      const p = event.payload;
-      if (shouldApplyLww(state, `note:${p.note_id}:archived`, hlc, collector)) {
-        state.noteArchivedState.set(p.note_id, true);
-        collector?.noteArchivedKeys.add(p.note_id);
-        const note = state.notes.get(p.note_id);
-        if (note) {
-          note.archived = true;
-          collector?.noteIds.add(p.note_id);
-          dirtyNotes.add(p.note_id);
-        }
-      }
+    case 'NoteArchived':
+      applyNoteArchived(ctx, event.payload);
       break;
-    }
-    case 'NoteRestored': {
-      const p = event.payload;
-      if (shouldApplyLww(state, `note:${p.note_id}:archived`, hlc, collector)) {
-        state.noteArchivedState.set(p.note_id, false);
-        collector?.noteArchivedKeys.add(p.note_id);
-        const note = state.notes.get(p.note_id);
-        if (note) {
-          note.archived = false;
-          collector?.noteIds.add(p.note_id);
-          dirtyNotes.add(p.note_id);
-        }
-      }
+    case 'NoteRestored':
+      applyNoteRestored(ctx, event.payload);
       break;
-    }
-    case 'ReviewRecorded': {
-      const p = event.payload;
-      const list = state.reviewsByCard.get(p.card_id) ?? [];
-      if (!list.some((r) => r.review_id === p.review_id)) {
-        const record: ReviewRecord = {
-          review_id: p.review_id,
-          card_id: p.card_id,
-          rating: p.rating,
-          reviewed_at: p.reviewed_at,
-          tz_offset: p.tz_offset,
-          duration_ms: p.duration_ms,
-          answer_mode: p.answer_mode,
-          fsrs_params_version: p.fsrs_params_version,
-          resulting_due_at: p.resulting_due_at,
-          hlc,
-        };
-        if (p.typed_answer !== undefined) {
-          record.typed_answer = p.typed_answer;
-        }
-        list.push(record);
-        state.reviewsByCard.set(p.card_id, list);
-        state.reviewIdToCardId.set(p.review_id, p.card_id);
-        collector?.reviewCardIds.add(p.card_id);
-      }
-      dirtyCards.add(p.card_id);
+    case 'ReviewRecorded':
+      applyReviewRecorded(ctx, event.payload);
       break;
-    }
-    case 'ReviewUndone': {
-      const p = event.payload;
-      if (!state.undoneReviewIds.has(p.review_id)) {
-        state.undoneReviewIds.add(p.review_id);
-        collector?.addedUndoneReviewIds.add(p.review_id);
-      }
-      const cardId = state.reviewIdToCardId.get(p.review_id);
-      if (cardId !== undefined) {
-        dirtyCards.add(cardId);
-      }
+    case 'ReviewUndone':
+      applyReviewUndone(ctx, event.payload);
       break;
-    }
-    case 'PageUpserted': {
-      const p = event.payload;
-      const pending = state.pendingPagePatches.get(p.page_id);
-      if (pending) {
-        state.pendingPagePatches.delete(p.page_id);
-        collector?.pendingPagePatchKeys.add(p.page_id);
-      }
-      const existing = state.pages.get(p.page_id);
-
-      if (shouldApplyLww(state, `page:${p.page_id}`, hlc, collector)) {
-        const page: Page = {
-          id: p.page_id,
-          slug: p.slug,
-          title: p.title,
-          markdown: p.markdown,
-          tags: p.tags ? [...p.tags] : [],
-        };
-        if (p.lang !== undefined) page.lang = p.lang;
-        const resolvedSource = existing?.source ?? pending?.source;
-        if (resolvedSource !== undefined) page.source = { ...resolvedSource };
-        if (
-          p.source !== undefined &&
-          shouldApplyLww(state, `page:${p.page_id}:source`, hlc, collector)
-        ) {
-          page.source = { ...p.source };
-        }
-        const resolvedReadAt = existing?.read_at ?? pending?.read_at;
-        if (resolvedReadAt !== undefined) page.read_at = resolvedReadAt;
-        state.pages.set(p.page_id, page);
-        collector?.pageIds.add(p.page_id);
-      } else if (existing && p.source !== undefined) {
-        if (shouldApplyLww(state, `page:${p.page_id}:source`, hlc, collector)) {
-          existing.source = { ...p.source };
-          collector?.pageIds.add(p.page_id);
-        }
-      }
+    case 'PageUpserted':
+      applyPageUpserted(ctx, event.payload);
       break;
-    }
-    case 'PageRead': {
-      const p = event.payload;
-      if (shouldApplyLww(state, `page:${p.page_id}:read_at`, hlc, collector)) {
-        const page = state.pages.get(p.page_id);
-        if (page) {
-          page.read_at = p.read_at;
-          collector?.pageIds.add(p.page_id);
-        } else {
-          const pending = getOrCreatePendingPagePatch(state, p.page_id);
-          pending.read_at = p.read_at;
-          collector?.pendingPagePatchKeys.add(p.page_id);
-        }
-      }
+    case 'PageRead':
+      applyPageRead(ctx, event.payload);
       break;
-    }
-    case 'CourseChanged': {
-      const c = event.payload.course;
-      if (shouldApplyLww(state, `course:${c.id}`, hlc, collector)) {
-        state.courses.set(c.id, {
-          ...c,
-          items: c.items.map((item) => ({ ...item })),
-        });
-        collector?.courseIds.add(c.id);
-      }
+    case 'CourseChanged':
+      applyCourseChanged(ctx, event.payload);
       break;
-    }
-    case 'MediaAdded': {
-      const m = event.payload.media;
-      const normHash = m.hash.toLowerCase();
-      const prev = state.media.get(normHash);
-      const nextEntry: MediaEntry = {
-        hash: normHash,
-        ext: m.ext.toLowerCase(),
-        mime: m.mime,
-        size: m.size,
-        ...(prev?.tts_key !== undefined ? { tts_key: prev.tts_key } : {}),
-        ...(prev?.tts_lang_key !== undefined ? { tts_lang_key: prev.tts_lang_key } : {}),
-        ...(m.tts_key !== undefined ? { tts_key: m.tts_key } : {}),
-        ...(m.tts_lang_key !== undefined ? { tts_lang_key: m.tts_lang_key } : {}),
-      };
-      state.media.set(normHash, nextEntry);
-      if (
-        nextEntry.tts_key &&
-        shouldApplyLww(state, `tts:key:${nextEntry.tts_key}`, hlc, collector)
-      ) {
-        state.ttsMediaByKey.set(nextEntry.tts_key, normHash);
-        collector?.ttsKeys.add(nextEntry.tts_key);
-      }
-      if (
-        nextEntry.tts_lang_key &&
-        shouldApplyLww(state, `tts:lang:${nextEntry.tts_lang_key}`, hlc, collector)
-      ) {
-        state.ttsMediaByLangKey.set(nextEntry.tts_lang_key, normHash);
-        collector?.ttsLangKeys.add(nextEntry.tts_lang_key);
-      }
-      collector?.mediaHashes.add(normHash);
+    case 'MediaAdded':
+      applyMediaAdded(ctx, event.payload);
       break;
-    }
-    case 'SourceLinked': {
-      const p = event.payload;
-      if (p.target_kind === 'deck') {
-        if (shouldApplyLww(state, `deck:${p.target_id}:source`, hlc, collector)) {
-          const deck = state.decks.get(p.target_id);
-          if (deck) {
-            deck.source = { ...p.source };
-            collector?.deckIds.add(p.target_id);
-          } else {
-            const pending = getOrCreatePendingDeckPatch(state, p.target_id);
-            pending.source = { ...p.source };
-            collector?.pendingDeckPatchKeys.add(p.target_id);
-          }
-        }
-      } else {
-        if (shouldApplyLww(state, `page:${p.target_id}:source`, hlc, collector)) {
-          const page = state.pages.get(p.target_id);
-          if (page) {
-            page.source = { ...p.source };
-            collector?.pageIds.add(p.target_id);
-          } else {
-            const pending = getOrCreatePendingPagePatch(state, p.target_id);
-            pending.source = { ...p.source };
-            collector?.pendingPagePatchKeys.add(p.target_id);
-          }
-        }
-      }
+    case 'SourceLinked':
+      applySourceLinked(ctx, event.payload);
       break;
-    }
-    case 'PreferencesChanged': {
-      const pref = event.payload.preferences;
-      let changed = false;
-      if (
-        pref.rating_button_mode !== undefined &&
-        shouldApplyLww(state, 'prefs:rating_button_mode', hlc, collector)
-      ) {
-        state.preferences.rating_button_mode = pref.rating_button_mode;
-        changed = true;
-      }
-      if (
-        pref.day_start_hour !== undefined &&
-        shouldApplyLww(state, 'prefs:day_start_hour', hlc, collector)
-      ) {
-        state.preferences.day_start_hour = pref.day_start_hour;
-        changed = true;
-      }
-      if (
-        pref.pinyin_tone_colors !== undefined &&
-        shouldApplyLww(state, 'prefs:pinyin_tone_colors', hlc, collector)
-      ) {
-        state.preferences.pinyin_tone_colors = pref.pinyin_tone_colors;
-        changed = true;
-      }
-      if (
-        pref.ja_kana_equivalent !== undefined &&
-        shouldApplyLww(state, 'prefs:ja_kana_equivalent', hlc, collector)
-      ) {
-        state.preferences.ja_kana_equivalent = pref.ja_kana_equivalent;
-        changed = true;
-      }
-      if (
-        pref.zh_ignore_tones !== undefined &&
-        shouldApplyLww(state, 'prefs:zh_ignore_tones', hlc, collector)
-      ) {
-        state.preferences.zh_ignore_tones = pref.zh_ignore_tones;
-        changed = true;
-      }
-      if (
-        pref.auto_play_audio !== undefined &&
-        shouldApplyLww(state, 'prefs:auto_play_audio', hlc, collector)
-      ) {
-        state.preferences.auto_play_audio = pref.auto_play_audio;
-        changed = true;
-      }
-      if (pref.tts_voices !== undefined) {
-        for (const [langKey, voiceVal] of Object.entries(pref.tts_voices)) {
-          if (shouldApplyLww(state, `prefs:tts_voices:${langKey}`, hlc, collector)) {
-            const trimmed = voiceVal.trim();
-            const entries = Object.entries(state.preferences.tts_voices ?? {}).filter(
-              ([k]) => k !== langKey,
-            );
-            if (trimmed) {
-              entries.push([langKey, trimmed]);
-            }
-            if (entries.length > 0) {
-              state.preferences.tts_voices = Object.fromEntries(entries);
-            } else {
-              delete state.preferences.tts_voices;
-            }
-            changed = true;
-          }
-        }
-      }
-      if (pref.drawing_modes !== undefined) {
-        for (const [langKey, modeVal] of Object.entries(pref.drawing_modes)) {
-          if (
-            (modeVal === 'graded' || modeVal === 'lookup' || modeVal === 'off') &&
-            shouldApplyLww(state, `prefs:drawing_modes:${langKey}`, hlc, collector)
-          ) {
-            state.preferences.drawing_modes = {
-              ...(state.preferences.drawing_modes ?? {}),
-              [langKey]: modeVal,
-            };
-            changed = true;
-          }
-        }
-      }
-      if (changed && collector) {
-        collector.preferencesChanged = true;
-      }
+    case 'PreferencesChanged':
+      applyPreferencesChanged(ctx, event.payload);
       break;
-    }
     case 'CardSuspended':
-    case 'CardUnsuspended': {
-      // Grow-only HLC registers in `fieldHlcs` (see ./suspension.ts); no card rebuild needed.
-      const key = applySuspensionRegister(state.fieldHlcs, event.type, event.payload, hlc);
-      if (key !== undefined) collector?.fieldHlcKeys.add(key);
+    case 'CardUnsuspended':
+      applyCardSuspension(ctx, event);
       break;
-    }
   }
 }
 

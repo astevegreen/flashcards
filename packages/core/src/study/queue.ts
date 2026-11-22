@@ -1,6 +1,6 @@
 import { isCardSuspended, type CollectionState } from '../events/replay.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
-import type { Card } from '../model/types.ts';
+import type { Card, Deck } from '../model/types.ts';
 import { filterCardIds, isCardFilterEmpty, type CardFilter } from './filter.ts';
 
 export interface StudyQueueOptions {
@@ -52,6 +52,320 @@ function hashString32(input: string): number {
   return h >>> 0;
 }
 
+/** Shared inputs of the queue-building passes. */
+interface QueueContext {
+  state: CollectionState;
+  nowMs: number;
+  tzOffsetMinutes: number;
+  globalDayStart: number;
+}
+
+function deckDayStart(ctx: QueueContext, deck: Deck): number {
+  return resolveDayStartHour(deck.settings.day_start_hour, ctx.globalDayStart);
+}
+
+function incrementCount(map: Map<string, number>, key: string, by: number): void {
+  map.set(key, (map.get(key) ?? 0) + by);
+}
+
+/** Ids allowed by a non-empty Phase 9 filter, or `undefined` when every card is eligible. */
+function resolveAllowedCardIds(
+  state: CollectionState,
+  options: StudyQueueOptions,
+): Set<string> | undefined {
+  if (options.filter === undefined || isCardFilterEmpty(options.filter)) return undefined;
+  return filterCardIds(state, options.filter, {
+    nowMs: options.nowMs,
+    tzOffsetMinutes: options.tzOffsetMinutes,
+    ...(options.dayStartHour !== undefined ? { dayStartHour: options.dayStartHour } : {}),
+    excludeSuspended: true,
+  });
+}
+
+/** What today's active (not undone) reviews of a deck's cards have already consumed. */
+interface TodayActivity {
+  /** Notes with a card reviewed today: their siblings are buried. */
+  reviewedNoteIdsToday: Set<string>;
+  reviewsTodayByDeck: Map<string, number>;
+  newCardsStartedTodayByDeck: Map<string, number>;
+}
+
+/** Active reviews of one card on study day `todayIndex`, plus whether its first ever active review was today. */
+function summarizeCardReviewsToday(
+  ctx: QueueContext,
+  cardId: string,
+  dayStart: number,
+  todayIndex: number,
+): { activeCountToday: number; startedToday: boolean } {
+  const { state, tzOffsetMinutes } = ctx;
+  let firstActiveReviewTime = Infinity;
+  let activeCountToday = 0;
+  for (const r of state.reviewsByCard.get(cardId) ?? []) {
+    if (state.undoneReviewIds.has(r.review_id)) continue;
+    if (r.reviewed_at < firstActiveReviewTime) {
+      firstActiveReviewTime = r.reviewed_at;
+    }
+    if (getStudyDayIndex(r.reviewed_at, tzOffsetMinutes, dayStart) === todayIndex) {
+      activeCountToday += 1;
+    }
+  }
+  const startedToday =
+    firstActiveReviewTime < Infinity &&
+    getStudyDayIndex(firstActiveReviewTime, tzOffsetMinutes, dayStart) === todayIndex;
+  return { activeCountToday, startedToday };
+}
+
+function collectTodayActivity(ctx: QueueContext): TodayActivity {
+  const { state } = ctx;
+  const activity: TodayActivity = {
+    reviewedNoteIdsToday: new Set(),
+    reviewsTodayByDeck: new Map(),
+    newCardsStartedTodayByDeck: new Map(),
+  };
+  for (const card of state.cards.values()) {
+    const deck = state.decks.get(card.deck_id);
+    if (!deck || deck.archived) continue;
+    if ((state.reviewsByCard.get(card.id)?.length ?? 0) === 0) continue;
+    const dayStart = deckDayStart(ctx, deck);
+    const todayIndex = getStudyDayIndex(ctx.nowMs, ctx.tzOffsetMinutes, dayStart);
+    const { activeCountToday, startedToday } = summarizeCardReviewsToday(
+      ctx,
+      card.id,
+      dayStart,
+      todayIndex,
+    );
+    if (activeCountToday === 0) continue;
+    activity.reviewedNoteIdsToday.add(card.note_id);
+    incrementCount(activity.reviewsTodayByDeck, card.deck_id, activeCountToday);
+    if (startedToday) incrementCount(activity.newCardsStartedTodayByDeck, card.deck_id, 1);
+  }
+  return activity;
+}
+
+/** Cards eligible today, grouped before limits and in-queue sibling burying apply. */
+interface EligibleCards {
+  learningCards: Card[];
+  dueCards: Card[];
+  newCardsByDeck: Map<string, Card[]>;
+  buriedNoteIds: Set<string>;
+  nextLearningDueAt?: number;
+}
+
+/** The card's deck when the card may be queued at all (scope, filter, suspension, archive). */
+function eligibleDeckOf(
+  ctx: QueueContext,
+  card: Card,
+  deckId: string | undefined,
+  allowedCardIds: Set<string> | undefined,
+): Deck | undefined {
+  const { state } = ctx;
+  if (deckId !== undefined && card.deck_id !== deckId) return undefined;
+  if (allowedCardIds !== undefined && !allowedCardIds.has(card.id)) return undefined;
+  if (isCardSuspended(state, card.id)) return undefined;
+  const deck = state.decks.get(card.deck_id);
+  if (!deck || deck.archived) return undefined;
+  const note = state.notes.get(card.note_id);
+  if (!note || note.archived) return undefined;
+  return deck;
+}
+
+/**
+ * Learning or Relearning: due now (or within the current study day if already in a learning
+ * step). A card already in learning today is NOT buried against itself; only siblings are buried.
+ */
+function placeLearningCard(
+  ctx: QueueContext,
+  card: Card,
+  dayStart: number,
+  reviewedNoteIdsToday: Set<string>,
+  out: EligibleCards,
+): void {
+  const { nowMs, tzOffsetMinutes } = ctx;
+  const wasThisCardReviewedToday =
+    card.last_reviewed_at !== undefined &&
+    getStudyDayIndex(card.last_reviewed_at, tzOffsetMinutes, dayStart) ===
+      getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
+  if (!wasThisCardReviewedToday && reviewedNoteIdsToday.has(card.note_id)) {
+    out.buriedNoteIds.add(card.note_id);
+    return;
+  }
+  const due = card.schedule.due;
+  if (due <= nowMs) {
+    out.learningCards.push(card);
+    return;
+  }
+  const endOfTodayMs = getNextStudyDayRolloverMs(nowMs, tzOffsetMinutes, dayStart);
+  if (due < endOfTodayMs && (out.nextLearningDueAt === undefined || due < out.nextLearningDueAt)) {
+    out.nextLearningDueAt = due;
+  }
+}
+
+function placeEligibleCard(
+  ctx: QueueContext,
+  card: Card,
+  deck: Deck,
+  reviewedNoteIdsToday: Set<string>,
+  out: EligibleCards,
+): void {
+  const dayStart = deckDayStart(ctx, deck);
+  const s = card.schedule;
+  if (s.state === 1 || s.state === 3) {
+    placeLearningCard(ctx, card, dayStart, reviewedNoteIdsToday, out);
+    return;
+  }
+  // Review and new cards are buried by any sibling reviewed today.
+  if (reviewedNoteIdsToday.has(card.note_id)) {
+    out.buriedNoteIds.add(card.note_id);
+    return;
+  }
+  if (s.state === 2) {
+    const endOfTodayMs = getNextStudyDayRolloverMs(ctx.nowMs, ctx.tzOffsetMinutes, dayStart);
+    if (s.due < endOfTodayMs) out.dueCards.push(card);
+    return;
+  }
+  // New card (state === 0)
+  const list = out.newCardsByDeck.get(card.deck_id) ?? [];
+  list.push(card);
+  out.newCardsByDeck.set(card.deck_id, list);
+}
+
+function collectEligibleCards(
+  ctx: QueueContext,
+  deckId: string | undefined,
+  allowedCardIds: Set<string> | undefined,
+  reviewedNoteIdsToday: Set<string>,
+): EligibleCards {
+  const out: EligibleCards = {
+    learningCards: [],
+    dueCards: [],
+    newCardsByDeck: new Map(),
+    buriedNoteIds: new Set(),
+  };
+  for (const card of ctx.state.cards.values()) {
+    const deck = eligibleDeckOf(ctx, card, deckId, allowedCardIds);
+    if (deck) placeEligibleCard(ctx, card, deck, reviewedNoteIdsToday, out);
+  }
+  return out;
+}
+
+/** Earliest due first, then card id. */
+function compareByDue(a: Card, b: Card): number {
+  return a.schedule.due - b.schedule.due || (a.id < b.id ? -1 : 1);
+}
+
+/** Reproducible daily random order for `new_card_order: 'random'`. */
+function compareDailyRandom(todayIndex: number): (a: Card, b: Card) => number {
+  return (a, b) => {
+    const ha = hashString32(`${todayIndex}:${a.id}`);
+    const hb = hashString32(`${todayIndex}:${b.id}`);
+    return ha - hb || (a.id < b.id ? -1 : 1);
+  };
+}
+
+/** Recognition layouts sort before production layouts, then by layout id. */
+function compareLayouts(a: string, b: string): number {
+  const aIsRec = a.includes('recognition') ? 0 : 1;
+  const bIsRec = b.includes('recognition') ? 0 : 1;
+  if (aIsRec !== bIsRec) return aIsRec - bIsRec;
+  return a < b ? -1 : 1;
+}
+
+/** Source order: by note.created_order, then layout order (Recognition before Production), then variant, then id. */
+function compareSourceOrder(state: CollectionState): (a: Card, b: Card) => number {
+  return (a, b) => {
+    const oa = state.notes.get(a.note_id)?.created_order ?? 0;
+    const ob = state.notes.get(b.note_id)?.created_order ?? 0;
+    if (oa !== ob) return oa - ob;
+    if (a.layout_id !== b.layout_id) return compareLayouts(a.layout_id, b.layout_id);
+    if (a.variant !== b.variant) return a.variant - b.variant;
+    return a.id < b.id ? -1 : 1;
+  };
+}
+
+/** Selected cards plus in-queue sibling burying state (at most one card per note_id). */
+interface QueueSelection {
+  queuedNoteIds: Set<string>;
+  buriedNoteIds: Set<string>;
+}
+
+/** Queues `card` unless a sibling is already queued (then its note is buried). */
+function tryQueue(selection: QueueSelection, card: Card, into: Card[]): boolean {
+  if (selection.queuedNoteIds.has(card.note_id)) {
+    selection.buriedNoteIds.add(card.note_id);
+    return false;
+  }
+  selection.queuedNoteIds.add(card.note_id);
+  into.push(card);
+  return true;
+}
+
+/** Due review cards within each deck's `max_reviews_per_day` (counting reviews done today). */
+function selectDueCards(
+  state: CollectionState,
+  dueCards: readonly Card[],
+  reviewsTodayByDeck: Map<string, number>,
+  selection: QueueSelection,
+): Card[] {
+  const finalDue: Card[] = [];
+  const queuedDueByDeck = new Map<string, number>();
+  for (const card of dueCards) {
+    if (selection.queuedNoteIds.has(card.note_id)) {
+      selection.buriedNoteIds.add(card.note_id);
+      continue;
+    }
+    const deck = state.decks.get(card.deck_id);
+    if (!deck) continue;
+    const doneToday = reviewsTodayByDeck.get(card.deck_id) ?? 0;
+    const queuedForDeck = queuedDueByDeck.get(card.deck_id) ?? 0;
+    if (doneToday + queuedForDeck >= deck.settings.max_reviews_per_day) continue;
+    tryQueue(selection, card, finalDue);
+    queuedDueByDeck.set(card.deck_id, queuedForDeck + 1);
+  }
+  return finalDue;
+}
+
+/** New cards per deck (sorted deck ids) within `new_cards_per_day`, in `new_card_order`. */
+function selectNewCards(
+  ctx: QueueContext,
+  newCardsByDeck: Map<string, Card[]>,
+  newCardsStartedTodayByDeck: Map<string, number>,
+  selection: QueueSelection,
+): Card[] {
+  const { state } = ctx;
+  const finalNew: Card[] = [];
+  const deckIdsSorted = [...newCardsByDeck.keys()].sort();
+  for (const dId of deckIdsSorted) {
+    const deck = state.decks.get(dId);
+    if (!deck) continue;
+    const todayIndex = getStudyDayIndex(ctx.nowMs, ctx.tzOffsetMinutes, deckDayStart(ctx, deck));
+    const alreadyStarted = newCardsStartedTodayByDeck.get(dId) ?? 0;
+    const remainingNewQuota = Math.max(0, deck.settings.new_cards_per_day - alreadyStarted);
+    const candidates = newCardsByDeck.get(dId);
+    if (remainingNewQuota === 0 || !candidates) continue;
+    candidates.sort(
+      deck.settings.new_card_order === 'random'
+        ? compareDailyRandom(todayIndex)
+        : compareSourceOrder(state),
+    );
+    takeUpTo(candidates, remainingNewQuota, selection, finalNew);
+  }
+  return finalNew;
+}
+
+/** Queues sorted candidates in order until `quota` of them were taken (siblings get buried). */
+function takeUpTo(
+  candidates: readonly Card[],
+  quota: number,
+  selection: QueueSelection,
+  into: Card[],
+): void {
+  let taken = 0;
+  for (const card of candidates) {
+    if (taken >= quota) break;
+    if (tryQueue(selection, card, into)) taken += 1;
+  }
+}
+
 /**
  * Builds today's study queue for a deck or the whole collection.
  * Enforces:
@@ -67,216 +381,42 @@ export function buildStudyQueue(
   state: CollectionState,
   options: StudyQueueOptions,
 ): StudyQueueResult {
-  const { deckId, nowMs, tzOffsetMinutes } = options;
-  const globalDayStart = options.dayStartHour ?? state.preferences.day_start_hour;
-  const allowedCardIds =
-    options.filter !== undefined && !isCardFilterEmpty(options.filter)
-      ? filterCardIds(state, options.filter, {
-          nowMs,
-          tzOffsetMinutes,
-          ...(options.dayStartHour !== undefined ? { dayStartHour: options.dayStartHour } : {}),
-          excludeSuspended: true,
-        })
-      : undefined;
+  const ctx: QueueContext = {
+    state,
+    nowMs: options.nowMs,
+    tzOffsetMinutes: options.tzOffsetMinutes,
+    globalDayStart: options.dayStartHour ?? state.preferences.day_start_hour,
+  };
+  const allowedCardIds = resolveAllowedCardIds(state, options);
 
-  // Determine which notes already had a card reviewed today (for sibling burying)
-  // AND count per-deck new/review quotas consumed today.
-  const reviewedNoteIdsToday = new Set<string>();
-  const reviewsTodayByDeck = new Map<string, number>();
-  const newCardsStartedTodayByDeck = new Map<string, number>();
+  // Which notes already had a card reviewed today (sibling burying) and the per-deck
+  // new/review quotas consumed today.
+  const activity = collectTodayActivity(ctx);
 
-  for (const card of state.cards.values()) {
-    const deck = state.decks.get(card.deck_id);
-    if (!deck || deck.archived) continue;
-    const dayStart = resolveDayStartHour(deck.settings.day_start_hour, globalDayStart);
-    const todayIndex = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
+  // Group eligible cards into learning, due, new per deck.
+  const eligible = collectEligibleCards(
+    ctx,
+    options.deckId,
+    allowedCardIds,
+    activity.reviewedNoteIdsToday,
+  );
+  eligible.learningCards.sort(compareByDue);
+  eligible.dueCards.sort(compareByDue);
 
-    const reviews = state.reviewsByCard.get(card.id);
-    if (!reviews || reviews.length === 0) continue;
-
-    let firstActiveReviewTime = Infinity;
-    let activeCountToday = 0;
-    for (const r of reviews) {
-      if (state.undoneReviewIds.has(r.review_id)) continue;
-      if (r.reviewed_at < firstActiveReviewTime) {
-        firstActiveReviewTime = r.reviewed_at;
-      }
-      const revDay = getStudyDayIndex(r.reviewed_at, tzOffsetMinutes, dayStart);
-      if (revDay === todayIndex) {
-        activeCountToday += 1;
-      }
-    }
-
-    if (activeCountToday > 0) {
-      reviewedNoteIdsToday.add(card.note_id);
-      reviewsTodayByDeck.set(
-        card.deck_id,
-        (reviewsTodayByDeck.get(card.deck_id) ?? 0) + activeCountToday,
-      );
-      if (
-        firstActiveReviewTime < Infinity &&
-        getStudyDayIndex(firstActiveReviewTime, tzOffsetMinutes, dayStart) === todayIndex
-      ) {
-        newCardsStartedTodayByDeck.set(
-          card.deck_id,
-          (newCardsStartedTodayByDeck.get(card.deck_id) ?? 0) + 1,
-        );
-      }
-    }
-  }
-
-  // Group eligible cards into learning, due, new per deck
-  const learningCards: Card[] = [];
-  const dueCards: Card[] = [];
-  const newCardsByDeck = new Map<string, Card[]>();
-  const buriedNoteIds = new Set<string>();
-  let nextLearningDueAt: number | undefined;
-
-  for (const card of state.cards.values()) {
-    if (deckId !== undefined && card.deck_id !== deckId) continue;
-    if (allowedCardIds !== undefined && !allowedCardIds.has(card.id)) continue;
-    if (isCardSuspended(state, card.id)) continue;
-    const deck = state.decks.get(card.deck_id);
-    if (!deck || deck.archived) continue;
-    const note = state.notes.get(card.note_id);
-    if (!note || note.archived) continue;
-
-    const dayStart = resolveDayStartHour(deck.settings.day_start_hour, globalDayStart);
-    const endOfTodayMs = getNextStudyDayRolloverMs(nowMs, tzOffsetMinutes, dayStart);
-
-    const s = card.schedule;
-    if (s.state === 1 || s.state === 3) {
-      // Learning or Relearning: due now (or within current study day if already in learning step)
-      // Note: a card already in learning today is NOT buried against itself; only siblings are buried
-      const wasThisCardReviewedToday =
-        card.last_reviewed_at !== undefined &&
-        getStudyDayIndex(card.last_reviewed_at, tzOffsetMinutes, dayStart) ===
-          getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
-
-      if (!wasThisCardReviewedToday && reviewedNoteIdsToday.has(card.note_id)) {
-        buriedNoteIds.add(card.note_id);
-        continue;
-      }
-
-      if (s.due <= nowMs) {
-        learningCards.push(card);
-      } else if (s.due < endOfTodayMs) {
-        if (nextLearningDueAt === undefined || s.due < nextLearningDueAt) {
-          nextLearningDueAt = s.due;
-        }
-      }
-    } else if (s.state === 2) {
-      // Review card
-      if (reviewedNoteIdsToday.has(card.note_id)) {
-        buriedNoteIds.add(card.note_id);
-        continue;
-      }
-      if (s.due < endOfTodayMs) {
-        dueCards.push(card);
-      }
-    } else {
-      // New card (state === 0)
-      if (reviewedNoteIdsToday.has(card.note_id)) {
-        buriedNoteIds.add(card.note_id);
-        continue;
-      }
-      const list = newCardsByDeck.get(card.deck_id) ?? [];
-      list.push(card);
-      newCardsByDeck.set(card.deck_id, list);
-    }
-  }
-
-  // Sort learning by earliest due first
-  learningCards.sort((a, b) => a.schedule.due - b.schedule.due || (a.id < b.id ? -1 : 1));
-  // Sort due reviews by earliest due first
-  dueCards.sort((a, b) => a.schedule.due - b.schedule.due || (a.id < b.id ? -1 : 1));
-
-  // Enforce sibling burying within the queue itself (at most one card per note_id)
-  const queuedNoteIds = new Set<string>();
+  // Enforce sibling burying within the queue itself (at most one card per note_id).
+  const selection: QueueSelection = {
+    queuedNoteIds: new Set(),
+    buriedNoteIds: eligible.buriedNoteIds,
+  };
   const finalLearning: Card[] = [];
-  const finalDue: Card[] = [];
-  const finalNew: Card[] = [];
-
-  for (const card of learningCards) {
-    if (queuedNoteIds.has(card.note_id)) {
-      buriedNoteIds.add(card.note_id);
-      continue;
-    }
-    queuedNoteIds.add(card.note_id);
-    finalLearning.push(card);
-  }
-
-  // Apply per-deck max_reviews_per_day for due review cards
-  const queuedDueByDeck = new Map<string, number>();
-  for (const card of dueCards) {
-    if (queuedNoteIds.has(card.note_id)) {
-      buriedNoteIds.add(card.note_id);
-      continue;
-    }
-    const deck = state.decks.get(card.deck_id);
-    if (!deck) continue;
-    const doneToday = reviewsTodayByDeck.get(card.deck_id) ?? 0;
-    const queuedForDeck = queuedDueByDeck.get(card.deck_id) ?? 0;
-    if (doneToday + queuedForDeck >= deck.settings.max_reviews_per_day) {
-      continue;
-    }
-    queuedNoteIds.add(card.note_id);
-    queuedDueByDeck.set(card.deck_id, queuedForDeck + 1);
-    finalDue.push(card);
-  }
-
-  // Apply per-deck new_cards_per_day & new_card_order
-  const deckIdsSorted = [...newCardsByDeck.keys()].sort();
-  for (const dId of deckIdsSorted) {
-    const deck = state.decks.get(dId);
-    if (!deck) continue;
-    const dayStart = resolveDayStartHour(deck.settings.day_start_hour, globalDayStart);
-    const todayIndex = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
-    const alreadyStarted = newCardsStartedTodayByDeck.get(dId) ?? 0;
-    const remainingNewQuota = Math.max(0, deck.settings.new_cards_per_day - alreadyStarted);
-    if (remainingNewQuota === 0) continue;
-
-    const candidates = newCardsByDeck.get(dId);
-    if (!candidates) continue;
-    if (deck.settings.new_card_order === 'random') {
-      candidates.sort((a, b) => {
-        const ha = hashString32(`${todayIndex}:${a.id}`);
-        const hb = hashString32(`${todayIndex}:${b.id}`);
-        return ha - hb || (a.id < b.id ? -1 : 1);
-      });
-    } else {
-      // Source order: by note.created_order, then layout order (Recognition before Production), then id
-      candidates.sort((a, b) => {
-        const na = state.notes.get(a.note_id);
-        const nb = state.notes.get(b.note_id);
-        const oa = na?.created_order ?? 0;
-        const ob = nb?.created_order ?? 0;
-        if (oa !== ob) return oa - ob;
-        if (a.layout_id !== b.layout_id) {
-          const aIsRec = a.layout_id.includes('recognition') ? 0 : 1;
-          const bIsRec = b.layout_id.includes('recognition') ? 0 : 1;
-          if (aIsRec !== bIsRec) return aIsRec - bIsRec;
-          return a.layout_id < b.layout_id ? -1 : 1;
-        }
-        if (a.variant !== b.variant) {
-          return a.variant - b.variant;
-        }
-        return a.id < b.id ? -1 : 1;
-      });
-    }
-
-    let taken = 0;
-    for (const card of candidates) {
-      if (taken >= remainingNewQuota) break;
-      if (queuedNoteIds.has(card.note_id)) {
-        buriedNoteIds.add(card.note_id);
-        continue;
-      }
-      queuedNoteIds.add(card.note_id);
-      finalNew.push(card);
-      taken += 1;
-    }
-  }
+  for (const card of eligible.learningCards) tryQueue(selection, card, finalLearning);
+  const finalDue = selectDueCards(state, eligible.dueCards, activity.reviewsTodayByDeck, selection);
+  const finalNew = selectNewCards(
+    ctx,
+    eligible.newCardsByDeck,
+    activity.newCardsStartedTodayByDeck,
+    selection,
+  );
 
   const queue = [...finalLearning, ...finalDue, ...finalNew];
   const result: StudyQueueResult = {
@@ -287,10 +427,10 @@ export function buildStudyQueue(
       due: finalDue.length,
       total: queue.length,
     },
-    buriedNoteIds,
+    buriedNoteIds: selection.buriedNoteIds,
   };
-  if (nextLearningDueAt !== undefined) {
-    result.nextLearningDueAt = nextLearningDueAt;
+  if (eligible.nextLearningDueAt !== undefined) {
+    result.nextLearningDueAt = eligible.nextLearningDueAt;
   }
   return result;
 }

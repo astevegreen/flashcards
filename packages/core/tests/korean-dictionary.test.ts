@@ -101,29 +101,33 @@ describe('Phase 10 Hangul utilities', () => {
   });
 
   it('every syllable round-trips through decompose/compose (property)', () => {
-    fc.assert(
-      fc.property(fc.integer({ min: 0xac00, max: 0xd7a3 }), (cp) => {
-        const ch = String.fromCharCode(cp);
-        const p = decomposeHangulSyllable(ch);
-        return p !== undefined && composeHangulSyllable(p.l, p.v, p.t) === ch;
-      }),
-    );
+    expect(() =>
+      fc.assert(
+        fc.property(fc.integer({ min: 0xac00, max: 0xd7a3 }), (cp) => {
+          const ch = String.fromCharCode(cp);
+          const p = decomposeHangulSyllable(ch);
+          return p !== undefined && composeHangulSyllable(p.l, p.v, p.t) === ch;
+        }),
+      ),
+    ).not.toThrow();
   });
 
   it('a typed prefix of a word always jamo-prefixes the word (property)', () => {
     const syllable = fc.integer({ min: 0xac00, max: 0xd7a3 }).map((cp) => String.fromCharCode(cp));
-    fc.assert(
-      fc.property(fc.array(syllable, { minLength: 1, maxLength: 5 }), fc.nat(), (chars, n) => {
-        const word = chars.join('');
-        const key = toJamoKey(word);
-        const cut = n % (chars.length + 1);
-        // Whole-syllable prefixes and any jamo-level prefix of the key are both prefixes.
-        return (
-          key.startsWith(toJamoKey(chars.slice(0, cut).join(''))) &&
-          key.startsWith(key.slice(0, n % (key.length + 1)))
-        );
-      }),
-    );
+    expect(() =>
+      fc.assert(
+        fc.property(fc.array(syllable, { minLength: 1, maxLength: 5 }), fc.nat(), (chars, n) => {
+          const word = chars.join('');
+          const key = toJamoKey(word);
+          const cut = n % (chars.length + 1);
+          // Whole-syllable prefixes and any jamo-level prefix of the key are both prefixes.
+          return (
+            key.startsWith(toJamoKey(chars.slice(0, cut).join(''))) &&
+            key.startsWith(key.slice(0, n % (key.length + 1)))
+          );
+        }),
+      ),
+    ).not.toThrow();
   });
 });
 
@@ -247,23 +251,25 @@ describe('Phase 10 Korean deinflection (validated against headwords)', () => {
         fc.constantFrom(1, 4, 16, 21, 22, 23),
       )
       .map(([l, v, t]) => composeHangulSyllable(l, v, t));
-    fc.assert(
-      fc.property(stem, (s) => {
-        const lemma = `${s}다`;
-        const bright = [0, 8].includes(decomposeHangulSyllable(s)?.v ?? -1);
-        const ao = bright ? '아' : '어';
-        const forms = [
-          `${s}고`,
-          `${s}습니다`,
-          `${s}${ao}요`,
-          `${s}${ao}서`,
-          `${s}으면`,
-          `${s}${bright ? '았' : '었'}어요`,
-        ];
-        return forms.every((f) => deinflectKorean(f).some((c) => c.lemma === lemma));
-      }),
-      { numRuns: 200 },
-    );
+    expect(() =>
+      fc.assert(
+        fc.property(stem, (s) => {
+          const lemma = `${s}다`;
+          const bright = [0, 8].includes(decomposeHangulSyllable(s)?.v ?? -1);
+          const ao = bright ? '아' : '어';
+          const forms = [
+            `${s}고`,
+            `${s}습니다`,
+            `${s}${ao}요`,
+            `${s}${ao}서`,
+            `${s}으면`,
+            `${s}${bright ? '았' : '었'}어요`,
+          ];
+          return forms.every((f) => deinflectKorean(f).some((c) => c.lemma === lemma));
+        }),
+        { numRuns: 200 },
+      ),
+    ).not.toThrow();
   });
 });
 

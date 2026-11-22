@@ -326,6 +326,87 @@ function withFinal(s: string, t: number): string | undefined {
   return parts ? replaceLast(s, { ...parts, t }) : undefined;
 }
 
+/** The syllable carrying the 아/어 vowel, plus what precedes it, for undoing the contraction. */
+interface AoContext {
+  /** The surface ending with the syllable that carries the vowel. */
+  r: string;
+  s: HangulSyllableParts;
+  prefix: string;
+  prev: HangulSyllableParts | undefined;
+}
+
+/** `r` with its last syllable's vowel (and final) swapped. */
+function withVowel(c: AoContext, v: number, t = 0): string {
+  return c.prefix + composeHangulSyllable(c.s.l, v, t);
+}
+
+/** 르 irregular: 몰라 → 모르, 불러 → 부르. */
+function reuIrregularStem(c: AoContext): string | undefined {
+  if (c.s.l !== L_R || c.prev?.t !== T_L) return undefined;
+  return replaceLast(c.prefix, { ...c.prev, t: 0 }) + '르';
+}
+
+/** ㅂ irregular: 도와 → 돕, 추워 → 춥. */
+function bieupIrregularStem(c: AoContext): string | undefined {
+  if (c.s.l !== L_NG || c.prev?.t !== 0) return undefined;
+  return replaceLast(c.prefix, { ...c.prev, t: T_B });
+}
+
+/** Stems for a contracted (or bare) 아/어 vowel, keyed by the vowel of the carrying syllable. */
+const AO_CONTRACTIONS: Readonly<
+  Partial<Record<number, (c: AoContext) => Array<string | undefined>>>
+> = {
+  [V_A]: (c) => [
+    c.r, // 가 → 가
+    withVowel(c, V_EU), // 바빠 → 바쁘 (ㅡ elision)
+    reuIrregularStem(c), // 몰라 → 모르
+  ],
+  [V_EO]: (c) => [
+    c.r, // 서 → 서
+    withVowel(c, V_EU), // 써 → 쓰, 커 → 크
+    withVowel(c, V_U), // 퍼 → 푸 (우 irregular)
+    reuIrregularStem(c), // 불러 → 부르
+    c.s.l === L_R && c.prefix.endsWith('르') ? c.prefix : undefined, // 푸르러 → 푸르 (러 irregular)
+  ],
+  [V_WA]: (c) => [
+    withVowel(c, V_O), // 봐 → 보, 와 → 오
+    bieupIrregularStem(c), // 도와 → 돕
+  ],
+  [V_WO]: (c) => [
+    withVowel(c, V_U), // 줘 → 주, 배워 → 배우
+    bieupIrregularStem(c), // 추워 → 춥
+  ],
+  [V_YEO]: (c) => [
+    withVowel(c, V_I), // 마셔 → 마시
+    c.r, // 펴 → 펴
+  ],
+  [V_AE]: (c) => [
+    c.s.l === L_H ? withVowel(c, V_A) : undefined, // 해 → 하 (하다 contraction)
+    c.r, // 보내 → 보내
+    withVowel(c, V_A, T_H), // 파래 → 파랗 (ㅎ irregular)
+    withVowel(c, V_EO, T_H), // 그래 → 그렇
+  ],
+  [V_YAE]: (c) => [
+    withVowel(c, V_YA, T_H), // 하얘 → 하얗
+    c.r,
+  ],
+  [V_WAE]: (c) => [
+    withVowel(c, V_OE), // 돼 → 되
+  ],
+  [V_E]: (c) => [c.r], // 세 → 세 (any other vowel also stands for itself)
+};
+
+const UNCONTRACTED_AO_VOWELS: ReadonlySet<number> = new Set([V_A, V_EO, V_YEO]);
+
+/** Uncontracted 아/어/여 syllable after the stem: 먹어, 보아, 하여; ㄷ-irregular 들어 → 듣; ㅅ-irregular 나아 → 낫. */
+function uncontractedAoStems({ s, prefix, prev }: AoContext): string[] {
+  if (s.l !== L_NG || !UNCONTRACTED_AO_VOWELS.has(s.v) || !prev) return [];
+  const out = [prefix];
+  if (prev.t === T_L) out.push(replaceLast(prefix, { ...prev, t: T_D }));
+  if (prev.t === 0) out.push(replaceLast(prefix, { ...prev, t: T_S }));
+  return out;
+}
+
 /**
  * Undoes the 아/어 vowel attaching to a stem, where `r` ends with the syllable carrying it
  * (`먹어` → `먹`, `가` → `가`, `봐` → `보`, `해` → `하`, `몰라` → `모르`, `추워` → `춥`, …).
@@ -333,65 +414,12 @@ function withFinal(s: string, t: number): string | undefined {
 function undoAoVowel(r: string): string[] {
   const s = lastSyllable(r);
   if (!s || s.t !== 0) return [];
-  const out: string[] = [];
   const prefix = r.slice(0, -1);
-  const prev = lastSyllable(prefix);
-  const self = (v: number, t = 0): string => prefix + composeHangulSyllable(s.l, v, t);
-
-  // Uncontracted 아/어/여 syllable after the stem: 먹어, 보아, 하여; ㄷ-irregular 들어 → 듣; ㅅ-irregular 나아 → 낫.
-  if (s.l === L_NG && (s.v === V_A || s.v === V_EO || s.v === V_YEO) && prev) {
-    out.push(prefix);
-    if (prev.t === T_L) out.push(replaceLast(prefix, { ...prev, t: T_D }));
-    if (prev.t === 0) out.push(replaceLast(prefix, { ...prev, t: T_S }));
-  }
-
-  switch (s.v) {
-    case V_A:
-      out.push(r); // 가 → 가
-      out.push(self(V_EU)); // 바빠 → 바쁘 (ㅡ elision)
-      if (s.l === L_R && prev && prev.t === T_L) {
-        out.push(replaceLast(prefix, { ...prev, t: 0 }) + '르'); // 몰라 → 모르 (르 irregular)
-      }
-      break;
-    case V_EO:
-      out.push(r); // 서 → 서
-      out.push(self(V_EU)); // 써 → 쓰, 커 → 크
-      out.push(self(V_U)); // 퍼 → 푸 (우 irregular)
-      if (s.l === L_R && prev && prev.t === T_L) {
-        out.push(replaceLast(prefix, { ...prev, t: 0 }) + '르'); // 불러 → 부르
-      }
-      if (s.l === L_R && prefix.endsWith('르')) out.push(prefix); // 푸르러 → 푸르 (러 irregular)
-      break;
-    case V_WA:
-      out.push(self(V_O)); // 봐 → 보, 와 → 오
-      if (s.l === L_NG && prev && prev.t === 0) out.push(replaceLast(prefix, { ...prev, t: T_B })); // 도와 → 돕
-      break;
-    case V_WO:
-      out.push(self(V_U)); // 줘 → 주, 배워 → 배우
-      if (s.l === L_NG && prev && prev.t === 0) out.push(replaceLast(prefix, { ...prev, t: T_B })); // 추워 → 춥
-      break;
-    case V_YEO:
-      out.push(self(V_I)); // 마셔 → 마시
-      out.push(r); // 펴 → 펴
-      break;
-    case V_AE:
-      if (s.l === L_H) out.push(self(V_A)); // 해 → 하 (하다 contraction)
-      out.push(r); // 보내 → 보내
-      out.push(self(V_A, T_H)); // 파래 → 파랗 (ㅎ irregular)
-      out.push(self(V_EO, T_H)); // 그래 → 그렇
-      break;
-    case V_YAE:
-      out.push(self(V_YA, T_H)); // 하얘 → 하얗
-      out.push(r);
-      break;
-    case V_WAE:
-      out.push(self(V_OE)); // 돼 → 되
-      break;
-    case V_E:
-      out.push(r);
-      break;
-    default:
-      out.push(r);
+  const ctx: AoContext = { r, s, prefix, prev: lastSyllable(prefix) };
+  const out = uncontractedAoStems(ctx);
+  const contracted = AO_CONTRACTIONS[s.v]?.(ctx) ?? [r];
+  for (const stem of contracted) {
+    if (stem !== undefined) out.push(stem);
   }
   return out;
 }
@@ -414,61 +442,81 @@ function pushVowelStems(x: string, lDrop: boolean, out: string[]): void {
   }
 }
 
+/** `s` without the ending `e`, or `undefined` when `s` is not longer than `e` and ending in it. */
+function stripEnding(s: string, e: string): string | undefined {
+  if (s.length <= e.length || !s.endsWith(e)) return undefined;
+  return e.length > 0 ? s.slice(0, -e.length) : s;
+}
+
+/** Endings attached unchanged: 먹고 → 먹, plus ㄹ-deletion before ㄴ (사는 → 살). */
+function pushDirectEndingStems(s: string, out: string[]): void {
+  for (const e of DIRECT_ENDINGS) {
+    const x = stripEnding(s, e);
+    if (x === undefined) continue;
+    out.push(x);
+    if (!L_DROP_DIRECT_INITIAL.has(e.slice(0, 1))) continue;
+    const lx = lastSyllable(x);
+    if (lx && lx.t === 0) out.push(replaceLast(x, { ...lx, t: T_L }));
+  }
+}
+
+/** 으-initial endings after a consonant stem. */
+function pushEuEndingStems(s: string, out: string[]): void {
+  for (const e of EU_ENDINGS) {
+    const x = stripEnding(s, e);
+    const lx = x === undefined ? undefined : lastSyllable(x);
+    if (x === undefined || !lx) continue;
+    if (lx.t === 0) {
+      out.push(replaceLast(x, { ...lx, t: T_S })); // 나으면 → 낫 (ㅅ irregular)
+      continue;
+    }
+    out.push(x); // 먹으면 → 먹
+    if (lx.t === T_L) out.push(replaceLast(x, { ...lx, t: T_D })); // 들으면 → 듣 (ㄷ irregular)
+  }
+}
+
+function pushVowelEndingStems(s: string, out: string[]): void {
+  for (const e of VOWEL_ENDINGS) {
+    const x = stripEnding(s, e);
+    if (x !== undefined) pushVowelStems(x, L_DROP_VOWEL_ENDINGS.has(e), out);
+  }
+}
+
+/** Endings fused as a final consonant: 간다 → 가, 산 → 살, 추운 → 춥, 파란 → 파랗. */
+function pushBatchimEndingStems(s: string, out: string[]): void {
+  for (const [t, rests] of BATCHIM_ENDINGS) {
+    for (const rest of rests) {
+      const r = stripEnding(s, rest);
+      if (r === undefined || lastSyllable(r)?.t !== t) continue;
+      const open = withFinal(r, 0);
+      if (open) pushVowelStems(open, true, out);
+    }
+  }
+}
+
+function pushAoFollowerStems(s: string, out: string[]): void {
+  for (const f of AO_FOLLOWERS) {
+    const r = f.length > 0 ? stripEnding(s, f) : s;
+    if (r !== undefined) out.push(...undoAoVowel(r));
+  }
+}
+
+/** Past 았/었/였, possibly fused into the stem (갔, 봤, 했, 됐, 몰랐, 추웠, 셨). */
+function pushPastStems(s: string, out: string[]): void {
+  if (lastSyllable(s)?.t !== T_SS) return;
+  const open = withFinal(s, 0);
+  if (open) out.push(...undoAoVowel(open));
+}
+
 /** One deinflection step: every stem the surface form `s` could have been built from. */
 function expandSurface(s: string): string[] {
   const out: string[] = [];
-
-  for (const e of DIRECT_ENDINGS) {
-    if (s.length <= e.length || !s.endsWith(e)) continue;
-    const x = s.slice(0, -e.length);
-    out.push(x);
-    if (L_DROP_DIRECT_INITIAL.has(e.slice(0, 1))) {
-      const lx = lastSyllable(x);
-      if (lx && lx.t === 0) out.push(replaceLast(x, { ...lx, t: T_L }));
-    }
-  }
-
-  for (const e of EU_ENDINGS) {
-    if (s.length <= e.length || !s.endsWith(e)) continue;
-    const x = s.slice(0, -e.length);
-    const lx = lastSyllable(x);
-    if (!lx) continue;
-    if (lx.t !== 0) {
-      out.push(x); // 먹으면 → 먹
-      if (lx.t === T_L) out.push(replaceLast(x, { ...lx, t: T_D })); // 들으면 → 듣 (ㄷ irregular)
-    } else {
-      out.push(replaceLast(x, { ...lx, t: T_S })); // 나으면 → 낫 (ㅅ irregular)
-    }
-  }
-
-  for (const e of VOWEL_ENDINGS) {
-    if (s.length <= e.length || !s.endsWith(e)) continue;
-    pushVowelStems(s.slice(0, -e.length), L_DROP_VOWEL_ENDINGS.has(e), out);
-  }
-
-  for (const [t, rests] of BATCHIM_ENDINGS) {
-    for (const rest of rests) {
-      if (s.length <= rest.length || !s.endsWith(rest)) continue;
-      const r = rest.length > 0 ? s.slice(0, -rest.length) : s;
-      const lr = lastSyllable(r);
-      if (!lr || lr.t !== t) continue;
-      const open = withFinal(r, 0);
-      if (open) pushVowelStems(open, true, out); // 간다 → 가, 산 → 살, 추운 → 춥, 파란 → 파랗
-    }
-  }
-
-  for (const f of AO_FOLLOWERS) {
-    if (f.length > 0 && (s.length <= f.length || !s.endsWith(f))) continue;
-    out.push(...undoAoVowel(f.length > 0 ? s.slice(0, -f.length) : s));
-  }
-
-  // Past 았/었/였, possibly fused into the stem (갔, 봤, 했, 됐, 몰랐, 추웠, 셨).
-  const ls = lastSyllable(s);
-  if (ls && ls.t === T_SS) {
-    const open = withFinal(s, 0);
-    if (open) out.push(...undoAoVowel(open));
-  }
-
+  pushDirectEndingStems(s, out);
+  pushEuEndingStems(s, out);
+  pushVowelEndingStems(s, out);
+  pushBatchimEndingStems(s, out);
+  pushAoFollowerStems(s, out);
+  pushPastStems(s, out);
   return out;
 }
 
@@ -484,6 +532,53 @@ export interface DeinflectOptions {
   maxCandidates?: number;
 }
 
+/** Keeps the lower of the existing and the new cost for `key`. */
+function keepMin(map: Map<string, number>, key: string, cost: number): void {
+  const prev = map.get(key);
+  if (prev === undefined || cost < prev) map.set(key, cost);
+}
+
+/** Every bare noun left after peeling one particle (or the copula) off `state`. */
+function stripNounParticles(state: string): string[] {
+  const out: string[] = [];
+  for (const p of NOUN_PARTICLES) {
+    const bare = stripEnding(state, p);
+    if (bare !== undefined) out.push(bare);
+  }
+  return out;
+}
+
+/** Copula stem 이 (`학생이었어요` → `학생이`, `친구였어요` → `친구이`, `선생님이세요`) → the noun. */
+function copulaNounOf(stem: string): string | undefined {
+  if (stem.length < 2) return undefined;
+  const last = lastSyllable(stem);
+  const isCopula = last !== undefined && last.l === L_NG && last.v === V_I && last.t === 0;
+  return isCopula ? stem.slice(0, -1) : undefined;
+}
+
+type DeinflectionState = readonly [state: string, depth: number, noun: boolean];
+
+/** Expands one BFS state: particle-stripped nouns (noun states only) and conjugated stems. */
+function visitDeinflectionState(
+  [state, depth, noun]: DeinflectionState,
+  add: (lemma: string, steps: number) => void,
+  enqueue: (state: string, depth: number, noun: boolean) => void,
+): void {
+  if (noun) {
+    for (const bare of stripNounParticles(state)) {
+      add(bare, depth + 1);
+      enqueue(bare, depth + 1, true);
+    }
+  }
+  for (const stem of expandSurface(state)) {
+    if (!isAllHangulSyllables(stem)) continue;
+    add(`${stem}다`, depth + 1);
+    const copulaNoun = copulaNounOf(stem);
+    if (copulaNoun !== undefined) add(copulaNoun, depth + 2);
+    enqueue(stem, depth + 1, false);
+  }
+}
+
 /**
  * Rule-based deinflection: `먹었어요` → `먹다`, `도와요` → `돕다`, `들어요` → `듣다`,
  * `몰라요` → `모르다`, `사세요` → `살다`, `공부해요` → `공부하다` (and `공부`), `학교에서` → `학교`.
@@ -496,17 +591,14 @@ export function deinflectKorean(word: string, opts: DeinflectOptions = {}): Kore
   const maxCandidates = opts.maxCandidates ?? 200;
 
   const best = new Map<string, number>();
-  const add = (lemma: string, steps: number): void => {
-    const prev = best.get(lemma);
-    if (prev === undefined || steps < prev) best.set(lemma, steps);
-  };
+  const add = (lemma: string, steps: number): void => keepMin(best, lemma, steps);
   add(w, 0);
 
   // BFS over two kinds of state: noun states (the input, or a noun with particles peeled off)
   // may lose further particles (`학교에서도` → `학교에서` → `학교`); every state may also be a
   // conjugated predicate. Verb stems are not particle-stripped, so `도와` never yields `도`.
   const visited = new Set<string>([`n:${w}`]);
-  const queue: Array<readonly [string, number, boolean]> = [[w, 0, true]];
+  const queue: DeinflectionState[] = [[w, 0, true]];
   const enqueue = (state: string, depth: number, noun: boolean): void => {
     const key = `${noun ? 'n' : 'v'}:${state}`;
     if (!visited.has(key) && visited.size < 400) {
@@ -517,28 +609,7 @@ export function deinflectKorean(word: string, opts: DeinflectOptions = {}): Kore
   for (let head = 0; head < queue.length; head++) {
     const item = queue[head];
     if (!item) break;
-    const [state, depth, noun] = item;
-    if (depth >= maxDepth) continue;
-    if (noun) {
-      for (const p of NOUN_PARTICLES) {
-        if (state.length <= p.length || !state.endsWith(p)) continue;
-        const bare = state.slice(0, -p.length);
-        add(bare, depth + 1);
-        enqueue(bare, depth + 1, true);
-      }
-    }
-    for (const stem of expandSurface(state)) {
-      if (!isAllHangulSyllables(stem)) continue;
-      add(`${stem}다`, depth + 1);
-      // Copula stem 이 (`학생이었어요` → `학생이`, `친구였어요` → `친구이`, `선생님이세요`) → the noun.
-      if (stem.length >= 2) {
-        const last = lastSyllable(stem);
-        if (last && last.l === L_NG && last.v === V_I && last.t === 0) {
-          add(stem.slice(0, -1), depth + 2);
-        }
-      }
-      enqueue(stem, depth + 1, false);
-    }
+    if (item[1] < maxDepth) visitDeinflectionState(item, add, enqueue);
   }
 
   // 하다-verbs also suggest their noun: 공부해요 → 공부하다 → 공부.
@@ -548,7 +619,7 @@ export function deinflectKorean(word: string, opts: DeinflectOptions = {}): Kore
 
   return [...best]
     .map(([lemma, steps]) => ({ lemma, steps }))
-    .sort((a, b) => a.steps - b.steps || (a.lemma < b.lemma ? -1 : a.lemma > b.lemma ? 1 : 0))
+    .sort((a, b) => a.steps - b.steps || cmp(a.lemma, b.lemma))
     .slice(0, maxCandidates);
 }
 
@@ -667,6 +738,35 @@ export interface RomanizationCandidate {
 const ROM_RE = /^[a-z][a-z'\-\s]*$/;
 const MAX_ROM_PARSES = 48;
 
+/** Initial-consonant pieces that can start a syllable at `chunk[i]`, including the silent ㅇ. */
+function romanInitialsAt(chunk: string, i: number): RomPiece[] {
+  // A vowel right after a vowel (`e|o` in `meo`) is far more often one RR digraph than two syllables.
+  const hiatus =
+    i > 0 && 'aeiouwy'.includes(chunk[i - 1] ?? '') && 'aeiou'.includes(chunk[i] ?? '');
+  return [
+    { s: '', idx: L_NG, cost: hiatus ? 0.5 : 0 },
+    ...ROM_INITIALS.filter((p) => chunk.startsWith(p.s, i)).map((p) =>
+      // RR writes ㄹㄹ as ll (몰라 → molla), so l after a final l is strict.
+      p.s === 'l' && chunk[i - 1] === 'l' ? { ...p, cost: 0 } : p,
+    ),
+  ];
+}
+
+/** Final-consonant pieces (or none) that can close a syllable at `chunk[k]`. */
+function romanFinalsAt(chunk: string, k: number): RomPiece[] {
+  return [{ s: '', idx: 0, cost: 0 }, ...ROM_FINALS.filter((p) => chunk.startsWith(p.s, k))];
+}
+
+/** Records `syl` followed by each parse of the remainder, keeping the cheapest cost per text. */
+function addSyllableParses(
+  found: Map<string, number>,
+  syl: string,
+  sylCost: number,
+  rests: readonly RomanizationCandidate[],
+): void {
+  for (const rest of rests) keepMin(found, syl + rest.hangul, sylCost + rest.cost);
+}
+
 function parseRomanChunk(chunk: string): RomanizationCandidate[] {
   const memo = new Map<number, RomanizationCandidate[]>();
   const parseFrom = (i: number): RomanizationCandidate[] => {
@@ -674,33 +774,15 @@ function parseRomanChunk(chunk: string): RomanizationCandidate[] {
     const cached = memo.get(i);
     if (cached) return cached;
     const found = new Map<string, number>();
-    // A vowel right after a vowel (`e|o` in `meo`) is far more often one RR digraph than two syllables.
-    const hiatus =
-      i > 0 && 'aeiouwy'.includes(chunk[i - 1] ?? '') && 'aeiou'.includes(chunk[i] ?? '');
-    const initials: RomPiece[] = [
-      { s: '', idx: L_NG, cost: hiatus ? 0.5 : 0 },
-      ...ROM_INITIALS.filter((p) => chunk.startsWith(p.s, i)).map((p) =>
-        // RR writes ㄹㄹ as ll (몰라 → molla), so l after a final l is strict.
-        p.s === 'l' && chunk[i - 1] === 'l' ? { ...p, cost: 0 } : p,
-      ),
-    ];
-    for (const init of initials) {
+    for (const init of romanInitialsAt(chunk, i)) {
       const j = i + init.s.length;
       for (const vowel of ROM_VOWELS) {
         if (!chunk.startsWith(vowel.s, j)) continue;
         const k = j + vowel.s.length;
-        const finals: RomPiece[] = [
-          { s: '', idx: 0, cost: 0 },
-          ...ROM_FINALS.filter((p) => chunk.startsWith(p.s, k)),
-        ];
-        for (const fin of finals) {
+        for (const fin of romanFinalsAt(chunk, k)) {
           const syl = composeHangulSyllable(init.idx, vowel.idx, fin.idx);
-          for (const rest of parseFrom(k + fin.s.length)) {
-            const text = syl + rest.hangul;
-            const cost = init.cost + vowel.cost + fin.cost + rest.cost;
-            const prev = found.get(text);
-            if (prev === undefined || cost < prev) found.set(text, cost);
-          }
+          const sylCost = init.cost + vowel.cost + fin.cost;
+          addSyllableParses(found, syl, sylCost, parseFrom(k + fin.s.length));
         }
       }
     }
@@ -816,52 +898,69 @@ const MAX_ROMANIZED_LEMMAS = 400;
 
 let lastAnalysis: { raw: string; value: KoreanQueryAnalysis } | undefined;
 
+/** Adds the deinflected lemmas of the best romanization parses (`meogeosseoyo` → `먹다`). */
+function addDeinflectedRomanizations(
+  roms: readonly RomanizationCandidate[],
+  romanized: Map<string, number>,
+): void {
+  for (const r of roms.slice(0, MAX_ROMANIZED_FOR_DEINFLECTION)) {
+    for (const c of deinflectKorean(r.hangul, { maxCandidates: 80 })) {
+      if (c.steps === 0) continue;
+      keepMin(romanized, c.lemma, r.cost + c.steps * 0.25);
+      if (romanized.size >= MAX_ROMANIZED_LEMMAS) break;
+    }
+  }
+}
+
+/** A Latin query: an English key plus romanization candidates and their lemmas. */
+function analyzeLatinQuery(raw: string, compact: string): KoreanQueryAnalysis {
+  const english = normalizeEnglishEquivalent(raw) || undefined;
+  const romanized = new Map<string, number>();
+  const roms = romanizationToHangul(raw);
+  for (const r of roms) {
+    if (!romanized.has(r.hangul)) romanized.set(r.hangul, r.cost);
+  }
+  addDeinflectedRomanizations(roms, romanized);
+  const romanizedJamoPrefixes =
+    compact.length >= 3 ? roms.slice(0, 3).map((r) => toJamoKey(r.hangul)) : [];
+  return {
+    lemmas: new Map(),
+    romanized,
+    romanizedJamoPrefixes,
+    ...(english ? { english } : {}),
+  };
+}
+
+function buildKoreanQueryAnalysis(raw: string): KoreanQueryAnalysis {
+  const compact = raw.replace(/\s+/g, '');
+  if (compact && isChoseongQuery(compact)) {
+    return {
+      lemmas: new Map(),
+      romanized: new Map(),
+      romanizedJamoPrefixes: [],
+      choseong: compact,
+    };
+  }
+  if (compact && containsHangul(compact)) {
+    const jamoKey = toJamoKey(compact);
+    const lemmas = new Map<string, number>();
+    for (const c of deinflectKorean(compact)) lemmas.set(c.lemma, c.steps);
+    return {
+      lemmas,
+      romanized: new Map(),
+      romanizedJamoPrefixes: [],
+      ...(jamoKey ? { jamoKey } : {}),
+    };
+  }
+  if (/[a-z]/i.test(raw)) return analyzeLatinQuery(raw, compact);
+  return { lemmas: new Map(), romanized: new Map(), romanizedJamoPrefixes: [] };
+}
+
 /** Analyzes a raw query once (memoized for the last query, since ranking re-asks per entry). */
 export function analyzeKoreanQuery(rawQuery: string): KoreanQueryAnalysis {
   const raw = rawQuery.normalize('NFC').trim();
   if (lastAnalysis && lastAnalysis.raw === raw) return lastAnalysis.value;
-
-  const lemmas = new Map<string, number>();
-  const romanized = new Map<string, number>();
-  const romanizedJamoPrefixes: string[] = [];
-  let choseong: string | undefined;
-  let jamoKey: string | undefined;
-  let english: string | undefined;
-
-  const compact = raw.replace(/\s+/g, '');
-  if (compact && isChoseongQuery(compact)) {
-    choseong = compact;
-  } else if (compact && containsHangul(compact)) {
-    jamoKey = toJamoKey(compact);
-    for (const c of deinflectKorean(compact)) lemmas.set(c.lemma, c.steps);
-  } else if (/[a-z]/i.test(raw)) {
-    english = normalizeEnglishEquivalent(raw) || undefined;
-    const roms = romanizationToHangul(raw);
-    for (const r of roms) {
-      if (!romanized.has(r.hangul)) romanized.set(r.hangul, r.cost);
-    }
-    for (const r of roms.slice(0, MAX_ROMANIZED_FOR_DEINFLECTION)) {
-      for (const c of deinflectKorean(r.hangul, { maxCandidates: 80 })) {
-        if (c.steps === 0) continue;
-        const cost = r.cost + c.steps * 0.25;
-        const prev = romanized.get(c.lemma);
-        if (prev === undefined || cost < prev) romanized.set(c.lemma, cost);
-        if (romanized.size >= MAX_ROMANIZED_LEMMAS) break;
-      }
-    }
-    if (compact.length >= 3) {
-      for (const r of roms.slice(0, 3)) romanizedJamoPrefixes.push(toJamoKey(r.hangul));
-    }
-  }
-
-  const value: KoreanQueryAnalysis = {
-    lemmas,
-    romanized,
-    romanizedJamoPrefixes,
-    ...(choseong ? { choseong } : {}),
-    ...(jamoKey ? { jamoKey } : {}),
-    ...(english ? { english } : {}),
-  };
+  const value = buildKoreanQueryAnalysis(raw);
   lastAnalysis = { raw, value };
   return value;
 }
