@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createHlcState } from '../../core/src/index.ts';
 import { NativeMicrosoftAuth } from '../../platform-web/src/auth/microsoft-native-auth.ts';
+import { TTS_CONFIG_KV_KEY as UI_TTS_CONFIG_KV_KEY } from '../../ui/src/state/useAudioController.ts';
+import { createGoogleSignIn, type GoogleSocialLoginPort } from '../src/auth/google-social-login.ts';
 import {
   createSecureMicrosoftBridge,
   migrateMicrosoftRefreshToken,
@@ -15,14 +17,19 @@ import {
   type SqliteDriver,
 } from '../src/index.ts';
 import { assertNativeOAuthRedirect, isAppDeepLink } from '../src/native/deep-links.ts';
-import { createSecureKvRouting } from '../src/secure/secure-kv-storage.ts';
+import { CAPACITOR_GOOGLE_SESSION_KV_KEY } from '../src/auth/native-google-auth.ts';
+import { createSecureKvRouting, SECURE_KV_MIGRATED_KEY } from '../src/secure/secure-kv-storage.ts';
 import {
   clearPluginTokenCopiesAtLaunch,
+  googleSignInCleanup,
   prepareSecureStorageAtLaunch,
 } from '../src/secure/secure-launch.ts';
 import {
   MICROSOFT_REFRESH_TOKEN_KEY,
+  ONEDRIVE_SESSION_KV_KEY,
   SECURE_KV_KEYS,
+  SOCIAL_LOGIN_GOOGLE_ANDROID_COPY,
+  TTS_CONFIG_KV_KEY,
   type LegacyPreferenceEntry,
   type NativeSecureStorage,
 } from '../src/secure/secure-store.ts';
@@ -33,8 +40,10 @@ class FakeSecureStorage implements NativeSecureStorage {
   readonly values = new Map<string, string>();
   readonly legacyRemoved: LegacyPreferenceEntry[] = [];
   failWrites = false;
+  getCalls = 0;
 
   async get(key: string): Promise<string | null> {
+    this.getCalls += 1;
     return this.values.get(key) ?? null;
   }
 
@@ -113,9 +122,19 @@ function tokenEndpoint(
   return Object.assign(post, { forms });
 }
 
+/** SQLite storage that records which KV keys reach it, so a test can prove a key was routed away. */
+class KvKeyRecordingStorage extends CapacitorSqliteStorage {
+  readonly kvKeysWritten: string[] = [];
+
+  override async setKv(key: string, value: unknown): Promise<void> {
+    this.kvKeysWritten.push(key);
+    await super.setKv(key, value);
+  }
+}
+
 function setup() {
   const driver = new RecordingDriver();
-  const database = new CapacitorSqliteStorage(driver);
+  const database = new KvKeyRecordingStorage(driver);
   const secure = new FakeSecureStorage();
   const routing = createSecureKvRouting({
     inner: database,
@@ -206,6 +225,87 @@ describe('secure KV routing (§16: tokens only in Keychain/Keystore)', () => {
     ).rejects.toThrow('Keystore unavailable');
     expect(await database.getKv('capacitor_google_session_v1')).toBeUndefined();
     expect(driver.mentions('ya29.nope')).toBe(false);
+  });
+
+  it('runs the launch sweep once per database; getKv still moves later stragglers', async () => {
+    const { database, secure, routing } = setup();
+    await database.setDeviceMeta({ deviceId: 'd', seq: 0, hlc: createHlcState('d', 0) });
+    await routing.migrateLegacyRows();
+    expect(await database.getKv(SECURE_KV_MIGRATED_KEY)).toBe(true);
+
+    // A row written after the sweep (e.g. by a downgraded build) is not swept again at launch…
+    await database.setKv(TTS_CONFIG_KV_KEY, { apiKey: 'late' });
+    const callsBefore = secure.getCalls;
+    await prepareSecureStorageAtLaunch({ database, routing });
+    expect(secure.getCalls).toBe(callsBefore);
+    expect(await database.getKv(TTS_CONFIG_KV_KEY)).toEqual({ apiKey: 'late' });
+
+    // …but the first read still moves it.
+    expect(await routing.storage.getKv(TTS_CONFIG_KV_KEY)).toEqual({ apiKey: 'late' });
+    expect(await database.getKv(TTS_CONFIG_KV_KEY)).toBeUndefined();
+    expect(secure.values.get(`kv.${TTS_CONFIG_KV_KEY}`)).toContain('late');
+  });
+
+  it('caches decrypted values for the session and forgets them on delete', async () => {
+    const { secure, routing } = setup();
+    await routing.storage.setKv(TTS_CONFIG_KV_KEY, { apiKey: 'k1' });
+    const callsBefore = secure.getCalls;
+    expect(await routing.storage.getKv(TTS_CONFIG_KV_KEY)).toEqual({ apiKey: 'k1' });
+    expect(await routing.storage.getKv(TTS_CONFIG_KV_KEY)).toEqual({ apiKey: 'k1' });
+    expect(secure.getCalls).toBe(callsBefore);
+
+    await routing.storage.deleteKv(TTS_CONFIG_KV_KEY);
+    expect(await routing.storage.getKv(TTS_CONFIG_KV_KEY)).toBeUndefined();
+
+    await routing.storage.setKv(TTS_CONFIG_KV_KEY, { apiKey: 'k2' });
+    await routing.removeSecrets();
+    expect(await routing.storage.getKv(TTS_CONFIG_KV_KEY)).toBeUndefined();
+  });
+
+  it('a failed secure write leaves no cached value behind', async () => {
+    const { secure, routing } = setup();
+    await routing.storage.setKv(TTS_CONFIG_KV_KEY, { apiKey: 'old' });
+    secure.failWrites = true;
+    await expect(routing.storage.setKv(TTS_CONFIG_KV_KEY, { apiKey: 'new' })).rejects.toThrow();
+    expect(await routing.storage.getKv(TTS_CONFIG_KV_KEY)).toEqual({ apiKey: 'old' });
+  });
+
+  it('SECURE_KV_KEYS names the real key constants of every secret-holding adapter', async () => {
+    expect(SECURE_KV_KEYS).toContain(CAPACITOR_GOOGLE_SESSION_KV_KEY);
+    expect(SECURE_KV_KEYS).toContain(UI_TTS_CONFIG_KV_KEY);
+    expect(TTS_CONFIG_KV_KEY).toBe(UI_TTS_CONFIG_KV_KEY);
+    expect(SECURE_KV_KEYS).toContain(ONEDRIVE_SESSION_KV_KEY);
+
+    // `NativeMicrosoftAuth` keeps its key private, so prove behaviourally that whatever key it and
+    // `CapacitorGoogleAuth` write is routed: neither may write any KV row to SQLite.
+    const { database, secure, routing } = setup();
+    const now = 1_000_000;
+    const microsoft = new NativeMicrosoftAuth({
+      bridge: createSecureMicrosoftBridge({
+        clientId: 'c',
+        socialLogin: new FakeSocialLogin(),
+        secureStore: secure,
+        postToken: tokenEndpoint(() => ({ status: 500, data: {} })),
+        nowMs: () => now,
+      }),
+      storage: routing.storage,
+      nowMs: () => now,
+    });
+    await microsoft.signIn();
+    const google = await createCapacitorPlatform({
+      deviceId: 'cap-test',
+      storage: routing.storage,
+      googleSignInPlugin: {
+        signIn: async () => ({ accessToken: 'ya29.google', expiresInSeconds: 3600 }),
+        refreshToken: async () => ({ accessToken: 'ya29.google2', expiresInSeconds: 3600 }),
+        signOut: async () => undefined,
+      },
+    }).getGoogleAuth();
+    await google.signIn();
+
+    expect(database.kvKeysWritten).toEqual([]);
+    expect(secure.values.has(`kv.${ONEDRIVE_SESSION_KV_KEY}`)).toBe(true);
+    expect(secure.values.has(`kv.${CAPACITOR_GOOGLE_SESSION_KV_KEY}`)).toBe(true);
   });
 
   it('createCapacitorPlatform: the Google access token never reaches SQLite', async () => {
@@ -414,6 +514,20 @@ describe('Microsoft refresh token lives only in the secure store', () => {
     expect(socialLogin.stored).toEqual({ refreshToken: 'legacy' });
   });
 
+  it('a failed plugin clean-up during migration does not block OneDrive', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const secure = new FakeSecureStorage();
+    const socialLogin = new FakeSocialLogin();
+    socialLogin.stored = { refreshToken: 'legacy' };
+    socialLogin.failClear = true;
+    await expect(migrateMicrosoftRefreshToken({ socialLogin, secureStore: secure })).resolves.toBe(
+      true,
+    );
+    expect(secure.values.get(MICROSOFT_REFRESH_TOKEN_KEY)).toBe('legacy');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('end to end with NativeMicrosoftAuth: no token reaches SQLite; sign-out clears it', async () => {
     const { driver, secure, routing } = setup();
     const socialLogin = new FakeSocialLogin();
@@ -526,6 +640,134 @@ describe('deep-link and redirect URL validation', () => {
     ).toBe(false);
     expect(isAppDeepLink('https://picker-callback/x', 'flashcards', 'picker-callback')).toBe(false);
     expect(isAppDeepLink('::', 'flashcards', 'picker-callback')).toBe(false);
+  });
+});
+
+describe('deep links on Android WebViews older than Chromium 130', () => {
+  /** Mimics the old non-standard parse: empty host, authority left in the path. */
+  class PreM130Url {
+    readonly protocol: string;
+    readonly host = '';
+    readonly hostname = '';
+    readonly pathname: string;
+    readonly search = '';
+    readonly hash = '';
+
+    constructor(url: string) {
+      const colon = url.indexOf(':');
+      if (colon <= 0) throw new TypeError('Invalid URL');
+      this.protocol = url.slice(0, colon + 1).toLowerCase();
+      this.pathname = url.slice(colon + 1);
+    }
+  }
+
+  it('matches the picker callback and accepts the OneDrive redirect without URL parsing', () => {
+    vi.stubGlobal('URL', PreM130Url);
+    try {
+      expect(new URL('flashcards://picker-callback?x=1').host).toBe('');
+      expect(
+        isAppDeepLink('flashcards://picker-callback?files=%5B%5D', 'flashcards', 'picker-callback'),
+      ).toBe(true);
+      expect(isAppDeepLink('flashcards://picker-callback', 'flashcards', 'picker-callback')).toBe(
+        true,
+      );
+      expect(isAppDeepLink('flashcards://picker-callback#x', 'flashcards', 'picker-callback')).toBe(
+        true,
+      );
+      expect(isAppDeepLink('flashcards://picker-callbackx', 'flashcards', 'picker-callback')).toBe(
+        false,
+      );
+      expect(assertNativeOAuthRedirect('flashcards://oauth/microsoft')).toBe(
+        'flashcards://oauth/microsoft',
+      );
+      expect(() => assertNativeOAuthRedirect('flashcards://oauth/Microsoft')).toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('native Google sign-in clears the plugin’s Android token copy', () => {
+  function fakeGooglePort(overrides: Partial<GoogleSocialLoginPort> = {}) {
+    const calls: string[] = [];
+    const port: GoogleSocialLoginPort = {
+      login: async ({ silent }) => {
+        calls.push(silent ? 'login:silent' : 'login');
+        return {
+          responseType: 'online',
+          accessToken: { token: 'ya29.x', expires: new Date(1_000_000 + 1800_000).toISOString() },
+          profile: { email: 'me@example.com' },
+        };
+      },
+      logout: async () => {
+        calls.push('logout');
+      },
+      ...overrides,
+    };
+    return { port, calls };
+  }
+
+  it('runs afterLogin after every successful sign-in, silent or not', async () => {
+    const { port, calls } = fakeGooglePort();
+    const plugin = createGoogleSignIn(port, {
+      afterLogin: async () => {
+        calls.push('afterLogin');
+      },
+      nowMs: () => 1_000_000,
+    });
+    await expect(plugin.signIn({ scopes: ['a', 'b'] })).resolves.toEqual({
+      accessToken: 'ya29.x',
+      expiresInSeconds: 1800,
+      scope: 'a b',
+      email: 'me@example.com',
+    });
+    await plugin.refreshToken();
+    await plugin.signOut();
+    expect(calls).toEqual(['login', 'afterLogin', 'login:silent', 'afterLogin', 'logout']);
+  });
+
+  it('a failing afterLogin never fails sign-in; a failed login skips it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const afterLogin = vi.fn(async () => {
+      throw new Error('prefs busy');
+    });
+    const ok = createGoogleSignIn(fakeGooglePort().port, { afterLogin });
+    await expect(ok.signIn({ scopes: ['a'] })).resolves.toMatchObject({ accessToken: 'ya29.x' });
+    expect(afterLogin).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+
+    const failing = createGoogleSignIn(
+      fakeGooglePort({
+        login: async () => {
+          throw new Error('cancelled');
+        },
+      }).port,
+      { afterLogin },
+    );
+    await expect(failing.signIn({ scopes: ['a'] })).rejects.toThrow('cancelled');
+    expect(afterLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a response without an access token (after clearing the copy)', async () => {
+    const afterLogin = vi.fn(async () => undefined);
+    const plugin = createGoogleSignIn(
+      fakeGooglePort({ login: async () => ({ responseType: 'offline' }) }).port,
+      { afterLogin },
+    );
+    await expect(plugin.signIn({ scopes: ['a'] })).rejects.toThrow(
+      'did not return an access token',
+    );
+    expect(afterLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it('boot wiring: Android deletes the GoogleProvider copy after sign-in; iOS needs no hook', async () => {
+    const secure = new FakeSecureStorage();
+    expect(googleSignInCleanup('ios', secure)).toBeUndefined();
+    const hook = googleSignInCleanup('android', secure);
+    expect(hook).toBeTypeOf('function');
+    await hook?.();
+    expect(secure.legacyRemoved).toEqual([SOCIAL_LOGIN_GOOGLE_ANDROID_COPY]);
   });
 });
 

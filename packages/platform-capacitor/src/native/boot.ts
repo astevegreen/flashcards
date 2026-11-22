@@ -9,12 +9,12 @@ import { CapacitorSqliteStorage, createCapacitorPlatform } from '../index.ts';
 import { createSecureKvRouting } from '../secure/secure-kv-storage.ts';
 import {
   clearPluginTokenCopiesAtLaunch,
+  googleSignInCleanup,
   prepareSecureStorageAtLaunch,
 } from '../secure/secure-launch.ts';
 import {
   MICROSOFT_REFRESH_TOKEN_KEY,
   SECURE_KV_KEYS,
-  SOCIAL_LOGIN_GOOGLE_ANDROID_COPY,
   type MobilePlatform,
 } from '../secure/secure-store.ts';
 import {
@@ -80,16 +80,12 @@ export async function bootCapacitorPlatform(
   });
   await prepareSecureStorageAtLaunch({ database, routing: secureKv });
 
+  const googleAfterLogin = googleSignInCleanup(mobilePlatform, secureStorage);
   const googleSignInPlugin = config.googleClientId
     ? await createGoogleSignInPlugin({
         webClientId: config.googleClientId,
         ...(config.googleIosClientId ? { iOSClientId: config.googleIosClientId } : {}),
-        ...(mobilePlatform === 'android'
-          ? {
-              afterLogin: () =>
-                secureStorage.removeLegacyPreference(SOCIAL_LOGIN_GOOGLE_ANDROID_COPY),
-            }
-          : {}),
+        ...(googleAfterLogin ? { afterLogin: googleAfterLogin } : {}),
       }).catch((err: unknown) => {
         console.warn('Google Sign-In plugin unavailable:', err);
         return undefined;

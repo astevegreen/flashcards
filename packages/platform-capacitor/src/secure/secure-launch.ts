@@ -67,3 +67,16 @@ export async function clearPluginTokenCopiesAtLaunch(options: {
     socialLoginOAuth2Copy(platform, MICROSOFT_SOCIAL_LOGIN_PROVIDER_ID),
   );
 }
+
+/**
+ * The `afterLogin` hook for native Google sign-in: on Android it deletes the ID and access tokens
+ * the sign-in plugin has just saved in plaintext SharedPreferences. iOS needs none (the GoogleSignIn
+ * SDK keeps its session in the Keychain).
+ */
+export function googleSignInCleanup(
+  platform: MobilePlatform,
+  secureStorage: NativeSecureStorage,
+): (() => Promise<void>) | undefined {
+  if (platform !== 'android') return undefined;
+  return () => secureStorage.removeLegacyPreference(SOCIAL_LOGIN_GOOGLE_ANDROID_COPY);
+}

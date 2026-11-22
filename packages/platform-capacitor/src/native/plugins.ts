@@ -20,6 +20,7 @@ import { SocialLogin } from '@capgo/capacitor-social-login';
 import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
 import { FlashSecureStorage } from '@flash/capacitor-secure-storage';
 import type { PickedFile } from '@flash/platform';
+import { createGoogleSignIn, type GoogleSignInOptions } from '../auth/google-social-login.ts';
 import type { NativeGoogleSignInPlugin } from '../auth/native-google-auth.ts';
 import type { MlKitDigitalInkPlugin } from '../drawing/mlkit-ink-recognizer.ts';
 import type { CapacitorFileBridge } from '../files/capacitor-files.ts';
@@ -60,23 +61,14 @@ export async function openCapacitorSqliteDriver(dbName = 'flashcards'): Promise<
 // Google Sign-In (@capgo/capacitor-social-login)
 // ---------------------------------------------------------------------------
 
-export interface CapacitorGoogleSignInConfig {
+export interface CapacitorGoogleSignInConfig extends GoogleSignInOptions {
   /** Google OAuth *Web* client ID (Android uses it as the server client ID). */
   webClientId: string;
   /** Google OAuth iOS client ID (required on iOS only). */
   iOSClientId?: string;
-  /**
-   * Runs after every successful sign-in, silent or not. Android uses it to delete the ID and access
-   * tokens the plugin saves in plaintext SharedPreferences (§16: tokens only in Keychain/Keystore).
-   */
-  afterLogin?: () => Promise<void>;
 }
 
-/**
- * Native Google Sign-In via Android Credential Manager / iOS GoogleSignIn. Runs in
- * `online` mode (access token returned directly, no Worker). Google issues no refresh token to
- * native clients in this mode, so "refresh" re-runs a silent sign-in for the authorized account.
- */
+/** Native Google Sign-In via Android Credential Manager / iOS GoogleSignIn (`createGoogleSignIn`). */
 export async function createGoogleSignInPlugin(
   config: CapacitorGoogleSignInConfig,
 ): Promise<NativeGoogleSignInPlugin> {
@@ -87,48 +79,24 @@ export async function createGoogleSignInPlugin(
       mode: 'online',
     },
   });
-
-  let lastScopes: string[] = [];
-
-  const login = async (scopes: string[], silent: boolean) => {
-    const res = await SocialLogin.login({
-      provider: 'google',
-      options: {
-        scopes,
-        ...(silent ? { filterByAuthorizedAccounts: true, autoSelectEnabled: true } : {}),
+  return createGoogleSignIn(
+    {
+      login: async ({ scopes, silent }) => {
+        const res = await SocialLogin.login({
+          provider: 'google',
+          options: {
+            scopes,
+            ...(silent ? { filterByAuthorizedAccounts: true, autoSelectEnabled: true } : {}),
+          },
+        });
+        return res.result;
       },
-    });
-    if (config.afterLogin) {
-      await config.afterLogin().catch((err: unknown) => {
-        console.warn('Could not clear the Google sign-in plugin’s token copy:', err);
-      });
-    }
-    const result = res.result;
-    if (result.responseType !== 'online' || !result.accessToken?.token) {
-      throw new Error('Google Sign-In did not return an access token.');
-    }
-    const expires = result.accessToken.expires ? Date.parse(result.accessToken.expires) : NaN;
-    const expiresInSeconds = Number.isFinite(expires)
-      ? Math.max(60, Math.round((expires - Date.now()) / 1000))
-      : 3500;
-    return {
-      accessToken: result.accessToken.token,
-      expiresInSeconds,
-      scope: scopes.join(' '),
-      ...(result.profile.email ? { email: result.profile.email } : {}),
-    };
-  };
-
-  return {
-    signIn: async ({ scopes }) => {
-      lastScopes = scopes;
-      return login(scopes, false);
+      logout: async () => {
+        await SocialLogin.logout({ provider: 'google' });
+      },
     },
-    refreshToken: async () => login(lastScopes, true),
-    signOut: async () => {
-      await SocialLogin.logout({ provider: 'google' });
-    },
-  };
+    config.afterLogin ? { afterLogin: config.afterLogin } : {},
+  );
 }
 
 // ---------------------------------------------------------------------------

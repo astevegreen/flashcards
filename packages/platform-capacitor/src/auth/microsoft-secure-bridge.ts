@@ -160,6 +160,8 @@ export async function migrateMicrosoftRefreshToken(options: {
   if (legacy.refreshToken && (await secureStore.get(MICROSOFT_REFRESH_TOKEN_KEY)) === null) {
     await secureStore.set(MICROSOFT_REFRESH_TOKEN_KEY, legacy.refreshToken);
   }
-  await socialLogin.clearStoredTokens();
+  // The token is safe in the secure store by now, so a failed clean-up must not block OneDrive; the
+  // next launch retries it.
+  await clearPluginCopy(socialLogin);
   return true;
 }

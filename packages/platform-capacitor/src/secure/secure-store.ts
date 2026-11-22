@@ -3,6 +3,8 @@
  * Backed by the workspace plugin `@flash/capacitor-secure-storage` (iOS Keychain, Android Keystore);
  * tests inject an in-memory fake.
  */
+import { CAPACITOR_GOOGLE_SESSION_KV_KEY } from '../auth/native-google-auth.ts';
+
 export interface SecureStore {
   /** `null` when the key is not set. */
   get(key: string): Promise<string | null>;
@@ -27,21 +29,29 @@ export type MobilePlatform = 'android' | 'ios';
 /** Keychain/Keystore key of the OneDrive (Microsoft) refresh token. */
 export const MICROSOFT_REFRESH_TOKEN_KEY = 'microsoft_refresh_token_v1';
 
+/** The OneDrive session record; present while OneDrive is connected (or needs reconnecting). */
+export const ONEDRIVE_SESSION_KV_KEY = 'onedrive_native_session_v1';
+
+/**
+ * Same value as `TTS_CONFIG_KV_KEY` in `packages/ui/src/state/useAudioController.ts` (this package
+ * cannot depend on the UI package).
+ */
+export const TTS_CONFIG_KV_KEY = 'tts_config_v1';
+
 /**
  * App database (`Storage.getKv`) entries that hold secrets. On Capacitor they are kept in the
  * secure store instead of SQLite (`createSecureKvRouting`):
- * - `capacitor_google_session_v1`: Google access token (`CapacitorGoogleAuth`).
- * - `onedrive_native_session_v1`: OneDrive access token and scopes (`NativeMicrosoftAuth`).
- * - `tts_config_v1`: the bring-your-own cloud TTS API key (`useAudioController`).
+ * - `CAPACITOR_GOOGLE_SESSION_KV_KEY`: Google access token (`CapacitorGoogleAuth`).
+ * - `ONEDRIVE_SESSION_KV_KEY`: OneDrive access token and scopes (`NativeMicrosoftAuth` in
+ *   `@flash/platform-web`, which keeps its key private; a unit test proves it is routed).
+ * - `TTS_CONFIG_KV_KEY`: the bring-your-own cloud TTS API key (`useAudioController`; a unit test
+ *   checks the two constants match).
  */
 export const SECURE_KV_KEYS: readonly string[] = [
-  'capacitor_google_session_v1',
-  'onedrive_native_session_v1',
-  'tts_config_v1',
+  CAPACITOR_GOOGLE_SESSION_KV_KEY,
+  ONEDRIVE_SESSION_KV_KEY,
+  TTS_CONFIG_KV_KEY,
 ];
-
-/** The OneDrive session record; present while OneDrive is connected (or needs reconnecting). */
-export const ONEDRIVE_SESSION_KV_KEY = 'onedrive_native_session_v1';
 
 /** OAuth2 provider ID of OneDrive inside `@capgo/capacitor-social-login`. */
 export const MICROSOFT_SOCIAL_LOGIN_PROVIDER_ID = 'microsoft';
