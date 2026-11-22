@@ -13,6 +13,30 @@ import { useSyncExternalStore } from 'react';
 export interface ActiveStudyFilter {
   label: string;
   filter: CardFilter;
+  /**
+   * The Study deck selection (`activeDeckId`) the filter was started under. Study drops the filter
+   * as soon as that selection changes (Library "Study", deck archived, collection reset), so a stale
+   * filter never intersects a different deck into an empty queue. Omitted = not bound to a deck.
+   */
+  scope?: { deckId: string | undefined };
+}
+
+/**
+ * Whether a started filter still applies: the Study deck selection is the one it was started
+ * under, and every deck it names still exists and is not archived (a reset or replaced collection,
+ * or an archived deck, otherwise leaves a filter that can never match).
+ */
+export function isStudyFilterInScope(
+  active: ActiveStudyFilter,
+  deckId: string | undefined,
+  decks: ReadonlyMap<string, { archived?: boolean }>,
+): boolean {
+  if (active.scope !== undefined && active.scope.deckId !== deckId) return false;
+  for (const id of active.filter.deckIds ?? []) {
+    const deck = decks.get(id);
+    if (!deck || deck.archived) return false;
+  }
+  return true;
 }
 
 interface FilterStoreState {

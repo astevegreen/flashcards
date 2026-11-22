@@ -15,7 +15,7 @@ import { SpeakerButton } from '../components/SpeakerButton.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
-import { setStudyFilter, useStudyFilter } from '../study/filterStore.ts';
+import { isStudyFilterInScope, setStudyFilter, useStudyFilter } from '../study/filterStore.ts';
 
 const LazyNoteEditDialog = lazy(() =>
   import('../components/NoteEditDialog.tsx').then((m) => ({ default: m.NoteEditDialog })),
@@ -73,7 +73,16 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   const [swipe, setSwipe] = useState<SwipeState>({ dx: 0, dy: 0, active: false });
   const [clockTick, setClockTick] = useState(0);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
-  const studyFilter = useStudyFilter();
+  const storedStudyFilter = useStudyFilter();
+  // A filter only applies to the deck selection it was started under and while its decks exist;
+  // switching deck elsewhere (Library "Study", archive) or resetting the collection drops it.
+  const studyFilter =
+    storedStudyFilter && isStudyFilterInScope(storedStudyFilter, activeDeckId, state.decks)
+      ? storedStudyFilter
+      : undefined;
+  useEffect(() => {
+    if (storedStudyFilter && !studyFilter) setStudyFilter(undefined);
+  }, [storedStudyFilter, studyFilter]);
 
   const pointerStartRef = useRef<{ id: number; x: number; y: number } | null>(null);
   const cardShownAtRef = useRef<number>(Date.now());
@@ -783,7 +792,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
             deckId={activeDeckId}
             onStart={(active) => {
               audio.stop();
-              setStudyFilter(active);
+              setStudyFilter({ ...active, scope: { deckId: activeDeckId } });
               setShowFilterPanel(false);
             }}
             onClose={() => setShowFilterPanel(false)}

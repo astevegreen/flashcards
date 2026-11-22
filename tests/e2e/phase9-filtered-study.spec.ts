@@ -180,7 +180,20 @@ test.describe('Phase 9 categories, filtered study and suspend', () => {
     await page.getByTestId('study-filter-start-trouble-cards').click();
     await expect(page.getByTestId('study-filter-chip')).toContainText('Trouble cards');
     await expect(page.getByTestId('study-card')).toContainText('학교');
-    await page.getByTestId('study-filter-clear').click();
+
+    // Studying another deck from Library drops the Korean-scoped filter instead of intersecting
+    // the Japanese deck with it into an empty queue.
+    await page.getByRole('button', { name: 'Library' }).first().click();
+    const jaRow = page.locator('[data-testid^="deck-row-"]', {
+      hasText: 'Japanese Essentials (JA)',
+    });
+    await jaRow.getByRole('button', { name: 'Study' }).click();
+    await expect(page.getByLabel('Select deck to study')).toHaveValue(/.+/);
+    await expect(page.getByTestId('study-filter-chip')).toHaveCount(0);
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await expect(page.getByTestId('count-new')).not.toHaveText('0');
+    await page.getByLabel('Select deck to study').selectOption({ label: 'Korean Core + Hanja' });
+    await expect(page.getByTestId('study-filter-chip')).toHaveCount(0);
 
     // Browse category selection becomes "Study this filter" in Study.
     await openBrowse(page);
