@@ -1,8 +1,9 @@
-import { decodeUtf8 } from '@flash/core';
+import { decodeUtf8, type NoteType } from '@flash/core';
 import type { DetectedImport } from '@flash/core/import-detect';
 import { lazy, Suspense, useEffect, useState, type DragEvent, type FormEvent } from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
 import { useApp } from '../state/AppContext.tsx';
+import type { PendingAnkiFile } from './AnkiImportPanel.tsx';
 import { BRING_MY_CARDS_PANEL_HEIGHT } from './bring-my-cards-layout.ts';
 import {
   assertCanAddDecks,
@@ -31,7 +32,8 @@ type CsvDetection = Extract<DetectedImport, { kind: 'csv' }>;
 type Route =
   | { kind: 'input'; message: string; tone: 'muted' | 'error' }
   | { kind: 'reading'; name: string }
-  | { kind: 'anki'; name: string; bytes: Uint8Array }
+  // One `file` object per detection: the Anki panel imports it once (its bytes move to a Worker).
+  | { kind: 'anki'; name: string; file: PendingAnkiFile }
   | { kind: 'flashpkg'; name: string; phase: 'importing' | 'done' | 'error'; message: string }
   | { kind: 'csv'; name: string; text: string; detected: CsvDetection }
   | { kind: 'google-sheets'; spreadsheetId: string; url: string };
@@ -180,6 +182,26 @@ function headerList(headers: readonly string[]): string {
   return headers.length > MAX_LISTED_HEADERS ? `${shown}, …` : shown;
 }
 
+/** `Text 3` -> 2 (a Flashcards Deluxe positional column), otherwise `undefined`. */
+function deluxeTextIndex(header: string): number | undefined {
+  const norm = header.trim().toLowerCase();
+  if (!norm.startsWith('text')) return undefined;
+  const digits = norm.slice(4).trim();
+  if (digits === '' || [...digits].some((ch) => ch < '0' || ch > '9')) return undefined;
+  return Number(digits) - 1;
+}
+
+/** `Text 1 → Word · Text 2 → Hanja / Reading`, so a positional mismatch is visible up front. */
+function deluxeMapping(headers: readonly string[], noteType: NoteType | undefined): string {
+  const parts = headers.flatMap((header) => {
+    const index = deluxeTextIndex(header);
+    if (index === undefined) return [];
+    const field = noteType?.fields[index];
+    return [`${header} → ${field ? field.label : '(not imported)'}`];
+  });
+  return parts.join(' · ');
+}
+
 interface NewDeckFieldsProps {
   deckName: string;
   noteTypeId: string;
@@ -285,6 +307,12 @@ function CsvRoute({ name, text, detected }: Readonly<CsvRouteProps>) {
     }
   };
 
+  const deckNoteTypeId =
+    target === 'new' ? noteTypeId : (state.decks.get(target)?.note_type_id ?? '');
+  const mapping =
+    detected.dialect === 'flashcards-deluxe'
+      ? deluxeMapping(detected.headers, state.noteTypes.get(deckNoteTypeId))
+      : '';
   const hint =
     detected.dialect === 'flashcards-deluxe'
       ? 'Text 1, Text 2, … fill the note type’s fields in order; Category columns become tags.'
@@ -326,6 +354,11 @@ function CsvRoute({ name, text, detected }: Readonly<CsvRouteProps>) {
           onNoteType={setNoteTypeId}
           onLanguage={setLanguage}
         />
+      )}
+      {mapping && (
+        <p data-testid="bring-csv-mapping" className="break-words text-[11px]">
+          {mapping}
+        </p>
       )}
       <div>
         <button
@@ -507,7 +540,7 @@ function RouteBody({ route }: Readonly<{ route: Route }>) {
   if (route.kind === 'anki') {
     return (
       <Suspense fallback={<p className="text-xs text-[var(--muted)]">Loading Anki import…</p>}>
-        <LazyAnkiImportPanel embedded pendingFile={{ name: route.name, bytes: route.bytes }} />
+        <LazyAnkiImportPanel embedded pendingFile={route.file} />
       </Suspense>
     );
   }
@@ -555,7 +588,7 @@ export function BringMyCardsPanel() {
   };
 
   const routeDetected = (detected: DetectedImport, name: string, bytes: Uint8Array) => {
-    if (detected.kind === 'anki') setRoute({ kind: 'anki', name, bytes });
+    if (detected.kind === 'anki') setRoute({ kind: 'anki', name, file: { name, bytes } });
     else if (detected.kind === 'flashpkg') void runFlashpkg(name, bytes);
     else if (detected.kind === 'csv')
       setRoute({ kind: 'csv', name, text: decodeUtf8(bytes), detected });

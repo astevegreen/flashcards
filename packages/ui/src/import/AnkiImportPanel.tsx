@@ -169,7 +169,9 @@ export function AnkiImportPanel({
   const [warnings, setWarnings] = useState<string[]>([]);
   const [imported, setImported] = useState<AnkiImportedNoteType[]>([]);
   const ankiModule = useRef<AnkiModule | null>(null);
-  const startedPending = useRef<PendingAnkiFile | null>(null);
+  // Bytes of the pending file already imported: they are transferred to the reader Worker, so a
+  // second run (a re-render passing an equal file) would fail on a detached buffer.
+  const startedPending = useRef<Uint8Array | null>(null);
   const busy = phase === 'reading' || phase === 'converting' || phase === 'saving';
   const readerAvailable = typeof platform.getAnkiPackageReader === 'function';
 
@@ -236,8 +238,8 @@ export function AnkiImportPanel({
   };
 
   useEffect(() => {
-    if (!pendingFile || startedPending.current === pendingFile) return;
-    startedPending.current = pendingFile;
+    if (!pendingFile || startedPending.current === pendingFile.bytes) return;
+    startedPending.current = pendingFile.bytes;
     void importSafely(pendingFile.bytes, false);
     // The pending file is imported exactly once; later renders must not re-run it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
