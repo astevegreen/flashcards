@@ -7,15 +7,28 @@ import {
   resolveDayStartHour,
   resolveDeckFsrsConfig,
   resolveLayoutSpeakTiming,
+  type Card,
+  type CollectionState,
+  type Deck,
+  type Layout,
   type Note,
+  type NoteType,
+  type RatingButtonMode,
   type ReviewRating,
 } from '@flash/core';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { SpeakerButton } from '../components/SpeakerButton.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
-import { isStudyFilterInScope, setStudyFilter, useStudyFilter } from '../study/filterStore.ts';
+import {
+  isStudyFilterInScope,
+  resolveStudyQueueDeckId,
+  setStudyFilter,
+  useStudyFilter,
+  type ActiveStudyFilter,
+} from '../study/filterStore.ts';
+import { RatingBar } from '../study/RatingBar.tsx';
+import { StudyCard, type SwipeIntent } from '../study/StudyCard.tsx';
 
 const LazyNoteEditDialog = lazy(() =>
   import('../components/NoteEditDialog.tsx').then((m) => ({ default: m.NoteEditDialog })),
@@ -23,6 +36,11 @@ const LazyNoteEditDialog = lazy(() =>
 // Phase 9 "Study this filter" panel is off the critical path (§8).
 const LazyStudyFilterPanel = lazy(() =>
   import('../study/StudyFilterPanel.tsx').then((m) => ({ default: m.StudyFilterPanel })),
+);
+
+// First-run zero-deck onboarding: shown once per collection, so it stays off the critical path (§8).
+const LazyEmptyCollection = lazy(() =>
+  import('../study/EmptyCollection.tsx').then((m) => ({ default: m.EmptyCollection })),
 );
 
 export interface StudyScreenProps {
@@ -50,6 +68,201 @@ function isInteractiveControl(target: EventTarget | null): boolean {
   return Boolean(target.closest('button, a, input, textarea, select, label'));
 }
 
+const NO_SWIPE: SwipeState = { dx: 0, dy: 0, active: false };
+
+/** The note, deck, layout and note type of the card being studied. */
+interface StudyCardContext {
+  note?: Note | undefined;
+  deck?: Deck | undefined;
+  layout?: Layout | undefined;
+  noteType?: NoteType | undefined;
+}
+
+function resolveCardContext(state: CollectionState, card: Card | undefined): StudyCardContext {
+  if (!card) return {};
+  const deck = state.decks.get(card.deck_id);
+  return {
+    note: state.notes.get(card.note_id),
+    deck,
+    layout: state.layouts.get(card.layout_id),
+    noteType: deck ? state.noteTypes.get(deck.note_type_id) : undefined,
+  };
+}
+
+/** Today's queue: a custom-study session's own queue, else the (optionally filtered) schedule. */
+function buildScreenQueue(
+  state: CollectionState,
+  studyFilter: ActiveStudyFilter | undefined,
+  deckId: string | undefined,
+  nowMs: number,
+  tzOffsetMinutes: number,
+) {
+  if (studyFilter?.session) {
+    return studyFilter.session.buildQueue(state, { deckId, nowMs, tzOffsetMinutes });
+  }
+  return buildStudyQueue(state, {
+    ...(deckId === undefined ? {} : { deckId }),
+    ...(studyFilter === undefined ? {} : { filter: studyFilter.filter }),
+    nowMs,
+    tzOffsetMinutes,
+  });
+}
+
+/** Reveal steps with at least one non-empty field on the note (never zero steps). */
+function populatedRevealStepsFor(layout: Layout | undefined, note: Note | undefined): string[][] {
+  if (!layout || !note) return [];
+  const steps = layout.reveal_steps
+    .map((stepKeys) => stepKeys.filter((key) => (note.fields[key]?.trim().length ?? 0) > 0))
+    .filter((stepKeys) => stepKeys.length > 0);
+  return steps.length > 0 ? steps : [layout.reveal_steps[0] ?? []];
+}
+
+/** Swipe direction past the given thresholds (px), or `null`. Easy needs 3+ rating buttons. */
+function classifySwipe(
+  dx: number,
+  dy: number,
+  ratingMode: RatingButtonMode,
+  minX: number,
+  minUp: number,
+): SwipeIntent {
+  const absX = Math.abs(dx);
+  const absY = Math.abs(dy);
+  if (absX >= minX && absX > absY) return dx < 0 ? 'again' : 'good';
+  if (dy <= -minUp && absY > absX && ratingMode !== '2') return 'easy';
+  return null;
+}
+
+const SWIPE_RATING: Record<Exclude<SwipeIntent, null>, ReviewRating> = {
+  again: 1,
+  good: 3,
+  easy: 4,
+};
+
+type StudyKeyAction = 'undo' | 'reveal' | 'furigana' | 'speak' | 'slow' | 'edit' | ReviewRating;
+
+const LETTER_KEY_ACTIONS: Record<string, StudyKeyAction> = {
+  f: 'furigana',
+  r: 'speak',
+  s: 'slow',
+  z: 'undo',
+  e: 'edit',
+};
+
+/** Rating keys: the rating, and the fewest rating buttons that show it (§5.1). */
+const RATING_KEYS: Record<string, readonly [ReviewRating, number]> = {
+  '1': [1, 0],
+  ArrowLeft: [1, 0],
+  '2': [3, 0],
+  ArrowRight: [3, 0],
+  '3': [4, 3],
+  ArrowUp: [4, 3],
+  '4': [2, 4],
+  ArrowDown: [2, 4],
+};
+
+/** Space / Enter reveal the next step, unless focus is on a button or link (no double activation). */
+function confirmKeyAction(e: KeyboardEvent, isFullyRevealed: boolean): StudyKeyAction | undefined {
+  if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement) {
+    return undefined;
+  }
+  return isFullyRevealed ? undefined : 'reveal';
+}
+
+/** Desktop keyboard shortcuts (§5.1 & §5.2). */
+function resolveStudyKeyAction(
+  e: KeyboardEvent,
+  isRevealed: boolean,
+  isFullyRevealed: boolean,
+  ratingMode: RatingButtonMode,
+): StudyKeyAction | undefined {
+  const key = e.key;
+  if ((e.ctrlKey || e.metaKey) && key.toLowerCase() === 'z') return 'undo';
+  if (e.ctrlKey || e.metaKey || e.altKey) return undefined;
+  if (key === ' ' || key === 'Enter') return confirmKeyAction(e, isFullyRevealed);
+  const letter = LETTER_KEY_ACTIONS[key.toLowerCase()];
+  if (letter !== undefined) return letter;
+  const rating = isRevealed ? RATING_KEYS[key] : undefined;
+  return rating && Number(ratingMode) >= rating[1] ? rating[0] : undefined;
+}
+
+function layoutLabelFor(layout: Layout, card: Card): string {
+  return card.variant > 0 ? `${layout.name} · c${card.variant}` : layout.name;
+}
+
+function revealHint(isRevealed: boolean, isFullyRevealed: boolean, capturesFront: boolean) {
+  if (isFullyRevealed || (capturesFront && !isRevealed)) return null;
+  return isRevealed ? 'Tap or press Space for more' : 'Tap card or press Space to reveal';
+}
+
+function caughtUpMessage(
+  nextLearningDueAt: number | undefined,
+  nowMs: number,
+  studyFilter: ActiveStudyFilter | undefined,
+  buriedCount: number,
+): string {
+  if (nextLearningDueAt !== undefined) {
+    return `Next learning card is due in ${formatIntervalLabel(nextLearningDueAt, nowMs)}. It will appear automatically.`;
+  }
+  if (studyFilter) return `No cards in "${studyFilter.label}" are due right now.`;
+  if (buriedCount > 0) {
+    return `${buriedCount} sibling card(s) are buried until tomorrow's study day.`;
+  }
+  return 'You have finished all scheduled cards in this selection.';
+}
+
+const PANEL_ACCENT_BUTTON_CLASS =
+  'rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white';
+
+/** Nothing to study right now: why, and where to go next. */
+function CaughtUpPanel({
+  message,
+  learningPending,
+  hasFilter,
+  canStudyAll,
+  onStudyAll,
+  onOpenLibrary,
+}: {
+  message: string;
+  learningPending: boolean;
+  hasFilter: boolean;
+  canStudyAll: boolean;
+  onStudyAll: () => void;
+  onOpenLibrary: () => void;
+}) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center">
+      <h2 className="text-xl font-bold">
+        {learningPending ? 'Learning card coming up' : 'All caught up for today!'}
+      </h2>
+      <p className="max-w-sm text-sm text-[var(--muted)]">{message}</p>
+      <div className="flex flex-wrap justify-center gap-2">
+        {hasFilter && (
+          <button
+            type="button"
+            data-testid="study-filter-clear-empty"
+            onClick={() => setStudyFilter(undefined)}
+            className={PANEL_ACCENT_BUTTON_CLASS}
+          >
+            Clear filter
+          </button>
+        )}
+        {canStudyAll && !hasFilter && (
+          <button type="button" onClick={onStudyAll} className={PANEL_ACCENT_BUTTON_CLASS}>
+            Study All Decks
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onOpenLibrary}
+          className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)]"
+        >
+          Open Library
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps) {
   const {
     platform,
@@ -70,7 +283,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   const [furiganaOverride, setFuriganaOverride] = useState<boolean | null>(null);
   const [evaluation, setEvaluation] = useState<AnswerEvaluation | null>(null);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
-  const [swipe, setSwipe] = useState<SwipeState>({ dx: 0, dy: 0, active: false });
+  const [swipe, setSwipe] = useState<SwipeState>(NO_SWIPE);
   const [clockTick, setClockTick] = useState(0);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const storedStudyFilter = useStudyFilter();
@@ -99,16 +312,12 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   const nowMs = Date.now();
   const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
 
+  // A filter naming its own decks (e.g. a Study Set saved under another deck) runs on those decks.
+  const queueDeckId = resolveStudyQueueDeckId(studyFilter, activeDeckId);
   const queueResult = useMemo(
-    () =>
-      buildStudyQueue(state, {
-        ...(activeDeckId !== undefined ? { deckId: activeDeckId } : {}),
-        ...(studyFilter !== undefined ? { filter: studyFilter.filter } : {}),
-        nowMs,
-        tzOffsetMinutes,
-      }),
+    () => buildScreenQueue(state, studyFilter, queueDeckId, nowMs, tzOffsetMinutes),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, stateVersion, activeDeckId, studyFilter, clockTick],
+    [state, stateVersion, queueDeckId, studyFilter, clockTick],
   );
 
   // Auto-wake queue when an intraday learning/relearning card becomes due
@@ -121,10 +330,12 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   }, [queueResult.queue.length, nextLearningDueAt, clockTick]);
 
   const currentCard = queueResult.queue[0];
-  const currentNote = currentCard ? state.notes.get(currentCard.note_id) : undefined;
-  const currentDeck = currentCard ? state.decks.get(currentCard.deck_id) : undefined;
-  const currentLayout = currentCard ? state.layouts.get(currentCard.layout_id) : undefined;
-  const currentNoteType = currentDeck ? state.noteTypes.get(currentDeck.note_type_id) : undefined;
+  const {
+    note: currentNote,
+    deck: currentDeck,
+    layout: currentLayout,
+    noteType: currentNoteType,
+  } = resolveCardContext(state, currentCard);
 
   const currentAudioTarget = useMemo(() => {
     if (!currentNote || !currentLayout || !currentDeck) return undefined;
@@ -162,34 +373,15 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     if (upcomingDrawCards.length === 0) return;
 
     let cancelled = false;
-    void Promise.all([import('@flash/core/drawing'), platform.getStrokeDataProvider()])
-      .then(async ([drawing, strokeProvider]) => {
-        if (cancelled) return;
-        const byScript: Record<'ja' | 'zh-Hans', Set<string>> = {
-          ja: new Set(),
-          'zh-Hans': new Set(),
-        };
-        for (const c of upcomingDrawCards) {
-          const n = state.notes.get(c.note_id);
-          const d = state.decks.get(c.deck_id);
-          const l = state.layouts.get(c.layout_id);
-          if (!n || !d || !l) continue;
-          const nt = state.noteTypes.get(d.note_type_id);
-          const key = l.answer_field ?? l.reveal_steps[0]?.[0] ?? 'word';
-          const lang = nt?.fields.find((f) => f.key === key)?.lang ?? d.language;
-          if (drawing.resolveDrawingMode(state.preferences, lang) !== 'graded') continue;
-          const script = drawing.resolveStrokeScriptForLang(lang);
-          for (const ch of drawing.extractDrawableCharacters(n.fields[key] ?? '', lang)) {
-            byScript[script].add(ch);
-          }
-        }
-        if (byScript.ja.size > 0 && !cancelled) {
-          await strokeProvider.precacheCharacters('ja', [...byScript.ja]);
-        }
-        if (byScript['zh-Hans'].size > 0 && !cancelled) {
-          await strokeProvider.precacheCharacters('zh-Hans', [...byScript['zh-Hans']]);
-        }
-      })
+    void Promise.all([import('../study/strokePrecache.ts'), platform.getStrokeDataProvider()])
+      .then(([precache, strokeProvider]) =>
+        precache.precacheUpcomingDrawCards(
+          state,
+          upcomingDrawCards,
+          strokeProvider,
+          () => cancelled,
+        ),
+      )
       .catch(() => {
         // Non-blocking background lookahead
       });
@@ -237,19 +429,11 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   }, [currentNoteType, stateVersion]);
 
   // Only include reveal steps that contain at least one non-empty field on the current note
-  const populatedRevealSteps = useMemo(() => {
-    if (!currentLayout || !currentNote) return [];
-    const steps = currentLayout.reveal_steps
-      .map((stepKeys) =>
-        stepKeys.filter((key) => {
-          const val = currentNote.fields[key];
-          return val !== undefined && val.trim().length > 0;
-        }),
-      )
-      .filter((stepKeys) => stepKeys.length > 0);
-    return steps.length > 0 ? steps : [currentLayout.reveal_steps[0] ?? []];
+  const populatedRevealSteps = useMemo(
+    () => populatedRevealStepsFor(currentLayout, currentNote),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentLayout, currentNote, stateVersion]);
+    [currentLayout, currentNote, stateVersion],
+  );
 
   const totalRevealSteps = populatedRevealSteps.length;
   const isRevealed = revealStep > 0;
@@ -260,32 +444,28 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     setRevealStep(0);
     setFuriganaOverride(null);
     setEvaluation(null);
-    setSwipe({ dx: 0, dy: 0, active: false });
+    setSwipe(NO_SWIPE);
     cardShownAtRef.current = Date.now();
 
-    if (currentCard && currentNote && currentLayout && currentDeck) {
-      const shouldAutoPlayFront =
-        currentLayout.answer_mode === 'listen' ||
-        (Boolean(state.preferences.auto_play_audio) && currentSpeakTiming === 'front');
-      if (shouldAutoPlayFront) {
-        void audio.speakCard(
-          currentCard,
-          currentNote,
-          currentLayout,
-          currentNoteType,
-          currentDeck,
-          1.0,
-        );
-      }
+    const autoPlayFront =
+      currentLayout?.answer_mode === 'listen' ||
+      (Boolean(state.preferences.auto_play_audio) && currentSpeakTiming === 'front');
+    if (autoPlayFront && currentCard && currentNote && currentLayout && currentDeck) {
+      void audio.speakCard(
+        currentCard,
+        currentNote,
+        currentLayout,
+        currentNoteType,
+        currentDeck,
+        1.0,
+      );
     }
     // Only re-run when the active card changes (not on unrelated state ticks)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCard?.id]);
 
   const hideFrontRuby =
-    furiganaOverride !== null
-      ? furiganaOverride
-      : !isRevealed && Boolean(currentLayout?.hide_furigana_on_front);
+    furiganaOverride ?? (!isRevealed && Boolean(currentLayout?.hide_furigana_on_front));
 
   const intervals = useMemo(() => {
     if (!currentCard || !isRevealed) return null;
@@ -296,18 +476,13 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
 
   const ratingMode = state.preferences.rating_button_mode;
 
-  const handleRevealNext = useCallback(() => {
-    if (!currentCard) return;
+  // Speaks on the 0 -> 1 flip when the layout speaks on reveal. Runs synchronously inside the
+  // gesture so iOS Safari allows playback (§7.2).
+  const speakOnFirstReveal = useCallback(() => {
     unlockAudio();
-    if (
-      revealStep === 0 &&
-      currentNote &&
-      currentLayout &&
-      currentDeck &&
-      state.preferences.auto_play_audio &&
-      currentSpeakTiming === 'reveal'
-    ) {
-      // Trigger synchronously during the 0 -> 1 flip gesture so iOS Safari allows playback (§7.2)
+    const speakNow =
+      revealStep === 0 && state.preferences.auto_play_audio && currentSpeakTiming === 'reveal';
+    if (speakNow && currentCard && currentNote && currentLayout && currentDeck) {
       void speakAudioCard(
         currentCard,
         currentNote,
@@ -317,7 +492,6 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         1.0,
       );
     }
-    setRevealStep((prev) => Math.min(totalRevealSteps, prev + 1));
   }, [
     currentCard,
     currentDeck,
@@ -328,47 +502,22 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     revealStep,
     speakAudioCard,
     state.preferences.auto_play_audio,
-    totalRevealSteps,
     unlockAudio,
   ]);
 
+  const handleRevealNext = useCallback(() => {
+    if (!currentCard) return;
+    speakOnFirstReveal();
+    setRevealStep((prev) => Math.min(totalRevealSteps, prev + 1));
+  }, [currentCard, speakOnFirstReveal, totalRevealSteps]);
+
   const handleEvaluateAndReveal = useCallback(
     (evalResult: AnswerEvaluation) => {
-      unlockAudio();
-      if (
-        revealStep === 0 &&
-        currentCard &&
-        currentNote &&
-        currentLayout &&
-        currentDeck &&
-        state.preferences.auto_play_audio &&
-        currentSpeakTiming === 'reveal'
-      ) {
-        void speakAudioCard(
-          currentCard,
-          currentNote,
-          currentLayout,
-          currentNoteType,
-          currentDeck,
-          1.0,
-        );
-      }
+      speakOnFirstReveal();
       setEvaluation(evalResult);
       setRevealStep((prev) => Math.max(1, Math.min(totalRevealSteps, prev + 1)));
     },
-    [
-      currentCard,
-      currentDeck,
-      currentLayout,
-      currentNote,
-      currentNoteType,
-      currentSpeakTiming,
-      revealStep,
-      speakAudioCard,
-      state.preferences.auto_play_audio,
-      totalRevealSteps,
-      unlockAudio,
-    ],
+    [speakOnFirstReveal, totalRevealSteps],
   );
 
   const handleSpeak = useCallback(
@@ -406,108 +555,60 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       setFuriganaOverride(null);
       setEvaluation(null);
       cardShownAtRef.current = Date.now();
-      rateCard(
-        currentCard,
-        rating,
-        elapsed,
-        typedAnswer !== undefined ? { typedAnswer } : undefined,
-      );
+      // Custom study practice records its own answers (never FSRS); everything else is a review.
+      const sessionRate = studyFilter?.session?.rate;
+      if (sessionRate) sessionRate(currentCard, rating, elapsed);
+      else
+        rateCard(
+          currentCard,
+          rating,
+          elapsed,
+          typedAnswer === undefined ? undefined : { typedAnswer },
+        );
     },
-    [currentCard, evaluation?.typedAnswer, isRevealed, rateCard, stopAudio, unlockAudio],
+    [
+      currentCard,
+      evaluation?.typedAnswer,
+      isRevealed,
+      rateCard,
+      stopAudio,
+      studyFilter,
+      unlockAudio,
+    ],
   );
 
   const handleUndo = useCallback(() => {
     stopAudio();
-    if (undoLastReview()) {
+    if ((studyFilter?.session?.undo ?? undoLastReview)()) {
       setRevealStep(0);
       setFuriganaOverride(null);
       setEvaluation(null);
       cardShownAtRef.current = Date.now();
     }
-  }, [stopAudio, undoLastReview]);
+  }, [stopAudio, studyFilter, undoLastReview]);
 
   const handleToggleFurigana = useCallback(() => {
-    setFuriganaOverride((prev) => {
-      const current = prev !== null ? prev : hideFrontRuby;
-      return !current;
-    });
+    setFuriganaOverride((prev) => !(prev ?? hideFrontRuby));
   }, [hideFrontRuby]);
 
   // Desktop keyboard shortcuts (§5.1 & §5.2)
   useEffect(() => {
+    const runKeyAction = (action: StudyKeyAction) => {
+      if (typeof action === 'number') handleRate(action);
+      else if (action === 'undo') handleUndo();
+      else if (action === 'reveal') handleRevealNext();
+      else if (action === 'furigana') handleToggleFurigana();
+      else if (action === 'edit') setEditingNote(currentNote ?? null);
+      else handleSpeak(action === 'slow' ? 0.75 : 1.0);
+    };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return;
-      if (editingNote !== null) return;
-      if (isEditableTarget(e.target)) return;
-
-      const key = e.key;
+      if (editingNote !== null || isEditableTarget(e.target)) return;
       unlockAudio();
-
-      if ((e.ctrlKey || e.metaKey) && key.toLowerCase() === 'z') {
-        e.preventDefault();
-        handleUndo();
-        return;
-      }
-
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-      if (key === ' ' || key === 'Enter') {
-        // Don't hijack Space/Enter when focus is on a button or link (avoids double activation)
-        if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement) {
-          return;
-        }
-        if (!isFullyRevealed) {
-          e.preventDefault();
-          handleRevealNext();
-        }
-        return;
-      }
-
-      if (key.toLowerCase() === 'f') {
-        e.preventDefault();
-        handleToggleFurigana();
-        return;
-      }
-
-      if (key.toLowerCase() === 'r') {
-        e.preventDefault();
-        handleSpeak(1.0);
-        return;
-      }
-
-      if (key.toLowerCase() === 's') {
-        e.preventDefault();
-        handleSpeak(0.75);
-        return;
-      }
-
-      if (key.toLowerCase() === 'z') {
-        e.preventDefault();
-        handleUndo();
-        return;
-      }
-
-      if (key.toLowerCase() === 'e' && currentNote) {
-        e.preventDefault();
-        setEditingNote(currentNote);
-        return;
-      }
-
-      if (!isRevealed) return;
-
-      if (key === '1' || key === 'ArrowLeft') {
-        e.preventDefault();
-        handleRate(1);
-      } else if (key === '2' || key === 'ArrowRight') {
-        e.preventDefault();
-        handleRate(3);
-      } else if ((key === '3' || key === 'ArrowUp') && ratingMode !== '2') {
-        e.preventDefault();
-        handleRate(4);
-      } else if ((key === '4' || key === 'ArrowDown') && ratingMode === '4') {
-        e.preventDefault();
-        handleRate(2);
-      }
+      const action = resolveStudyKeyAction(e, isRevealed, isFullyRevealed, ratingMode);
+      if (action === undefined || (action === 'edit' && !currentNote)) return;
+      e.preventDefault();
+      runKeyAction(action);
     };
 
     window.addEventListener('keydown', onKeyDown);
@@ -540,7 +641,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       }
     }
     pointerStartRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
-    setSwipe({ dx: 0, dy: 0, active: true });
+    setSwipe({ ...NO_SWIPE, active: true });
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -557,32 +658,19 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     pointerStartRef.current = null;
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
-    setSwipe({ dx: 0, dy: 0, active: false });
+    setSwipe(NO_SWIPE);
 
-    const absX = Math.abs(dx);
-    const absY = Math.abs(dy);
-
-    if (isRevealed) {
-      if (absX >= 72 && absX > absY) {
-        if (dx < 0) {
-          handleRate(1); // Swipe left -> Again
-        } else {
-          handleRate(3); // Swipe right -> Good
-        }
-        return;
-      }
-      if (dy <= -80 && absY > absX && ratingMode !== '2') {
-        handleRate(4); // Swipe up -> Easy
-        return;
-      }
+    // Swipe left -> Again, right -> Good, up -> Easy
+    const intent = isRevealed ? classifySwipe(dx, dy, ratingMode, 72, 80) : null;
+    if (intent) {
+      handleRate(SWIPE_RATING[intent]);
+      return;
     }
-
     // Small tap advances reveal (suppressed on front of interactive modes)
+    const isTap = Math.abs(dx) < 12 && Math.abs(dy) < 12;
     if (
-      absX < 12 &&
-      absY < 12 &&
-      !isFullyRevealed &&
-      (isRevealed || !activeModePlugin.capturesFrontInteraction)
+      isTap &&
+      revealHint(isRevealed, isFullyRevealed, activeModePlugin.capturesFrontInteraction)
     ) {
       handleRevealNext();
     }
@@ -590,83 +678,31 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
 
   const handlePointerCancel = () => {
     pointerStartRef.current = null;
-    setSwipe({ dx: 0, dy: 0, active: false });
+    setSwipe(NO_SWIPE);
   };
 
-  const swipeIntent = useMemo(() => {
-    if (!swipe.active || !isRevealed) return null;
-    const absX = Math.abs(swipe.dx);
-    const absY = Math.abs(swipe.dy);
-    if (absX >= 48 && absX > absY) {
-      return swipe.dx < 0 ? 'again' : 'good';
-    }
-    if (swipe.dy <= -56 && absY > absX && ratingMode !== '2') {
-      return 'easy';
-    }
-    return null;
-  }, [isRevealed, ratingMode, swipe]);
+  const swipeIntent =
+    swipe.active && isRevealed ? classifySwipe(swipe.dx, swipe.dy, ratingMode, 48, 56) : null;
 
   const suggestedRating = evaluation?.suggestedRating;
-  const needsAiReview = Boolean(
-    currentNote && currentNote.provenance.source === 'ai' && !currentNote.provenance.reviewed,
-  );
+  const needsAiReview = currentNote?.provenance.source === 'ai' && !currentNote.provenance.reviewed;
+  const editingDeck = state.decks.get(editingNote?.deck_id ?? '');
 
-  // Empty collection onboarding (production zero-deck state)
   if (decks.length === 0) {
     return (
-      <section className="flex flex-1 flex-col items-center justify-center gap-5 py-12 text-center">
-        <div className="max-w-md space-y-2">
-          <h1 className="text-2xl font-bold tracking-tight">Ready to Study Offline</h1>
-          <p className="text-sm text-[var(--muted)]">
-            No decks are loaded on this device yet. Load the built-in Japanese, Mandarin, Korean +
-            Hanja, and English sample decks, or import your own CSV / .flashpkg files.
-          </p>
-        </div>
-        <div className="flex flex-wrap justify-center gap-3">
-          {platform.starterCatalogUrl && (
-            <button
-              type="button"
-              data-testid="empty-browse-starter-decks-btn"
-              onClick={onOpenLibrary}
-              className="rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90"
-            >
-              Browse Starter Decks
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={loadSampleDecks}
-            className={
-              platform.starterCatalogUrl
-                ? 'rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-2.5 text-sm font-semibold hover:bg-[var(--surface-2)]'
-                : 'rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90'
-            }
-          >
-            Load Sample Decks
-          </button>
-          <button
-            type="button"
-            onClick={onOpenLibrary}
-            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-2.5 text-sm font-semibold hover:bg-[var(--surface-2)]"
-          >
-            Import CSV / .flashpkg
-          </button>
-          {onOpenSettings && (
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-2.5 text-sm font-semibold hover:bg-[var(--surface-2)]"
-            >
-              Connect Cloud Sync
-            </button>
-          )}
-        </div>
-      </section>
+      <Suspense fallback={null}>
+        <LazyEmptyCollection
+          starterCatalogUrl={platform.starterCatalogUrl}
+          onOpenLibrary={onOpenLibrary}
+          onOpenSettings={onOpenSettings}
+          onLoadSamples={loadSampleDecks}
+        />
+      </Suspense>
     );
   }
 
   return (
-    <section className="flex flex-1 flex-col gap-4">
+    <section className="flex min-h-0 flex-1 flex-col gap-3 sm:gap-4 short:gap-2">
       {/* Top study header: Deck selector + Due counts + Quick actions */}
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
@@ -711,7 +747,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               data-testid="study-filter-btn"
               aria-expanded={showFilterPanel}
               onClick={() => setShowFilterPanel((v) => !v)}
-              title="Study a filter: categories, Trouble cards, Failed this week"
+              title="Study sets, filters and custom study (review ahead, extra new, practice)"
               className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
             >
               Filter
@@ -764,7 +800,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           <button
             type="button"
             onClick={handleUndo}
-            disabled={undoStack.length === 0}
+            disabled={undoStack.length === 0 && !studyFilter?.session?.undo}
             title="Undo last review (Z)"
             className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)] disabled:opacity-40"
           >
@@ -840,130 +876,45 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
 
       {/* Main Card Surface or Caught-Up State */}
       {!currentCard || !currentNote || !currentLayout || !currentDeck ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center">
-          <h2 className="text-xl font-bold">
-            {nextLearningDueAt !== undefined
-              ? 'Learning card coming up'
-              : 'All caught up for today!'}
-          </h2>
-          <p className="max-w-sm text-sm text-[var(--muted)]">
-            {nextLearningDueAt !== undefined
-              ? `Next learning card is due in ${formatIntervalLabel(nextLearningDueAt, nowMs)}. It will appear automatically.`
-              : studyFilter
-                ? `No cards in "${studyFilter.label}" are due right now.`
-                : queueResult.buriedNoteIds.size > 0
-                  ? `${queueResult.buriedNoteIds.size} sibling card(s) are buried until tomorrow's study day.`
-                  : 'You have finished all scheduled cards in this selection.'}
-          </p>
-          <div className="flex flex-wrap justify-center gap-2">
-            {studyFilter && (
-              <button
-                type="button"
-                data-testid="study-filter-clear-empty"
-                onClick={() => setStudyFilter(undefined)}
-                className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
-              >
-                Clear filter
-              </button>
-            )}
-            {activeDeckId && !studyFilter && (
-              <button
-                type="button"
-                onClick={() => setActiveDeckId(undefined)}
-                className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
-              >
-                Study All Decks
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onOpenLibrary}
-              className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)]"
-            >
-              Open Library
-            </button>
-          </div>
-        </div>
+        <CaughtUpPanel
+          message={caughtUpMessage(
+            nextLearningDueAt,
+            nowMs,
+            studyFilter,
+            queueResult.buriedNoteIds.size,
+          )}
+          learningPending={nextLearningDueAt !== undefined}
+          hasFilter={Boolean(studyFilter)}
+          canStudyAll={activeDeckId !== undefined}
+          onStudyAll={() => setActiveDeckId(undefined)}
+          onOpenLibrary={onOpenLibrary}
+        />
       ) : (
-        <div className="flex flex-1 flex-col justify-between gap-4">
-          {/* Swipeable / tappable card */}
-          <div
-            data-testid="study-card"
-            data-answer-mode={currentLayout.answer_mode}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 short:flex-row">
+          <StudyCard
+            answerMode={currentLayout.answer_mode}
+            deckName={currentDeck.name}
+            layoutLabel={layoutLabelFor(currentLayout, currentCard)}
+            isRevealed={isRevealed}
+            capturesFront={activeModePlugin.capturesFrontInteraction}
+            hint={revealHint(
+              isRevealed,
+              isFullyRevealed,
+              activeModePlugin.capturesFrontInteraction,
+            )}
+            swipe={swipe}
+            swipeIntent={swipeIntent}
+            showSpeaker={Boolean(
+              currentAudioTarget?.attachedMediaHash || currentAudioTarget?.normalizedText,
+            )}
+            onSpeak={handleSpeak}
+            needsAiReview={needsAiReview}
+            onMarkReviewed={() => markNoteReviewed(currentNote)}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerCancel}
-            style={{
-              touchAction: 'pan-y',
-              transform:
-                swipe.active && isRevealed
-                  ? `translate3d(${Math.max(-90, Math.min(90, swipe.dx * 0.45))}px, ${Math.max(-50, Math.min(20, swipe.dy * 0.35))}px, 0)`
-                  : undefined,
-            }}
-            className={`relative flex min-h-[20rem] flex-1 select-none flex-col items-center justify-center gap-6 rounded-3xl border bg-[var(--surface)] p-6 text-center shadow-sm transition-transform duration-100 sm:p-10 ${
-              !isRevealed && activeModePlugin.capturesFrontInteraction ? '' : 'cursor-pointer'
-            } ${
-              swipeIntent === 'again'
-                ? 'border-rose-500 ring-2 ring-rose-500/30'
-                : swipeIntent === 'good'
-                  ? 'border-emerald-500 ring-2 ring-emerald-500/30'
-                  : swipeIntent === 'easy'
-                    ? 'border-sky-500 ring-2 ring-sky-500/30'
-                    : 'border-[var(--border)]'
-            }`}
           >
-            {/* Subtle deck & layout pill */}
-            <div className="absolute left-4 top-4 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
-              <span className="truncate font-medium">{currentDeck.name}</span>
-              <span>·</span>
-              <span className="rounded-md bg-[var(--surface-2)] px-1.5 py-0.5">
-                {currentLayout.name}
-                {currentCard.variant > 0 ? ` · c${currentCard.variant}` : ''}
-              </span>
-            </div>
-
-            {/* Top-right card controls: SpeakerButton + AI Provenance "Needs review" badge (§7.2, §10.3) */}
-            {!swipeIntent && (
-              <div
-                className="absolute right-4 top-4 flex flex-wrap items-center justify-end gap-1.5"
-                onPointerDown={(e) => e.stopPropagation()}
-                onPointerUp={(e) => e.stopPropagation()}
-              >
-                {currentAudioTarget &&
-                  (currentAudioTarget.attachedMediaHash || currentAudioTarget.normalizedText) && (
-                    <SpeakerButton onPlay={handleSpeak} testIdPrefix="study-audio" size="sm" />
-                  )}
-                {needsAiReview && (
-                  <>
-                    <span
-                      data-testid="needs-review-badge"
-                      className="rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300"
-                    >
-                      Needs review
-                    </span>
-                    <button
-                      type="button"
-                      data-testid="mark-reviewed-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        markNoteReviewed(currentNote);
-                      }}
-                      className="rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-300"
-                    >
-                      Mark reviewed
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-
-            {swipeIntent && (
-              <div className="pointer-events-none absolute right-4 top-4 rounded-full bg-[var(--surface-2)] px-3 py-1 text-xs font-bold uppercase tracking-wider">
-                {swipeIntent}
-              </div>
-            )}
-
             {/* Pluggable Answer Mode renderer (§5.2) */}
             {activeModePlugin.render({
               state,
@@ -985,121 +936,19 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               onEvaluateAndReveal: handleEvaluateAndReveal,
               onSpeak: handleSpeak,
             })}
+          </StudyCard>
 
-            {!isFullyRevealed && (!activeModePlugin.capturesFrontInteraction || isRevealed) && (
-              <p className="mt-2 text-xs text-[var(--muted)]">
-                {isRevealed ? 'Tap or press Space for more' : 'Tap card or press Space to reveal'}
-              </p>
-            )}
-          </div>
-
-          {/* Bottom action bar */}
-          <div className="flex flex-col gap-2">
-            {!isRevealed ? (
-              <button
-                type="button"
-                data-testid="reveal-button"
-                onClick={handleRevealNext}
-                className="w-full rounded-2xl bg-[var(--accent)] py-3.5 text-base font-semibold text-white shadow-sm hover:opacity-90 active:scale-[0.99]"
-              >
-                Show Answer <span className="ml-1 text-xs opacity-80">(Space)</span>
-              </button>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {!isFullyRevealed && (
-                  <button
-                    type="button"
-                    onClick={handleRevealNext}
-                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] py-2 text-xs font-medium text-[var(--muted)] hover:bg-[var(--surface-2)]"
-                  >
-                    Reveal more ({revealStep}/{totalRevealSteps}) · Space
-                  </button>
-                )}
-
-                <div
-                  className={`grid gap-2 ${
-                    ratingMode === '2'
-                      ? 'grid-cols-2'
-                      : ratingMode === '4'
-                        ? 'grid-cols-4'
-                        : 'grid-cols-3'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    data-testid="rate-again"
-                    data-suggested={suggestedRating === 1 ? 'true' : undefined}
-                    onClick={() => handleRate(1)}
-                    className={`flex flex-col items-center rounded-2xl border py-3 text-rose-600 transition-colors hover:bg-rose-500/20 active:scale-[0.98] dark:text-rose-400 ${
-                      suggestedRating === 1
-                        ? 'border-rose-500 bg-rose-500/20 ring-2 ring-rose-500/50'
-                        : 'border-rose-500/30 bg-rose-500/10'
-                    }`}
-                  >
-                    <span className="text-sm font-bold">
-                      Again{suggestedRating === 1 ? ' ★' : ''}
-                    </span>
-                    <span className="text-xs opacity-80">{intervals?.[1].label ?? ''} · 1</span>
-                  </button>
-
-                  {ratingMode === '4' && (
-                    <button
-                      type="button"
-                      data-testid="rate-hard"
-                      onClick={() => handleRate(2)}
-                      className="flex flex-col items-center rounded-2xl border border-amber-500/30 bg-amber-500/10 py-3 text-amber-600 transition-colors hover:bg-amber-500/20 active:scale-[0.98] dark:text-amber-400"
-                    >
-                      <span className="text-sm font-bold">Hard</span>
-                      <span className="text-xs opacity-80">{intervals?.[2].label ?? ''} · 4</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    data-testid="rate-good"
-                    data-suggested={
-                      suggestedRating === 3 || (suggestedRating === 4 && ratingMode === '2')
-                        ? 'true'
-                        : undefined
-                    }
-                    onClick={() => handleRate(3)}
-                    className={`flex flex-col items-center rounded-2xl border py-3 text-emerald-600 transition-colors hover:bg-emerald-500/20 active:scale-[0.98] dark:text-emerald-400 ${
-                      suggestedRating === 3 || (suggestedRating === 4 && ratingMode === '2')
-                        ? 'border-emerald-500 bg-emerald-500/20 ring-2 ring-emerald-500/50'
-                        : 'border-emerald-500/30 bg-emerald-500/10'
-                    }`}
-                  >
-                    <span className="text-sm font-bold">
-                      Good
-                      {suggestedRating === 3 || (suggestedRating === 4 && ratingMode === '2')
-                        ? ' ★'
-                        : ''}
-                    </span>
-                    <span className="text-xs opacity-80">{intervals?.[3].label ?? ''} · 2</span>
-                  </button>
-
-                  {ratingMode !== '2' && (
-                    <button
-                      type="button"
-                      data-testid="rate-easy"
-                      data-suggested={suggestedRating === 4 ? 'true' : undefined}
-                      onClick={() => handleRate(4)}
-                      className={`flex flex-col items-center rounded-2xl border py-3 text-sky-600 transition-colors hover:bg-sky-500/20 active:scale-[0.98] dark:text-sky-400 ${
-                        suggestedRating === 4
-                          ? 'border-sky-500 bg-sky-500/20 ring-2 ring-sky-500/50'
-                          : 'border-sky-500/30 bg-sky-500/10'
-                      }`}
-                    >
-                      <span className="text-sm font-bold">
-                        Easy{suggestedRating === 4 ? ' ★' : ''}
-                      </span>
-                      <span className="text-xs opacity-80">{intervals?.[4].label ?? ''} · 3</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          <RatingBar
+            isRevealed={isRevealed}
+            isFullyRevealed={isFullyRevealed}
+            revealStep={revealStep}
+            totalRevealSteps={totalRevealSteps}
+            ratingMode={ratingMode}
+            suggestedRating={suggestedRating}
+            intervals={intervals}
+            onRevealNext={handleRevealNext}
+            onRate={handleRate}
+          />
         </div>
       )}
 
@@ -1107,10 +956,8 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         <Suspense fallback={null}>
           <LazyNoteEditDialog
             note={editingNote}
-            noteType={state.noteTypes.get(state.decks.get(editingNote.deck_id)?.note_type_id ?? '')}
-            {...(state.decks.get(editingNote.deck_id)?.source !== undefined
-              ? { deckSource: state.decks.get(editingNote.deck_id)?.source }
-              : {})}
+            noteType={state.noteTypes.get(editingDeck?.note_type_id ?? '')}
+            {...(editingDeck?.source === undefined ? {} : { deckSource: editingDeck.source })}
             onSave={(note, fields, tags) => updateNote(note, fields, tags)}
             onClose={() => setEditingNote(null)}
           />

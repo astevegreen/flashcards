@@ -200,6 +200,8 @@ export interface CollectionPreferences {
   tts_voices?: Record<string, string>;
   /** Optional synced per-language drawing mode overrides (§6.4: graded | lookup | off). */
   drawing_modes?: Record<string, DrawingMode>;
+  /** Phase 9: suspend a card when a review makes it a leech (8 lapses; default false). */
+  leech_auto_suspend?: boolean;
 }
 
 export const DEFAULT_DECK_SETTINGS: DeckSettings = {

@@ -8,6 +8,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { DrawLookupPanel } from '../../drawing/DrawLookupPanel.tsx';
 import { CardFieldValue, RevealedBackSteps } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
+import { cardTextFitClass } from '../fitText.ts';
 
 const LazyDrawQuizPanel = lazy(() => import('../../drawing/DrawQuizPanel.tsx'));
 
@@ -81,8 +82,8 @@ function DrawModeView({
               data-testid={`front-field-${fieldKey}`}
               className={
                 idx === 0
-                  ? 'whitespace-pre-wrap text-2xl font-semibold leading-snug tracking-tight sm:text-4xl'
-                  : 'whitespace-pre-wrap text-base text-[var(--muted)] sm:text-lg'
+                  ? `whitespace-pre-wrap font-semibold tracking-tight ${cardTextFitClass(value, 'answer')}`
+                  : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail')}`
               }
             >
               <CardFieldValue

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isStudyFilterInScope, type ActiveStudyFilter } from '../src/study/filterStore.ts';
+import {
+  isStudyFilterInScope,
+  resolveStudyQueueDeckId,
+  type ActiveStudyFilter,
+} from '../src/study/filterStore.ts';
+import { studySetScopeFilter } from '../src/study/StudySetsSection.tsx';
 
 const KO = 'deck-ko';
 const JA = 'deck-ja';
@@ -40,5 +45,21 @@ describe('Phase 9 study filter scope', () => {
   it('treats an unscoped filter as deck-independent', () => {
     const active: ActiveStudyFilter = { label: 'Study this filter', filter: { deckIds: [JA] } };
     expect(isStudyFilterInScope(active, KO, decks)).toBe(true);
+  });
+
+  it('runs a Study Set that names its own decks on those decks, whatever the header shows', () => {
+    // "Hanja words" saved under Korean, started while the header is on Japanese.
+    const hanjaSet = {
+      filter: { deckIds: [KO], categories: { mode: 'any' as const, tags: ['hanja'] } },
+    };
+    expect(resolveStudyQueueDeckId(hanjaSet, JA)).toBeUndefined();
+    expect(resolveStudyQueueDeckId(hanjaSet, undefined)).toBeUndefined();
+    // A deck-less set is limited to the header deck, and its row counts use the same scope.
+    const anyDeck = { filter: { categories: { mode: 'any' as const, tags: ['hanja'] } } };
+    expect(resolveStudyQueueDeckId(anyDeck, JA)).toBe(JA);
+    expect(resolveStudyQueueDeckId(undefined, JA)).toBe(JA);
+    expect(studySetScopeFilter(anyDeck.filter, JA).deckIds).toEqual([JA]);
+    expect(studySetScopeFilter(anyDeck.filter, undefined)).toBe(anyDeck.filter);
+    expect(studySetScopeFilter(hanjaSet.filter, JA)).toBe(hanjaSet.filter);
   });
 });

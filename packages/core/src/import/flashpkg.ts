@@ -18,6 +18,7 @@ import type { KnownEvent } from '../events/types.ts';
 import { decodeUtf8, deriveNoteId, encodeUtf8, uuidv5, FLASH_NAMESPACE_UUID } from '../ids.ts';
 import type { Deck, Note, SourceRef } from '../model/types.ts';
 import { computeNoteContentHash, sha256Hex } from '../sources/hash.ts';
+import { normalizeTagList } from '../tags/index.ts';
 import {
   normalizeMarkdownPage,
   parseMarkdownFrontmatter,
@@ -215,7 +216,8 @@ export function exportFlashpkg(
       const rec: PackageNoteRecord = {
         id: n.source_key || n.id,
         fields: n.fields,
-        tags: n.tags,
+        // Categories travel as note tags (NFC); `importFlashpkg` reads them back unchanged.
+        tags: normalizeTagList(n.tags),
         provenance: n.provenance,
       };
       return JSON.stringify(rec);
@@ -741,6 +743,7 @@ export function importFlashpkg(
         );
       }
       const rec = noteValidation.data;
+      const recTags = normalizeTagList(rec.tags);
 
       // Upgrade-safe note matching: find existing note in targetDeck by source_key, else derive deterministically
       const existingNote = existingNotesBySourceKey.get(rec.id);
@@ -749,7 +752,7 @@ export function importFlashpkg(
 
       if (existingNote) {
         const prevHash = computeNoteContentHash(existingNote.fields, existingNote.tags);
-        const nextHash = computeNoteContentHash(rec.fields, rec.tags);
+        const nextHash = computeNoteContentHash(rec.fields, recTags);
         if (existingNote.archived) {
           events.push(eventFactory.create('NoteRestored', { note_id: noteId }, nowMs));
         }
@@ -762,7 +765,7 @@ export function importFlashpkg(
                 deck_id: targetDeckId,
                 source_key: rec.id,
                 fields: rec.fields,
-                tags: rec.tags,
+                tags: recTags,
                 provenance: rec.provenance ?? { source: 'import', reviewed: true },
                 created_order: i,
               },
@@ -779,7 +782,7 @@ export function importFlashpkg(
               deck_id: targetDeckId,
               source_key: rec.id,
               fields: rec.fields,
-              tags: rec.tags,
+              tags: recTags,
               provenance: rec.provenance ?? { source: 'import', reviewed: true },
               created_order: i,
             },

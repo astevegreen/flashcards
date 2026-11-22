@@ -236,6 +236,10 @@ function writeRememberedDecks(value: Record<string, string>): void {
   }
 }
 
+/** Selected split-view row: accent ring only once the detail pane is beside the list. */
+const SELECTED_ROW_CLASS =
+  'border-[var(--border)] @lg:border-[var(--accent)] @lg:ring-1 @lg:ring-[var(--accent)]';
+
 interface DeckPresence {
   exact: Set<string>;
   sourceKeys: Set<string>;
@@ -451,6 +455,9 @@ export function DictionaryPanel({
     });
   };
   const [addedBanner, setAddedBanner] = useState<string | null>(null);
+  // Tablet / desktop list + detail split view (Phase 13): the detail pane shows this entry.
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const selectedEntry = results.find((r) => r.id === selectedEntryId) ?? results[0];
 
   const decks = useMemo(
     () =>
@@ -625,7 +632,7 @@ export function DictionaryPanel({
   };
 
   return (
-    <div data-testid="dictionary-panel" className="flex flex-col gap-3">
+    <div data-testid="dictionary-panel" className="touch-scope @container flex flex-col gap-3">
       {/* Native dictation-safe & IME-safe search bar (§6.3, modern-web-guidance ime-safe-enter-submit) */}
       <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-2">
         <label htmlFor={searchInputId} className="sr-only">
@@ -772,118 +779,294 @@ export function DictionaryPanel({
           )}
         </div>
       ) : (
-        /* Dictionary Results List */
-        <div
-          data-testid="dictionary-results"
-          className="flex flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"
-        >
-          {searching ? (
-            <div className="py-8 text-center text-xs text-[var(--muted)]">Searching…</div>
-          ) : !query.trim() ? (
-            <div className="py-8 text-center text-xs text-[var(--muted)]">
-              Type any English word, a Korean word in any form (먹었어요), 초성 (ㅎㄱ), romanization
-              (hanguk), a reading (Kana / Pinyin), or draw a character to look up definitions
-              offline.
-            </div>
-          ) : results.length === 0 ? (
-            <div className="py-8 text-center text-xs text-[var(--muted)]">
-              No offline dictionary matches found for “{query}”.
-            </div>
-          ) : (
-            results.map((entry) => {
-              const lang = PACK_LANG[entry.packId];
-              const defaultDeck = resolveDefaultDeckForEntry(entry);
-              const isAdding = addingEntryId === entry.id;
-              const selectedDeckId = lastDeckByLang[lang] ?? defaultDeck?.id ?? decks[0]?.id ?? '';
-              const alreadyInSelectedDeck = isEntryInDeck(
-                entry,
-                selectedDeckId ? deckPresenceByDeck.get(selectedDeckId) : undefined,
-              );
+        /* Results list, plus a detail pane beside it once the panel is tablet-wide (@lg = 32rem) */
+        <div className="grid items-start gap-3 @lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+          <div
+            data-testid="dictionary-results"
+            className="flex min-w-0 flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"
+          >
+            {searching ? (
+              <div className="py-8 text-center text-xs text-[var(--muted)]">Searching…</div>
+            ) : !query.trim() ? (
+              <div className="py-8 text-center text-xs text-[var(--muted)]">
+                Type any English word, a Korean word in any form (먹었어요), 초성 (ㅎㄱ),
+                romanization (hanguk), a reading (Kana / Pinyin), or draw a character to look up
+                definitions offline.
+              </div>
+            ) : results.length === 0 ? (
+              <div className="py-8 text-center text-xs text-[var(--muted)]">
+                No offline dictionary matches found for “{query}”.
+              </div>
+            ) : (
+              results.map((entry) => {
+                const lang = PACK_LANG[entry.packId];
+                const defaultDeck = resolveDefaultDeckForEntry(entry);
+                const isAdding = addingEntryId === entry.id;
+                const selectedDeckId =
+                  lastDeckByLang[lang] ?? defaultDeck?.id ?? decks[0]?.id ?? '';
+                const alreadyInSelectedDeck = isEntryInDeck(
+                  entry,
+                  selectedDeckId ? deckPresenceByDeck.get(selectedDeckId) : undefined,
+                );
+                const isSelected = selectedEntry?.id === entry.id;
 
-              return (
-                <article
-                  key={entry.id}
-                  data-testid={`dict-entry-${entry.headword}`}
-                  className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <EntryHeadline
-                        entry={entry}
-                        lang={lang}
-                        pinyinToneColors={state.preferences.pinyin_tone_colors}
-                      />
-                      <EntrySenses entry={entry} />
-                      <EntryMetaRow entry={entry} alreadyInSelectedDeck={alreadyInSelectedDeck} />
-                    </div>
+                return (
+                  <article
+                    key={entry.id}
+                    data-testid={`dict-entry-${entry.headword}`}
+                    data-selected={isSelected ? 'true' : undefined}
+                    className={`flex flex-col gap-2 rounded-xl border bg-[var(--bg)] p-3 ${
+                      isSelected ? SELECTED_ROW_CLASS : 'border-[var(--border)]'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <EntryHeadline
+                          entry={entry}
+                          lang={lang}
+                          pinyinToneColors={state.preferences.pinyin_tone_colors}
+                        />
+                        <div className="@lg:hidden">
+                          <EntrySenses entry={entry} />
+                        </div>
+                        {/* Split view: a one-line gloss; the full senses are in the detail pane */}
+                        <p className="mt-1 hidden truncate text-sm text-[var(--fg)] @lg:block">
+                          {entrySummary(entry)}
+                        </p>
+                        <EntryMetaRow entry={entry} alreadyInSelectedDeck={alreadyInSelectedDeck} />
+                      </div>
 
-                    <button
-                      type="button"
-                      data-testid={`dict-add-btn-${entry.headword}`}
-                      onClick={() => setAddingEntryId(isAdding ? null : entry.id)}
-                      className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--fg)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                    >
-                      {isAdding ? 'Cancel' : '+ Add to Deck'}
-                    </button>
-                  </div>
-
-                  {/* Quick 1-tap Add to Deck confirmation bar */}
-                  {isAdding && (
-                    <div
-                      data-testid={`dict-add-bar-${entry.headword}`}
-                      className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2 text-xs"
-                    >
-                      {decks.length > 0 ? (
-                        <>
-                          <label className="flex items-center gap-1.5 text-[var(--muted)]">
-                            <span>Deck:</span>
-                            <select
-                              aria-label="Destination deck"
-                              data-testid="dict-add-deck-select"
-                              value={selectedDeckId}
-                              onChange={(e) =>
-                                setLastDeckByLang((prev) => ({
-                                  ...prev,
-                                  [lang]: e.target.value,
-                                }))
-                              }
-                              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
-                            >
-                              {decks.map((d) => (
-                                <option key={d.id} value={d.id}>
-                                  {d.name} ({d.language})
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <button
-                            type="button"
-                            data-testid="dict-add-confirm-btn"
-                            onClick={() => {
-                              if (selectedDeckId) handleAddEntryToDeck(entry, selectedDeckId);
-                            }}
-                            className="rounded-lg bg-[var(--accent)] px-3 py-1 font-semibold text-white hover:opacity-90"
-                          >
-                            Add Card
-                          </button>
-                        </>
-                      ) : null}
+                      {/* Keyboard / D-pad way to pick the entry shown in the split-view detail pane */}
                       <button
                         type="button"
-                        data-testid="dict-add-new-deck-btn"
-                        onClick={() => handleQuickCreateAndAdd(entry)}
-                        className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+                        data-testid={`dict-show-${entry.headword}`}
+                        aria-pressed={isSelected}
+                        aria-label={`Show details for ${entry.headword}`}
+                        onClick={() => setSelectedEntryId(entry.id)}
+                        className="hidden shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--fg)] hover:border-[var(--accent)] @lg:inline-flex @lg:items-center"
                       >
-                        + New {PACK_SHORT_LABEL[entry.packId]} Deck
+                        Details
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid={`dict-add-btn-${entry.headword}`}
+                        onClick={() => setAddingEntryId(isAdding ? null : entry.id)}
+                        className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--fg)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                      >
+                        {isAdding ? 'Cancel' : '+ Add to Deck'}
                       </button>
                     </div>
-                  )}
-                </article>
-              );
-            })
+
+                    {/* Quick 1-tap Add to Deck confirmation bar */}
+                    {isAdding && (
+                      <div
+                        data-testid={`dict-add-bar-${entry.headword}`}
+                        className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2 text-xs"
+                      >
+                        {decks.length > 0 ? (
+                          <>
+                            <label className="flex items-center gap-1.5 text-[var(--muted)]">
+                              <span>Deck:</span>
+                              <select
+                                aria-label="Destination deck"
+                                data-testid="dict-add-deck-select"
+                                value={selectedDeckId}
+                                onChange={(e) =>
+                                  setLastDeckByLang((prev) => ({
+                                    ...prev,
+                                    [lang]: e.target.value,
+                                  }))
+                                }
+                                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
+                              >
+                                {decks.map((d) => (
+                                  <option key={d.id} value={d.id}>
+                                    {d.name} ({d.language})
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <button
+                              type="button"
+                              data-testid="dict-add-confirm-btn"
+                              onClick={() => {
+                                if (selectedDeckId) handleAddEntryToDeck(entry, selectedDeckId);
+                              }}
+                              className="rounded-lg bg-[var(--accent)] px-3 py-1 font-semibold text-white hover:opacity-90"
+                            >
+                              Add Card
+                            </button>
+                          </>
+                        ) : null}
+                        <button
+                          type="button"
+                          data-testid="dict-add-new-deck-btn"
+                          onClick={() => handleQuickCreateAndAdd(entry)}
+                          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+                        >
+                          + New {PACK_SHORT_LABEL[entry.packId]} Deck
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                );
+              })
+            )}
+          </div>
+          {!searching && query.trim() && selectedEntry && (
+            <DictionaryEntryDetail
+              entry={selectedEntry}
+              pinyinToneColors={state.preferences.pinyin_tone_colors}
+            />
           )}
         </div>
       )}
     </div>
+  );
+}
+
+/** First gloss, for the compact list row in split view. */
+function entrySummary(entry: DictionaryEntry): string {
+  const first = entry.senses?.[0];
+  if (first && first.equivalents.length > 0) return first.equivalents.join('; ');
+  if (first?.definition) return first.definition;
+  return entry.meanings.join('; ');
+}
+
+/** The detail pane's reading line (no test ids: the list row keeps those, so each exists once). */
+function DetailReading({ entry, lang, pinyinToneColors }: EntryLangProps) {
+  if (entry.eumhun && entry.eumhun.length > 0) {
+    return (
+      <span lang="ko" className="text-lg font-semibold text-[var(--accent)]">
+        {entry.eumhun.join(' · ')}
+      </span>
+    );
+  }
+  if (entry.readings.length === 0) return null;
+  if (entry.packId === 'dict-cc-cedict') {
+    return (
+      <span className="text-lg font-medium text-[var(--accent)]">
+        <RichText
+          text={entry.readings.join(' · ')}
+          lang="zh-Latn-pinyin"
+          hideRuby={false}
+          pinyinToneColors={pinyinToneColors}
+        />
+      </span>
+    );
+  }
+  const text =
+    entry.packId === 'dict-krdict' ? `[${entry.readings.join(', ')}]` : entry.readings.join(' · ');
+  return (
+    <span lang={lang} className="text-lg font-medium text-[var(--accent)]">
+      {text}
+    </span>
+  );
+}
+
+function DetailMeta({ entry }: { entry: DictionaryEntry }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--muted)]">
+      <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 font-semibold">
+        {PACK_SHORT_LABEL[entry.packId]}
+      </span>
+      {entry.pos && entry.pos.length > 0 && <span className="italic">{entry.pos.join(', ')}</span>}
+      {entry.level && (
+        <span className={`rounded-full px-2 py-0.5 font-semibold ${LEVEL_CLASS[entry.level]}`}>
+          {LEVEL_LABEL[entry.level]}
+        </span>
+      )}
+      {entry.origin && !entry.altForms?.length && <span lang="ko">원어 {entry.origin}</span>}
+      {entry.radical && <span>Radical: {entry.radical}</span>}
+      {entry.strokeCount && <span>{entry.strokeCount} strokes</span>}
+      {entry.grade && <span>· {entry.grade}</span>}
+    </div>
+  );
+}
+
+function DetailSense({ sense, index }: { sense: DictionarySense; index: number }) {
+  return (
+    <li className="text-base">
+      <div className="flex flex-wrap items-baseline gap-1.5">
+        <span className="text-xs font-semibold text-[var(--muted)]">{index + 1}.</span>
+        <span className="font-semibold text-[var(--fg)]">
+          {sense.equivalents.length > 0 ? sense.equivalents.join('; ') : sense.definition}
+        </span>
+        {sense.source && (
+          <span className="rounded bg-[var(--surface-2)] px-1 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+            {SENSE_SOURCE_LABEL[sense.source]}
+          </span>
+        )}
+      </div>
+      {sense.definition && sense.equivalents.length > 0 && (
+        <p className="text-sm text-[var(--muted)]">{sense.definition}</p>
+      )}
+      {sense.examples && sense.examples.length > 0 && (
+        <ul className="mt-1 flex flex-col gap-1 border-l-2 border-[var(--border)] pl-3 text-sm">
+          {sense.examples.map((ex, exIdx) => (
+            <li key={exIdx}>
+              <span lang="ko" className="text-[var(--fg)]">
+                {ex.text}
+              </span>
+              {ex.translation && (
+                <span lang="en" className="text-[var(--muted)]">
+                  {' — '}
+                  {ex.translation}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Detail pane of the dictionary split view (tablets, foldables, desktop). Hidden below the
+ * `@lg` container width, where every list entry already shows its full senses inline.
+ * Read-only: Add to Deck stays on the list row so each control exists exactly once.
+ */
+function DictionaryEntryDetail({
+  entry,
+  pinyinToneColors,
+}: {
+  entry: DictionaryEntry;
+  pinyinToneColors: boolean;
+}) {
+  const lang = PACK_LANG[entry.packId];
+  return (
+    <section
+      data-testid="dictionary-detail"
+      aria-label={`Details: ${entry.headword}`}
+      className="hidden min-w-0 flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 @lg:sticky @lg:top-3 @lg:flex @lg:max-h-[calc(100dvh-1.5rem)] @lg:overflow-y-auto"
+    >
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h3
+          lang={lang}
+          data-testid="dict-detail-headword"
+          className="text-5xl font-bold leading-tight text-[var(--fg)]"
+        >
+          {entry.headword}
+        </h3>
+        {entry.altForms && entry.altForms.length > 0 && (
+          <span lang={lang} className="text-lg text-[var(--muted)]">
+            ({entry.altForms.join(', ')})
+          </span>
+        )}
+        <DetailReading entry={entry} lang={lang} pinyinToneColors={pinyinToneColors} />
+      </div>
+      <DetailMeta entry={entry} />
+      {entry.senses && entry.senses.length > 0 ? (
+        <ol className="flex flex-col gap-3">
+          {entry.senses.map((sense, senseIdx) => (
+            <DetailSense key={senseIdx} sense={sense} index={senseIdx} />
+          ))}
+        </ol>
+      ) : (
+        <p className="text-base text-[var(--fg)]">{entry.meanings.join('; ')}</p>
+      )}
+    </section>
   );
 }

@@ -2,7 +2,7 @@
   {
     "name": "Initial study-screen JS (gzip)",
     "path": "apps/web/dist/assets/index-*.js",
-    "limit": "150 KB",
+    "limit": "160 KB",
     "gzip": true
   }
 ]

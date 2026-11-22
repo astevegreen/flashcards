@@ -4,10 +4,18 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   applyEvents,
+  buildSampleDeckEvents,
+  cardFilterToStatsFilter,
   createEmptyState,
   createEventFactory,
   createHlcState,
+  deriveCardId,
   deriveNoteId,
+  filterCards,
+  FLASH_NAMESPACE_UUID,
+  uuidv5,
+  type FlashEvent,
+  type ReviewRating,
 } from '../../../packages/core/src/index.ts';
 import { importFlashpkg } from '../../../packages/core/src/import/flashpkg.ts';
 import {
@@ -511,5 +519,103 @@ describe('Phase 7 tools/cli & Local MCP Server (§7.1, §10.3)', () => {
     expect(proposeData.aiProvenance).toBe(true);
     expect(existsSync(proposeData.path)).toBe(true);
     expect(validateFile(proposeData.path).valid).toBe(true);
+  });
+
+  it('mcp: get_weak_cards and get_stats take the Phase 9 filter and match the core ranking / Stats screen', () => {
+    const factory = createEventFactory('device-a', 0, createHlcState('device-a', 1000));
+    const events: FlashEvent[] = buildSampleDeckEvents(factory, 1000);
+    const koDeck = uuidv5(FLASH_NAMESPACE_UUID, 'sample-ko-vocab');
+    const jaDeck = uuidv5(FLASH_NAMESPACE_UUID, 'sample-ja-vocab');
+    const rec = (key: string) =>
+      deriveCardId(deriveNoteId(koDeck, key), 'layout:vocab-ko:recognition', 0);
+    const DAY = 86_400_000;
+    const now = Date.UTC(2026, 2, 10, 3, 0, 0);
+    let n = 0;
+    const review = (cardId: string, rating: ReviewRating, at: number) => {
+      n += 1;
+      events.push(
+        factory.create(
+          'ReviewRecorded',
+          {
+            review_id: `rev-${n}`,
+            card_id: cardId,
+            rating,
+            reviewed_at: at,
+            tz_offset: 540,
+            duration_ms: 1000 + n,
+            answer_mode: 'flip',
+            fsrs_params_version: 0,
+            resulting_due_at: at,
+          },
+          at,
+        ),
+      );
+    };
+    // 학교 (#daily): 2 lapses; 도서관 (#places): 1 lapse; 약속: reviewed, never failed.
+    for (const [key, lapses] of [
+      ['ko-1', 2],
+      ['ko-2', 1],
+      ['ko-3', 0],
+    ] as const) {
+      let t = now - 30 * DAY;
+      review(rec(key), 3, t);
+      review(rec(key), 3, (t += 600_000));
+      for (let i = 0; i < lapses; i++) {
+        review(rec(key), 1, (t += 5 * DAY));
+        review(rec(key), 3, (t += 600_000));
+      }
+    }
+    const state = createEmptyState();
+    applyEvents(state, events);
+    const ctx = { state, nowMs: () => now };
+    const call = (name: string, args: Record<string, unknown>) =>
+      (
+        handleMcpRequest(
+          { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } },
+          ctx,
+        )?.result as { structuredContent: Record<string, unknown> }
+      ).structuredContent;
+    const weakIds = (args: Record<string, unknown>) =>
+      (call('get_weak_cards', args)['cards'] as Array<{ cardId: string }>).map((c) => c.cardId);
+
+    // Unfiltered ranking is the core `hardest` ranking (compareHardestCards).
+    const filterCtx = { nowMs: now, tzOffsetMinutes: 540 };
+    expect(weakIds({ tzOffsetMinutes: 540 })).toEqual(
+      filterCards(state, { performance: { hardest: 20 } }, filterCtx).map((c) => c.id),
+    );
+    expect(weakIds({ tzOffsetMinutes: 540 }).slice(0, 2)).toEqual([rec('ko-1'), rec('ko-2')]);
+    expect(weakIds({ limit: 1 })).toEqual([rec('ko-1')]);
+
+    // Filtered by category, by failures, and by a deck that contradicts the filter.
+    const places = { categories: { mode: 'any', tags: ['places'] } };
+    expect(weakIds({ filter: places })).toEqual([rec('ko-2')]);
+    expect(weakIds({ filter: { performance: { minAgainCount: 1 } } })).toEqual([
+      rec('ko-1'),
+      rec('ko-2'),
+    ]);
+    expect(weakIds({ deckId: jaDeck, filter: { deckIds: [koDeck] } })).toEqual([]);
+    expect(
+      weakIds({ deckId: koDeck, filter: { categories: { mode: 'none', tags: ['daily'] } } }),
+    ).toEqual([rec('ko-2')]);
+
+    // get_stats: the filter compiles through the same bridge as the Stats screen.
+    const stats = call('get_stats', { tzOffsetMinutes: 540, filter: places })[
+      'stats'
+    ] as CollectionStats;
+    expect(stats).toEqual(
+      computeCollectionStats(state, {
+        nowMs: now,
+        tzOffsetMinutes: 540,
+        filter: cardFilterToStatsFilter(state, places, filterCtx),
+      }),
+    );
+    expect(stats.totals.cards).toBe(1);
+    expect(stats.totals.reviews).toBe(4);
+    const scoped = call('get_stats', {
+      tzOffsetMinutes: 540,
+      deckIds: [jaDeck],
+      filter: { deckIds: [koDeck] },
+    })['stats'] as CollectionStats;
+    expect(scoped.totals.cards).toBe(0);
   });
 });

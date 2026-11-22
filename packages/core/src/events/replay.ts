@@ -1240,6 +1240,13 @@ function applyScalarPreferences(ctx: ApplyEventContext, pref: PreferencesPatch):
     state.preferences.auto_play_audio = pref.auto_play_audio;
     changed = true;
   }
+  if (
+    typeof pref.leech_auto_suspend === 'boolean' &&
+    shouldApplyLww(state, 'prefs:leech_auto_suspend', hlc, collector)
+  ) {
+    state.preferences.leech_auto_suspend = pref.leech_auto_suspend;
+    changed = true;
+  }
   return changed;
 }
 

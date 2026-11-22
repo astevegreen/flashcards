@@ -10,6 +10,7 @@ import {
   getEnabledLayoutsForDeck,
   getTotalAppliedEventCount,
   resolveDeckFsrsConfig,
+  shouldAutoSuspendLeech,
   uuidv5,
   uuidv7,
   type Card,
@@ -53,6 +54,8 @@ export interface UndoEntry {
   reviewId: string;
   cardId: string;
   deckId: string;
+  /** The review made the card a leech and auto-suspended it; Undo unsuspends it too. */
+  leechSuspended?: boolean;
 }
 
 export interface AppContextValue {
@@ -373,7 +376,12 @@ export function AppProvider({
       const st = stateRef.current ?? collectionState;
       const paramsVersion = getActiveFsrsParamsVersion(st, card.deck_id);
       const fsrsConfig = resolveDeckFsrsConfig(st, card.deck_id, nowMs, paramsVersion);
-      const { resulting_due_at } = applyReviewToSchedule(card.schedule, rating, nowMs, fsrsConfig);
+      const { next, resulting_due_at } = applyReviewToSchedule(
+        card.schedule,
+        rating,
+        nowMs,
+        fsrsConfig,
+      );
       const reviewId = uuidv7(nowMs);
       const layout = st.layouts.get(card.layout_id);
 
@@ -394,11 +402,23 @@ export function AppProvider({
         nowMs,
       );
 
+      // Phase 9 leech auto-suspend (setting, default off): decided once here, logged as an event.
+      const events: KnownEvent[] = [ev];
+      const leech = shouldAutoSuspendLeech(st, card.id, card.schedule.lapses, next.lapses);
+      if (leech) {
+        events.push(
+          factory.create(
+            'CardSuspended',
+            { card_id: card.id, reason: 'leech', review_id: reviewId },
+            nowMs,
+          ),
+        );
+      }
       setUndoStack((prev) => [
         ...prev.slice(-49),
-        { reviewId, cardId: card.id, deckId: card.deck_id },
+        { reviewId, cardId: card.id, deckId: card.deck_id, ...(leech && { leechSuspended: true }) },
       ]);
-      emitEvents([ev]);
+      emitEvents(events);
     },
     [collectionState, emitEvents, eventFactory],
   );
@@ -407,9 +427,14 @@ export function AppProvider({
     const last = undoStack[undoStack.length - 1];
     if (!last) return false;
     const factory = factoryRef.current ?? eventFactory;
-    const ev = factory.create('ReviewUndone', { review_id: last.reviewId }, Date.now());
+    const nowMs = Date.now();
+    const ev = factory.create('ReviewUndone', { review_id: last.reviewId }, nowMs);
     setUndoStack((prev) => prev.slice(0, -1));
-    emitEvents([ev]);
+    emitEvents(
+      last.leechSuspended
+        ? [ev, factory.create('CardUnsuspended', { card_id: last.cardId }, nowMs)]
+        : [ev],
+    );
     return true;
   }, [emitEvents, eventFactory, undoStack]);
 

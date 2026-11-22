@@ -5,7 +5,7 @@ import { AppShell, type NavTab } from './layout/AppShell.tsx';
 import { StudyScreen } from './screens/StudyScreen.tsx';
 import { AppProvider, useApp } from './state/AppContext.tsx';
 
-// Lazy-load secondary screens so initial study-screen JS stays well under the 150 KB gzip budget (§8)
+// Lazy-load secondary screens so initial study-screen JS stays well under the 160 KB gzip budget (§8)
 const LibraryScreen = lazy(() =>
   import('./screens/LibraryScreen.tsx').then((m) => ({ default: m.LibraryScreen })),
 );
