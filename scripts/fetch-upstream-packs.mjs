@@ -16,9 +16,18 @@
  *   - CC-CEDICT (cedict_1_0_ts_utf-8_mdbg.txt.gz)                                      CC BY-SA 4.0
  *   - KanjiVG single-file XML release (kanjivg-YYYYMMDD.xml.gz)                         CC BY-SA 3.0
  *   - Make Me a Hanzi graphics.txt + Arphic Public License text (pinned commit)        Arphic PL
+ *   - KRDict 한국어기초사전 (NIKL), English edition — MANUAL step, see below            CC BY-SA 2.0 KR
+ *
+ * KRDict manual step: krdict.korean.go.kr offers the full dictionary only through its
+ * "사전 전체 내려받기" popup (and its Open API needs a registered key), so this script never
+ * downloads it. Download the XML export yourself (English edition or the full multilingual one;
+ * only English equivalents are kept), then put the .zip or .xml files in
+ * .cache/upstream-open-data/krdict/. This script unzips them in place and records provenance;
+ * uild-packs.mjs --full then builds dict-krdict. Pass --krdict-version <label> (e.g. the
+ * export date) to stamp the pack version.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,12 +40,18 @@ export const MMAH_COMMIT = 'bddc96d41bef78427ed0e034e9f7e31d71fd1b92';
 const MMAH_RAW = `https://raw.githubusercontent.com/skishore/makemeahanzi/${MMAH_COMMIT}`;
 
 function parseArgs(argv) {
-  const out = { dir: join(REPO_ROOT, '.cache', 'upstream-open-data'), force: false, jmdict: true };
+  const out = {
+    dir: join(REPO_ROOT, '.cache', 'upstream-open-data'),
+    force: false,
+    jmdict: true,
+    krdictVersion: undefined,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dir') out.dir = resolve(argv[++i]);
     else if (a === '--force') out.force = true;
     else if (a === '--skip-jmdict') out.jmdict = false;
+    else if (a === '--krdict-version') out.krdictVersion = argv[++i];
   }
   return out;
 }
@@ -61,6 +76,64 @@ async function resolveKanjivgRelease() {
   const asset = rel.assets.find((a) => /^kanjivg-\d{8}\.xml\.gz$/.test(a.name));
   if (!asset) throw new Error(`KanjiVG release ${rel.tag_name} has no single-file .xml.gz asset`);
   return { tag: rel.tag_name, url: asset.browser_download_url, name: asset.name };
+}
+
+/**
+ * KRDict cannot be fetched unattended (see header). Unzips any manually placed export in
+ * <dir>/krdict/ and records provenance, or prints exactly what the owner needs to do.
+ */
+function prepareManualKrdict(opts, sources) {
+  const dir = join(opts.dir, 'krdict');
+  mkdirSync(dir, { recursive: true });
+  const list = () => readdirSync(dir, { recursive: true }).map(String);
+  const zips = list().filter((f) => /\.zip$/i.test(f));
+  if (zips.length > 0) {
+    const require = createRequire(join(REPO_ROOT, 'packages', 'core', 'package.json'));
+    const { unzipSync } = require('fflate');
+    for (const zip of zips) {
+      const files = unzipSync(readFileSync(join(dir, zip)), {
+        filter: (f) => /\.xml$/i.test(f.name) && !f.name.includes('..'),
+      });
+      for (const [name, data] of Object.entries(files)) {
+        writeFileSync(join(dir, name.split('/').pop()), data);
+      }
+      console.log(`✓ extracted ${Object.keys(files).length} KRDict XML file(s) from ${zip}`);
+    }
+  }
+  const xmls = list()
+    .filter((f) => /\.xml(\.gz)?$/i.test(f))
+    .sort();
+  if (xmls.length === 0) {
+    console.warn(
+      [
+        '! KRDict (dict-krdict) not found — manual download required:',
+        '  1. Open https://krdict.korean.go.kr/ → "사전 전체 내려받기" (dictionary download).',
+        '     Choose the XML export of the English edition (or the multilingual export).',
+        '  2. Save the .zip or .xml files to:',
+        `     ${dir}`,
+        '  3. Re-run this script (it unzips and records provenance), then build-packs.mjs --full.',
+        '  Text is CC BY-SA 2.0 KR (NIKL); audio/images are licensed per file and are not used.',
+      ].join('\n'),
+    );
+    return;
+  }
+  const hash = createHash('sha256');
+  let bytes = 0;
+  for (const f of xmls) {
+    const buf = readFileSync(join(dir, f));
+    hash.update(buf);
+    bytes += buf.byteLength;
+  }
+  sources.krdict = {
+    file: 'krdict/',
+    files: xmls,
+    url: 'https://krdict.korean.go.kr/ (manual download)',
+    version: opts.krdictVersion ?? sources.krdict?.version ?? new Date().toISOString().slice(0, 10),
+    bytes,
+    sha256: hash.digest('hex'),
+    fetched_at: new Date().toISOString(),
+  };
+  console.log(`✓ KRDict: ${xmls.length} XML file(s), ${(bytes / 1024 / 1024).toFixed(1)} MB`);
 }
 
 async function main() {
@@ -154,6 +227,8 @@ async function main() {
     }
     console.log(`✓ extracted ${Object.keys(files).length} Unihan tables`);
   }
+
+  prepareManualKrdict(opts, sources);
 
   writeFileSync(sourcesPath, JSON.stringify(sources, null, 2) + '\n', 'utf8');
   console.log(`Upstream open data ready in ${opts.dir}`);
