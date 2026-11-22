@@ -1,11 +1,12 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { STARTER_CATALOG } from '../../packages/core/src/starters/generated/catalog.ts';
 
 /**
  * Phase 14 curated starter decks. A fresh device (production preview, no `?device=`) offers
  * onboarding; each language's first deck is its open-data starter deck, or the built-in sample
  * deck for languages no open source covers yet. Picking it reaches a study card from that deck,
- * and the deck's credits are on every card (Notes) and in the deck's Library row.
+ * and the deck's credits are on every card (Notes). A starter deck is the user's own (native)
+ * deck in the Library, not a linked package.
  */
 
 interface LanguageCase {
@@ -36,10 +37,6 @@ const CASES: readonly LanguageCase[] = [
   { language: 'en', deckName: 'English Idioms (EN)' },
 ];
 
-async function deckOptions(page: Page): Promise<string[]> {
-  return page.getByLabel('Select deck to study').locator('option').allTextContents();
-}
-
 test.describe('Phase 14 starter decks in first-run onboarding', () => {
   for (const c of CASES) {
     test(`${c.language}: a fresh device picks its first deck and studies it`, async ({ page }) => {
@@ -61,7 +58,10 @@ test.describe('Phase 14 starter decks in first-run onboarding', () => {
       const card = page.getByTestId('study-card');
       await expect(card).toBeVisible();
       await expect(page.getByTestId('onboarding')).toHaveCount(0);
-      expect(await deckOptions(page)).toEqual(['All Decks', c.deckName]);
+      await expect(page.getByLabel('Select deck to study').locator('option')).toHaveText([
+        'All Decks',
+        c.deckName,
+      ]);
       if (!c.starter) return;
 
       // Reveal every step: the card's credits are in its Notes field.
@@ -69,11 +69,11 @@ test.describe('Phase 14 starter decks in first-run onboarding', () => {
       await page.keyboard.press('Space');
       await expect(page.getByTestId('card-back')).toContainText(c.starter.credit);
 
-      // The Library row shows the whole deck, marked as packaged content.
+      // The Library row shows the whole deck as the user's own deck (no linked-source badge).
       await page.getByRole('button', { name: 'Library' }).first().click();
       const row = page.locator('[data-testid^="deck-row-"]').filter({ hasText: c.deckName });
       await expect(row).toContainText(`${c.starter.noteCount} notes`);
-      await expect(row).toContainText('Package');
+      await expect(row).not.toContainText('Package');
     });
   }
 

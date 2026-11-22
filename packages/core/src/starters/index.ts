@@ -53,8 +53,8 @@ export async function loadStarterDeck(slug: string): Promise<StarterDeckContent>
 }
 
 /**
- * Seed events for one starter deck: `DeckCreated` (recording where the deck came from) and one
- * `NoteUpserted` per note, with ids derived from the slug and each note's source key.
+ * Seed events for one starter deck: `DeckCreated` (a native deck that records where it came
+ * from) and one `NoteUpserted` per note, with ids derived from the slug and each note's source key.
  */
 export function buildStarterDeckEvents(
   eventFactory: EventFactory,
@@ -71,8 +71,10 @@ export function buildStarterDeckEvents(
         name: info.name,
         note_type_id: info.noteTypeId,
         language: info.language,
+        // `native`: nothing ever pulls a starter deck, so it is the user's own deck (Browse can
+        // move notes in and out, see `isLinkedDeck`); the other fields only record provenance.
         source: {
-          kind: 'package',
+          kind: 'native',
           package_id: `flash-starter:${info.slug}`,
           package_version: info.version,
           content_hash: info.contentHash,

@@ -11,6 +11,7 @@ import {
   starterDeckId,
 } from '../src/starters/index.ts';
 import { sampleDeckId, SAMPLE_DECKS } from '../src/samples/decks.ts';
+import { isLinkedDeck } from '../src/tags/bulk.ts';
 
 const factory = (device: string) =>
   createEventFactory(device, 0, createHlcState(device, STARTER_SEED_EPOCH_MS));
@@ -83,8 +84,10 @@ describe('seeding a starter deck', () => {
     const deck = state.decks.get(starterDeckId(info.slug));
     expect(deck?.name).toBe(info.name);
     expect(deck?.language).toBe(info.language);
+    // Native, so Browse treats it as the user's own deck (never pulled, never linked).
+    expect(isLinkedDeck(deck)).toBe(false);
     expect(deck?.source).toMatchObject({
-      kind: 'package',
+      kind: 'native',
       package_id: `flash-starter:${info.slug}`,
       package_version: info.version,
       content_hash: info.contentHash,
