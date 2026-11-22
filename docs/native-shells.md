@@ -53,7 +53,22 @@ Android-specific wiring that is checked in:
   `flashcards://oauth/microsoft`). OneDrive sign-in runs in Chrome Custom Tabs, and
   `@capgo/capacitor-social-login` takes the redirect in `handleOnNewIntent`, checks `state` and
   redeems the code with its PKCE verifier. The picker's `appUrlOpen` listener matches scheme and
-  host exactly, so it ignores this redirect.
+  host exactly, so it ignores this redirect. Both checks (`src/native/deep-links.ts`) are plain
+  string comparisons, not `new URL(...)`: Android System WebViews older than Chromium 130 parse
+  custom-scheme URLs differently (empty `host`).
+- `launchCustomTabs` hands the sign-in page to whichever browser handles it (Custom Tabs when the
+  browser supports them, a normal browser tab otherwise). Only when the phone has no browser at all
+  (`ActivityNotFoundException`) does the plugin fall back to its own in-app WebView
+  (`OAuth2Provider.java` lines 537–545 and 886–899 in 8.7.13). That fallback still checks `state`
+  and PKCE, but the user types their Microsoft password into an embedded view, which RFC 8252
+  advises against. We accept it because the alternative on such a phone is no OneDrive at all.
+- `android:fullBackupContent` (`res/xml/backup_rules.xml`, Android 6–11) and
+  `android:dataExtractionRules` (`res/xml/data_extraction_rules.xml`, Android 12+) keep three
+  SharedPreferences files out of Auto Backup and device transfer: `CapgoOAuth2ProviderPrefs` and
+  `GOOGLE_LOGIN_F13oz0I_SHARED_PERF` (the sign-in plugin's plaintext tokens, which exist briefly
+  before the app deletes them, plus the PKCE verifier during a sign-in) and
+  `app.flashcards.securestorage` (Keystore ciphertext, useless without this phone's key). Everything
+  else, the flashcards database included, is still backed up. Keep the two files in sync.
 - `MainActivity.java` implements `ModifiedMainActivityForSocialLoginPlugin`, which
   `@capgo/capacitor-social-login` requires before it lets you request the Drive scopes.
 - Google Sign-In uses Credential Manager. Register the app's SHA-1 (debug and release) on an
@@ -114,9 +129,11 @@ checklist). The store is the workspace plugin `packages/capacitor-secure-storage
   `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronized to iCloud Keychain.
 - **Android:** AES-256-GCM with a key generated in `AndroidKeyStore`
   (`app.flashcards.securestorage.aes.v1`). Only ciphertext goes to the app-private SharedPreferences
-  file `app.flashcards.securestorage`. A value that cannot be decrypted, for example after Auto
-  Backup restores that file onto a new phone without the key, is deleted, and the user signs in
-  again.
+  file `app.flashcards.securestorage` (excluded from backups). A value that cannot be decrypted is
+  deleted, and the user signs in again. If the Keystore key itself becomes unusable (some devices
+  invalidate keys after an OS update: `UnrecoverableKeyException` or `InvalidKeyException`), the
+  plugin deletes the key and every stored value, `get` returns `null`, and the next `set` creates a
+  new key, so signing in again always works.
 - **Web:** the plugin rejects every call. There is no insecure fallback.
 
 What is kept there (`packages/platform-capacitor/src/secure/`):
@@ -130,6 +147,10 @@ What is kept there (`packages/platform-capacitor/src/secure/`):
 
 `createSecureKvRouting` wraps the SQLite `Storage`, so the auth classes keep calling
 `getKv` / `setKv` and never notice. "Reset Local Device Data" (`clearAll`) deletes the secrets too.
+Decrypted values are cached in memory for the session, so a token read costs one Keychain or
+Keystore call per launch. A unit test checks that `SECURE_KV_KEYS` uses the adapters' own key
+constants and that signing in to Google and OneDrive writes no KV row to SQLite, so renaming a key
+cannot quietly send a secret back to SQLite.
 
 What `@capgo/capacitor-social-login` 8.7.13 persists by itself, and what the app does about it:
 
@@ -147,8 +168,12 @@ What `@capgo/capacitor-social-login` 8.7.13 persists by itself, and what the app
 - **Google on Android.** `GoogleProvider.java` `persistState()` (line 622, called from
   `resolveOnlineLogin()` at line 295) writes the ID token and access token (no refresh token) to
   SharedPreferences `GOOGLE_LOGIN_F13oz0I_SHARED_PERF` (lines 68–69). The app deletes that entry
-  after every sign-in (`afterLogin` in `createGoogleSignInPlugin`) and at launch, through
-  `FlashSecureStorage.removeLegacyPreference`. Nothing reads it back: a token refresh is a silent
+  after every sign-in (`afterLogin` in `createGoogleSignIn`, `src/auth/google-social-login.ts`;
+  the hook comes from `googleSignInCleanup`) and at launch, through
+  `FlashSecureStorage.removeLegacyPreference`. That native method only deletes the plugin's own
+  token entries (Android: `CapgoOAuth2ProviderPrefs` / `OAuth2Tokens_*` and
+  `GOOGLE_LOGIN_F13oz0I_SHARED_PERF` / `GOOGLE_LOGIN_GOOGLE_DATA_*`; iOS:
+  `CapgoOAuth2ProviderTokens_*`) and rejects any other file or key. Nothing reads it back: a token refresh is a silent
   sign-in through Credential Manager, and the long-lived credential stays with Google Play
   services. Calling `SocialLogin.logout` instead would clear Credential Manager state and break
   silent sign-in.
@@ -160,11 +185,14 @@ At launch (`native/boot.ts`):
 
 1. On a fresh database (first launch after install) the app deletes leftover secrets, because iOS
    keeps Keychain items when an app is deleted. Otherwise it moves any secret KV row an older build
-   left in SQLite into the secure store and deletes the row.
+   left in SQLite into the secure store and deletes the row. This sweep runs once per database (the
+   plain SQLite flag `secure_kv_migrated_v1`); a row that turns up later, for example after a
+   downgrade, is moved the first time it is read.
 2. In the background it deletes the Google copy on Android. If OneDrive is connected, it starts the
    OneDrive bridge, which moves a refresh token still held by the plugin into the secure store
    (the secure copy wins if both exist) and then deletes the plugin's copy. If OneDrive is not
-   connected, it deletes the plugin's Microsoft copy directly.
+   connected, it deletes the plugin's Microsoft copy directly. A failed delete is logged and never
+   blocks OneDrive; the next launch tries again.
 
 The key names of the plugin's plaintext entries are internal to version 8.7.x. Check them again
 when upgrading `@capgo/capacitor-social-login` (`SOCIAL_LOGIN_GOOGLE_ANDROID_COPY` and
@@ -222,10 +250,10 @@ it is not in a secure store. Linux builds need the D-Bus development package (`l
 
 ## Interfaces still waiting on a native plugin
 
-| Interface               | Status                                                                                                                                                                     |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MlKitDigitalInkPlugin` | **Wired** to `@capacitor-mlkit/digital-ink-recognition` (Capawesome). `zh-Hans`/`zh-Hant` map to ML Kit `zh-Hani-CN`/`zh-Hani-TW`. The web stroke matcher is the fallback. |
-| `StoreBillingPlugin`    | **Wired** to `@capgo/native-purchases` (StoreKit 2 / Play Billing 7, non-consumable `INAPP`).                                                                              |
-| `ICloudDocumentPlugin`  | **Wired** to the local Swift plugin `ios/App/App/ICloudDocumentsPlugin.swift` (iOS only; see the iOS section).                                                             |
-| Desktop refresh token   | **Done.** Kept in the OS keychain (see the Desktop section).                                                                                                               |
-| Phone sign-in tokens    | **Done.** Kept in the Keychain / Keystore by `@flash/capacitor-secure-storage` (see Phone secure storage). Not yet built or run on a device.                               |
+| Interface               | Status                                                                                                                                                                      |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MlKitDigitalInkPlugin` | **Wired** to `@capacitor-mlkit/digital-ink-recognition` (Capawesome). `zh-Hans`/`zh-Hant` map to ML Kit `zh-Hani-CN`/`zh-Hani-TW`. The web stroke matcher is the fallback.  |
+| `StoreBillingPlugin`    | **Wired** to `@capgo/native-purchases` (StoreKit 2 / Play Billing 7, non-consumable `INAPP`).                                                                               |
+| `ICloudDocumentPlugin`  | **Wired** to the local Swift plugin `ios/App/App/ICloudDocumentsPlugin.swift` (iOS only; see the iOS section).                                                              |
+| Desktop refresh token   | **Done.** Kept in the OS keychain (see the Desktop section).                                                                                                                |
+| Phone sign-in tokens    | **Done.** Kept in the Keychain / Keystore by `@flash/capacitor-secure-storage` (see Phone secure storage). Gradle and Xcode builds not yet run; not yet tested on a device. |

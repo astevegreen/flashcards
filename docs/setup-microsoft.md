@@ -59,6 +59,9 @@ Add a **Mobile and desktop applications** platform with these custom redirect UR
 | Tauri (Windows / macOS) | `http://localhost`             | Loopback PKCE (RFC 8252) through `tauri-plugin-oauth`, same as Google. Entra ignores the port for `localhost` on public clients, so the random port the plugin picks is accepted.                                                                                                               |
 | Android / iOS           | `flashcards://oauth/microsoft` | `@capgo/capacitor-social-login` (generic `oauth2` provider) with PKCE. iOS uses `ASWebAuthenticationSession` and the `flashcards` scheme already in `Info.plist`. Android uses Chrome Custom Tabs (`androidUseCustomTabs`) and the `flashcards://oauth` intent filter in `AndroidManifest.xml`. |
 
+On an Android phone with no browser at all, the plugin falls back to its own in-app WebView for
+the sign-in page (see `docs/native-shells.md`). The redirect URI stays the same.
+
 These are public clients. They send no secret and get Microsoft's rolling refresh tokens.
 
 - **Tauri** keeps the refresh token in the OS keychain (account `microsoft-refresh-token`).
