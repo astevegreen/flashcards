@@ -13,6 +13,10 @@ Open items left after the Phase 12/13/14 batch (PR #8). Tick an item off, or del
 - [ ] **Commit a Cloudflare Pages `_headers` file** to `apps/web/public`, with the CSP and `.wasm` headers from `docs/setup-gcp-cloudflare.md` §6, plus a test that keeps it in sync with `apps/web/csp.ts`.
 - [ ] **Anki `kana:` fields render readings only.** `漢字[かんじ]` becomes `かんじ`, matching Anki. Today they show as ruby.
 - [ ] **Anki field languages.** Keep automatic detection, but show the detected language per field in the import summary with a way to change it.
+- [ ] **Onboarding language order** (approved 2026-11-22). Don't preselect from the device locale, because the locale shows what people speak, not what they're learning. Put Korean first. On a Korean-locale device, put English first.
+- [ ] **Existing users never see onboarding** (approved 2026-11-22). It stays on empty collections only. Users with data but no sync provider get the existing one-time "Sync my devices" prompt instead.
+- [ ] **Empty-screen buttons** (approved 2026-11-22). Keep the sync button visible, renamed along the lines of "I already use this app: sync my devices" and tied to the add-device QR code. Drop "Load Sample Decks", which onboarding replaces.
+- [ ] **Re-offer onboarding after "Reset Local Device Data"** (approved 2026-11-22). Clear the `onboarding_v1` record on reset, so a reset behaves like a fresh install.
 - [ ] `docs/onboarding-review.md`, the audit with measured tester results on real devices. This needs real devices and non-technical testers, so it may not fit in a code batch.
 
 ## Not verified on real devices or services
@@ -35,13 +39,6 @@ Only Chromium Playwright with faked endpoints has covered these.
 - **Anki deck mapping:** one deck per (Anki deck, model) pair, because a deck has a single note type here.
 
 ## Still open
-
-### Onboarding details (owner wants to discuss first)
-
-- [ ] **Preselect the language from the device locale.** Today the order is fixed: Korean, Japanese, Mandarin, English.
-- [ ] **Show onboarding once to existing users.** Today it appears only on an empty collection.
-- [ ] **Move "Connect Cloud Sync" and "Load Sample Decks"** behind a "More options" link on the empty screen.
-- [ ] **Re-offer onboarding after "Reset Local Device Data".**
 
 ### Anki extras (owner: no preference; proposed defaults)
 

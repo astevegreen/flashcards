@@ -93,7 +93,8 @@ jobs:
         run: |
           node --input-type=module -e '
             import { writeFileSync } from "node:fs";
-            import { applyEvents, createEmptyState, createEventFactory, createHlcState } from "./packages/core/src/events/replay.ts";
+            import { applyEvents, createEmptyState, createEventFactory } from "./packages/core/src/events/replay.ts";
+            import { createHlcState } from "./packages/core/src/hlc.ts";
             import { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } from "./packages/core/src/samples/decks.ts";
             import { exportFlashpkg } from "./packages/core/src/import/flashpkg.ts";
             import { buildFamilyCatalogJson } from "./tools/cli/src/commands/build.ts";

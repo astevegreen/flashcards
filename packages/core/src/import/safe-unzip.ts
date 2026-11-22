@@ -109,10 +109,13 @@ class EntrySink {
   private readonly chunks: Uint8Array[] = [];
   private fileBytes = 0;
 
-  constructor(
-    private readonly run: UnzipRun,
-    private readonly name: string,
-  ) {}
+  private readonly run: UnzipRun;
+  private readonly name: string;
+
+  constructor(run: UnzipRun, name: string) {
+    this.run = run;
+    this.name = name;
+  }
 
   onData(err: FlateError | null, chunk: Uint8Array, final: boolean): void {
     const { run } = this;

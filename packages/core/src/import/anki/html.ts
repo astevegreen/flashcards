@@ -328,7 +328,11 @@ class FieldTextBuilder {
   readonly sounds: string[] = [];
   droppedActiveContent = false;
 
-  constructor(private readonly options: AnkiFieldTextOptions) {}
+  private readonly options: AnkiFieldTextOptions;
+
+  constructor(options: AnkiFieldTextOptions) {
+    this.options = options;
+  }
 
   addRaw(raw: string): void {
     this.run += raw;

@@ -3,7 +3,8 @@
   "compilerOptions": {
     "lib": ["ES2023"],
     "types": [],
-    "noEmit": true
+    "noEmit": true,
+    "erasableSyntaxOnly": true
   },
   "include": ["src/**/*.ts"]
 }
