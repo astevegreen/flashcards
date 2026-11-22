@@ -4,8 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "echo \"Tauri shell config validated\"",
-    "build": "echo \"Tauri shell wraps ../web/dist\""
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:debug": "tauri build --debug --no-bundle",
+    "check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "typecheck": "node -e \"JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json','utf8'))\""
   },
   "dependencies": {
     "@flash/core": "workspace:*",

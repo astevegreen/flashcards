@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @flash/web dev",
-    "build": "pnpm -r build",
+    "build": "pnpm -r --filter \"!@flash/desktop\" build",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
     "format": "prettier --write .",

@@ -4,13 +4,22 @@
   "version": "0.1.0",
   "identifier": "app.flashcards.localfirst",
   "build": {
-    "beforeBuildCommand": "pnpm --filter @flash/web build",
-    "frontendDist": "../web/dist",
+    "beforeDevCommand": {
+      "script": "pnpm --filter @flash/web dev",
+      "cwd": "../..",
+      "wait": false
+    },
+    "beforeBuildCommand": {
+      "script": "pnpm --filter @flash/web build",
+      "cwd": "../.."
+    },
+    "frontendDist": "../../web/dist",
     "devUrl": "http://localhost:5173"
   },
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Flashcards — Local-First Study",
         "width": 1160,
         "height": 800,
@@ -25,8 +34,23 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["flashcards"]
+        "schemes": [
+          "flashcards"
+        ]
       }
     }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Education",
+    "shortDescription": "Local-first foreign language flashcards"
   }
 }
