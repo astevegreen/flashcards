@@ -63,9 +63,20 @@ public class FlashSecureStoragePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// Clears a plaintext copy another plugin kept in `UserDefaults.standard`.
+    /// The only `UserDefaults.standard` keys `removeLegacyPreference` may delete: the plaintext OAuth2
+    /// token copies `@capgo/capacitor-social-login` 8.7.x writes (`OAuth2Provider.swift`,
+    /// `tokenStorageKeyPrefix`).
+    private static let legacyPreferencePrefix = "CapgoOAuth2ProviderTokens_"
+
+    /// Clears a plaintext token copy the sign-in plugin kept in `UserDefaults.standard`. Any key outside
+    /// the allowlist is rejected.
     @objc func removeLegacyPreference(_ call: CAPPluginCall) {
         guard let key = requireKey(call) else { return }
+        let prefix = Self.legacyPreferencePrefix
+        guard key.hasPrefix(prefix), key.count > prefix.count else {
+            call.reject("Not a known sign-in token copy", "INVALID_ARGUMENT")
+            return
+        }
         UserDefaults.standard.removeObject(forKey: key)
         call.resolve()
     }

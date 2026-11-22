@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cloud backup and device-to-device transfer on Android 12+ (android:dataExtractionRules). Same
+     exclusions as backup_rules.xml: keeps sign-in secrets out of backups and transfers (§13, §16). -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="CapgoOAuth2ProviderPrefs.xml" />
+        <exclude domain="sharedpref" path="GOOGLE_LOGIN_F13oz0I_SHARED_PERF.xml" />
+        <exclude domain="sharedpref" path="app.flashcards.securestorage.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="CapgoOAuth2ProviderPrefs.xml" />
+        <exclude domain="sharedpref" path="GOOGLE_LOGIN_F13oz0I_SHARED_PERF.xml" />
+        <exclude domain="sharedpref" path="app.flashcards.securestorage.xml" />
+    </device-transfer>
+</data-extraction-rules>

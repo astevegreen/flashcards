@@ -18,6 +18,11 @@ export interface FlashSecureStoragePlugin {
    * Deletes a plaintext entry another plugin left in the app's own insecure storage (UserDefaults on
    * iOS, the named SharedPreferences file on Android), so a token copy can be cleared after it was
    * moved here. Never reads the value. A no-op on the web.
+   *
+   * The native side only accepts the token copies `@capgo/capacitor-social-login` 8.7.x writes
+   * (Android: `CapgoOAuth2ProviderPrefs` / `OAuth2Tokens_*` and `GOOGLE_LOGIN_F13oz0I_SHARED_PERF` /
+   * `GOOGLE_LOGIN_GOOGLE_DATA_*`; iOS: `CapgoOAuth2ProviderTokens_*`) and rejects anything else
+   * with `INVALID_ARGUMENT`.
    */
   removeLegacyPreference(options: {
     key: string;

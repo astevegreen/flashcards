@@ -25,6 +25,16 @@ public class SecureStoragePlugin extends Plugin {
     private static final String PREFS_NAME = "app.flashcards.securestorage";
     private static final String ENTRY_PREFIX = "v1:";
 
+    /*
+     * The only plaintext token copies removeLegacyPreference may delete: a SharedPreferences file and
+     * a key prefix, both written by @capgo/capacitor-social-login 8.7.x (OAuth2Provider.java PREFS_NAME
+     * and PREFS_KEY_PREFIX; GoogleProvider.java SHARED_PREFERENCE_NAME and GOOGLE_DATA_PREFERENCE).
+     */
+    private static final String OAUTH2_PREFS_NAME = "CapgoOAuth2ProviderPrefs";
+    private static final String OAUTH2_TOKEN_PREFIX = "OAuth2Tokens_";
+    private static final String GOOGLE_PREFS_NAME = "GOOGLE_LOGIN_F13oz0I_SHARED_PERF";
+    private static final String GOOGLE_DATA_PREFIX = "GOOGLE_LOGIN_GOOGLE_DATA_";
+
     private final KeystoreCipher cipher = new KeystoreCipher();
 
     private SharedPreferences prefs() {
@@ -38,6 +48,32 @@ public class SecureStoragePlugin extends Plugin {
             return null;
         }
         return key;
+    }
+
+    /** Drops every stored secret, after the Keystore key that sealed them was lost. */
+    private void dropAllEntries() {
+        SharedPreferences.Editor editor = prefs().edit();
+        for (String name : prefs().getAll().keySet()) {
+            if (name.startsWith(ENTRY_PREFIX)) {
+                editor.remove(name);
+            }
+        }
+        editor.commit();
+    }
+
+    private static String allowedLegacyPrefix(String fileName) {
+        if (OAUTH2_PREFS_NAME.equals(fileName)) {
+            return OAUTH2_TOKEN_PREFIX;
+        }
+        if (GOOGLE_PREFS_NAME.equals(fileName)) {
+            return GOOGLE_DATA_PREFIX;
+        }
+        return null;
+    }
+
+    private static boolean isAllowedLegacyPreference(String fileName, String key) {
+        String prefix = allowedLegacyPrefix(fileName);
+        return prefix != null && key.startsWith(prefix) && key.length() > prefix.length();
     }
 
     private static JSObject valueResult(String value) {
@@ -66,6 +102,12 @@ public class SecureStoragePlugin extends Plugin {
             Logger.warn(TAG, "Dropping a stored secret that can no longer be decrypted");
             prefs().edit().remove(entry).commit();
             call.resolve(valueResult(null));
+        } catch (KeystoreCipher.KeyUnusableException e) {
+            // The key was invalidated (some devices do this after an OS update) and has been deleted.
+            // Nothing sealed with it can be read again, so drop it all and let the user sign in again.
+            Logger.warn(TAG, "The Keystore key is unusable; dropping every stored secret");
+            dropAllEntries();
+            call.resolve(valueResult(null));
         } catch (GeneralSecurityException | IOException e) {
             call.reject("Could not read from secure storage", "KEYSTORE_ERROR", e);
         }
@@ -84,7 +126,7 @@ public class SecureStoragePlugin extends Plugin {
         }
         String entry = ENTRY_PREFIX + key;
         try {
-            String sealed = cipher.encrypt(entry, value);
+            String sealed = encryptWithRecovery(entry, value);
             if (!prefs().edit().putString(entry, sealed).commit()) {
                 call.reject("Could not write to secure storage", "STORAGE_ERROR");
                 return;
@@ -92,6 +134,17 @@ public class SecureStoragePlugin extends Plugin {
             call.resolve();
         } catch (GeneralSecurityException | IOException e) {
             call.reject("Could not write to secure storage", "KEYSTORE_ERROR", e);
+        }
+    }
+
+    /** Encrypts; if the Keystore key was lost, drops the unreadable entries and retries once with a new key. */
+    private String encryptWithRecovery(String entry, String value) throws GeneralSecurityException, IOException {
+        try {
+            return cipher.encrypt(entry, value);
+        } catch (KeystoreCipher.KeyUnusableException e) {
+            Logger.warn(TAG, "The Keystore key is unusable; dropping every stored secret and creating a new key");
+            dropAllEntries();
+            return cipher.encrypt(entry, value);
         }
     }
 
@@ -108,7 +161,10 @@ public class SecureStoragePlugin extends Plugin {
         call.resolve();
     }
 
-    /** Clears a plaintext entry another plugin left in one of this app's SharedPreferences files. */
+    /**
+     * Clears a plaintext token copy the sign-in plugin left in its own SharedPreferences file. Only the
+     * entries in the allowlist above can be deleted; anything else is rejected.
+     */
     @PluginMethod
     public void removeLegacyPreference(PluginCall call) {
         String key = requireKey(call);
@@ -116,8 +172,8 @@ public class SecureStoragePlugin extends Plugin {
             return;
         }
         String fileName = call.getString("androidPreferencesName");
-        if (fileName == null || fileName.isEmpty() || PREFS_NAME.equals(fileName)) {
-            call.reject("androidPreferencesName must name another SharedPreferences file", "INVALID_ARGUMENT");
+        if (!isAllowedLegacyPreference(fileName, key)) {
+            call.reject("Not a known sign-in token copy", "INVALID_ARGUMENT");
             return;
         }
         getContext().getSharedPreferences(fileName, Context.MODE_PRIVATE).edit().remove(key).commit();

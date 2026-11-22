@@ -7,8 +7,10 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.security.InvalidKeyException;
 import java.security.Key;
 import java.security.KeyStore;
+import java.security.UnrecoverableKeyException;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -27,6 +29,18 @@ final class KeystoreCipher {
 
         UnreadableValueException(String message) {
             super(message);
+        }
+    }
+
+    /**
+     * Thrown when the Keystore key can no longer be loaded or used (some devices invalidate it after an
+     * OS update). The key alias has already been deleted, so the next {@link #encrypt} creates a new
+     * one; every value sealed with the old key is lost and must be dropped by the caller.
+     */
+    static final class KeyUnusableException extends GeneralSecurityException {
+
+        KeyUnusableException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 
@@ -56,13 +70,41 @@ final class KeystoreCipher {
         return generator.generateKey();
     }
 
+    private synchronized void deleteKey() throws GeneralSecurityException, IOException {
+        KeyStore keyStore = KeyStore.getInstance(KEYSTORE);
+        keyStore.load(null);
+        if (keyStore.containsAlias(KEY_ALIAS)) {
+            keyStore.deleteEntry(KEY_ALIAS);
+        }
+    }
+
+    /** A cipher initialized with the Keystore key; {@code spec} is null for encryption. */
+    private Cipher initCipher(int mode, GCMParameterSpec spec) throws GeneralSecurityException, IOException {
+        Cipher cipher = Cipher.getInstance(TRANSFORMATION);
+        try {
+            SecretKey key = getOrCreateKey();
+            if (spec == null) {
+                cipher.init(mode, key);
+            } else {
+                cipher.init(mode, key, spec);
+            }
+        } catch (UnrecoverableKeyException | InvalidKeyException e) {
+            try {
+                deleteKey();
+            } catch (GeneralSecurityException | IOException deleteFailure) {
+                e.addSuppressed(deleteFailure);
+            }
+            throw new KeyUnusableException("The Keystore key can no longer be used", e);
+        }
+        return cipher;
+    }
+
     private static byte[] associatedData(String entryName) {
         return ("app.flashcards.securestorage:" + entryName).getBytes(StandardCharsets.UTF_8);
     }
 
     String encrypt(String entryName, String plaintext) throws GeneralSecurityException, IOException {
-        Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey());
+        Cipher cipher = initCipher(Cipher.ENCRYPT_MODE, null);
         cipher.updateAAD(associatedData(entryName));
         byte[] sealed = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
         byte[] iv = cipher.getIV();
@@ -84,8 +126,7 @@ final class KeystoreCipher {
         if (data.length < 1 + IV_BYTES + TAG_BITS / 8 || data[0] != FORMAT_VERSION) {
             throw new UnreadableValueException("Stored value has an unknown format");
         }
-        Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), new GCMParameterSpec(TAG_BITS, data, 1, IV_BYTES));
+        Cipher cipher = initCipher(Cipher.DECRYPT_MODE, new GCMParameterSpec(TAG_BITS, data, 1, IV_BYTES));
         cipher.updateAAD(associatedData(entryName));
         byte[] plain = cipher.doFinal(data, 1 + IV_BYTES, data.length - 1 - IV_BYTES);
         return new String(plain, StandardCharsets.UTF_8);
