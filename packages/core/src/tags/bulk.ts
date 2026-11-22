@@ -41,7 +41,13 @@ export type BulkActionError =
    * The note's deck (or the target) is linked to a source (Sheet, folder, package) that would
    * re-create or move the note back on its next pull.
    */
-  | { code: 'source_linked'; noteIds: string[] };
+  | { code: 'source_linked'; noteIds: string[] }
+  /**
+   * The note's `source_key` (its Card ID / package record id) is already used by another note
+   * in the target deck, or by another moved note. A deck's CSV and `.flashpkg` round trips
+   * identify notes by `source_key`, so two notes sharing one would collapse into one on import.
+   */
+  | { code: 'source_key_conflict'; noteIds: string[] };
 
 export interface BulkActionPlan {
   events: BulkEventDraft[];
@@ -95,6 +101,25 @@ export function listMoveTargetDecks(state: CollectionState, noteTypeId: string):
     .filter((d) => !d.archived && !isLinkedDeck(d) && d.note_type_id === noteTypeId)
     .map((d) => d.id)
     .sort(cmpStr);
+}
+
+/**
+ * Moving notes whose non-empty `source_key` is already taken in the target deck (by any note,
+ * archived ones included, since imports match those too) or by another moving note.
+ */
+function sourceKeyConflicts(
+  state: CollectionState,
+  notes: readonly Note[],
+  targetDeckId: string,
+): string[] {
+  const moving = notes.filter((n) => n.deck_id !== targetDeckId);
+  const counts = new Map<string, number>();
+  const bump = (key: string) => counts.set(key, (counts.get(key) ?? 0) + 1);
+  for (const note of state.notes.values()) {
+    if (note.deck_id === targetDeckId && note.source_key) bump(note.source_key);
+  }
+  for (const note of moving) if (note.source_key) bump(note.source_key);
+  return moving.filter((n) => n.source_key && (counts.get(n.source_key) ?? 0) > 1).map((n) => n.id);
 }
 
 export function planBulkNoteAction(
@@ -158,6 +183,16 @@ export function planBulkNoteAction(
           error: { code: 'note_type_mismatch', noteIds: mismatched },
         };
       }
+      const conflicts = sourceKeyConflicts(state, notes, deck.id);
+      if (conflicts.length > 0) {
+        return {
+          events: [],
+          changedNoteCount: 0,
+          error: { code: 'source_key_conflict', noteIds: conflicts },
+        };
+      }
+      // The moved note keeps its id (and so its cards and schedules), which was derived from
+      // its old deck. Imports into the new deck find it by `source_key`, not by derived id.
       for (const note of notes) {
         if (note.deck_id === deck.id) continue;
         events.push({

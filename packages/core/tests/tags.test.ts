@@ -10,6 +10,8 @@ import {
 import type { KnownEvent, NoteUpsertedPayload } from '../src/events/types.ts';
 import { createHlcState } from '../src/hlc.ts';
 import { deriveNoteId } from '../src/ids.ts';
+import { buildEventsFromCsv, exportCsv } from '../src/import/csv.ts';
+import { BUILTIN_NOTE_TYPES } from '../src/model/presets.ts';
 import { filterNoteIds } from '../src/study/filter.ts';
 import { filterBrowseNoteIds } from '../src/tags/browse.ts';
 import { createBulkEvents, planBulkNoteAction, type BulkEventDraft } from '../src/tags/bulk.ts';
@@ -484,6 +486,78 @@ describe('Phase 9 Browse bulk edit', () => {
     ).toEqual({
       code: 'unknown_deck',
     });
+  });
+
+  it('refuses a move that would give the target deck two notes with one source_key', () => {
+    // 학교 is in both decks (e.g. added from the dictionary twice); 약속 only in DECK.
+    const world = makeWorld([
+      ...KOREAN_NOTES,
+      { key: '학교', tags: [], deck: DECK2 },
+      { key: '경험', tags: [], deck: DECK2 },
+    ]);
+    world.events.push(
+      world.factory.create('NoteArchived', { note_id: noteId('경험', DECK2) }, T0 + 500),
+    );
+    const before = world.state();
+
+    const clash = planBulkNoteAction(before, ids('학교', '약속'), {
+      kind: 'move_deck',
+      deckId: DECK2,
+    });
+    expect(clash).toEqual({
+      events: [],
+      changedNoteCount: 0,
+      error: { code: 'source_key_conflict', noteIds: [noteId('학교')] },
+    });
+    // An archived note still owns its key (imports match and restore it).
+    expect(
+      planBulkNoteAction(before, ids('경험'), { kind: 'move_deck', deckId: DECK2 }).error,
+    ).toEqual({ code: 'source_key_conflict', noteIds: [noteId('경험')] });
+    // Two moved notes sharing a key clash with each other.
+    const both = planBulkNoteAction(before, [noteId('학교'), noteId('학교', DECK2)], {
+      kind: 'move_deck',
+      deckId: DECK,
+    });
+    expect(both.error).toEqual({ code: 'source_key_conflict', noteIds: [noteId('학교', DECK2)] });
+    // Selecting a note already in the target alongside a free one only moves the free one.
+    const ok = planBulkNoteAction(before, [noteId('약속'), noteId('학교', DECK2)], {
+      kind: 'move_deck',
+      deckId: DECK2,
+    });
+    expect(ok.error).toBeUndefined();
+    expect(ok.changedNoteCount).toBe(1);
+  });
+
+  it('re-importing the target deck CSV updates moved notes instead of duplicating them', () => {
+    const world = makeWorld(KOREAN_NOTES);
+    const plan = planBulkNoteAction(world.state(), ids('학교', '약속'), {
+      kind: 'move_deck',
+      deckId: DECK2,
+    });
+    world.applyDrafts(plan.events);
+    const moved = world.state();
+    const deck2Ids = () =>
+      [...world.state().notes.values()]
+        .filter((n) => n.deck_id === DECK2)
+        .map((n) => n.id)
+        .sort();
+    const before = deck2Ids();
+    expect(before).toEqual([noteId('학교'), noteId('약속')].sort());
+
+    const koNoteType = BUILTIN_NOTE_TYPES.find((nt) => nt.id === 'preset:vocab-ko');
+    if (!koNoteType) throw new Error('Missing preset:vocab-ko');
+    const csv = exportCsv(moved, { deckId: DECK2 }).text.replace('m-학교', 'school');
+    const res = buildEventsFromCsv(csv, {
+      deckId: DECK2,
+      noteType: koNoteType,
+      eventFactory: world.factory,
+      nowMs: T0 + 5000,
+      existingNotes: moved.notes.values(),
+    });
+    expect(res.warnings).toEqual([]);
+    world.events.push(...res.events);
+    expect(deck2Ids()).toEqual(before);
+    expect(world.state().notes.get(noteId('학교'))?.fields.meaning).toBe('school');
   });
 
   it('suspends, unsuspends and archives in one batch each', () => {

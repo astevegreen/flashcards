@@ -725,6 +725,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       noteType,
       eventFactory: getEventFactory(),
       ankiRuby: csvAnkiRuby,
+      existingNotes: state.notes.values(),
     });
     if (result.events.length > 0) {
       emitEvents(result.events);

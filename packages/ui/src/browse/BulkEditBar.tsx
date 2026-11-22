@@ -29,6 +29,8 @@ function describeError(error: BulkActionError): string {
       return 'Notes can only move to a deck with the same note type.';
     case 'source_linked':
       return 'Notes in a deck linked to a Sheet, folder or package cannot be moved (the next sync would move them back).';
+    case 'source_key_conflict':
+      return `${error.noteIds.length} selected note(s) share a Card ID with a note already in that deck (or with each other), so they were not moved.`;
   }
 }
 
