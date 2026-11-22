@@ -1,18 +1,25 @@
 import {
-  computeCollectionStats,
+  compareCodeUnits,
+  listCategories,
+  normalizeCardFilter,
+  type CategoryCriterion,
+} from '@flash/core';
+import {
+  computeFilteredCollectionStats,
   MATURE_INTERVAL_DAYS,
   type CollectionStats,
-  type CollectionStatsOptions,
   type HeatmapDay,
   type RetentionBucket,
 } from '@flash/core/stats';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { CategoryPicker } from '../study/CategoryPicker.tsx';
 
 /**
  * Phase 11 Stats screen. Lazily loaded (never part of the initial study-screen bundle, §8).
- * Every number comes from `computeCollectionStats` in `@flash/core/stats`, the same module MCP
- * `get_stats` uses, so the screen and the MCP output always agree. Charts are plain inline SVG
+ * Every number comes from `computeFilteredCollectionStats` in `@flash/core/stats` for the Phase 9
+ * `CardFilter` picked here (deck and categories), the same function MCP `get_stats` calls, so the
+ * screen and the MCP output always agree. Charts are plain inline SVG
  * with native `<title>` tooltips plus text summaries and data tables; no chart library and no
  * raw HTML.
  */
@@ -357,28 +364,43 @@ function Maturity({ stats }: { stats: CollectionStats }) {
 export function StatsScreen() {
   const { state, stateVersion } = useApp();
   const [deckFilter, setDeckFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<CategoryCriterion | undefined>(undefined);
 
   const decks = useMemo(
     () =>
       [...state.decks.values()]
         .filter((d) => !d.archived)
-        .sort((a, b) => a.name.localeCompare(b.name)),
+        .sort((a, b) => compareCodeUnits(a.name, b.name) || compareCodeUnits(a.id, b.id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
 
   const selectedDeckId = decks.some((d) => d.id === deckFilter) ? deckFilter : '';
 
+  const categories = useMemo(
+    () => listCategories(state, selectedDeckId ? { deckIds: [selectedDeckId] } : {}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, stateVersion, selectedDeckId],
+  );
+
+  // The shared Phase 9 filter model (decks + categories), compiled by core exactly like MCP.
+  const cardFilter = useMemo(
+    () =>
+      normalizeCardFilter({
+        deckIds: selectedDeckId ? [selectedDeckId] : [],
+        categories: categoryFilter,
+      }),
+    [selectedDeckId, categoryFilter],
+  );
+
   const stats = useMemo(() => {
     const nowMs = Date.now();
-    const options: CollectionStatsOptions = {
+    return computeFilteredCollectionStats(state, cardFilter, {
       nowMs,
       tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset(),
-    };
-    if (selectedDeckId) options.filter = { deckIds: [selectedDeckId] };
-    return computeCollectionStats(state, options);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, stateVersion, selectedDeckId]);
+  }, [state, stateVersion, cardFilter]);
 
   const today = stats.reviewsPerDay.days[stats.reviewsPerDay.days.length - 1];
   const tomorrow = stats.forecast.days[1];
@@ -412,6 +434,12 @@ export function StatsScreen() {
           ))}
         </select>
       </div>
+      <CategoryPicker
+        categories={categories}
+        value={categoryFilter}
+        onChange={setCategoryFilter}
+        testIdPrefix="stats-category"
+      />
 
       {stats.totals.reviews === 0 && (
         <p
