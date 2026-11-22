@@ -3,7 +3,8 @@
  *
  * Every parser takes raw upstream text and returns entries in exactly the shape consumed by
  * `decodePackArchive` (`packages/core/src/dictionary/pack-codec.ts`):
- *   dictionary → `{ headword, altForms?, readings, meanings, eumhun?, strokeCount?, radical?, grade?, frequency? }`
+ *   dictionary → `{ headword, altForms?, readings, meanings, eumhun?, strokeCount?, radical?, grade?, frequency? }`,
+ *                plus the optional Phase 10 word fields `{ pos?, level?, origin?, homonym?, forms?, senses? }` (KRDict)
  *   strokes    → `{ [char]: { strokes: string[], medians: number[][][] } }` (Hanzi Writer 1024² Y-up)
  * No I/O here so the parsers can be unit-tested on small inline fixtures.
  */
@@ -356,4 +357,205 @@ export function parseMmahGraphics(text) {
     };
   }
   return characters;
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* KRDict (NIKL 한국어기초사전) English edition → dict-krdict                                    */
+/* ------------------------------------------------------------------------------------------ */
+
+/** KRDict 품사 → English part-of-speech label. `품사 없음` (grammar patterns, phrases) maps to none. */
+export const KRDICT_POS = {
+  명사: 'noun',
+  대명사: 'pronoun',
+  수사: 'numeral',
+  조사: 'particle',
+  동사: 'verb',
+  형용사: 'adjective',
+  관형사: 'determiner',
+  부사: 'adverb',
+  감탄사: 'interjection',
+  접사: 'affix',
+  '의존 명사': 'bound noun',
+  '보조 동사': 'auxiliary verb',
+  '보조 형용사': 'auxiliary adjective',
+  어미: 'ending',
+};
+const KRDICT_LEVEL = { 초급: 'beginner', 중급: 'intermediate', 고급: 'advanced' };
+const KRDICT_EXAMPLE_TYPE = { 구: 'phrase', 문장: 'sentence', 대화: 'dialogue' };
+/** Keep packs small: KRDict lists many examples per sense; the first few carry the usage. */
+export const KRDICT_MAX_EXAMPLES_PER_SENSE = 3;
+
+const FEAT_RE = /<feat\b([^>]*?)\/?>/g;
+const ATTR_RE = /\b(att|val)\s*=\s*"([^"]*)"/g;
+
+/** All `<feat att="…" val="…"/>` pairs inside `xml` (attribute order agnostic), in document order. */
+function feats(xml) {
+  const out = [];
+  for (const m of xml.matchAll(FEAT_RE)) {
+    let att;
+    let val;
+    for (const a of m[1].matchAll(ATTR_RE)) {
+      if (a[1] === 'att') att = decodeXmlText(a[2]);
+      else val = decodeXmlText(a[2]);
+    }
+    if (att !== undefined && val !== undefined) out.push([att, val.normalize('NFC').trim()]);
+  }
+  return out;
+}
+
+function feat(xml, name) {
+  return feats(xml).find(([a]) => a === name)?.[1];
+}
+
+/** Child element bodies `<Tag …>body</Tag>` (non-nesting tags only, which is all KRDict uses). */
+function elements(xml, tag) {
+  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, 'g');
+  return [...xml.matchAll(re)].map((m) => m[1]);
+}
+
+/** The element's own `<feat>`s, with every nested child element removed first. */
+function ownFeats(xml) {
+  let body = xml;
+  for (let i = 0; i < 8; i++) {
+    const next = body.replace(/<([A-Za-z]+)\b[^>]*>(?:(?!<\1\b)[\s\S])*?<\/\1>/g, '');
+    if (next === body) break;
+    body = next;
+  }
+  return feats(body);
+}
+
+const HAN_RUN = /^[㐀-䶿一-鿿豈-﫿]+/;
+
+/** `▽韓國` → `韓國`; strips KRDict's editorial marks from 원어. */
+export function cleanKrdictOrigin(origin) {
+  return (
+    (origin ?? '')
+      .replace(/[▽▼^·-]/g, '')
+      .normalize('NFC')
+      .trim() || undefined
+  );
+}
+
+/** Pronunciations (`WordForm[type=발음]`) and listed conjugations (`WordForm[type=활용]`). */
+function parseKrdictWordForms(block) {
+  const readings = [];
+  const forms = [];
+  for (const wf of elements(block, 'WordForm')) {
+    const own = new Map(ownFeats(wf));
+    const type = own.get('type');
+    if (type === '발음') {
+      const p = own.get('pronunciation');
+      if (p) readings.push(p);
+    } else if (type === '활용') {
+      const f = own.get('writtenForm');
+      if (f) forms.push(f);
+    }
+  }
+  return { readings, forms };
+}
+
+/** English equivalents of one sense, plus the first English definition. */
+function parseKrdictEquivalents(senseBlock) {
+  const equivalents = [];
+  let definition;
+  for (const eq of elements(senseBlock, 'Equivalent')) {
+    const f = new Map(feats(eq));
+    if (f.get('language') !== '영어') continue;
+    if (f.get('lemma')) equivalents.push(...splitDefinition(f.get('lemma')));
+    if (!definition && f.get('definition')) definition = f.get('definition');
+  }
+  return { equivalents, definition };
+}
+
+/** The first few examples of one sense (`SenseExample/{type,example}`). */
+function parseKrdictExamples(senseBlock) {
+  const examples = [];
+  for (const ex of elements(senseBlock, 'SenseExample')) {
+    if (examples.length >= KRDICT_MAX_EXAMPLES_PER_SENSE) break;
+    const pairs = feats(ex);
+    const type = KRDICT_EXAMPLE_TYPE[pairs.find(([a]) => a === 'type')?.[1]];
+    const text = pairs
+      .filter(([a]) => a === 'example')
+      .map(([, v]) => v)
+      .filter(Boolean)
+      .join(' / ');
+    if (text) examples.push({ text, ...(type ? { type } : {}) });
+  }
+  return examples;
+}
+
+/** One `<Sense>`, or `undefined` when it has neither an English equivalent nor a definition. */
+function parseKrdictSense(senseBlock) {
+  const { equivalents, definition } = parseKrdictEquivalents(senseBlock);
+  if (equivalents.length === 0 && !definition) return undefined;
+  const examples = parseKrdictExamples(senseBlock);
+  const definitionNative = new Map(ownFeats(senseBlock)).get('definition');
+  return {
+    equivalents: uniq(equivalents),
+    ...(definition ? { definition } : {}),
+    ...(definitionNative ? { definitionNative } : {}),
+    ...(examples.length > 0 ? { examples } : {}),
+    source: 'krdict',
+  };
+}
+
+/** The entry-level optional fields from the `<LexicalEntry>`'s own feats. */
+function krdictEntryMeta(own) {
+  const pos = KRDICT_POS[own.get('partOfSpeech')];
+  const level = KRDICT_LEVEL[own.get('vocabularyLevel')];
+  const origin = cleanKrdictOrigin(own.get('origin'));
+  const hanja = origin ? HAN_RUN.exec(origin)?.[0] : undefined;
+  const homonym = Number.parseInt(own.get('homonym_number') ?? '', 10);
+  return {
+    hanja,
+    pos,
+    level,
+    origin,
+    homonym: Number.isInteger(homonym) && homonym > 0 ? homonym : undefined,
+  };
+}
+
+/** One `<LexicalEntry>` as a pack entry, or `undefined` when it has no headword or usable sense. */
+function parseKrdictEntry(block) {
+  const lemmaBlock = elements(block, 'Lemma')[0] ?? '';
+  const headword = feat(lemmaBlock, 'writtenForm');
+  if (!headword) return undefined;
+  const own = new Map(ownFeats(block));
+  const { readings, forms } = parseKrdictWordForms(block);
+  const senses = elements(block, 'Sense')
+    .map(parseKrdictSense)
+    .filter((s) => s !== undefined);
+  if (senses.length === 0) return undefined;
+  const { hanja, pos, level, origin, homonym } = krdictEntryMeta(own);
+  return {
+    headword: headword.normalize('NFC'),
+    ...(hanja ? { altForms: [hanja] } : {}),
+    readings: uniq(readings),
+    meanings: senses.map((s) =>
+      s.equivalents.length > 0 ? s.equivalents.join('; ') : s.definition,
+    ),
+    ...(pos ? { pos: [pos] } : {}),
+    ...(level ? { level } : {}),
+    ...(origin ? { origin } : {}),
+    ...(homonym === undefined ? {} : { homonym }),
+    ...(forms.length > 0 ? { forms: uniq(forms) } : {}),
+    senses,
+  };
+}
+
+/**
+ * Parses one KRDict LMF XML file (the "사전 전체 내려받기" export; English edition or the full
+ * multilingual one — only `영어` equivalents are kept). Shape per `<LexicalEntry>`:
+ *   Lemma/writtenForm, homonym_number, partOfSpeech, vocabularyLevel, origin (원어),
+ *   WordForm[type=발음]/pronunciation, WordForm[type=활용]/writtenForm,
+ *   Sense/definition + Equivalent[language=영어]/{lemma,definition} + SenseExample/{type,example}.
+ * Output matches `decodePackArchive` (packages/core/src/dictionary/pack-codec.ts).
+ */
+export function parseKrdictXml(xml) {
+  const entries = [];
+  for (const block of elements(xml, 'LexicalEntry')) {
+    const entry = parseKrdictEntry(block);
+    if (entry) entries.push(entry);
+  }
+  return entries;
 }

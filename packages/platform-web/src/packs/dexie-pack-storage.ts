@@ -193,6 +193,18 @@ export class DexiePackStorage {
     return out;
   }
 
+  /** Bulk exact-headword lookup (deinflected / romanized Korean candidates validated in one query). */
+  async lookupDictionaryByHeadwords(
+    headwords: readonly string[],
+    packIds?: readonly DictionaryPackId[],
+  ): Promise<DictionaryEntry[]> {
+    const keys = [...new Set(headwords.map((h) => h.normalize('NFC').trim()).filter(Boolean))];
+    if (keys.length === 0) return [];
+    const rows = await this.db.dict_entries.where('headword').anyOf(keys).toArray();
+    const allowed = packIds && packIds.length > 0 ? new Set(packIds) : null;
+    return allowed ? rows.filter((r) => allowed.has(r.packId)) : rows;
+  }
+
   async queryDictionaryCandidates(
     prefixTokens: readonly string[],
     packIds?: readonly DictionaryPackId[],

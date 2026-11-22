@@ -11,8 +11,12 @@ import { sha256Hex } from '../sources/hash.ts';
 import type {
   DecodedPackPayload,
   DictionaryEntry,
+  DictionaryExample,
+  DictionaryLevel,
   DictionaryPackId,
   DictionaryPackManifest,
+  DictionarySense,
+  DictionarySenseSource,
   PackCatalog,
   StrokePackId,
   StrokePackManifest,
@@ -138,6 +142,135 @@ function isGzipMagic(bytes: Uint8Array): boolean {
 
 function isNonEmptyString(val: unknown): val is string {
   return typeof val === 'string' && val.trim().length > 0;
+}
+
+/** Per-entry caps for the optional Phase 10 word-pack fields (defence against oversized packs). */
+const WORD_FIELD_LIMITS = {
+  maxStringLength: 2000,
+  maxListItems: 32,
+  maxSenses: 64,
+  maxExamplesPerSense: 8,
+} as const;
+
+function cleanString(val: unknown): string | undefined {
+  if (!isNonEmptyString(val)) return undefined;
+  const t = val.normalize('NFC').trim();
+  return t.length > WORD_FIELD_LIMITS.maxStringLength
+    ? t.slice(0, WORD_FIELD_LIMITS.maxStringLength)
+    : t;
+}
+
+function cleanStringList(val: unknown, max: number = WORD_FIELD_LIMITS.maxListItems): string[] {
+  if (!Array.isArray(val)) return [];
+  const out: string[] = [];
+  for (const item of val) {
+    const s = cleanString(item);
+    if (s !== undefined) out.push(s);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+const LEVELS: ReadonlySet<string> = new Set<DictionaryLevel>([
+  'beginner',
+  'intermediate',
+  'advanced',
+]);
+const EXAMPLE_TYPES: ReadonlySet<string> = new Set(['phrase', 'sentence', 'dialogue']);
+const SENSE_SOURCES: ReadonlySet<string> = new Set<DictionarySenseSource>(['krdict']);
+
+function asRecord(val: unknown): Record<string, unknown> | undefined {
+  return val && typeof val === 'object' ? (val as Record<string, unknown>) : undefined;
+}
+
+function decodeExample(raw: unknown): DictionaryExample | undefined {
+  const ex = asRecord(raw);
+  if (!ex) return undefined;
+  const text = cleanString(ex['text']);
+  if (!text) return undefined;
+  const translation = cleanString(ex['translation']);
+  const type = typeof ex['type'] === 'string' && EXAMPLE_TYPES.has(ex['type']) ? ex['type'] : '';
+  return {
+    text,
+    ...(translation ? { translation } : {}),
+    ...(type ? { type: type as NonNullable<DictionaryExample['type']> } : {}),
+  };
+}
+
+function decodeExamples(val: unknown): DictionaryExample[] {
+  if (!Array.isArray(val)) return [];
+  const examples: DictionaryExample[] = [];
+  for (const rawEx of val) {
+    if (examples.length >= WORD_FIELD_LIMITS.maxExamplesPerSense) break;
+    const ex = decodeExample(rawEx);
+    if (ex) examples.push(ex);
+  }
+  return examples;
+}
+
+/** One sense, or `undefined` when it carries neither an equivalent nor a definition. */
+function decodeSense(raw: unknown): DictionarySense | undefined {
+  const s = asRecord(raw);
+  if (!s) return undefined;
+  const equivalents = cleanStringList(s['equivalents']);
+  const definition = cleanString(s['definition']);
+  const definitionNative = cleanString(s['definitionNative']);
+  if (equivalents.length === 0 && !definition && !definitionNative) return undefined;
+  const examples = decodeExamples(s['examples']);
+  const source =
+    typeof s['source'] === 'string' && SENSE_SOURCES.has(s['source'])
+      ? (s['source'] as DictionarySenseSource)
+      : undefined;
+  return {
+    equivalents,
+    ...(definition ? { definition } : {}),
+    ...(definitionNative ? { definitionNative } : {}),
+    ...(examples.length > 0 ? { examples } : {}),
+    ...(source ? { source } : {}),
+  };
+}
+
+function decodeSenses(val: unknown): DictionarySense[] {
+  if (!Array.isArray(val)) return [];
+  const senses: DictionarySense[] = [];
+  for (const raw of val) {
+    if (senses.length >= WORD_FIELD_LIMITS.maxSenses) break;
+    const sense = decodeSense(raw);
+    if (sense) senses.push(sense);
+  }
+  return senses;
+}
+
+/**
+ * Decodes the optional Phase 10 word-pack fields (`pos`, `level`, `origin`, `homonym`, `forms`,
+ * `senses`). Absent fields stay absent, so Phase 6 packs decode byte-for-byte as before.
+ */
+function decodeWordPackFields(
+  e: Record<string, unknown>,
+): Pick<DictionaryEntry, 'pos' | 'level' | 'origin' | 'homonym' | 'forms' | 'senses'> {
+  const pos = cleanStringList(e['pos'], 8);
+  const level =
+    typeof e['level'] === 'string' && LEVELS.has(e['level'])
+      ? (e['level'] as DictionaryLevel)
+      : undefined;
+  const origin = cleanString(e['origin']);
+  const homonym =
+    typeof e['homonym'] === 'number' &&
+    Number.isInteger(e['homonym']) &&
+    e['homonym'] >= 0 &&
+    e['homonym'] < 1000
+      ? e['homonym']
+      : undefined;
+  const forms = cleanStringList(e['forms']);
+  const senses = decodeSenses(e['senses']);
+  return {
+    ...(pos.length > 0 ? { pos } : {}),
+    ...(level ? { level } : {}),
+    ...(origin ? { origin } : {}),
+    ...(homonym !== undefined ? { homonym } : {}),
+    ...(forms.length > 0 ? { forms } : {}),
+    ...(senses.length > 0 ? { senses } : {}),
+  };
 }
 
 function validateManifestCommon(raw: unknown): Record<string, unknown> {
@@ -277,6 +410,7 @@ export function decodePackArchive(
         ...(radical !== undefined ? { radical } : {}),
         ...(grade !== undefined ? { grade } : {}),
         ...(frequency !== undefined ? { frequency } : {}),
+        ...decodeWordPackFields(e),
       });
     }
 

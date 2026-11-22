@@ -2,7 +2,7 @@
 /**
  * Reproducible Open-Data Pack Compiler (§3.4, §6.3, §6.4, ADR 0001 Spike 0.6).
  *
- * Compiles downloadable offline dictionary packs (Unihan Hanja, KANJIDIC2, CC-CEDICT, JMdict)
+ * Compiles downloadable offline dictionary packs (Unihan Hanja, KANJIDIC2, CC-CEDICT, JMdict, KRDict)
  * and separate stroke packs (KanjiVG JA, Make Me a Hanzi ZH/Hanja) into gzipped static assets
  * plus a unified `packs.json` manifest and Cloudflare Pages CORS `_headers`.
  *
@@ -15,7 +15,15 @@
  *       dist-packs/, both gitignored). Each pack must stay <= 25 MiB gzipped (Cloudflare Pages limit).
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
@@ -1038,6 +1046,19 @@ const PACK_META = {
     source_url: 'https://www.edrdg.org/jmdict/j_jmdict.html',
     optional: true,
   },
+  'dict-krdict': {
+    filename: 'dict-krdict.json.gz',
+    kind: 'dictionary',
+    name: 'Korean Basic Dictionary (KRDict, English)',
+    language: 'ko',
+    description:
+      'Korean words with per-sense English equivalents and definitions, part of speech, learner level, pronunciation, Hanja origin and examples (NIKL 한국어기초사전).',
+    license_name: 'CC BY-SA 2.0 KR',
+    license_url: 'https://creativecommons.org/licenses/by-sa/2.0/kr/',
+    attribution:
+      '한국어기초사전 (Korean Basic Dictionary) © National Institute of Korean Language (국립국어원).',
+    source_url: 'https://krdict.korean.go.kr/',
+  },
   'strokes-ja-kanjivg': {
     filename: 'strokes-ja-kanjivg.json.gz',
     kind: 'strokes',
@@ -1150,6 +1171,12 @@ const LICENSE_SECTIONS = [
     "JMdict is the property of the Electronic Dictionary Research and Development Group and is used in\n   conformance with the Group's licence (https://www.edrdg.org/edrdg/licence.html). Changes: headwords,\n   readings, English glosses (one string per sense) and priority/frequency bands extracted to JSON.",
   ],
   [
+    'dict-krdict',
+    'CC BY-SA 2.0 KR (https://creativecommons.org/licenses/by-sa/2.0/kr/) — share-alike',
+    'NIKL 한국어기초사전 (Korean Basic Dictionary), English edition — https://krdict.korean.go.kr/',
+    'Text © National Institute of Korean Language (국립국어원). Changes: headword, homonym number, part of\n   speech, vocabulary level, 원어 (Hanja origin), standard pronunciation, conjugations, Korean definitions,\n   English equivalents/definitions and up to 3 examples per sense extracted to JSON. Audio and images are\n   not included. The starter (dev/CI) pack is a small hand-authored sample in the same format.',
+  ],
+  [
     'strokes-ja-kanjivg',
     'CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/) — share-alike',
     'KanjiVG (Ulrich Apel & contributors) — https://kanjivg.tagaini.net/',
@@ -1252,15 +1279,20 @@ function emitPacks({ outDir, urlPrefix, packs, catalogName, updatedAt, writeChar
 /* Starter (dev/CI fixtures)                                                                   */
 /* ------------------------------------------------------------------------------------------ */
 
-function buildStarterPacks({ outDir, urlPrefix }) {
+async function buildStarterPacks({ outDir, urlPrefix }) {
   const version = '2026.11.0-starter';
   const { jaCharacters, zhCharacters } = buildStarterStrokeSets();
   const { hanjaEntries, kanjidicEntries, cedictEntries, jmdictEntries } =
     buildStarterDictionaries();
+  // Korean words: hand-authored rows rendered as KRDict LMF XML and run through the real parser,
+  // so the starter build exercises exactly the code path used for the full KRDict download.
+  const { parseKrdictXml } = await import('./packs/upstream-parsers.mjs');
+  const { renderKrdictStarterXml } = await import('./packs/krdict-starter.mjs');
+  const krdictEntries = parseKrdictXml(renderKrdictStarterXml());
 
-  const dict = (id, entries) => ({
+  const dict = (id, entries, extra) => ({
     id,
-    payload: { manifest: makeManifest(id, version), entries },
+    payload: { manifest: makeManifest(id, version, extra), entries },
     entryCount: entries.length,
   });
   const strokes = (id, characters) => ({
@@ -1280,6 +1312,12 @@ function buildStarterPacks({ outDir, urlPrefix }) {
       dict('dict-kanjidic2', kanjidicEntries),
       dict('dict-cc-cedict', cedictEntries),
       dict('dict-jmdict', jmdictEntries),
+      dict('dict-krdict', krdictEntries, {
+        description:
+          'Starter sample: a few dozen common Korean words in the KRDict format (POS, level, pronunciation, Hanja, examples). Install the full KRDict pack for complete coverage.',
+        modification_notice:
+          'Hand-authored sample entries in the KRDict (한국어기초사전) structure for offline dev/CI; not copied from NIKL data.',
+      }),
       strokes('strokes-ja-kanjivg', jaCharacters),
       strokes('strokes-zh-mmah', zhCharacters),
     ],
@@ -1304,6 +1342,17 @@ function requireInput(inputDir, rel) {
     );
   }
   return p;
+}
+
+/** Every *.xml / *.xml.gz under <input>/krdict/ (sorted, so builds are reproducible). */
+function listKrdictXmlFiles(inputDir) {
+  const dir = join(inputDir, 'krdict');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { recursive: true })
+    .map(String)
+    .filter((f) => /\.xml(\.gz)?$/i.test(f))
+    .sort()
+    .map((f) => join(dir, f));
 }
 
 async function buildFullPacks({ inputDir, outDir, urlPrefix, writeCharFiles, includeJmdict }) {
@@ -1382,6 +1431,25 @@ async function buildFullPacks({ inputDir, outDir, urlPrefix, writeCharFiles, inc
       { entries: jmdict },
       jmdict.length,
       'jmdict',
+    );
+  }
+
+  // KRDict's "사전 전체 내려받기" export sits behind a site popup, not a stable anonymous URL, so the
+  // owner places it in <input>/krdict/ by hand (see scripts/fetch-upstream-packs.mjs). Skip when absent.
+  const krdictFiles = listKrdictXmlFiles(inputDir);
+  if (krdictFiles.length > 0) {
+    console.log(`Parsing KRDict (${krdictFiles.length} XML file(s)) …`);
+    const krdict = krdictFiles.flatMap((f) => parsers.parseKrdictXml(readMaybeGz(f)));
+    add(
+      'dict-krdict',
+      `krdict-${sources.krdict?.version ?? 'manual'}`,
+      { entries: krdict },
+      krdict.length,
+      'krdict',
+    );
+  } else {
+    console.warn(
+      `Skipping dict-krdict: no KRDict XML in ${join(inputDir, 'krdict')}. Download it manually (see scripts/fetch-upstream-packs.mjs).`,
     );
   }
 
@@ -1473,7 +1541,7 @@ async function main() {
       includeJmdict: opts.jmdict,
     });
   } else {
-    buildStarterPacks({
+    await buildStarterPacks({
       outDir: opts.out ?? join(REPO_ROOT, 'apps', 'web', 'public', 'packs'),
       urlPrefix,
     });

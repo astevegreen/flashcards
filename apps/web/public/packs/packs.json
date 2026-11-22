@@ -73,6 +73,23 @@
       "optional": true
     },
     {
+      "id": "dict-krdict",
+      "kind": "dictionary",
+      "name": "Korean Basic Dictionary (KRDict, English)",
+      "description": "Starter sample: a few dozen common Korean words in the KRDict format (POS, level, pronunciation, Hanja, examples). Install the full KRDict pack for complete coverage.",
+      "version": "2026.11.0-starter",
+      "language": "ko",
+      "url": "/packs/dict-krdict.json.gz",
+      "compressed_bytes": 4775,
+      "uncompressed_bytes": 20023,
+      "entry_count": 56,
+      "sha256": "a747085300c28080cf4e29a2a67b3cc8f2f2b6f98e7393f709124f358c39e9a1",
+      "license_name": "CC BY-SA 2.0 KR",
+      "license_url": "https://creativecommons.org/licenses/by-sa/2.0/kr/",
+      "attribution": "한국어기초사전 (Korean Basic Dictionary) © National Institute of Korean Language (국립국어원).",
+      "source_url": "https://krdict.korean.go.kr/"
+    },
+    {
       "id": "strokes-ja-kanjivg",
       "kind": "strokes",
       "name": "Japanese Stroke Data (KanjiVG)",
