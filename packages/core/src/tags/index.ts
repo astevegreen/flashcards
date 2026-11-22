@@ -75,6 +75,11 @@ export interface TagSummary {
   noteCount: number;
   /** Active notes tagged with exactly this category. */
   directNoteCount: number;
+  /**
+   * Archived notes tagged with this category or any of its descendants. Rename, merge and
+   * delete rewrite them too, so a category only archived notes use is still listed.
+   */
+  archivedNoteCount: number;
   /** `::` depth (0 for top level). */
   depth: number;
   /** Key of the parent category, when hierarchical. */
@@ -104,19 +109,22 @@ function sortedNotes(state: CollectionState): Note[] {
 }
 
 /**
- * Every category in the collection with note counts (active notes only), sorted by key so a
- * parent is directly followed by its children. Implicit parents (`grammar` when only
- * `grammar::particles` is used) are listed too.
+ * Every category in the collection, sorted by key so a parent is directly followed by its
+ * children. Counts are for active notes, plus {@link TagSummary.archivedNoteCount}; a category
+ * used only by archived notes is listed with `noteCount: 0`. Implicit parents (`grammar` when
+ * only `grammar::particles` is used) are listed too.
  */
 export function summarizeTags(state: CollectionState): TagCollectionSummary {
   const counts = new Map<string, number>();
+  const archivedCounts = new Map<string, number>();
   const direct = new Map<string, number>();
   const spellings = new Map<string, Map<string, number>>();
+  const archivedSpellings = new Map<string, Map<string, number>>();
   let unnormalizedNoteCount = 0;
 
   for (const note of state.notes.values()) {
     if (!sameList(note.tags, normalizeTagList(note.tags))) unnormalizedNoteCount += 1;
-    if (note.archived) continue;
+    const noteSpellings = note.archived ? archivedSpellings : spellings;
     const seen = new Set<string>();
     const seenDirect = new Set<string>();
     for (const raw of note.tags) {
@@ -125,25 +133,32 @@ export function summarizeTags(state: CollectionState): TagCollectionSummary {
       const key = text.toLowerCase();
       if (!seenDirect.has(key)) {
         seenDirect.add(key);
-        const bySpelling = spellings.get(key) ?? new Map<string, number>();
+        const bySpelling = noteSpellings.get(key) ?? new Map<string, number>();
         bySpelling.set(text, (bySpelling.get(text) ?? 0) + 1);
-        spellings.set(key, bySpelling);
+        noteSpellings.set(key, bySpelling);
       }
       const parts = key.split(TAG_HIERARCHY_SEPARATOR);
       for (let i = 1; i <= parts.length; i++) {
         seen.add(parts.slice(0, i).join(TAG_HIERARCHY_SEPARATOR));
       }
     }
+    if (note.archived) {
+      for (const key of seen) archivedCounts.set(key, (archivedCounts.get(key) ?? 0) + 1);
+      continue;
+    }
     for (const key of seen) counts.set(key, (counts.get(key) ?? 0) + 1);
     for (const key of seenDirect) direct.set(key, (direct.get(key) ?? 0) + 1);
   }
 
-  const tags: TagSummary[] = [...counts.entries()]
-    .map(([key, noteCount]) => {
+  const keys = new Set([...counts.keys(), ...archivedCounts.keys()]);
+  const tags: TagSummary[] = [...keys]
+    .map((key) => {
       const parts = key.split(TAG_HIERARCHY_SEPARATOR);
+      // Active spellings win; archived ones only label categories no active note uses.
+      const pool = (counts.get(key) ?? 0) > 0 ? spellings : archivedSpellings;
       let label = key;
       let best = -1;
-      for (const [spelling, n] of spellings.get(key) ?? []) {
+      for (const [spelling, n] of pool.get(key) ?? []) {
         if (n > best || (n === best && cmpStr(spelling, label) < 0)) {
           label = spelling;
           best = n;
@@ -151,7 +166,7 @@ export function summarizeTags(state: CollectionState): TagCollectionSummary {
       }
       if (best < 0) {
         // Implicit parent: keep the stored spelling of its segments from a child when we can.
-        const child = [...spellings.entries()].find(([k]) => isTagInSubtree(k, key));
+        const child = [...pool.entries()].find(([k]) => isTagInSubtree(k, key));
         const childSpelling = child ? [...child[1].keys()].sort(cmpStr)[0] : undefined;
         if (childSpelling) {
           label = childSpelling
@@ -163,8 +178,9 @@ export function summarizeTags(state: CollectionState): TagCollectionSummary {
       const summary: TagSummary = {
         key,
         label,
-        noteCount,
+        noteCount: counts.get(key) ?? 0,
         directNoteCount: direct.get(key) ?? 0,
+        archivedNoteCount: archivedCounts.get(key) ?? 0,
         depth: parts.length - 1,
       };
       if (parts.length > 1) summary.parentKey = parts.slice(0, -1).join(TAG_HIERARCHY_SEPARATOR);

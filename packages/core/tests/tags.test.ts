@@ -152,6 +152,22 @@ describe('Phase 9 categories — normalization', () => {
     expect(summary.tags.find((t) => t.key === '문법::조사')?.parentKey).toBe('문법');
   });
 
+  it('lists categories only archived notes use, so they can still be renamed or deleted', () => {
+    const world = makeWorld([...KOREAN_NOTES, { key: '옛날', tags: ['Old::Stuff', 'daily'] }]);
+    world.events.push(world.factory.create('NoteArchived', { note_id: noteId('옛날') }, T0 + 500));
+    const summary = summarizeTags(world.state());
+    const row = (key: string) =>
+      summary.tags
+        .filter((t) => t.key === key)
+        .map((t) => [t.label, t.noteCount, t.directNoteCount, t.archivedNoteCount]);
+    expect(row('old')).toEqual([['Old', 0, 0, 1]]);
+    expect(row('old::stuff')).toEqual([['Old::Stuff', 0, 0, 1]]);
+    expect(row('daily')).toEqual([['daily', 2, 2, 1]]);
+    expect(row('hanja')).toEqual([['hanja', 3, 3, 0]]);
+    world.apply(planTagOperation(world.state(), { kind: 'delete', tags: ['old'] }).payloads);
+    expect(summarizeTags(world.state()).tags.some((t) => t.key.startsWith('old'))).toBe(false);
+  });
+
   it('normalize rewrites only the notes with unnormalized tags', () => {
     const world = makeWorld(KOREAN_NOTES);
     const plan = planTagOperation(world.state(), { kind: 'normalize' });

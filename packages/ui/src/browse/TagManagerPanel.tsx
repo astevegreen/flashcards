@@ -240,6 +240,14 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
                     >
                       {tag.noteCount}
                     </span>
+                    {tag.archivedNoteCount > 0 && (
+                      <span
+                        data-testid={`tag-archived-count-${tag.key}`}
+                        className="text-xs text-[var(--muted)]"
+                      >
+                        +{tag.archivedNoteCount} archived
+                      </span>
+                    )}
                     <button
                       type="button"
                       data-testid={`tag-rename-${tag.key}`}
@@ -266,7 +274,7 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
                           setMergeSelection(new Set());
                         }}
                       >
-                        Remove from {notesText(tag.noteCount)}?
+                        Remove from {notesText(tag.noteCount + tag.archivedNoteCount)}?
                       </button>
                     ) : (
                       <button
