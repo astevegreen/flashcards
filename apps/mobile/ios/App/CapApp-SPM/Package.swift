@@ -20,7 +20,8 @@ let package = Package(
         .package(name: "CapacitorShare", path: "../../../../../node_modules/.pnpm/@capacitor+share@8.0.3_@capacitor+core@8.6.2/node_modules/@capacitor/share"),
         .package(name: "CapawesomeCapacitorFilePicker", path: "../../../../../node_modules/.pnpm/@capawesome+capacitor-file-_76c0ad817fa24f4e57542eaad6748623/node_modules/@capawesome/capacitor-file-picker"),
         .package(name: "CapgoCapacitorSocialLogin", path: "../../../../../node_modules/.pnpm/@capgo+capacitor-social-login@8.7.13_@capacitor+core@8.6.2/node_modules/@capgo/capacitor-social-login"),
-        .package(name: "CapgoNativePurchases", path: "../../../../../node_modules/.pnpm/@capgo+native-purchases@8.9.17_@capacitor+core@8.6.2/node_modules/@capgo/native-purchases")
+        .package(name: "CapgoNativePurchases", path: "../../../../../node_modules/.pnpm/@capgo+native-purchases@8.9.17_@capacitor+core@8.6.2/node_modules/@capgo/native-purchases"),
+        .package(name: "FlashCapacitorSecureStorage", path: "../../../../../packages/capacitor-secure-storage")
     ],
     targets: [
         .target(
@@ -36,7 +37,8 @@ let package = Package(
                 .product(name: "CapacitorShare", package: "CapacitorShare"),
                 .product(name: "CapawesomeCapacitorFilePicker", package: "CapawesomeCapacitorFilePicker"),
                 .product(name: "CapgoCapacitorSocialLogin", package: "CapgoCapacitorSocialLogin"),
-                .product(name: "CapgoNativePurchases", package: "CapgoNativePurchases")
+                .product(name: "CapgoNativePurchases", package: "CapgoNativePurchases"),
+                .product(name: "FlashCapacitorSecureStorage", package: "FlashCapacitorSecureStorage")
             ]
         )
     ]

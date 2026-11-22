@@ -30,6 +30,15 @@
                 <data android:scheme="flashcards" android:host="picker-callback" />
             </intent-filter>
 
+            <!-- OAuth redirects from Chrome Custom Tabs: flashcards://oauth/microsoft (OneDrive, §16).
+                 @capgo/capacitor-social-login consumes it in handleOnNewIntent and checks state + PKCE. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="flashcards" android:host="oauth" />
+            </intent-filter>
+
         </activity>
 
         <provider
