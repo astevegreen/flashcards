@@ -79,6 +79,14 @@ export function peekOnboardingRecord(storage: KvStore): OnboardingRecord | undef
   return settled.get(storage);
 }
 
+/**
+ * True once this device's record has been read (or saved, or forgotten). "No record" and "not
+ * read yet" both peek as `undefined`; UI that treats "no record" as "ask" checks this first.
+ */
+export function isOnboardingRecordSettled(storage: KvStore): boolean {
+  return settled.has(storage);
+}
+
 export async function saveOnboardingRecord(
   storage: KvStore,
   record: OnboardingRecord,
@@ -92,7 +100,29 @@ export async function saveOnboardingRecord(
   }
 }
 
-/** True when the deferred sync prompt should be offered (onboarded here, prompt not answered). */
+/**
+ * "Reset Local Device Data" makes the device behave like a fresh install: the record is deleted
+ * and every cached read of it forgotten at once (synchronously, before the empty collection
+ * renders), so onboarding is offered again. The caller also wipes the whole key-value store.
+ */
+export async function forgetOnboardingRecord(
+  storage: KvStore & Pick<Storage, 'deleteKv'>,
+): Promise<void> {
+  cachedReads.set(storage, Promise.resolve(undefined));
+  settled.set(storage, undefined);
+  try {
+    await storage.deleteKv(ONBOARDING_KV_KEY);
+  } catch {
+    // Best effort: clearAll() removes it too.
+  }
+}
+
+/**
+ * True while the one-time deferred sync prompt has not been answered on this device. That covers
+ * devices onboarded here, devices that skipped onboarding, and existing collections from before
+ * onboarding (no record at all): anyone with cards gets the prompt once, after a finished session,
+ * while no sync provider is connected (the caller checks the rest).
+ */
 export function wantsSyncPrompt(record: OnboardingRecord | undefined): boolean {
-  return record?.status === 'completed' && record.syncPrompt === 'pending';
+  return record?.syncPrompt !== 'opened' && record?.syncPrompt !== 'dismissed';
 }

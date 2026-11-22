@@ -1,8 +1,8 @@
 /**
- * The deferred sync step of first-run onboarding (Phase 14 "study first, set up later"): offered
- * once, after the first finished session on a device that went through onboarding, never before
- * the first card. It only points at the existing sync choices in Settings; it picks no provider.
- * Lazily loaded; the caller reserves its height so nothing above it moves.
+ * The deferred sync step (Phase 14 "study first, set up later"): offered once per device, after a
+ * finished session, to anyone with cards and no sync provider; never before the first card. Its
+ * "Sync my devices" button opens the Sync my devices panel (a default provider plus the
+ * alternatives). Lazily loaded; it sits below every study control, so nothing above it moves.
  */
 export function SyncPrompt({
   onOpenSync,
@@ -18,7 +18,7 @@ export function SyncPrompt({
       className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left"
     >
       <p className="min-w-0 flex-1 basis-56 text-sm">
-        <span className="font-semibold">Nice first session.</span>{' '}
+        <span className="font-semibold">Nice session.</span>{' '}
         <span className="text-[var(--muted)]">
           Want your cards and progress on your other devices too?
         </span>

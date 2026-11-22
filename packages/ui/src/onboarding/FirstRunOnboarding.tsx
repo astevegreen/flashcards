@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { deviceLocale, orderOnboardingLanguages } from './languageOrder.ts';
 import { ONBOARDING_DECKS, type OnboardingDeckInfo } from './starterDecks.ts';
 
 /**
@@ -59,7 +60,9 @@ export function FirstRunOnboarding({
   error?: string;
 }>) {
   const [language, setLanguage] = useState<string | undefined>(undefined);
-  const languages = onboardingLanguages();
+  const [languages] = useState(() =>
+    orderOnboardingLanguages(onboardingLanguages(), deviceLocale()),
+  );
   const decks = language === undefined ? [] : starterDecksFor(language);
 
   return (

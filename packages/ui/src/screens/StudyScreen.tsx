@@ -53,6 +53,8 @@ const LazyEmptyCollection = lazy(() =>
 // remount (back from Settings) has it synchronously.
 type DeferredSyncPromptModule = typeof DeferredSyncPromptModuleType;
 let loadedDeferredSyncPrompt: DeferredSyncPromptModule | undefined;
+/** An add-device link sends a device with cards to Settings once per page load. */
+let addDeviceLinkRouted = false;
 
 function useDeferredSyncPromptModule(
   storage: Parameters<DeferredSyncPromptModule['preloadDeferredSyncPrompt']>[0],
@@ -331,10 +333,10 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     undoLastReview,
     updateNote,
     markNoteReviewed,
-    loadSampleDecks,
     emitEvents,
     getEventFactory,
     syncState,
+    addDeviceLink,
   } = useApp();
 
   const [revealStep, setRevealStep] = useState(0);
@@ -367,6 +369,16 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
+
+  // Opened from another device's add-device link on a device that already has cards: "Sync my
+  // devices" (with that provider preselected) is in Settings here, so go there, once per page
+  // load. An empty collection shows it in place instead.
+  const hasDecks = decks.length > 0;
+  useEffect(() => {
+    if (addDeviceLinkRouted || !addDeviceLink || !hasDecks || !onOpenSettings) return;
+    addDeviceLinkRouted = true;
+    onOpenSettings();
+  }, [addDeviceLink, hasDecks, onOpenSettings]);
 
   const nowMs = Date.now();
   const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
@@ -755,9 +767,10 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         <LazyEmptyCollection
           storage={platform.storage}
           starterCatalogUrl={platform.starterCatalogUrl}
+          collectionEmpty={state.decks.size === 0}
+          openedFromAddDeviceLink={addDeviceLink !== undefined}
           onOpenLibrary={onOpenLibrary}
           onOpenSettings={onOpenSettings}
-          onLoadSamples={loadSampleDecks}
           onStartWithDeck={(deck) =>
             startOnboardingDeck(deck.slug, { getEventFactory, setActiveDeckId, emitEvents })
           }

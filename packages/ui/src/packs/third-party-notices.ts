@@ -63,6 +63,18 @@ export const THIRD_PARTY_NOTICES: readonly ThirdPartyNotice[] = [
     copyright: 'Copyright (c) 2020 Arjun Barrett',
     paragraphs: MIT_PARAGRAPHS,
   },
+  {
+    id: 'uqr',
+    name: 'uqr',
+    version: '0.1.3',
+    licenseName: 'MIT',
+    usage:
+      'Draws the add-device QR code in Settings > Cloud Sync. It is loaded only when that code is shown.',
+    sourceUrl: 'https://github.com/unjs/uqr',
+    copyright:
+      'Copyright (c) Project Nayuki\nCopyright (c) 2023 Anthony Fu <https://github.com/antfu>',
+    paragraphs: MIT_PARAGRAPHS,
+  },
 ];
 
 /** Plain-text rendering, as it appears in THIRD-PARTY-NOTICES.txt. */

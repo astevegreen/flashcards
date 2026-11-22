@@ -32,8 +32,13 @@ test.describe('Phase 13 first-run onboarding', () => {
     const onboarding = page.getByTestId('onboarding');
     await expect(onboarding).toBeVisible();
     await expect(onboarding.getByRole('heading', { name: 'What are you learning?' })).toBeVisible();
-    // The other ways to start stay available below it; nothing asks for a sign-in.
-    await expect(page.getByRole('button', { name: 'Load Sample Decks' })).toBeVisible();
+    // The other ways to start stay available below it; nothing asks for a sign-in. Onboarding
+    // replaced "Load Sample Decks" (approved 2026-11-22).
+    await expect(page.getByTestId('empty-bring-my-cards-btn')).toHaveText('Bring my cards');
+    await expect(page.getByTestId('empty-sync-my-devices-btn')).toHaveText(
+      'I already use this app: sync my devices',
+    );
+    await expect(page.getByRole('button', { name: 'Load Sample Decks' })).toHaveCount(0);
 
     await onboarding.getByTestId('onboarding-language-ko').click();
     await expect(onboarding.getByRole('heading', { name: 'Pick a starter deck' })).toBeVisible();
@@ -62,12 +67,18 @@ test.describe('Phase 13 first-run onboarding', () => {
 
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Ready to Study Offline' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Load Sample Decks' })).toBeVisible();
     await expect(page.getByTestId('onboarding')).toHaveCount(0);
 
-    // The empty screen still works exactly as before.
-    await page.getByRole('button', { name: 'Load Sample Decks' }).click();
-    await expect(page.getByTestId('study-card')).toBeVisible();
+    // The empty screen keeps its other ways in: "Sync my devices" opens in place, and
+    // "Bring my cards" opens the Library.
+    await page.getByTestId('empty-sync-my-devices-btn').click();
+    await expect(page.getByTestId('sync-my-devices')).toBeVisible();
+    await expect(page.getByTestId('sync-my-devices')).toContainText('Add a device');
+    await page.getByTestId('empty-sync-my-devices-btn').click();
+    await expect(page.getByTestId('sync-my-devices')).toHaveCount(0);
+    await page.getByTestId('empty-bring-my-cards-btn').click();
+    await expect(page.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Ready to Study Offline' })).toHaveCount(0);
   });
 
   test('sync is offered once, after the first finished session, never before', async ({ page }) => {
@@ -84,7 +95,14 @@ test.describe('Phase 13 first-run onboarding', () => {
     const prompt = page.getByTestId('onboarding-sync-prompt');
     await expect(prompt).toBeVisible();
     await prompt.getByRole('button', { name: 'Sync my devices' }).click();
-    // It only opens the existing sync choices in Settings.
+    // It opens "Sync my devices" in place: Google Drive by default on the web, the rest listed.
+    const panel = page.getByTestId('sync-my-devices');
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId('sync-my-devices-primary')).toHaveText(
+      'Continue with Google Drive',
+    );
+    await expect(page.getByTestId('onboarding-sync-prompt')).toHaveCount(0);
+    await panel.getByRole('button', { name: 'All sync settings' }).click();
     await expect(page.getByTestId('device-id-value')).toBeVisible();
 
     await page.getByRole('button', { name: 'Study', exact: true }).first().click();

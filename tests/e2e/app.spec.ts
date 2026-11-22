@@ -178,8 +178,12 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Ready to Study Offline' })).toBeVisible();
 
-    // Load sample decks via onboarding CTA
+    // Onboarding replaced the empty screen's "Load Sample Decks"; Settings still loads them all.
+    await expect(page.getByTestId('onboarding')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Load Sample Decks' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Settings' }).first().click();
     await page.getByRole('button', { name: 'Load Sample Decks' }).click();
+    await page.getByRole('button', { name: 'Study' }).first().click();
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // Switch Settings -> 4 buttons (+ Hard) and verify Hard button renders in Study

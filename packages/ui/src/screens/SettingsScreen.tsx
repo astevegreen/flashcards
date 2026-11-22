@@ -14,6 +14,7 @@ import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
 import { LeechAutoSuspendSetting } from '../study/LeechSettings.tsx';
 import { OneDriveSyncButtons } from '../sync/OneDriveSyncButtons.tsx';
+import { SettingsAddDevice, SettingsSyncMyDevices } from '../sync/SettingsSyncBlocks.tsx';
 import { describeSyncProvider } from '../sync/syncProviderLabel.ts';
 
 const LazyPackManagerPanel = lazy(() =>
@@ -500,6 +501,9 @@ export function SettingsScreen() {
           )}
         </div>
 
+        {/* Phase 14: one "Sync my devices" button, then every provider below it. */}
+        <SettingsSyncMyDevices />
+
         <div className="flex flex-wrap gap-2 pt-1">
           {isSyncConnected && (
             <button
@@ -615,6 +619,9 @@ export function SettingsScreen() {
             </button>
           )}
         </div>
+
+        {/* Phase 14: "Add a device" (QR code + link) and the add-device collection check. */}
+        <SettingsAddDevice />
       </div>
 
       {/* Study preferences */}
