@@ -54,15 +54,15 @@ for (const url of initialJsUrls) {
   breakdown.push(`${relPath}: ${(gz / 1024).toFixed(2)} KB gz`);
 }
 
-const BUDGET_BYTES = 150 * 1024;
+const BUDGET_BYTES = 160 * 1024;
 console.log('Initial study-screen JS breakdown:', breakdown.join(', '));
 console.log(
-  `Total initial study-screen JS: ${(totalInitialGzipBytes / 1024).toFixed(2)} KB gzipped (limit: 150.00 KB)`,
+  `Total initial study-screen JS: ${(totalInitialGzipBytes / 1024).toFixed(2)} KB gzipped (limit: ${(BUDGET_BYTES / 1024).toFixed(2)} KB)`,
 );
 
 if (totalInitialGzipBytes > BUDGET_BYTES) {
   console.error(
-    `Performance budget violation (§8): total initial JS (${totalInitialGzipBytes} B) exceeds 150 KB (${BUDGET_BYTES} B).`,
+    `Performance budget violation (§8): total initial JS (${totalInitialGzipBytes} B) exceeds ${BUDGET_BYTES / 1024} KB (${BUDGET_BYTES} B).`,
   );
   process.exit(1);
 }

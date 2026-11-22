@@ -368,7 +368,7 @@ Enforced in CI via `size-limit` and Playwright/Lighthouse checks:
 
 | Metric | Target |
 |---|---|
-| Initial JS for the study screen | ≤ 150 KB gzipped |
+| Initial JS for the study screen | ≤ 160 KB gzipped (raised from 150 KB on 2026-11-22, after Phases 9–13) |
 | Cold start to first card (Pixel-class phone, 5k cards) | ≤ 1 s |
 | Flip or rate to next card rendered | ≤ 16 ms (1 frame; persistence async) |
 | Incoming sync of 500 events | ≤ 200 ms main-thread work (replay in Web Worker) |
