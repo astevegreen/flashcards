@@ -312,16 +312,6 @@ export function executeMcpTool(
       }
     }
 
-    let totalActiveReviews = 0;
-    let passedReviews = 0;
-    for (const reviews of state.reviewsByCard.values()) {
-      for (const r of reviews) {
-        if (state.undoneReviewIds.has(r.review_id)) continue;
-        totalActiveReviews += 1;
-        if (r.rating >= 2) passedReviews += 1;
-      }
-    }
-
     let pagesRead = 0;
     for (const p of state.pages.values()) {
       if (p.read_at !== undefined) pagesRead += 1;
@@ -334,11 +324,6 @@ export function executeMcpTool(
     const queue = buildStudyQueue(state, { nowMs: now, tzOffsetMinutes });
 
     const statsOptions: CollectionStatsOptions = { nowMs: now, tzOffsetMinutes };
-    if (Array.isArray(args['deckIds'])) {
-      statsOptions.filter = {
-        deckIds: args['deckIds'].filter((id): id is string => typeof id === 'string'),
-      };
-    }
     for (const key of [
       'historyDays',
       'forecastDays',
@@ -348,15 +333,26 @@ export function executeMcpTool(
       const v = args[key];
       if (typeof v === 'number' && Number.isFinite(v)) statsOptions[key] = v;
     }
-    const stats = computeCollectionStats(state, statsOptions);
+    // The collection-wide legacy fields come from the same core stats module as `stats`, so the
+    // two always agree (archived notes/decks and undone reviews are excluded from both).
+    const collectionStats = computeCollectionStats(state, statsOptions);
+    const stats = Array.isArray(args['deckIds'])
+      ? computeCollectionStats(state, {
+          ...statsOptions,
+          filter: {
+            deckIds: args['deckIds'].filter((id): id is string => typeof id === 'string'),
+          },
+        })
+      : collectionStats;
+    const { totals } = collectionStats;
 
     return {
       totalDecks: activeDecks,
       totalNotes: activeNotes,
-      totalCards: state.cards.size,
-      totalReviews: totalActiveReviews,
+      totalCards: totals.cards,
+      totalReviews: totals.reviews,
       retentionEstimate:
-        totalActiveReviews > 0 ? Number((passedReviews / totalActiveReviews).toFixed(4)) : null,
+        totals.reviews > 0 ? Number((totals.passed / totals.reviews).toFixed(4)) : null,
       needsReviewNotes,
       totalPages: state.pages.size,
       pagesRead,

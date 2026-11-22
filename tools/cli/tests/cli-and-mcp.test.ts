@@ -211,6 +211,87 @@ describe('Phase 7 tools/cli & Local MCP Server (§7.1, §10.3)', () => {
     expect(existsSync(outConsolidated)).toBe(true);
   });
 
+  it('mcp: get_stats legacy totals agree with the core stats after a note is archived', () => {
+    const factory = createEventFactory('device-a', 0, createHlcState('device-a', 1000));
+    const deckId = 'deck-ko-archive';
+    const noteId = deriveNoteId(deckId, 'n1');
+    const events = [
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: deckId,
+          name: 'Korean Core',
+          note_type_id: 'preset:vocab-ko',
+          language: 'ko',
+          created_at: 1000,
+        },
+        1000,
+      ),
+      factory.create(
+        'NoteUpserted',
+        {
+          note_id: noteId,
+          deck_id: deckId,
+          source_key: 'n1',
+          fields: { word: '학교', meaning: 'school' },
+          tags: [],
+          provenance: { source: 'user', reviewed: true },
+          created_order: 0,
+        },
+        1001,
+      ),
+    ];
+    const seeded = createEmptyState();
+    applyEvents(seeded, events);
+    const card = [...seeded.cards.values()].find((c) => c.note_id === noteId);
+    expect(card).toBeDefined();
+    events.push(
+      factory.create(
+        'ReviewRecorded',
+        {
+          review_id: 'rev-archived',
+          card_id: card?.id ?? '',
+          rating: 3,
+          reviewed_at: 2000,
+          tz_offset: 0,
+          duration_ms: 1000,
+          answer_mode: 'flip',
+          fsrs_params_version: 0,
+          resulting_due_at: 2000 + 86_400_000,
+        },
+        2000,
+      ),
+      factory.create('NoteArchived', { note_id: noteId }, 3000),
+    );
+    const state = createEmptyState();
+    applyEvents(state, events);
+    expect(state.reviewsByCard.size).toBeGreaterThan(0);
+
+    const resp = handleMcpRequest(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'get_stats', arguments: { tzOffsetMinutes: 0 } },
+      },
+      { state, nowMs: () => 5000 },
+    );
+    const data = (
+      resp?.result as {
+        structuredContent: {
+          totalCards: number;
+          totalReviews: number;
+          retentionEstimate: number | null;
+          stats: CollectionStats;
+        };
+      }
+    ).structuredContent;
+    expect(data.stats.totals.reviews).toBe(0);
+    expect(data.totalReviews).toBe(data.stats.totals.reviews);
+    expect(data.retentionEstimate).toBeNull();
+    expect(data.totalCards).toBe(data.stats.totals.cards);
+  });
+
   it('mcp: reads sync/v1 mirror and exposes list_decks, get_weak_cards, get_stats, and propose_package', () => {
     const mirrorRoot = makeTempDir('flash-sync-mirror-');
     const inboxDir = makeTempDir('flash-mcp-inbox-');
@@ -403,6 +484,7 @@ describe('Phase 7 tools/cli & Local MCP Server (§7.1, §10.3)', () => {
     ).structuredContent;
     // Legacy fields stay collection-wide; `stats` honours the deck filter and windows.
     expect(filtered.totalReviews).toBe(1);
+    expect(fullStats.stats.totals.reviews).toBe(statsData.totalReviews);
     expect(filtered.stats.deckIds).toEqual([]);
     expect(filtered.stats.totals.reviews).toBe(0);
     expect(filtered.stats.heatmap.days.length).toBe(7);

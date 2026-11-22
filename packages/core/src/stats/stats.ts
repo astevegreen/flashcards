@@ -18,14 +18,17 @@ import { resolveDayStartHour } from '../study/queue.ts';
  * `nowMs` and `tzOffsetMinutes`.
  *
  * Definitions (kept in one place so the Stats screen and MCP `get_stats` agree):
- * - **Study day:** a review belongs to `getStudyDayIndex(reviewed_at, review.tz_offset, dayStart)`,
- *   where `dayStart` is the deck's effective rollover hour (deck override, else the collection
- *   default, same as the study queue). The review's own recorded `tz_offset` is used, so travelling
- *   never moves past reviews to another day. Day indexes are labelled with the local calendar date
- *   the study day starts on (`YYYY-MM-DD`).
- * - **Today:** the latest current study day among the included decks
- *   (`getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart)`); reviews that land after it (clock skew,
- *   timezone changes) are clamped to today for the windowed views.
+ * - **Day boundary:** one rollover hour is used for every aggregate view, so reviews, "today" and
+ *   the forecast are always labelled against the same calendar. It is the included decks' shared
+ *   effective rollover (deck override, else the collection default, same as the study queue) when
+ *   they all agree, and the collection-wide default when included decks override it differently.
+ *   Filtering to one deck therefore matches that deck's own study days exactly.
+ * - **Study day:** a review belongs to `getStudyDayIndex(reviewed_at, review.tz_offset, dayStart)`
+ *   with that boundary. The review's own recorded `tz_offset` is used, so travelling never moves
+ *   past reviews to another day. Day indexes are labelled with the local calendar date the study
+ *   day starts on (`YYYY-MM-DD`).
+ * - **Today:** `getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart)` with the same boundary; reviews
+ *   that land after it (clock skew, timezone changes) are clamped to today for the windowed views.
  * - **Pass:** rating >= 2 (Hard, Good, Easy). Again is a lapse.
  * - **Maturity:** a card is *mature* when it is in the FSRS Review state with a scheduled interval
  *   (`scheduled_days`) of at least {@link MATURE_INTERVAL_DAYS} days, otherwise *young*. We use the
@@ -268,6 +271,21 @@ export function resolveStatsScope(
 }
 
 /**
+ * The single rollover hour used for every aggregate view: the included decks' shared effective
+ * `day_start_hour` when they agree, otherwise the collection-wide default. Using one boundary keeps
+ * review days, "today" and forecast dates on the same calendar when decks override it differently.
+ */
+export function resolveAggregateDayStart(decks: readonly Deck[], globalDayStart: number): number {
+  let shared: number | undefined;
+  for (const deck of decks) {
+    const ds = resolveDayStartHour(deck.settings.day_start_hour, globalDayStart);
+    if (shared === undefined) shared = ds;
+    else if (shared !== ds) return globalDayStart;
+  }
+  return shared ?? globalDayStart;
+}
+
+/**
  * Computes every Phase 11 statistic for the cards selected by `options.filter`.
  * Deterministic: the same state and options always give the same result.
  */
@@ -287,19 +305,8 @@ export function computeCollectionStats(
 
   const { decks, cards } = resolveStatsScope(state, options.filter);
 
-  const dayStartByDeck = new Map<string, number>();
-  const todayByDeck = new Map<string, number>();
-  let today = Number.NEGATIVE_INFINITY;
-  for (const deck of decks) {
-    const ds = resolveDayStartHour(deck.settings.day_start_hour, globalDayStart);
-    const deckToday = getStudyDayIndex(nowMs, tzOffsetMinutes, ds);
-    dayStartByDeck.set(deck.id, ds);
-    todayByDeck.set(deck.id, deckToday);
-    if (deckToday > today) today = deckToday;
-  }
-  if (!Number.isFinite(today)) {
-    today = getStudyDayIndex(nowMs, tzOffsetMinutes, globalDayStart);
-  }
+  const dayStart = resolveAggregateDayStart(decks, globalDayStart);
+  const today = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
 
   const historyStart = today - historyDays + 1;
   const heatmapStart = today - heatmapDays + 1;
@@ -329,8 +336,6 @@ export function computeCollectionStats(
   const cardsPerDeck = new Map<string, number>();
 
   for (const card of cards) {
-    const dayStart = dayStartByDeck.get(card.deck_id) ?? globalDayStart;
-    const deckToday = todayByDeck.get(card.deck_id) ?? today;
     cardsPerDeck.set(card.deck_id, (cardsPerDeck.get(card.deck_id) ?? 0) + 1);
 
     // Maturity breakdown from the current (replayed) schedule.
@@ -341,7 +346,7 @@ export function computeCollectionStats(
     // Due forecast: every non-new card lands on its due study day (overdue folds into today).
     if (card.schedule.state !== 0) {
       const dueDay = getStudyDayIndex(card.schedule.due, tzOffsetMinutes, dayStart);
-      const rel = dueDay - deckToday;
+      const rel = dueDay - today;
       if (rel < 0) overdue += 1;
       const offset = Math.max(0, rel);
       const slot = forecast[offset];

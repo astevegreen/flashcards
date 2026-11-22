@@ -232,6 +232,53 @@ describe('Phase 11 stats: Korean golden', () => {
     expect(byDate['2026-03-10']).toBe(3);
   });
 
+  it('uses one collection-wide day boundary when included decks override rollover differently', () => {
+    const { events, cards } = koreanGoldenFixture();
+    const factory = createEventFactory('dev-d', 0, createHlcState('dev-d', NOW));
+    // 01:00 on the 11th in Seoul: still the 10th for the Korean deck (04:00 rollover), already the
+    // 11th for the Japanese deck (midnight override).
+    const lateNight = local(2026, 3, 11, 1, 0, KST);
+    reviewSeq = 100;
+    const state = replayAllEvents([
+      ...events,
+      factory.create(
+        'DeckSettingsChanged',
+        { deck_id: JA_DECK_ID, settings: { day_start_hour: 0 } },
+        NOW,
+      ),
+      review(factory, cards.c1, 3, local(2026, 3, 11, 0, 50, KST), KST, 1000),
+    ]);
+    const opts = { nowMs: lateNight, tzOffsetMinutes: KST, historyDays: 3, forecastDays: 5 };
+    const all = computeCollectionStats(state, opts);
+    const ko = computeCollectionStats(state, { ...opts, filter: { deckIds: [KO_DECK_ID] } });
+
+    // Mixed overrides fall back to the collection default (04:00) for every aggregate view.
+    expect(all.today.date).toBe('2026-03-10');
+    expect(ko.today.date).toBe('2026-03-10');
+    const lastAll = all.reviewsPerDay.days[all.reviewsPerDay.days.length - 1];
+    const lastKo = ko.reviewsPerDay.days[ko.reviewsPerDay.days.length - 1];
+    expect(lastAll?.date).toBe(all.today.date);
+    // The fresh 00:50 Korean review lands on today in both views, not on yesterday's bar.
+    expect(lastKo).toMatchObject({ date: '2026-03-10', count: 3 });
+    expect(lastAll?.count).toBe((lastKo?.count ?? 0) + 1);
+    expect(all.heatmap.studiedToday).toBe(true);
+
+    // Forecast dates are labelled against the same boundary, so a Korean card's due slot has the
+    // same date in the All Decks view and the Korean-only view.
+    expect(all.forecast.days[0]?.date).toBe(all.today.date);
+    const koDates = ko.forecast.days.filter((d) => d.count > 0).map((d) => d.date);
+    for (const date of koDates) {
+      const allSlot = all.forecast.days.find((d) => d.date === date);
+      const koSlot = ko.forecast.days.find((d) => d.date === date);
+      expect(allSlot?.count ?? 0).toBeGreaterThanOrEqual(koSlot?.count ?? 0);
+      expect(allSlot?.offset).toBe(koSlot?.offset);
+    }
+
+    // When every included deck shares an override, that shared boundary is used.
+    const ja = computeCollectionStats(state, { ...opts, filter: { deckIds: [JA_DECK_ID] } });
+    expect(ja.today.date).toBe('2026-03-11');
+  });
+
   it('filters by deck and by an arbitrary card predicate', () => {
     const { state, cards } = koreanGoldenFixture();
     const opts = { nowMs: NOW, tzOffsetMinutes: KST };
