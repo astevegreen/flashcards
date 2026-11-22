@@ -631,7 +631,7 @@ export function SettingsScreen() {
         <StudyRemindersSetting />
 
         <label className="flex items-center justify-between gap-4 text-sm">
-          <div>
+          <div className="min-w-0">
             <div className="font-medium">Rating buttons</div>
             <div className="text-xs text-[var(--muted)]">
               3 buttons (Again / Good / Easy) is recommended for FSRS.
@@ -643,7 +643,7 @@ export function SettingsScreen() {
             onChange={(e) =>
               updatePreferences({ rating_button_mode: e.target.value as RatingButtonMode })
             }
-            className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm"
+            className="min-w-0 max-w-[55%] rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm"
           >
             <option value="2">2 buttons (Again / Good)</option>
             <option value="3">3 buttons (Again / Good / Easy)</option>
@@ -962,7 +962,7 @@ export function SettingsScreen() {
           const currentMode = state.preferences.drawing_modes?.[key] ?? defaultMode;
           return (
             <label key={key} className="flex items-center justify-between gap-4 text-sm">
-              <span className="font-medium">{label}</span>
+              <span className="min-w-0 font-medium">{label}</span>
               <select
                 aria-label={`Drawing mode for ${label}`}
                 data-testid={`drawing-mode-select-${key}`}
@@ -972,7 +972,7 @@ export function SettingsScreen() {
                     drawing_modes: { [key]: e.target.value as DrawingMode },
                   })
                 }
-                className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm"
+                className="min-w-0 max-w-[55%] rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm"
               >
                 <option value="graded">Graded (Stroke Quiz)</option>
                 <option value="lookup">Lookup (Handwriting Match)</option>
