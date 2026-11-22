@@ -11,6 +11,10 @@ import {
 } from '../../../packages/core/src/index.ts';
 import { importFlashpkg } from '../../../packages/core/src/import/flashpkg.ts';
 import {
+  computeCollectionStats,
+  type CollectionStats,
+} from '../../../packages/core/src/stats/index.ts';
+import {
   encodeDeviceHead,
   encodeEventsSegment,
   encodeManifest,
@@ -362,6 +366,46 @@ describe('Phase 7 tools/cli & Local MCP Server (§7.1, §10.3)', () => {
     expect(statsData.totalNotes).toBe(2);
     expect(statsData.totalReviews).toBe(1);
     expect(statsData.needsReviewNotes).toBe(1);
+
+    // `stats` is the shared core Phase 11 module, identical to what the Stats screen renders.
+    const fullStats = (
+      statsResp?.result as {
+        structuredContent: { stats: CollectionStats; retentionEstimate: number };
+      }
+    ).structuredContent;
+    expect(fullStats.retentionEstimate).toBe(0);
+    expect(fullStats.stats).toEqual(
+      computeCollectionStats(loadedState, {
+        nowMs: 5000,
+        tzOffsetMinutes: -new Date(5000).getTimezoneOffset(),
+      }),
+    );
+    expect(fullStats.stats.totals).toMatchObject({ reviews: 1, passed: 0, timeMs: 1500 });
+    expect(fullStats.stats.maturity.total).toBe(2);
+    expect(fullStats.stats.heatmap.days.length).toBe(365);
+
+    const filteredResp = handleMcpRequest(
+      {
+        jsonrpc: '2.0',
+        id: 51,
+        method: 'tools/call',
+        params: {
+          name: 'get_stats',
+          arguments: { deckIds: ['missing-deck'], tzOffsetMinutes: 540, heatmapDays: 7 },
+        },
+      },
+      ctx,
+    );
+    const filtered = (
+      filteredResp?.result as {
+        structuredContent: { totalReviews: number; stats: CollectionStats };
+      }
+    ).structuredContent;
+    // Legacy fields stay collection-wide; `stats` honours the deck filter and windows.
+    expect(filtered.totalReviews).toBe(1);
+    expect(filtered.stats.deckIds).toEqual([]);
+    expect(filtered.stats.totals.reviews).toBe(0);
+    expect(filtered.stats.heatmap.days.length).toBe(7);
 
     const proposeResp = handleMcpRequest(
       {

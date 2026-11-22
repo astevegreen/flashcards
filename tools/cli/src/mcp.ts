@@ -13,6 +13,7 @@ import {
 } from '@flash/core';
 import { importFlashpkg } from '@flash/core/flashpkg';
 import { deserializeCollectionState } from '@flash/core/snapshot';
+import { computeCollectionStats, type CollectionStatsOptions } from '@flash/core/stats';
 import { decodeEventsSegment, decodeSyncSnapshot, SYNC_V1_PREFIX } from '@flash/core/sync';
 import {
   buildPackageFromSpec,
@@ -130,10 +131,28 @@ export const MCP_TOOLS = [
   {
     name: 'get_stats',
     description:
-      'Return collection-wide review counts, due counts, AI unreviewed backlog, and Markdown page progress.',
+      'Return collection-wide review counts, due counts, AI unreviewed backlog, and Markdown page progress, plus `stats`: the same Phase 11 statistics as the Stats screen (reviews per day with time spent, true retention vs target, due forecast, calendar heatmap with streaks, maturity breakdown), optionally filtered by deck.',
     inputSchema: {
       type: 'object',
-      properties: {},
+      properties: {
+        deckIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Restrict `stats` to these deck ids (default: every active deck).',
+        },
+        tzOffsetMinutes: {
+          type: 'integer',
+          description: 'Minutes east of UTC used for "today" (default: this machine).',
+        },
+        historyDays: { type: 'integer', minimum: 1, description: 'Reviews-per-day window (30).' },
+        forecastDays: { type: 'integer', minimum: 1, description: 'Due forecast window (30).' },
+        heatmapDays: { type: 'integer', minimum: 1, description: 'Heatmap window (365).' },
+        retentionWindowDays: {
+          type: 'integer',
+          minimum: 1,
+          description: 'True retention window (30).',
+        },
+      },
       additionalProperties: false,
     },
   },
@@ -308,8 +327,29 @@ export function executeMcpTool(
       if (p.read_at !== undefined) pagesRead += 1;
     }
 
-    const tzOffsetMinutes = -new Date(now).getTimezoneOffset();
+    const tzOffsetMinutes =
+      typeof args['tzOffsetMinutes'] === 'number' && Number.isFinite(args['tzOffsetMinutes'])
+        ? Math.round(args['tzOffsetMinutes'])
+        : -new Date(now).getTimezoneOffset();
     const queue = buildStudyQueue(state, { nowMs: now, tzOffsetMinutes });
+
+    const statsOptions: CollectionStatsOptions = { nowMs: now, tzOffsetMinutes };
+    if (Array.isArray(args['deckIds'])) {
+      statsOptions.filter = {
+        deckIds: args['deckIds'].filter((id): id is string => typeof id === 'string'),
+      };
+    }
+    for (const key of [
+      'historyDays',
+      'forecastDays',
+      'heatmapDays',
+      'retentionWindowDays',
+    ] as const) {
+      const v = args[key];
+      if (typeof v === 'number' && Number.isFinite(v)) statsOptions[key] = v;
+    }
+    const stats = computeCollectionStats(state, statsOptions);
+
     return {
       totalDecks: activeDecks,
       totalNotes: activeNotes,
@@ -321,6 +361,7 @@ export function executeMcpTool(
       totalPages: state.pages.size,
       pagesRead,
       dueCounts: queue.counts,
+      stats,
     };
   }
 
