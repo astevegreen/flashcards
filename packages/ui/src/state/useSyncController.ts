@@ -44,6 +44,8 @@ export interface SyncController {
   flushPendingSync: () => void;
   connectGoogleDrive: () => Promise<void>;
   connectDropbox: () => Promise<void>;
+  /** OneDrive app folder: a redirect on web; native shells sign in and connect in place. */
+  connectOneDrive: () => Promise<void>;
   connectLocalFolder: () => Promise<boolean>;
   reconnectLocalFolder: () => Promise<boolean>;
   connectICloud: () => Promise<void>;
@@ -72,7 +74,12 @@ export const IDLE_PUSH_DEBOUNCE_MS = 8_000;
 export const FOREGROUND_PULL_COOLDOWN_MS = 15_000;
 
 export function isNetworkSyncProvider(provider: SyncProviderKind): boolean {
-  return provider === 'google_drive' || provider === 'dropbox' || provider === 'dev_channel';
+  return (
+    provider === 'google_drive' ||
+    provider === 'dropbox' ||
+    provider === 'onedrive' ||
+    provider === 'dev_channel'
+  );
 }
 
 export function shouldFlushPendingSync(params: {
@@ -291,6 +298,7 @@ export function useSyncController({
     if (
       provider === 'google_drive' ||
       provider === 'dropbox' ||
+      provider === 'onedrive' ||
       provider === 'local_folder' ||
       provider === 'icloud'
     ) {
@@ -458,6 +466,19 @@ export function useSyncController({
     await auth.signIn({ intent: 'sync' });
   }, [platform]);
 
+  const connectOneDrive = useCallback(async (): Promise<void> => {
+    if (!platform.getOneDriveAuth) {
+      throw new Error('OneDrive sync is not available in this build.');
+    }
+    const auth = await platform.getOneDriveAuth();
+    // Web redirects away (null); native shells return the session right here.
+    const session = await auth.signIn({ intent: 'sync' });
+    if (!session) return;
+    const { activateCloudProvider } = await import('./syncRunner.ts');
+    await activateCloudProvider(makeRunnerCtx(), 'onedrive', clearCollectionBinding);
+    await executeSync();
+  }, [clearCollectionBinding, executeSync, makeRunnerCtx, platform]);
+
   const connectLocalFolder = useCallback(async (): Promise<boolean> => {
     const { connectLocalFolderSync } = await import('./syncRunner.ts');
     const ok = await connectLocalFolderSync(makeRunnerCtx(), clearCollectionBinding);
@@ -524,6 +545,7 @@ export function useSyncController({
     flushPendingSync,
     connectGoogleDrive,
     connectDropbox,
+    connectOneDrive,
     connectLocalFolder,
     reconnectLocalFolder,
     connectICloud,

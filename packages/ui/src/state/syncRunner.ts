@@ -214,6 +214,9 @@ async function resolveActiveTransport(
   if (provider === 'dropbox') {
     return ctx.platform.createDropboxTransport ? ctx.platform.createDropboxTransport() : null;
   }
+  if (provider === 'onedrive') {
+    return ctx.platform.createOneDriveTransport ? ctx.platform.createOneDriveTransport() : null;
+  }
   if (provider === 'icloud') {
     return ctx.platform.createICloudTransport ? ctx.platform.createICloudTransport() : null;
   }
@@ -518,7 +521,7 @@ export async function connectLocalFolderSync(
  */
 export async function activateCloudProvider(
   ctx: SyncRunnerContext,
-  provider: 'google_drive' | 'dropbox' | 'icloud',
+  provider: 'google_drive' | 'dropbox' | 'icloud' | 'onedrive',
   clearCollectionBinding: () => DeviceMeta,
 ): Promise<void> {
   if (ctx.configRef.current.provider === provider) return;
@@ -553,6 +556,9 @@ export async function disconnectActiveSync(
     await auth.signOut();
   } else if (prevProvider === 'dropbox' && ctx.platform.getDropboxAuth) {
     const auth = await ctx.platform.getDropboxAuth();
+    await auth.signOut();
+  } else if (prevProvider === 'onedrive' && ctx.platform.getOneDriveAuth) {
+    const auth = await ctx.platform.getOneDriveAuth();
     await auth.signOut();
   } else if (prevProvider === 'local_folder') {
     ctx.localFolderTransportRef.current = null;
