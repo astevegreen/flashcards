@@ -7,7 +7,8 @@ import { useState } from 'react';
  * step. Sync is offered after the first finished session, not here (see `SyncPrompt`).
  *
  * Part of the lazily loaded empty-collection chunk, never the initial study bundle (§8). The card
- * keeps one reserved height across both steps so nothing below it moves when the step changes.
+ * reserves the height of its taller step (step 1, four languages) so nothing below it moves when
+ * the step changes or a load error appears; the footer is pinned to the bottom of that space.
  */
 
 const LANGUAGE_LABELS: Readonly<Record<string, { name: string; native: string }>> = {
@@ -45,9 +46,15 @@ function plural(n: number, one: string): string {
 export function FirstRunOnboarding({
   onPickDeck,
   onSkip,
+  busy = false,
+  error,
 }: Readonly<{
   onPickDeck: (deck: SampleDeckInfo) => void;
   onSkip: () => void;
+  /** A starter deck is loading: deck choices are disabled. */
+  busy?: boolean;
+  /** Why the last pick failed; shown inside the reserved card height. */
+  error?: string;
 }>) {
   const [language, setLanguage] = useState<string | undefined>(undefined);
   const languages = onboardingLanguages();
@@ -57,7 +64,7 @@ export function FirstRunOnboarding({
     <section
       aria-labelledby="onboarding-title"
       data-testid="onboarding"
-      className="flex min-h-[19rem] w-full max-w-md flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-left"
+      className="flex min-h-[22rem] w-full max-w-md flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-left"
     >
       <div className="flex items-baseline justify-between gap-2">
         <h2 id="onboarding-title" className="text-base font-bold">
@@ -97,6 +104,7 @@ export function FirstRunOnboarding({
               <button
                 type="button"
                 data-testid={`onboarding-deck-${deck.slug}`}
+                disabled={busy}
                 onClick={() => onPickDeck(deck)}
                 className={CHOICE_CLASS}
               >
@@ -108,6 +116,15 @@ export function FirstRunOnboarding({
             </li>
           ))}
         </ul>
+      )}
+      {error !== undefined && language !== undefined && (
+        <p
+          role="alert"
+          data-testid="onboarding-error"
+          className="text-sm text-[var(--danger,#dc2626)]"
+        >
+          {error}
+        </p>
       )}
       <div className="mt-auto flex items-center justify-between gap-2">
         {language === undefined ? (

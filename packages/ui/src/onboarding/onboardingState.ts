@@ -53,15 +53,30 @@ export async function loadOnboardingRecord(
 }
 
 const cachedReads = new WeakMap<KvStore, Promise<OnboardingRecord | undefined>>();
+/** The settled record per storage object (absent until the first read settles or a save). */
+const settled = new WeakMap<KvStore, OnboardingRecord | undefined>();
 
 /** One stable read per storage object, for React `use()` (so first paint never shifts). */
 export function onboardingRecordResource(storage: KvStore): Promise<OnboardingRecord | undefined> {
   let read = cachedReads.get(storage);
   if (!read) {
-    read = loadOnboardingRecord(storage);
-    cachedReads.set(storage, read);
+    const pending = loadOnboardingRecord(storage);
+    read = pending;
+    cachedReads.set(storage, pending);
+    void pending.then((record) => {
+      // A save while the read was in flight wins over what the read found.
+      if (cachedReads.get(storage) === pending) settled.set(storage, record);
+    });
   }
   return read;
+}
+
+/**
+ * The record as last read or saved, synchronously, for UI that must decide in the same render
+ * whether to show something (so it never appears late). `undefined` until the first read settles.
+ */
+export function peekOnboardingRecord(storage: KvStore): OnboardingRecord | undefined {
+  return settled.get(storage);
 }
 
 export async function saveOnboardingRecord(
@@ -69,6 +84,7 @@ export async function saveOnboardingRecord(
   record: OnboardingRecord,
 ): Promise<void> {
   cachedReads.set(storage, Promise.resolve(record));
+  settled.set(storage, record);
   try {
     await storage.setKv(ONBOARDING_KV_KEY, record);
   } catch {

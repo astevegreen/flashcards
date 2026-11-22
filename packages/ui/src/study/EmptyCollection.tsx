@@ -29,10 +29,13 @@ export function EmptyCollection({
   onOpenLibrary: () => void;
   onOpenSettings: (() => void) | undefined;
   onLoadSamples: () => void;
-  onStartWithDeck: (deck: SampleDeckInfo) => void;
+  /** Seeds the starter deck; rejects when it could not be loaded (onboarding stays open). */
+  onStartWithDeck: (deck: SampleDeckInfo) => Promise<void>;
 }) {
   const record = use(onboardingRecordResource(storage));
   const [onboardingOpen, setOnboardingOpen] = useState(record === undefined);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | undefined>(undefined);
 
   const closeOnboarding = () => {
     if (!onboardingOpen) return;
@@ -40,15 +43,26 @@ export function EmptyCollection({
     void saveOnboardingRecord(storage, { status: 'skipped', at: Date.now() });
   };
 
-  const startWithDeck = (deck: SampleDeckInfo) => {
-    void saveOnboardingRecord(storage, {
+  // The device is marked onboarded only once the deck is in the collection: if the samples chunk
+  // fails to load, the user stays in onboarding with an error and can retry.
+  const startWithDeck = async (deck: SampleDeckInfo) => {
+    if (starting) return;
+    setStarting(true);
+    setStartError(undefined);
+    try {
+      await onStartWithDeck(deck);
+    } catch {
+      setStarting(false);
+      setStartError('Could not load that deck. Check your connection and try again.');
+      return;
+    }
+    await saveOnboardingRecord(storage, {
       status: 'completed',
       at: Date.now(),
       language: deck.language,
       deckSlug: deck.slug,
       syncPrompt: 'pending',
     });
-    onStartWithDeck(deck);
   };
 
   return (
@@ -61,7 +75,14 @@ export function EmptyCollection({
             : 'No decks are loaded on this device yet. Load the built-in Japanese, Mandarin, Korean + Hanja, and English sample decks, or import your own CSV / .flashpkg files.'}
         </p>
       </div>
-      {onboardingOpen && <FirstRunOnboarding onPickDeck={startWithDeck} onSkip={closeOnboarding} />}
+      {onboardingOpen && (
+        <FirstRunOnboarding
+          onPickDeck={(deck) => void startWithDeck(deck)}
+          onSkip={closeOnboarding}
+          busy={starting}
+          {...(startError === undefined ? {} : { error: startError })}
+        />
+      )}
       <div className="flex flex-wrap justify-center gap-3">
         {starterCatalogUrl && (
           <button

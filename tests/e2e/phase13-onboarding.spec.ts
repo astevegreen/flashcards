@@ -89,6 +89,51 @@ test.describe('Phase 13 first-run onboarding', () => {
     await expect(page.getByTestId('onboarding-sync-prompt')).toHaveCount(0);
   });
 
+  for (const width of [320, 390]) {
+    test(`the sync prompt paints with the caught-up panel, nothing moves after (${width}px)`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto('/');
+      await page.getByTestId('onboarding-language-ko').click();
+      await page.getByTestId('onboarding-deck-sample-ko-vocab').click();
+      await expect(page.getByTestId('study-card')).toBeVisible();
+      // Sample the caught-up buttons every frame, from before the panel first paints.
+      await page.evaluate(() => {
+        const samples: string[] = [];
+        (window as unknown as { __caughtUpSamples: string[] }).__caughtUpSamples = samples;
+        const tick = () => {
+          const buttons = [...document.querySelectorAll('button')].filter(
+            (b) => b.textContent === 'Open Library' || b.textContent === 'Study All Decks',
+          );
+          if (buttons.length > 0) {
+            const prompt = document.querySelector('[data-testid="onboarding-sync-prompt"]');
+            samples.push(
+              `${prompt ? 'prompt' : 'none'}:${buttons
+                .map((b) => Math.round(b.getBoundingClientRect().top))
+                .join(',')}`,
+            );
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+
+      await finishSession(page);
+      await expect(page.getByTestId('onboarding-sync-prompt')).toBeVisible();
+      await page.waitForLoadState('networkidle');
+      const read = () =>
+        page.evaluate(
+          () => (window as unknown as { __caughtUpSamples: string[] }).__caughtUpSamples,
+        );
+      await expect.poll(async () => (await read()).length).toBeGreaterThan(30);
+      const samples = await read();
+      // Every frame since the panel appeared shows the prompt and the same button positions.
+      expect(new Set(samples).size).toBe(1);
+      expect(samples[0]).toMatch(/^prompt:/);
+    });
+  }
+
   test('"Not now" dismisses the sync prompt for good', async ({ page }) => {
     await page.goto('/');
     await page.getByTestId('onboarding-language-zh-Hans').click();

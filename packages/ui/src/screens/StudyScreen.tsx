@@ -18,7 +18,7 @@ import {
   type ReviewRating,
 } from '@flash/core';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DeferredSyncPromptSlot } from '../onboarding/DeferredSyncPromptSlot.tsx';
+import type * as DeferredSyncPromptModuleType from '../onboarding/DeferredSyncPromptSlot.tsx';
 import { useApp, type AppContextValue } from '../state/AppContext.tsx';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
@@ -46,6 +46,37 @@ const LazyStudyFilterPanel = lazy(() =>
 const LazyEmptyCollection = lazy(() =>
   import('../study/EmptyCollection.tsx').then((m) => ({ default: m.EmptyCollection })),
 );
+
+// Deferred onboarding sync prompt (§8: not in the initial study chunk). The module is imported and
+// the per-device onboarding record read when the study screen mounts, so the prompt can paint in
+// the same commit as the caught-up panel instead of shifting it later. Kept once loaded, so a
+// remount (back from Settings) has it synchronously.
+type DeferredSyncPromptModule = typeof DeferredSyncPromptModuleType;
+let loadedDeferredSyncPrompt: DeferredSyncPromptModule | undefined;
+
+function useDeferredSyncPromptModule(
+  storage: Parameters<DeferredSyncPromptModule['preloadDeferredSyncPrompt']>[0],
+): { mod: DeferredSyncPromptModule | undefined; readyAtMount: boolean } {
+  const [readyAtMount] = useState(() => loadedDeferredSyncPrompt !== undefined);
+  const [mod, setMod] = useState(loadedDeferredSyncPrompt);
+  useEffect(() => {
+    if (mod) return;
+    let live = true;
+    import('../onboarding/DeferredSyncPromptSlot.tsx')
+      .then(async (m) => {
+        await m.preloadDeferredSyncPrompt(storage);
+        loadedDeferredSyncPrompt = m;
+        if (live) setMod(m);
+      })
+      .catch(() => {
+        // Optional prompt: a failed chunk load just means it is not offered this time.
+      });
+    return () => {
+      live = false;
+    };
+  }, [mod, storage]);
+  return { mod, readyAtMount };
+}
 
 export interface StudyScreenProps {
   onOpenLibrary: () => void;
@@ -273,20 +304,23 @@ function CaughtUpPanel({
   );
 }
 
-/** Onboarding's starter deck: seeds only that sample deck (lazily) and studies it right away. */
-function startWithSampleDeck(
+/**
+ * Onboarding's starter deck: seeds only that sample deck (lazily) and studies it right away.
+ * Rejects when the samples chunk cannot load (stale deploy, offline cache miss), so the caller
+ * can keep onboarding open and let the user retry.
+ */
+async function startWithSampleDeck(
   slug: string,
   app: Pick<AppContextValue, 'getEventFactory' | 'setActiveDeckId' | 'emitEvents'>,
-): void {
-  void import('@flash/core/samples').then((samples) => {
-    const events = samples.buildSampleDeckEvents(
-      app.getEventFactory(),
-      samples.SAMPLE_SEED_EPOCH_MS,
-      { deckSlugs: [slug] },
-    );
-    app.setActiveDeckId(samples.sampleDeckId(slug));
-    app.emitEvents(events);
-  });
+): Promise<void> {
+  const samples = await import('@flash/core/samples');
+  const events = samples.buildSampleDeckEvents(
+    app.getEventFactory(),
+    samples.SAMPLE_SEED_EPOCH_MS,
+    { deckSlugs: [slug] },
+  );
+  app.setActiveDeckId(samples.sampleDeckId(slug));
+  app.emitEvents(events);
 }
 
 export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps) {
@@ -309,6 +343,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   } = useApp();
 
   const [revealStep, setRevealStep] = useState(0);
+  const deferredSyncPrompt = useDeferredSyncPromptModule(platform.storage);
   const [furiganaOverride, setFuriganaOverride] = useState<boolean | null>(null);
   const [evaluation, setEvaluation] = useState<AnswerEvaluation | null>(null);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
@@ -717,6 +752,8 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   const needsAiReview = currentNote?.provenance.source === 'ai' && !currentNote.provenance.reviewed;
   const editingDeck = state.decks.get(editingNote?.deck_id ?? '');
 
+  const caughtUp = !currentCard || !currentNote || !currentLayout || !currentDeck;
+
   if (decks.length === 0) {
     return (
       <Suspense fallback={null}>
@@ -909,28 +946,19 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
 
       {/* Main Card Surface or Caught-Up State */}
       {!currentCard || !currentNote || !currentLayout || !currentDeck ? (
-        <>
-          <CaughtUpPanel
-            message={caughtUpMessage(
-              nextLearningDueAt,
-              nowMs,
-              studyFilter,
-              queueResult.buriedNoteIds.size,
-            )}
-            learningPending={nextLearningDueAt !== undefined}
-            hasFilter={Boolean(studyFilter)}
-            canStudyAll={activeDeckId !== undefined}
-            onStudyAll={() => setActiveDeckId(undefined)}
-            onOpenLibrary={onOpenLibrary}
-          />
-          {/* Deferred onboarding sync step: after the first finished session, below every control. */}
-          <DeferredSyncPromptSlot
-            storage={platform.storage}
-            provider={syncState.provider}
-            sessionReviewed={undoStack.length > 0}
-            onOpenSettings={onOpenSettings}
-          />
-        </>
+        <CaughtUpPanel
+          message={caughtUpMessage(
+            nextLearningDueAt,
+            nowMs,
+            studyFilter,
+            queueResult.buriedNoteIds.size,
+          )}
+          learningPending={nextLearningDueAt !== undefined}
+          hasFilter={Boolean(studyFilter)}
+          canStudyAll={activeDeckId !== undefined}
+          onStudyAll={() => setActiveDeckId(undefined)}
+          onOpenLibrary={onOpenLibrary}
+        />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3 short:flex-row">
           <StudyCard
@@ -992,6 +1020,19 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
             onRate={handleRate}
           />
         </div>
+      )}
+
+      {/* Deferred onboarding sync step: after the first finished session, below every control.
+          One stable position in both branches, so it is mounted while a card is on screen. */}
+      {deferredSyncPrompt.mod && (
+        <deferredSyncPrompt.mod.DeferredSyncPromptSlot
+          storage={platform.storage}
+          provider={syncState.provider}
+          caughtUp={caughtUp}
+          readyAtScreenMount={deferredSyncPrompt.readyAtMount}
+          sessionReviewed={undoStack.length > 0}
+          onOpenSettings={onOpenSettings}
+        />
       )}
 
       {editingNote && (

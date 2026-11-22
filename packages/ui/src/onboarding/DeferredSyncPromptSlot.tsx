@@ -1,72 +1,73 @@
 import type { Storage, SyncProviderKind } from '@flash/platform';
-import { useEffect, useState, type ComponentType } from 'react';
+import { useState } from 'react';
 import {
   onboardingRecordResource,
+  peekOnboardingRecord,
   saveOnboardingRecord,
   wantsSyncPrompt,
   type OnboardingRecord,
   type SyncPromptState,
 } from './onboardingState.ts';
-import type { SyncPrompt as SyncPromptComponent } from './SyncPrompt.tsx';
+import { SyncPrompt } from './SyncPrompt.tsx';
 
-type SyncPromptProps = Parameters<typeof SyncPromptComponent>[0];
+type KvStore = Pick<Storage, 'getKv' | 'setKv'>;
 
 /**
- * Slot for the deferred onboarding sync prompt under the "All caught up" panel. The per-device
- * record is read on mount and the prompt module is imported (lazily, §8) as soon as the record
- * says it is wanted, long before a first session can finish, so the prompt paints together with
- * the caught-up panel. Its height is reserved, and it sits below every study control.
+ * Starts this device's onboarding-record read. The study screen imports this module (lazily, §8)
+ * and calls this when it MOUNTS, long before a session can finish, so the slot below can decide
+ * synchronously, in the same render as the caught-up panel, whether the prompt shows.
+ */
+export async function preloadDeferredSyncPrompt(storage: KvStore): Promise<void> {
+  await onboardingRecordResource(storage);
+}
+
+/**
+ * Slot for the deferred onboarding sync prompt, under the "All caught up" panel and below every
+ * study control. It never appears after the panel has painted: it shows only if it was mounted
+ * while a card was on screen (`caughtUp` false at mount), or if the study screen had this module
+ * ready when it mounted (`readyAtScreenMount`); either way the prompt and the caught-up panel
+ * paint in the same commit. Answering it ("Not now" / "Sync my devices") is user-initiated.
  */
 export function DeferredSyncPromptSlot({
   storage,
   provider,
+  caughtUp,
+  readyAtScreenMount,
   sessionReviewed,
   onOpenSettings,
 }: Readonly<{
-  storage: Pick<Storage, 'getKv' | 'setKv'>;
+  storage: KvStore;
   provider: SyncProviderKind;
+  /** True while the study screen shows the caught-up panel instead of a card. */
+  caughtUp: boolean;
+  readyAtScreenMount: boolean;
   /** True once a card was rated in this app session: "after the first session", not on reload. */
   sessionReviewed: boolean;
   onOpenSettings: (() => void) | undefined;
 }>) {
-  const [record, setRecord] = useState<OnboardingRecord | undefined>(undefined);
-  const [Prompt, setPrompt] = useState<ComponentType<SyncPromptProps> | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    void onboardingRecordResource(storage).then((loaded) => {
-      if (!live || !wantsSyncPrompt(loaded)) return;
-      setRecord(loaded);
-      void import('./SyncPrompt.tsx').then((m) => {
-        if (live) setPrompt(() => m.SyncPrompt);
-      });
-    });
-    return () => {
-      live = false;
-    };
-  }, [storage]);
+  const [armed] = useState(() => readyAtScreenMount || !caughtUp);
+  const [answered, setAnswered] = useState<OnboardingRecord | undefined>(undefined);
+  const record = answered ?? peekOnboardingRecord(storage);
 
   const visible =
-    wantsSyncPrompt(record) && provider === 'none' && sessionReviewed && onOpenSettings;
-  if (!visible || !record) return null;
+    armed && caughtUp && sessionReviewed && provider === 'none' && wantsSyncPrompt(record);
+  if (!visible || !record || !onOpenSettings) return null;
 
   const answer = (syncPrompt: SyncPromptState) => {
     const next: OnboardingRecord = { ...record, syncPrompt };
-    setRecord(next);
+    setAnswered(next);
     void saveOnboardingRecord(storage, next);
   };
 
   return (
-    <div className="min-h-[4.5rem] shrink-0">
-      {Prompt && (
-        <Prompt
-          onOpenSync={() => {
-            answer('opened');
-            onOpenSettings();
-          }}
-          onDismiss={() => answer('dismissed')}
-        />
-      )}
+    <div className="shrink-0">
+      <SyncPrompt
+        onOpenSync={() => {
+          answer('opened');
+          onOpenSettings();
+        }}
+        onDismiss={() => answer('dismissed')}
+      />
     </div>
   );
 }
