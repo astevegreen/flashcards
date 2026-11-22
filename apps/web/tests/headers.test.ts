@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { PRODUCTION_CSP } from '../csp.ts';
 
@@ -67,8 +67,11 @@ describe('Cloudflare Pages _headers', () => {
     const viteConfig = read('../vite.config.ts');
     expect(viteConfig).not.toMatch(/publicDir:\s*false|copyPublicDir:\s*false/);
     const dist = new URL('../dist/_headers', import.meta.url);
-    // `pnpm build` output: present after a build (CI builds before e2e), absent on a clean checkout.
-    if (existsSync(new URL('../dist/index.html', import.meta.url))) {
+    const distIndex = new URL('../dist/index.html', import.meta.url);
+    // `pnpm build` output: absent on a clean checkout (CI runs unit tests before building). A local
+    // `dist/` built before `_headers` last changed is stale, so it proves nothing either way.
+    const source = new URL('../public/_headers', import.meta.url);
+    if (existsSync(distIndex) && statSync(distIndex).mtimeMs >= statSync(source).mtimeMs) {
       expect(readFileSync(dist, 'utf8').replaceAll('\r\n', '\n')).toBe(HEADERS_FILE);
     }
   });

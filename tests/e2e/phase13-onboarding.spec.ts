@@ -6,11 +6,8 @@ import { expect, test, type Page } from '@playwright/test';
  * sessions seed sample decks, so every other spec reaches study directly and never sees it.
  */
 
-const DECK_NAME = 'Korean Core + Hanja';
-
-async function deckOptions(page: Page): Promise<string[]> {
-  return page.getByLabel('Select deck to study').locator('option').allTextContents();
-}
+/** The Korean starter deck onboarding offers (packages/core/src/starters). */
+const DECK_NAME = 'Korean Starter: Beginner Words';
 
 /** Reveals and rates Easy until the day's queue is empty (the first session is finished). */
 async function finishSession(page: Page): Promise<void> {
@@ -50,7 +47,10 @@ test.describe('Phase 13 first-run onboarding', () => {
     await expect(page.getByTestId('study-card')).toBeVisible();
     await expect(page.getByTestId('onboarding')).toHaveCount(0);
     // Only the chosen starter deck was added, and it is the one being studied.
-    expect(await deckOptions(page)).toEqual(['All Decks', DECK_NAME]);
+    await expect(page.getByLabel('Select deck to study').locator('option')).toHaveText([
+      'All Decks',
+      DECK_NAME,
+    ]);
     await expect(page.getByLabel('Select deck to study')).toHaveValue(/.+/);
 
     await page.reload();
