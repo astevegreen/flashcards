@@ -173,7 +173,9 @@ export class OneDriveAppFolderTransport implements SyncTransport {
       return;
     }
     if (!childPath.startsWith(prefix)) return;
-    const updatedAt = item.lastModifiedDateTime ? Date.parse(item.lastModifiedDateTime) : NaN;
+    const updatedAt = item.lastModifiedDateTime
+      ? Date.parse(item.lastModifiedDateTime)
+      : Number.NaN;
     out.push({
       path: childPath,
       size: item.size ?? 0,

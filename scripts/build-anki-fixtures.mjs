@@ -760,7 +760,7 @@ async function malicious() {
     'malicious-traversal.apkg': await one('../evil.txt'),
     'malicious-traversal-nested.apkg': await one('media/../../evil.txt'),
     'malicious-absolute.apkg': await one('/etc/evil.txt'),
-    'malicious-backslash.apkg': await one('..\\evil.txt'),
+    'malicious-backslash.apkg': await one(String.raw`..\evil.txt`),
     'malicious-drive-letter.apkg': await one('C:/evil.txt'),
     'malicious-too-many-files.apkg': await withCollection(manyFiles),
     // 4 MiB of zeros deflates to ~4 KiB; the headers claim 100 bytes.

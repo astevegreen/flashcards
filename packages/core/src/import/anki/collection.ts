@@ -127,8 +127,8 @@ function legacyModel(raw: unknown): AnkiModel | undefined {
     id,
     name: asString(m['name']) || 'Anki note type',
     kind: m['type'] === 1 ? 'cloze' : 'standard',
-    fields: fields.sort(byOrd),
-    templates: templates.sort(byOrd),
+    fields: fields.toSorted(byOrd),
+    templates: templates.toSorted(byOrd),
   };
 }
 
@@ -184,7 +184,7 @@ function decksFromTables(raw: AnkiRawPackage): AnkiDeckInfo[] {
     const filtered = kind.length > 0 && protoConfig(kind, 'deck').has(2);
     return {
       id: str(row, 'id'),
-      name: str(row, 'name').split('\u001f').join('::'),
+      name: str(row, 'name').replaceAll('\u001f', '::'),
       filtered,
     };
   });

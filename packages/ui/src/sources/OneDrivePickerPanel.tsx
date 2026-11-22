@@ -70,7 +70,7 @@ export default function OneDrivePickerPanel({
     [state, stateVersion],
   );
   // The Korean vocab preset when present, else the first note type the select shows.
-  const [chosenNoteTypeId, setNoteTypeId] = useState<string | undefined>(undefined);
+  const [chosenNoteTypeId, setChosenNoteTypeId] = useState<string | undefined>(undefined);
   const noteTypeId =
     [chosenNoteTypeId, 'preset:vocab-ko'].find((id) => id && state.noteTypes.has(id)) ??
     noteTypes[0]?.id ??
@@ -176,7 +176,7 @@ export default function OneDrivePickerPanel({
         <select
           aria-label="OneDrive import note type"
           value={noteTypeId}
-          onChange={(e) => setNoteTypeId(e.target.value)}
+          onChange={(e) => setChosenNoteTypeId(e.target.value)}
           className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1"
         >
           {noteTypes.map((nt) => (

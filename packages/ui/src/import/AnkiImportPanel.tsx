@@ -140,7 +140,7 @@ export function AnkiImportPanel({ onImported }: Readonly<AnkiImportPanelProps>) 
             disabled={busy}
             onChange={(e) => setIncludeHistory(e.target.checked)}
           />
-          Include review history
+          <span>Include review history</span>
         </label>
         <button
           type="button"

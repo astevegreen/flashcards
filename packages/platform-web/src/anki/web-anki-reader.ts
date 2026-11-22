@@ -20,16 +20,16 @@ function createDefaultWorker(): AnkiReaderWorkerLike {
   }) as unknown as AnkiReaderWorkerLike;
 }
 
-const ERROR_CODES: readonly string[] = [
+const ERROR_CODES: ReadonlySet<string> = new Set([
   'not_apkg',
   'unsupported_format',
   'unsafe_archive',
   'too_large',
   'invalid_collection',
-];
+]);
 
 function toError(msg: { message: string; code?: string }): Error {
-  if (msg.code && ERROR_CODES.includes(msg.code)) {
+  if (msg.code && ERROR_CODES.has(msg.code)) {
     return new AnkiImportError(msg.code as AnkiImportErrorCode, msg.message);
   }
   return new Error(msg.message);

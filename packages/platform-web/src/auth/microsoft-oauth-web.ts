@@ -230,7 +230,7 @@ export class MicrosoftOAuthWebAuth implements Auth {
     const state = params.get('state');
     if (!state?.startsWith(MS_STATE_PREFIX)) return null;
     const pkce = await this.storage.getKv<StoredMicrosoftPkce>(MS_PKCE_KV_KEY);
-    if (!pkce || pkce.state !== state) return null;
+    if (pkce?.state !== state) return null;
 
     win.history.replaceState(
       {},

@@ -200,36 +200,37 @@ async function applyRemoteEventsOffMainThread(
   return { changedCardIds: diff.changedCardIds, removedCardIds: diff.removedCardIds };
 }
 
+async function restoreLocalFolderTransport(ctx: SyncRunnerContext): Promise<SyncTransport | null> {
+  if (ctx.localFolderTransportRef.current) {
+    return ctx.localFolderTransportRef.current;
+  }
+  const restored = await ctx.platform.restoreLocalSyncFolder({ requestPermission: false });
+  if (!restored) return null;
+  ctx.localFolderTransportRef.current = restored.transport;
+  return restored.transport;
+}
+
 async function resolveActiveTransport(
   ctx: SyncRunnerContext,
   provider: SyncProviderKind,
 ): Promise<SyncTransport | null> {
-  if (provider === 'none') return null;
-  if (provider === 'dev_channel') {
-    return ctx.platform.syncTransport;
+  const platform = ctx.platform;
+  switch (provider) {
+    case 'dev_channel':
+      return platform.syncTransport;
+    case 'google_drive':
+      return platform.createGoogleDriveTransport();
+    case 'dropbox':
+      return (await platform.createDropboxTransport?.()) ?? null;
+    case 'onedrive':
+      return (await platform.createOneDriveTransport?.()) ?? null;
+    case 'icloud':
+      return (await platform.createICloudTransport?.()) ?? null;
+    case 'local_folder':
+      return restoreLocalFolderTransport(ctx);
+    default:
+      return null;
   }
-  if (provider === 'google_drive') {
-    return ctx.platform.createGoogleDriveTransport();
-  }
-  if (provider === 'dropbox') {
-    return ctx.platform.createDropboxTransport ? ctx.platform.createDropboxTransport() : null;
-  }
-  if (provider === 'onedrive') {
-    return ctx.platform.createOneDriveTransport ? ctx.platform.createOneDriveTransport() : null;
-  }
-  if (provider === 'icloud') {
-    return ctx.platform.createICloudTransport ? ctx.platform.createICloudTransport() : null;
-  }
-  if (provider === 'local_folder') {
-    if (ctx.localFolderTransportRef.current) {
-      return ctx.localFolderTransportRef.current;
-    }
-    const restored = await ctx.platform.restoreLocalSyncFolder({ requestPermission: false });
-    if (!restored) return null;
-    ctx.localFolderTransportRef.current = restored.transport;
-    return restored.transport;
-  }
-  return null;
 }
 
 export async function runSyncCycle(

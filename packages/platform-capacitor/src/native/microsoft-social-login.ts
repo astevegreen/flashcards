@@ -32,7 +32,9 @@ interface OAuth2Result {
 function toTokenSet(result: OAuth2Result): MicrosoftTokenSet {
   const token = result.accessToken?.token;
   if (!token) throw new Error('Microsoft sign-in returned no access token.');
-  const expiresAt = result.accessToken?.expires ? Date.parse(result.accessToken.expires) : NaN;
+  const expiresAt = result.accessToken?.expires
+    ? Date.parse(result.accessToken.expires)
+    : Number.NaN;
   const fromExpiry = Number.isNaN(expiresAt) ? null : Math.round((expiresAt - Date.now()) / 1000);
   return {
     accessToken: token,

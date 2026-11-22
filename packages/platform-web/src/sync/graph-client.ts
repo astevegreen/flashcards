@@ -120,12 +120,13 @@ export class GraphClient {
   }
 
   /** Sends one request under the shared 401 / retry policy and returns the final response. */
-  async send(url: string, init: RequestInit = {}, opts = { withAuth: true }): Promise<Response> {
-    let token = opts.withAuth ? await this.auth.getValidAccessToken() : '';
+  async send(url: string, init: RequestInit = {}, opts?: { withAuth: boolean }): Promise<Response> {
+    const withAuth = opts?.withAuth ?? true;
+    let token = withAuth ? await this.auth.getValidAccessToken() : '';
     let refreshed = false;
     for (let attempt = 0; ; attempt += 1) {
       const res = await this.fetchOnce(url, init, token);
-      if (res.status === 401 && opts.withAuth && !refreshed) {
+      if (res.status === 401 && withAuth && !refreshed) {
         refreshed = true;
         token = await this.auth.getValidAccessToken({ forceRefresh: true });
         continue;

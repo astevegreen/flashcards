@@ -57,7 +57,7 @@ function toBrowseItem(item: GraphDriveItem): OneDriveBrowseItem | null {
     };
   }
   if (!item.file || !isPickableOneDriveFile(item.name)) return null;
-  const modified = item.lastModifiedDateTime ? Date.parse(item.lastModifiedDateTime) : NaN;
+  const modified = item.lastModifiedDateTime ? Date.parse(item.lastModifiedDateTime) : Number.NaN;
   return {
     id: item.id,
     name: item.name,

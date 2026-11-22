@@ -343,7 +343,8 @@ export class FakeGraphServer {
     const parsed = JSON.parse(new TextDecoder().decode(req.body ?? new Uint8Array())) as {
       item?: Record<string, unknown>;
     };
-    const behavior = String(parsed.item?.['@microsoft.graph.conflictBehavior'] ?? 'replace');
+    const rawBehavior = parsed.item?.['@microsoft.graph.conflictBehavior'];
+    const behavior = typeof rawBehavior === 'string' ? rawBehavior : 'replace';
     if (behavior === 'fail' && this.appFolder.files.has(path)) {
       return graphError(409, 'nameAlreadyExists', 'The specified item name already exists.');
     }

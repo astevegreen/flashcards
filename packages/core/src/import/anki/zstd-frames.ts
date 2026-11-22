@@ -141,8 +141,10 @@ export function encodeZstdRaw(data: Uint8Array): Uint8Array {
     const size = Math.min(BLOCK_MAX - 1, data.length - offset);
     const last = offset + size >= data.length ? 1 : 0;
     const bh = (size << 3) | last; // type 0 = raw
-    blocks.push(new Uint8Array([bh & 0xff, (bh >> 8) & 0xff, (bh >> 16) & 0xff]));
-    blocks.push(data.subarray(offset, offset + size));
+    blocks.push(
+      new Uint8Array([bh & 0xff, (bh >> 8) & 0xff, (bh >> 16) & 0xff]),
+      data.subarray(offset, offset + size),
+    );
     offset += size;
   } while (offset < data.length);
   const total = blocks.reduce((n, b) => n + b.length, 0);
