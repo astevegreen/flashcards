@@ -33,6 +33,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
+        // Study reminders (desktop notifications, shown while the app runs).
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_oauth::init())
         .invoke_handler(tauri::generate_handler![
             secure_store::secure_store_available,

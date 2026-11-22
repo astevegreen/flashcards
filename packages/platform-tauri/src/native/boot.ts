@@ -8,6 +8,7 @@ import { createTauriPlatform } from '../index.ts';
 import {
   asSqlPluginDatabase,
   createDesktopFiles,
+  createDesktopNotificationBridge,
   createFsBridge,
   createLoopbackOAuthPlugin,
   createSecureSecretBackend,
@@ -84,5 +85,12 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
     ...(oauthPlugin && secureStorageWarning ? { secureStorageWarning } : {}),
   });
 
-  return composeNativePlatform(native, base);
+  return {
+    ...composeNativePlatform(native, base),
+    // Phase 13 study reminders: desktop notifications while the app runs.
+    getStudyReminderScheduler: async () => {
+      const { createDesktopReminderScheduler } = await import('../reminders/desktop-reminders.ts');
+      return createDesktopReminderScheduler(createDesktopNotificationBridge());
+    },
+  };
 }

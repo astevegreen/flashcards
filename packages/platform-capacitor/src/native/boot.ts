@@ -9,6 +9,7 @@ import {
   createFileBridge,
   createGoogleSignInPlugin,
   createICloudDocumentPlugin,
+  createLocalNotificationsBridge,
   createMlKitInkPlugin,
   createStoreBillingPlugin,
   createSystemBrowserLauncher,
@@ -73,5 +74,13 @@ export async function bootCapacitorPlatform(
     ...(config.starterCatalogUrl ? { starterCatalogUrl: config.starterCatalogUrl } : {}),
   });
 
-  return composeNativePlatform(native, base);
+  return {
+    ...composeNativePlatform(native, base),
+    // Phase 13 study reminders: OS local notifications (the PWA only shows an in-app badge).
+    getStudyReminderScheduler: async () => {
+      const { createLocalNotificationReminderScheduler } =
+        await import('../reminders/local-notification-reminders.ts');
+      return createLocalNotificationReminderScheduler(createLocalNotificationsBridge());
+    },
+  };
 }

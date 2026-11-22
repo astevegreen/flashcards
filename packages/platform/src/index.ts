@@ -629,6 +629,30 @@ export interface DictionaryService {
   search(query: string, opts?: DictionarySearchOptions): Promise<DictionaryEntry[]>;
 }
 
+/** OS notification permission as the native shells report it. */
+export type ReminderPermission = 'granted' | 'denied' | 'prompt';
+
+/** One local study-reminder notification (Phase 13). */
+export interface ScheduledStudyReminder {
+  /** Unix ms when the notification shows. */
+  atMs: number;
+  title: string;
+  body: string;
+}
+
+/**
+ * Native local notifications for study reminders (Capacitor Android / iOS, Tauri desktop).
+ * The PWA has no scheduler: it shows an in-app badge instead.
+ */
+export interface StudyReminderScheduler {
+  checkPermission(): Promise<ReminderPermission>;
+  /** Asks the OS for notification permission (only call when the user turns reminders on). */
+  requestPermission(): Promise<ReminderPermission>;
+  /** Replaces every study reminder scheduled before with `reminders`. */
+  replaceAll(reminders: readonly ScheduledStudyReminder[]): Promise<void>;
+  cancelAll(): Promise<void>;
+}
+
 export interface PlatformServices {
   readonly deviceId: string;
   readonly deviceLabel: string;
@@ -687,4 +711,6 @@ export interface PlatformServices {
   getDictionaryService?: () => Promise<DictionaryService>;
   getPurchase?: () => Promise<Purchase>;
   getNativePickerBridge?: () => Promise<NativePickerBridge>;
+  /** Native shells only: local-notification study reminders (lazy, never in the PWA). */
+  getStudyReminderScheduler?: () => Promise<StudyReminderScheduler>;
 }
