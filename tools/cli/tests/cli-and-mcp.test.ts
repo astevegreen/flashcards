@@ -409,7 +409,13 @@ describe('Phase 7 tools/cli & Local MCP Server (§7.1, §10.3)', () => {
     const toolNames = (listToolsResp?.result as { tools: Array<{ name: string }> }).tools.map(
       (t) => t.name,
     );
-    expect(toolNames).toEqual(['list_decks', 'get_weak_cards', 'get_stats', 'propose_package']);
+    expect(toolNames).toEqual([
+      'list_decks',
+      'search_notes',
+      'get_weak_cards',
+      'get_stats',
+      'propose_package',
+    ]);
 
     const decksResp = handleMcpRequest(
       {
