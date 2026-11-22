@@ -20,7 +20,8 @@ import {
   listStudySets,
 } from '../src/study/custom-study.ts';
 import { normalizeCardFilter } from '../src/study/filter.ts';
-import { buildStudyQueue, getExtraNewCardsToday } from '../src/study/queue.ts';
+import { getExtraNewCardsToday } from '../src/study/custom-study.ts';
+import { buildStudyQueue } from '../src/study/queue.ts';
 
 const DECK = 'deck-ko-custom-study-prop';
 const REC = 'layout:vocab-ko:recognition';

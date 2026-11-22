@@ -35,7 +35,8 @@ import {
   normalizeCardFilter,
   shouldAutoSuspendLeech,
 } from '../src/study/filter.ts';
-import { buildStudyQueue, getExtraNewCardsToday } from '../src/study/queue.ts';
+import { getExtraNewCardsToday } from '../src/study/custom-study.ts';
+import { buildStudyQueue } from '../src/study/queue.ts';
 
 const DAY = 86_400_000;
 const MIN = 60_000;
