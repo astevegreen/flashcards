@@ -26,7 +26,8 @@ A **local-first, zero-server** foreign language flashcard and study app. Every d
 4. **Content is data, interactions are code.** Adding a new deck, grammar set, or lesson never needs code. Only a new *kind of interaction* (a new answer mode, a new page block) requires code.
 5. **One content format.** Sheets, local files, Anki imports, AI tools, and shared decks all normalize into the same internal model and the same exportable `.flashpkg` format.
 6. **Agents can run everything.** The app runs with no login and no network using sample data, so coding agents can build and test it end-to-end.
-7. **Ship Phases 1–3 lean.** Keep `packages/core` data structures ready for Note Types, Pages, Courses, and Answer Modes from day one, but keep the Phase 1–3 UI laser-focused on a fast, polished Flashcards Deluxe replacement (Flip + FSRS + Sync + Sheets/Local Folders) before layering on Phases 4–8.
+7. **Effortless onboarding.** A new user never runs a command, never creates an account for this app, never copies a key or token by hand, and signs in at most once per device (with the platform's own account picker) to turn on sync. All developer-side setup (GCP, Cloudflare, catalog URLs) is done at build time and is invisible to users. Security and store-policy compliance are never traded away for fewer taps. See Phase 14.
+8. **Ship Phases 1–3 lean.** Keep `packages/core` data structures ready for Note Types, Pages, Courses, and Answer Modes from day one, but keep the Phase 1–3 UI laser-focused on a fast, polished Flashcards Deluxe replacement (Flip + FSRS + Sync + Sheets/Local Folders) before layering on Phases 4–8.
 
 ---
 
@@ -61,7 +62,7 @@ erDiagram
   - flags such as `tts: true` and `sortKey: true`
   - Built-in presets: *Vocabulary (JA)*, *Vocabulary (ZH)*, *Vocabulary (KO)*, *Hanja*, *Grammar point*, *Sentence*, *Cloze*.
 - **Layout** (card template): Which fields go on the front, which are revealed and in what steps, the answer mode (§5.2), which field to speak and when, and whether furigana is hidden on the front. Every new deck starts with a *Recognition* layout; *Production* and other layouts are one-tap toggles. Each layout keeps its own FSRS schedule.
-- **Note**: One row of content: `fields: Record<fieldKey, string>`, `tags[]`, a `source_key` (the Card ID from a Sheet, a package note ID, etc.), and `provenance` (`user` | `import` | `ai`, plus `reviewed: boolean`).
+- **Note**: One row of content: `fields: Record<fieldKey, string>`, `tags[]` (the app's **categories**: Flashcards Deluxe `Category 1..N` columns and Sheet/CSV `Tags` import here; optional `::` hierarchy such as `Grammar::Particles`; filterable for Browse and Study, see Phase 9), a `source_key` (the Card ID from a Sheet, a package note ID, etc.), and `provenance` (`user` | `import` | `ai`, plus `reviewed: boolean`).
 - **Card**: A `note × layout × variant` (the cloze number, else `0`). **Cards are derived, not stored as truth.** Their IDs are deterministic (`uuidv5(note_id, layout_id, variant)`), so every device produces the same cards without syncing them. Only reviews sync.
 - **Page**: A long-form lesson written in Markdown with app blocks (§2.3).
 - **Course**: An ordered list of pages and decks. An item can be marked "unlocks after page X is read", so grammar explanations precede drill decks.
@@ -127,7 +128,7 @@ Every source is **imported into the local collection**. After that, its content 
 - **Scanning:** Rescans on open and on "Refresh"; files are re-imported only when modified time or content hash changes.
 
 ### 3.3 Other Imports
-- **Anki `.apkg`** (later phase; `sql.js` lazy-loaded): note types, fields, cloze, media, optionally review history.
+- **Anki `.apkg`** (Phase 12; `sql.js` lazy-loaded): note types, fields, cloze, media, optionally review history.
 - **Paste or CSV upload** in the app (all platforms).
 
 ### 3.4 Package Format (`.flashpkg` — Sharing, AI, Backups)
@@ -225,6 +226,7 @@ interface SyncTransport {
 | **Local folder** | **v1 (PC)** | PC | Reads/writes a local folder (useful for local-only backups or desktop sync tools like Syncthing/OneDrive). |
 | **Dropbox (`App folder`)** | **Future plugin** | All | Pluggable `SyncTransport` using browser PKCE with offline refresh tokens; deferred until needed. |
 | **iCloud Drive** | **Future plugin** | iOS / macOS (Capacitor) | Optional zero-login sync for iOS-only App Store users. |
+| **Microsoft OneDrive (App folder)** | **Planned (Phase 12)** | All | Microsoft Graph `/me/drive/special/approot` with `Files.ReadWrite.AppFolder` (personal Microsoft accounts; work/school accounts would need broader `Files.ReadWrite`). Web/PWA routes the code exchange and refresh through `apps/token-helper` as a confidential client, because Microsoft gives SPA-registered clients 24-hour refresh tokens; native shells use MSAL public clients with rolling refresh tokens. Until then, PC users can already sync through the OneDrive desktop folder with the Local folder transport. |
 | **In-memory** | **v1 (Dev/Test)** | Tests / Dev | Powers `?device=a` / `?device=b` local dev mode and multi-device tests. |
 
 **Google OAuth & Silent Refresh on Web/PWA (Solving iOS Standalone PWA):**
@@ -267,7 +269,8 @@ Shortcuts automatically disable when a text input has focus.
   - Configurable new cards/day and max reviews/day per deck; source or random new-card order.
   - **Sibling burying:** Recognition and Production cards of the same note don't both appear on the same day.
   - Target retention per deck (default `0.90`); study day starts at `04:00` local time (configurable); reviews store `tz_offset`.
-  - **FSRS optimizer (later):** On-device WASM (`fsrs-rs`) parameter fitting.
+  - **FSRS optimizer (Phase 11):** On-device WASM (`fsrs-browser`) parameter fitting.
+  - **Filtered study, suspend, leeches and custom study:** Phase 9.
 
 ### 5.2 Answer Modes
 
@@ -323,7 +326,7 @@ Decks and dictionaries have distinct roles:
 | Kanji | KANJIDIC2 | CC BY-SA 4.0 (EDRDG) |
 | Japanese words (optional, large) | JMdict | CC BY-SA 4.0 (EDRDG) |
 | Chinese words | CC-CEDICT | CC BY-SA 4.0 |
-| Korean words *(planned follow-up)* | NIKL KRDict / Kaikki Wiktionary Korean-English extract | CC BY-SA 4.0 |
+| Korean words *(Phase 10, top priority)* | NIKL 한국어기초사전 (KRDict) English edition as the primary source, with 우리말샘 / 표준국어대사전 for coverage and the Kaikki Wiktionary Korean extract for extra English glosses | CC BY-SA 2.0 KR (NIKL), CC BY-SA 4.0 (Wiktionary) |
 
 Attribution shown in About screen (share-alike applies to dictionary data, not app code).
 
@@ -332,6 +335,7 @@ Attribution shown in About screen (share-alike applies to dictionary data, not a
 ### 6.4 Drawing (Phase 6)
 Per-language mode: `graded` | `lookup` | `off`.
 - **Graded (`ja`, `zh-Hans`):** Hanzi Writer (MIT) in quiz mode; Make Me a Hanzi (Arphic PL verified Nov 2026: selling the app is fine since the app code is mere aggregation, but the stroke data must stay freely downloadable, ship `ARPHICPL.TXT` unaltered, and carry a change notice in each modified file — the full build does all three) for Chinese, KanjiVG (CC BY-SA 3.0) for Japanese (kept separate due to stroke-order differences). Stroke data pre-cached per `draw` deck. Mistakes map to `0 → Easy`, `1–2 → Good`, `3+ → Again` (overridable).
+- **Korean Hanja is lookup-only by design:** graded stroke practice for Hanja is out of scope.
 - **Lookup (Hanja default + Browse tool):** Custom MIT/permissive stroke-matching recognizer over Make Me a Hanzi / KanjiVG data on web (avoid GPL libraries); **Google ML Kit Digital Ink Recognition** on native shells.
 - **Canvas:** Pointer Events with `touch-action: none`, grid guide, undo stroke, clear, reveal.
 
@@ -341,7 +345,7 @@ Per-language mode: `graded` | `lookup` | `off`.
 
 ### 7.1 Resolution Order
 For any field configured to speak, the app resolves audio in order:
-1. **Attached audio** on the note (from `.flashpkg`, Anki import, or user recording).
+1. **Attached audio** on the note (from `.flashpkg`, Anki import, a Sheet/CSV audio column, or a file the user attaches).
 2. **Cached clip** in the local/synced media store, keyed by `sha256(normalized_text + voice_id)`.
 3. **User's own cloud TTS key** (optional power-user setting: Google Cloud TTS or Azure via thin `TtsProvider` interface). Generated online at `1.0x`, saved to local media store *and* synced to `media/` so other devices never regenerate it.
 4. **Device TTS** (`speechSynthesis`). Offline uses only `localService === true` voices; prompts once with OS instructions if a local language voice is missing.
@@ -543,6 +547,129 @@ If development ever stops:
 
 ### Phase 8 — Native Shells & Stores (R6) — *Implemented*
 - `@flash/core/license` (free-tier boundary `FREE_TIER_MAX_DECKS = 2`, personal-build compile flag, offline Ed25519 key verification), `packages/platform-capacitor` (SQLite adapter, native Google Sign-In with zero Worker dependency, `picker.html` deep-link bridge `flashcards://picker-callback`, Google ML Kit Digital Ink recognizer, StoreKit 2 / Play Billing `unlock_full` IAP, optional iCloud Drive transport), `packages/platform-tauri` (SQLite adapter, native folder/`Inbox/` watcher, loopback Google OAuth, Ed25519 license verifier), optional `DropboxAppFolderTransport`, `apps/mobile` + `apps/desktop` shell configs, Settings License & Sunset Promise UI, and `docs/store-listing-and-sunset.md`.
+
+> Phases 9–14 close the gaps found in the Nov 2026 product review, before a store launch. The order is the priority order. Korean is the reference language for acceptance testing; every feature must also work for `ja`, `zh-Hans` and `en`.
+
+### Phase 9 — Categories, Filtered Study & Card Control — *Planned*
+Goal: at least Flashcards Deluxe parity for organizing and filtering cards.
+- **Categories = note `tags[]`** (already synced via `NoteUpserted`). Keep mapping `Category 1..N` / `Tags` columns on import, and write them back out on CSV/`.flashpkg` export so a Flashcards Deluxe round-trip is lossless. Add optional `::` hierarchy.
+- **Tag manager:** lists every category with note counts; renames, merges and deletes across the whole collection in one batch of events.
+- **Bulk editing:** multi-select in Browse to add or remove categories, move notes between decks, archive.
+- **One shared filter model** (`packages/core`): any set of decks plus categories with *any* / *all* / *none* matching, card state (new, learning, due, suspended, leech), "Needs review", and **performance**: lapses ≥ N, Again rate over the last N reviews/days, failed within the last N days, low current recall probability (FSRS retrievability), low stability / high difficulty, and a "hardest N cards" ranking (same ordering as MCP `get_weak_cards`). Browse filters (replacing today's single `#tag` substring search), Study sessions and page `::cards{}` blocks all use it.
+- **Filtered study:** `buildStudyQueue` accepts the filter, uses the same FSRS schedule (no forked state) and keeps sibling burying. Filters can be saved as named **Study Sets** that sync. Built-in presets include **Trouble cards** (most-missed cards across chosen decks/categories) and **Failed this week**. A Study Set can be studied on schedule (only due cards) or as practice (all matches, see Custom study).
+- **Custom study:** review ahead, extra new cards today, and cram/practice mode for a filter. Cram records a `PracticeRecorded` event that does **not** change FSRS state.
+- **Suspend/unsuspend** cards and notes (`CardSuspended` / `CardUnsuspended` events). **Leeches:** at N lapses (default 8) tag `leech` and optionally auto-suspend.
+
+### Phase 10 — Korean Dictionary Excellence — *Planned (top priority)*
+Goal: the best offline Korean↔English lookup in any flashcard app, built on open data that permits commercial use.
+- **Primary source: NIKL 한국어기초사전 (KRDict), English edition** (full XML download, CC BY-SA 2.0 KR). Keep per-sense English equivalents and definitions, part of speech, learner level (초급/중급/고급), standard pronunciation, conjugated forms, Hanja origin, example sentences, and related, synonym and antonym links.
+- **Coverage sources:** 우리말샘 and 표준국어대사전 (CC BY-SA 2.0 KR, Korean–Korean) for headwords KRDict lacks, the Kaikki Wiktionary Korean extract (CC BY-SA 4.0) for extra English glosses, slang and etymology, and kengdic only after its license is confirmed. Every sense shows a source badge.
+- **Merge pipeline** (`scripts/build-packs.mjs`): unify entries by headword + Hanja + part of speech, rank senses (KRDict first), dedupe glosses, and build an English→Korean reverse index from the English equivalents. Measure pack size and shard by first syllable if any file exceeds 25 MiB.
+- **Korean-aware search:**
+  - inflected-form lookup (`먹었어요` → `먹다`, irregular verbs included)
+  - romanization input
+  - initial-consonant (초성) search (`ㅎㄱ` → `한국`)
+  - jamo-insensitive prefix matching
+  - Hanja ↔ word links (from a word to its Hanja in the Unihan pack, and from a Hanja to every word that uses it)
+  - draw-to-lookup on Hanja (lookup only, see §6.4)
+- **Pronunciation audio:** use KRDict audio only if its license permits redistribution (to be verified). Otherwise fall back to the §7 TTS chain.
+- **Add to Deck** maps headword, English, Hanja, level, example and pronunciation into the Korean vocabulary note type.
+- **Licensing decision point:** evaluate licensing a commercial publisher's Korean–English dataset as an optional premium pack if the open-data quality bar is not met. Attribution for every source appears in About.
+- **Follow-on:** bring the same search treatment (deinflection, reverse index) to `ja` (JMdict) and `zh-Hans` (CC-CEDICT).
+
+### Phase 11 — Statistics & FSRS Optimizer — *Planned*
+- **Stats screen:** reviews per day, time spent, true retention vs. target, due forecast, a calendar heatmap with streaks, maturity breakdown, and the hardest cards. Filterable by deck and category (Phase 9 filter). Computed from the event log, offline.
+- **On-device FSRS optimizer:** `fsrs-browser` WASM (verified in ADR 0001) runs in a Worker per deck or preset. It emits `DeckFSRSParamsChanged`, with an optional "Reschedule existing cards".
+- The MCP `get_stats` output matches the screen.
+
+### Phase 12 — Import & Sync Breadth — *Planned*
+- **Anki `.apkg` import:** note types, fields, cloze, media, tags as categories, optional review history (converted to `ReviewRecorded` events), and Anki ruby conversion.
+- **Microsoft OneDrive `SyncTransport`** (§4.3):
+  - Graph app folder storage, with `@microsoft.graph.conflictBehavior=fail` for `ifAbsent` writes and upload sessions for files over 4 MB
+  - token-helper `/ms/exchange` and `/ms/refresh` routes for web, MSAL on native
+  - optional OneDrive file picker as a content source for `.csv` / `.xlsx` / `.flashpkg`
+
+### Phase 13 — Launch Polish — *Planned*
+- **Study reminders:** native local notifications on Capacitor and Tauri at a user-chosen time with the due count. The PWA gets an in-app badge only.
+- **MCP server upgrades:**
+  - `search_notes` with the Phase 9 filter
+  - `get_weak_cards` filtered by category
+  - reload when the mirror changes
+  - an updated protocol version
+- **First-run onboarding:** pick a language, then a starter deck, then sync. Phase 14 reviews and sets the bar for it.
+- **Adaptive layout across device classes.** Today there is one breakpoint (`md` = 768 px: bottom tabs below it, a left rail above it), a content column capped at 896 px, and two text sizes on cards. Extend that to:
+  - **Fit the card to the screen:** the study screen (prompt, answer, rating buttons) always fits without scrolling. Replace the fixed `min-h-[20rem]` card with sizing based on the available height. In landscape phones and short windows, use a compact layout: rating buttons beside the card, tab bar hidden while studying.
+  - **Auto-fit card text:** scale the font with screen size and content length, so a single Hanja fills the card while a long grammar explanation (e.g. Flashcards Deluxe grammar decks) drops to a readable size and scrolls inside the card.
+  - **Small screens (< 360 px)** and foldable cover screens: a compact type scale, icon-only tabs, and touch targets of at least 44–48 px.
+  - **Tablets and foldables (inner screen):** use the width. Browse and the dictionary get a list + detail split view, and the study card can show notes or a dictionary panel beside it. Also handle split-screen / multi-window resizing and, where supported, the foldable hinge (CSS viewport segments).
+  - **Large monitors:** a wider max width for Browse, Library and Dictionary; keep the study card centered with a capped line length.
+  - **Non-touch and keypad devices:** full keyboard and D-pad focus navigation with visible focus rings. Number keys `1–4` already map to ratings. Don't depend on hover.
+  - **Accessibility scaling:** an in-app card text-size setting; respect OS text size (iOS Dynamic Type and the Android font scale inside the native WebViews; to be verified); `prefers-reduced-motion`.
+  - **Test matrix:** Playwright projects for a small phone (320×568), a regular phone (390×844), a landscape phone (844×390), a foldable cover screen, a tablet (820×1180 portrait/landscape) and a desktop (1920×1080). The e2e suite currently runs only Desktop Chrome plus one 390×844 test.
+
+### Phase 14 — Onboarding & Setup Review (Store-Launch Gate) — *Planned*
+Goal: an aggressive end-to-end review that removes every unnecessary step between install and studying, and between a second device and synced data. **The app doesn't go to the stores until this review passes.**
+
+- **Audit:** walk every first-run path on a fresh Android phone, iPhone and Windows PC, plus a tablet and a foldable:
+  - new user
+  - second device
+  - import from Flashcards Deluxe or Anki
+  - restore from backup
+  - restore purchase
+
+  Log every screen, tap, permission prompt, sign-in, consent screen, app switch and piece of typed text. Each one has to justify itself; otherwise it is removed, deferred or automated.
+- **Targets** (measured with non-technical testers, not developers):
+  - first card on screen ≤ 30 s and ≤ 3 taps after install, with no sign-in
+  - second device fully synced ≤ 2 min with exactly one sign-in
+  - zero terminal commands, zero hand-copied keys or tokens, zero app-specific passwords
+- **Design rules:**
+  - **Study first, set up later:** the app opens to a language picker and a starter deck. Sync, imports and dictionaries are offered after the first session, not before.
+  - **One "Sync my devices" button:** it picks a sensible default (iCloud for Apple-only users, which needs no sign-in; Google for cross-platform users) and shows the other providers as alternatives. Sign-in always goes through the system account picker (Android Credential Manager / Google Sign-In, iOS `ASWebAuthenticationSession`); the app never sees a password.
+  - **Add another device:** a QR code or short link that tells the new device which provider and collection to connect to. It never carries tokens or secrets; the new device signs in itself.
+  - **Just-in-time permissions:** ask for notifications only when reminders are turned on, and for folder access only when a folder is linked.
+  - **Dictionaries:**
+    - the native builds ship with the chosen language's dictionary, or download it automatically once, showing its size and waiting for Wi-Fi
+    - TTS uses device voices by default
+    - if a voice is missing, the app links straight to the right OS settings screen
+    - your own cloud TTS key lives under Advanced
+  - **Guided import:** a single "Bring my cards" flow detects Flashcards Deluxe CSV, Anki `.apkg`, `.flashpkg` and Google Sheets automatically.
+  - **Purchase:** in-app purchase with a visible **Restore Purchases** button. On web/desktop, the license activates from a link in the purchase email rather than a pasted key.
+  - **Power-user tools stay out of the main path:** the CLI and MCP server are for content authors only and never appear in user onboarding.
+- **Compliance checklist (re-verified against current policy at submission):**
+  - **Apple:**
+    - Sign in with Apple is needed only if a third-party login is used as an app account. Keep Google, Dropbox and OneDrive framed as storage connectors, and confirm under Guideline 4.8.
+    - Account-deletion rules don't apply because there are no app accounts.
+    - Digital unlocks use in-app purchase, plus a Restore button.
+    - Follow the current rules on mentioning outside purchases (anti-steering).
+    - Privacy nutrition label.
+  - **Google Play:** Data safety form; OAuth consent screen brand verification for `drive.appdata` / `drive.file`; Play Billing for the unlock; target-API and permission declarations.
+  - **Both stores:**
+    - least-privilege scopes
+    - tokens only in Keychain/Keystore (native) or device storage (web)
+    - no analytics
+    - a privacy policy and EULA that include the sunset promise
+- **Deliverable:** `docs/onboarding-review.md` with the audited flows, measured results against the targets, the fixes made, and a sign-off checklist.
+
+### Future Candidates — *Under consideration, not committed*
+Ideas worth building if time and demand allow. Each needs its own go/no-go decision before work starts.
+
+- **Korean verb & adjective conjugation** (in the spirit of conjugation apps such as Dongsa):
+  - **Conjugation engine** in `packages/core`. Given a dictionary form (`먹다`, `돕다`, `듣다`, `하다`), it generates every common form, with the rule applied shown for each form:
+    - tenses: past, present, future, progressive
+    - politeness levels: 해체, 해요체, 합쇼체, 해라체
+    - honorific `-(으)시-`
+    - negatives: `안`, `-지 않다`, `못`
+    - connectives: `-고`, `-아/어서`, `-(으)면`, `-지만`, …
+    - noun-modifier forms
+    - the irregular classes: ㅂ, ㄷ, ㅅ, ㅎ, 르 and 러, plus ㄹ-deletion and vowel contraction
+  - **Shared with Phase 10:** the same rule tables run in reverse to power dictionary deinflection (`도와요` → `돕다`), so the conjugation tables get built once and serve both features.
+  - **Conjugation table view:** opened from any verb or adjective in the dictionary or on a card.
+  - **Conjugation drills:**
+    - a note type or layout that generates cards for verb × chosen forms, studied in `typed` mode with Korean-aware matching
+    - a filter for which forms to drill
+    - FSRS scheduling per form
+  - **Licensing:** write our own rules and tests. Don't copy another app's code, data or UI, and check the license of any reference implementation first.
+  - **Possible extension:** Japanese verb/adjective conjugation (godan/ichidan/irregular) using the same engine design.
 
 ---
 
