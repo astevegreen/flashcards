@@ -1,0 +1,3 @@
+Text 1	Text 2	Text 3	Category 1
+고양이	고양이	cat	animals
+강아지	강아지	puppy	animals

@@ -116,6 +116,102 @@ test.describe('Phase 12 Anki .apkg import', () => {
   });
 });
 
+test.describe('Phase 14 Anki follow-ups', () => {
+  test('the summary lists each field language and a change applies to the note type and deck', async ({
+    page,
+  }) => {
+    await page.goto('/?device=p14ankilang');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await openLibrary(page);
+    await page.getByTestId('import-anki-btn').click();
+    await pickApkg(page, 'basic-reversed.apkg');
+    await expect(page.getByTestId('anki-import-status')).toHaveAttribute('data-phase', 'done', {
+      timeout: 30_000,
+    });
+
+    const editor = page.getByTestId('anki-field-languages');
+    await expect(editor).toContainText('Basic (and reversed card)');
+    const front = page.getByLabel('Language of Front (Basic (and reversed card))');
+    const back = page.getByLabel('Language of Back (Basic (and reversed card))');
+    await expect(front).toHaveValue('zh-Hans');
+    await expect(back).toHaveValue('en');
+
+    const deckRow = page.locator('[data-testid^="deck-row-"]', { hasText: ANKI_DECK });
+    await expect(deckRow.getByText('zh-Hans', { exact: true })).toBeVisible();
+    // Han-only text was guessed as Chinese; this deck is Japanese.
+    await front.selectOption('ja');
+    await expect(front).toHaveValue('ja');
+    await expect(deckRow.getByText('ja', { exact: true })).toBeVisible();
+    // The back field is not the deck's language field: only the note type changes.
+    await back.selectOption('ko');
+    await expect(back).toHaveValue('ko');
+    await expect(deckRow.getByText('ja', { exact: true })).toBeVisible();
+
+    // A re-import keeps the corrections.
+    await pickApkg(page, 'basic-reversed.apkg');
+    await expect(page.getByTestId('anki-import-status')).toContainText('(0 new)', {
+      timeout: 30_000,
+    });
+    await expect(front).toHaveValue('ja');
+    await expect(back).toHaveValue('ko');
+  });
+
+  test('cards suspended in Anki arrive suspended; buried ones do not', async ({ page }) => {
+    await page.goto('/?device=p14ankisusp');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await openLibrary(page);
+    await page.getByTestId('import-anki-btn').click();
+    await pickApkg(page, 'suspended.apkg');
+    const status = page.getByTestId('anki-import-status');
+    await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
+    await expect(status).toContainText('Suspended 2 cards, as in Anki.');
+
+    await page.getByRole('button', { name: 'Browse' }).first().click();
+    const row = (text: string) => page.locator('[data-testid^="browse-row-"]', { hasText: text });
+    await expect(row('사과').getByTestId('browse-suspended-badge')).toHaveText('1 suspended');
+    await expect(row('포도').getByTestId('browse-suspended-badge')).toHaveText('1 suspended');
+    await expect(row('바나나')).toBeVisible();
+    await expect(row('바나나').getByTestId('browse-suspended-badge')).toHaveCount(0);
+
+    // Study: 3 notes, and the two suspended cards are left out of the new queue.
+    await page.getByRole('button', { name: 'Study' }).first().click();
+    await page.getByLabel('Select deck to study').selectOption({ label: 'Korean::Fruit' });
+    await expect(page.getByTestId('count-new')).toHaveText('3');
+  });
+
+  test('every image of a field is kept, and kana: fields show readings only', async ({ page }) => {
+    await page.goto('/?device=p14ankimedia');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await openLibrary(page);
+    await page.getByTestId('import-anki-btn').click();
+    const status = page.getByTestId('anki-import-status');
+
+    await pickApkg(page, 'multi-media.apkg');
+    await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
+    await expect(status).toContainText('4 media files');
+    await page.getByRole('button', { name: 'Study' }).first().click();
+    await page.getByLabel('Select deck to study').selectOption({ label: 'Korean::Media' });
+    const card = page.getByTestId('study-card');
+    await expect(card).toContainText('사과');
+    await expect(card.locator('img')).toHaveCount(2);
+
+    await openLibrary(page);
+    await page.getByTestId('import-anki-btn').click();
+    await pickApkg(page, 'kana.apkg');
+    await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
+    // Wide enough for the Browse detail pane, which lists every field of the note.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByRole('button', { name: 'Browse' }).first().click();
+    const row = page.locator('[data-testid^="browse-row-"]', { hasText: '日本語を話す' });
+    await row.locator('[data-testid^="browse-show-"]').click();
+    const detail = page.getByTestId('browse-detail');
+    // Expression is shown through {{kanji:}} (kanji only), Reading through {{kana:}} (kana only).
+    await expect(detail.getByTestId('browse-detail-headline')).toHaveText('日本語を話す');
+    await expect(detail).toContainText('わたしはにほんごをはなします');
+    await expect(detail).not.toContainText('[');
+  });
+});
+
 test.describe('Phase 12 Anki import panel layout stability', () => {
   // Block the service worker so context.route can hold the lazy panel chunk.
   test.use({ serviceWorkers: 'block' });
