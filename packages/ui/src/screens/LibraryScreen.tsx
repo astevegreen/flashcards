@@ -24,6 +24,7 @@ const LazyPageViewer = lazy(() => import('../pages/PageViewer.tsx'));
 const LazyPageEditor = lazy(() => import('../pages/PageEditor.tsx'));
 const LazyCategoryExportPanel = lazy(() => import('../library/CategoryExportPanel.tsx'));
 const LazyFsrsOptimizerPanel = lazy(() => import('../fsrs/FsrsOptimizerPanel.tsx'));
+const LazyAnkiImportPanel = lazy(() => import('../import/AnkiImportPanel.tsx'));
 
 function DeckOptionsPanel({
   deck,
@@ -628,6 +629,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const [csvAnkiRuby, setCsvAnkiRuby] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showAnkiImport, setShowAnkiImport] = useState(false);
 
   // Lazy Lesson Page Viewer / Editor modal-like view state
   const [viewingPageId, setViewingPageId] = useState<string | null>(null);
@@ -955,6 +957,16 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
           </button>
           <button
             type="button"
+            data-testid="import-anki-btn"
+            aria-expanded={showAnkiImport}
+            aria-controls="anki-import-region"
+            onClick={() => setShowAnkiImport((prev) => !prev)}
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)]"
+          >
+            Import Anki (.apkg)
+          </button>
+          <button
+            type="button"
             data-testid="export-collection-btn"
             onClick={() => void handleExportAll()}
             disabled={decks.length === 0}
@@ -980,6 +992,25 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
           className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 whitespace-pre-line text-sm text-rose-700 dark:text-rose-300"
         >
           {errorMessage}
+        </div>
+      )}
+
+      {/* Phase 12 Anki import: opened from the header, below every header control. The fallback
+          reserves the panel's height (min-h-[13rem]) so nothing moves when the chunk arrives. */}
+      {showAnkiImport && (
+        <div id="anki-import-region">
+          <Suspense
+            fallback={
+              <div
+                data-testid="anki-import-loading"
+                className="min-h-[13rem] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-xs text-[var(--muted)]"
+              >
+                Loading Anki import…
+              </div>
+            }
+          >
+            <LazyAnkiImportPanel />
+          </Suspense>
         </div>
       )}
 
