@@ -8,7 +8,8 @@ Run from repository root using `pnpm`:
 
 - `pnpm install` — install workspace dependencies
 - `pnpm dev` — start local Vite dev server (zero-login dev mode with sample decks)
-- `pnpm build` — typecheck/build all packages and production PWA bundle (`apps/web/dist`)
+- `pnpm build` — typecheck/build all packages and production PWA bundle (`apps/web/dist`) (skips `@flash/desktop`; run `pnpm --filter @flash/desktop build` with Rust installed)
+- `pnpm --filter @flash/mobile exec cap sync android` — copy `apps/web/dist` + plugins into the Android project
 - `pnpm typecheck` — strict TypeScript check across all workspace packages
 - `pnpm lint` — ESLint (enforces architectural boundaries including `packages/core` purity)
 - `pnpm format:check` / `pnpm format` — Prettier formatting check/write
@@ -32,7 +33,7 @@ Run from repository root using `pnpm`:
 - `packages/ui` (`@flash/ui`) — lean React UI components & screens consuming `@flash/core` and `@flash/platform` with strict lazy-loading of secondary screens and heavy answer modes.
 - `apps/web` (`@flash/web`) — static Vite + React + Tailwind v4 + `vite-plugin-pwa` shell.
 - `apps/token-helper` (`@flash/token-helper`) — stateless Cloudflare Worker for Web/PWA Google OAuth code exchange and token refresh.
-- `apps/mobile` (`@flash/mobile`) & `apps/desktop` (`@flash/desktop`) — Capacitor and Tauri shell configurations wrapping `apps/web/dist`.
+- `apps/mobile` (`@flash/mobile`) & `apps/desktop` (`@flash/desktop`) — Capacitor 8 (`android/`, `ios/`) and Tauri 2 (`src-tauri/`) shells wrapping the identical `apps/web/dist`; `apps/web` lazily boots `@flash/platform-capacitor/native` / `@flash/platform-tauri/native` when it detects the runtime. Local build steps: `docs/native-shells.md`.
 - `tools/cli` (`@flash/cli`) — Node CLI (`validate`, `build`, `audio`, `inbox`) and local JSON-RPC 2.0 MCP server (`mcp`).
 
 ## Hard Architectural Rules
