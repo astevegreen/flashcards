@@ -21,8 +21,11 @@ import type { AppContextValue } from '../state/AppContext.tsx';
  * without one (no open source passed the licence gate yet) keep their sample decks.
  */
 export interface OnboardingDeckInfo extends SampleDeckInfo {
-  /** `starter`: curated open-data deck; `sample`: built-in sample deck. */
-  kind: 'starter' | 'sample';
+  /**
+   * `starter`: curated open-data deck; `sample` (or absent): built-in sample deck. Optional so a
+   * plain `SampleDeckInfo` literal is still a valid entry.
+   */
+  kind?: 'starter' | 'sample';
   /** What the deck contains (starter decks). */
   description?: string;
   /** Credits the deck's licences ask for, one line per source (starter decks). */

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { SampleDeckInfo } from '../../core/src/samples/decks.ts';
 import type { StarterDeckInfo } from '../../core/src/starters/index.ts';
-import { ONBOARDING_DECKS, onboardingDecks } from '../src/onboarding/starterDecks.ts';
+import {
+  ONBOARDING_DECKS,
+  onboardingDecks,
+  type OnboardingDeckInfo,
+} from '../src/onboarding/starterDecks.ts';
 
 const sample = (slug: string, language: string): SampleDeckInfo => ({
   slug,
@@ -46,6 +50,11 @@ describe('onboarding deck seam', () => {
       ['st-de', 'starter'],
     ]);
     expect(decks[0]?.attribution).toEqual(['Source, CC0 1.0']);
+  });
+
+  it('accepts a plain sample-deck literal as an entry (kind is optional)', () => {
+    const plain: OnboardingDeckInfo = sample('s-ko', 'ko');
+    expect(plain.kind ?? 'sample').toBe('sample');
   });
 
   it('offers the curated Korean and Mandarin starters and keeps samples for the other languages', () => {
