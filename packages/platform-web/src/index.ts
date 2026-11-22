@@ -18,11 +18,9 @@ import { WebAudioPlayer } from './audio/web-audio-player.ts';
 import { WebFiles } from './files/web-files.ts';
 import type { DexiePackStorage } from './packs/dexie-pack-storage.ts';
 import { DexieStorage } from './storage/dexie-storage.ts';
-import { DevChannelSyncTransport, InMemorySyncTransport } from './sync/in-memory-transport.ts';
 
 export { DexieStorage } from './storage/dexie-storage.ts';
 export { WebFiles } from './files/web-files.ts';
-export { DevChannelSyncTransport, InMemorySyncTransport } from './sync/in-memory-transport.ts';
 export { WebAudioPlayer } from './audio/web-audio-player.ts';
 export { WebDeviceSpeechPlayer, getMissingVoiceInstructions } from './audio/device-speech.ts';
 
@@ -64,6 +62,17 @@ export function resolveDeviceFromUrl(search: string = window.location.search): R
   };
 }
 
+/** A `SyncTransport` whose implementation is created on first use (keeps it out of the boot chunk). */
+function lazySyncTransport(load: () => Promise<SyncTransport>): SyncTransport {
+  let pending: Promise<SyncTransport> | undefined;
+  const get = () => (pending ??= load());
+  return {
+    list: async (prefix) => (await get()).list(prefix),
+    read: async (path) => (await get()).read(path),
+    write: async (path, data, opts) => (await get()).write(path, data, opts),
+  };
+}
+
 export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformServices {
   const resolved = resolveDeviceFromUrl();
   const isDevMode = options?.isDevMode ?? Boolean(resolved.slug);
@@ -71,8 +80,15 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
   const files = new WebFiles();
   const audioPlayer = new WebAudioPlayer();
   const deviceSpeech = new WebDeviceSpeechPlayer();
-  const devTransport = resolved.slug ? new DevChannelSyncTransport() : null;
-  const syncTransport: SyncTransport = devTransport ?? new InMemorySyncTransport();
+  // The dev (`?device=`) and in-memory stub transports load on demand, outside the initial study
+  // bundle (§8). In dev mode the import starts right away so its BroadcastChannel opens at boot.
+  const loadTransports = () => import('./sync/in-memory-transport.ts');
+  const devTransport = resolved.slug
+    ? loadTransports().then((m) => new m.DevChannelSyncTransport())
+    : null;
+  const syncTransport: SyncTransport = lazySyncTransport(
+    () => devTransport ?? loadTransports().then((m) => new m.InMemorySyncTransport()),
+  );
 
   const googleClientId = options?.googleClientId?.trim() ?? '';
   const tokenHelperUrl = options?.tokenHelperUrl?.trim() ?? '';
@@ -347,8 +363,17 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     disconnectLocalSyncFolder,
     ...(devTransport
       ? {
-          onDevSyncNotification: (listener: (path: string) => void) =>
-            devTransport.subscribe(listener),
+          onDevSyncNotification: (listener: (path: string) => void) => {
+            let unsubscribe: (() => void) | undefined;
+            let active = true;
+            void devTransport.then((t) => {
+              if (active) unsubscribe = t.subscribe(listener);
+            });
+            return () => {
+              active = false;
+              unsubscribe?.();
+            };
+          },
         }
       : {}),
     createReplayWorker,
