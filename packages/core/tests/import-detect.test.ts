@@ -91,6 +91,34 @@ describe('detectImportFile (magic bytes + zip entry names + header row)', () => 
       'unsupported:not-recognized',
     ],
     [
+      'Korean Excel CSV saved as CP949/EUC-KR',
+      // 단어,뜻 / 고양이,cat
+      new Uint8Array([
+        0xb4, 0xdc, 0xbe, 0xee, 0x2c, 0xb6, 0xe6, 0x0d, 0x0a, 0xb0, 0xed, 0xbe, 0xe7, 0xc0, 0xcc,
+        0x2c, 0x63, 0x61, 0x74, 0x0d, 0x0a,
+      ]),
+      'cards.csv',
+      'unsupported:text-encoding',
+    ],
+    [
+      'Western Excel CSV saved as Windows-1252',
+      new Uint8Array([...encodeUtf8('Mot,D'), 0xe9, ...encodeUtf8('finition\ncaf'), 0xe9, 0x2c]),
+      'mots.csv',
+      'unsupported:text-encoding',
+    ],
+    [
+      'Windows-1252 TSV without a final newline',
+      new Uint8Array([...encodeUtf8('Front\tBack\nna'), 0xef, 0x76, 0x65, 0x09, 0x78]),
+      'fd.txt',
+      'unsupported:text-encoding',
+    ],
+    [
+      'old Excel workbook (.xls, OLE2)',
+      new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0, 0x3e, 0]),
+      'cards.xls',
+      'unsupported:xls',
+    ],
+    [
       'invalid UTF-8',
       new Uint8Array([0x41, 0xc3, 0x28, 0x2c, 0x42]),
       'bad.csv',
@@ -114,6 +142,17 @@ describe('detectImportFile (magic bytes + zip entry names + header row)', () => 
   it('mentions a misleading extension instead of trusting it', () => {
     const d = detectImportFile(anki('not-anki.apkg'), 'deck.apkg');
     expect(d.kind === 'unsupported' && d.message).toContain('named like an Anki package');
+  });
+
+  it('asks for UTF-8 instead of calling a non-UTF-8 CSV "not a CSV"', () => {
+    const bytes = new Uint8Array([
+      0xb4, 0xdc, 0xbe, 0xee, 0x2c, 0xb6, 0xe6, 0x0a, 0x41, 0x2c, 0x42,
+    ]);
+    const d = detectImportFile(bytes, 'cards.csv');
+    expect(d.kind).toBe('unsupported');
+    if (d.kind !== 'unsupported') return;
+    expect(d.message).toContain('CSV UTF-8');
+    expect(d.message).not.toContain('named like');
   });
 
   it('never throws and never reports a format for random bytes it cannot place', () => {

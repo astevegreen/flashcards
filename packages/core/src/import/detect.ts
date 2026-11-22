@@ -19,6 +19,8 @@ export type UnsupportedImportReason =
   | 'sqlite'
   | 'binary'
   | 'utf16'
+  | 'text-encoding'
+  | 'xls'
   | 'no-columns'
   | 'anki-text'
   | 'google-docs'
@@ -162,7 +164,47 @@ function detectDelimitedText(text: string): DetectedImport {
   );
 }
 
+/** Compound File Binary (OLE2) header: old Excel `.xls` workbooks (and old Word/PowerPoint). */
+const OLE2_MAGIC = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+
+const LF = 0x0a;
+const CR = 0x0d;
+const TAB = 0x09;
+const COMMA = 0x2c;
+
+/**
+ * True when `sample` reads as text in a legacy single- or double-byte code page (CP949/EUC-KR,
+ * Shift_JIS, Windows-1252, …) laid out as rows: no control bytes other than tab/CR/LF, at least
+ * one line break, and a comma or tab in the first line. Used only after UTF-8 has been ruled out.
+ */
+function looksLikeLegacyDelimitedText(sample: Uint8Array): boolean {
+  let sawNewline = false;
+  let delimiterInFirstLine = false;
+  for (const b of sample) {
+    if (b === LF || b === CR) {
+      sawNewline = true;
+    } else if (b < 0x20 && b !== TAB) {
+      return false;
+    } else if (!sawNewline && (b === COMMA || b === TAB)) {
+      delimiterInFirstLine = true;
+    }
+  }
+  return sawNewline && delimiterInFirstLine;
+}
+
+const TEXT_ENCODING_MESSAGE =
+  'This text file isn\'t saved as UTF-8. In Excel choose Save As > "CSV UTF-8" (or in Google Sheets File > Download > CSV) and try again.';
+
 function detectBinary(bytes: Uint8Array, fileName: string | undefined): DetectedImport {
+  if (startsWithBytes(bytes, OLE2_MAGIC)) {
+    return unsupported(
+      'xls',
+      'This looks like an older Excel workbook (.xls). In Excel choose Save As > "CSV UTF-8" (or upload it to Google Sheets and paste the link), then try again.',
+    );
+  }
+  if (looksLikeLegacyDelimitedText(bytes.subarray(0, TEXT_SNIFF_BYTES))) {
+    return unsupported('text-encoding', TEXT_ENCODING_MESSAGE);
+  }
   if (startsWithBytes(bytes, SQLITE_MAGIC)) {
     return unsupported(
       'sqlite',
