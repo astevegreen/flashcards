@@ -107,7 +107,7 @@ export function isCardInRaiseScope(
   if (raise.deckIds !== null && !raise.deckIds.has(card.deck_id)) return false;
   if (!raise.categories) return true;
   const note = state.notes.get(card.note_id);
-  const tags = (note?.tags ?? []).map((t) => t.trim().toLowerCase());
+  const tags = (note?.tags ?? []).map((t) => t.normalize('NFC').trim().toLowerCase());
   if (isLeechCard(card)) tags.push(LEECH_CATEGORY);
   return matchesCategoryCriterion(tags, raise.categories);
 }

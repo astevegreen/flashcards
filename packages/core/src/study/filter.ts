@@ -121,7 +121,7 @@ function positiveInt(value: unknown): number | undefined {
 }
 
 function normalizeTag(tag: string): string {
-  return tag.trim().toLowerCase();
+  return tag.normalize('NFC').trim().toLowerCase();
 }
 
 function normalizeDeckIds(raw: unknown): string[] | undefined {

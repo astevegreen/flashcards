@@ -31,7 +31,7 @@ const STATE_FILTER_OPTIONS: ReadonlyArray<{ value: CardStateKind; label: string 
   { value: 'leech', label: 'Leech' },
 ];
 
-const lower = (t: string) => t.toLowerCase();
+const lower = (t: string) => t.normalize('NFC').toLowerCase();
 
 const isUnreviewedAiNote = (note: Note) =>
   note.provenance.source === 'ai' && !note.provenance.reviewed;
@@ -55,7 +55,7 @@ function noteMatchesQuery(note: Note, q: string): boolean {
   }
   return (
     Object.values(note.fields).some((val) => fieldMatchesQuery(val, q)) ||
-    note.tags.some((t) => t.toLowerCase().includes(q))
+    note.tags.some((t) => lower(t).includes(q))
   );
 }
 
@@ -173,7 +173,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   }, [state, stateVersion, deckFilter]);
 
   const filteredNotes = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.normalize('NFC').trim().toLowerCase();
     const nowMs = Date.now();
     // "Due today" leaves suspended cards out, like Study (Phase 9).
     const matchingNoteIds = filterBrowseNoteIds(

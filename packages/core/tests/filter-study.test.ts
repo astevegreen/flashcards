@@ -221,6 +221,51 @@ describe('Phase 9 filter model — categories (Korean sample deck)', () => {
     expect(listCategories(st, { deckIds: [KO_DECK] }).map((c) => c.tag)).toContain('grammar');
   });
 
+  it('treats NFD and NFC Hangul tags as one category (macOS input arrives as NFD)', () => {
+    const fx = makeFixture();
+    const nfc = '한국어';
+    const nfd = nfc.normalize('NFD');
+    expect(nfd).not.toBe(nfc);
+    fx.events.push(
+      fx.factory.create(
+        'NoteUpserted',
+        {
+          note_id: koNote(1),
+          deck_id: KO_DECK,
+          source_key: 'ko-1',
+          fields: {},
+          tags: [nfd],
+        },
+        SAMPLE_SEED_EPOCH_MS + 1000,
+      ),
+      fx.factory.create(
+        'NoteUpserted',
+        {
+          note_id: koNote(2),
+          deck_id: KO_DECK,
+          source_key: 'ko-2',
+          fields: {},
+          tags: [nfc],
+        },
+        SAMPLE_SEED_EPOCH_MS + 1000,
+      ),
+    );
+    const st = fx.state();
+    for (const wanted of [nfc, nfd]) {
+      const ids = filterNoteIds(
+        st,
+        normalizeCardFilter({ categories: { mode: 'any', tags: [wanted] } }),
+        CTX,
+      );
+      expect([...ids].sort()).toEqual([koNote(1), koNote(2)].sort());
+    }
+    const hangul = listCategories(st, { deckIds: [KO_DECK] }).filter(
+      (c) => c.tag.normalize('NFC') === nfc,
+    );
+    expect(hangul).toHaveLength(1);
+    expect(hangul[0]?.tag).toBe(nfc);
+  });
+
   it('archived view filters archived notes by category only', () => {
     const fx = makeFixture();
     fx.events.push(fx.factory.create('NoteArchived', { note_id: koNote(3) }, NOW - DAY));
