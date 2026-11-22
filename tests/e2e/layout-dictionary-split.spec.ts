@@ -2,7 +2,13 @@ import { expect, test, type Page } from '@playwright/test';
 
 /** Phase 13: dictionary list + detail split view on tablets, wider content on large monitors. */
 
-test.use({ viewport: { width: 820, height: 1180 }, hasTouch: true, isMobile: true });
+test.use({
+  viewport: { width: 820, height: 1180 },
+  hasTouch: true,
+  isMobile: true,
+  // Fail a stuck click with the step that hung instead of the bare 30 s test timeout.
+  actionTimeout: 10_000,
+});
 
 async function openKoreanDictionary(page: Page): Promise<void> {
   await page.goto('/?device=dictsplit');
