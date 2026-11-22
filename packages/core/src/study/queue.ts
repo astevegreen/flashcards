@@ -1,7 +1,13 @@
 import { isCardSuspended, type CollectionState } from '../events/replay.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
 import type { Card, Deck } from '../model/types.ts';
-import { filterCardIds, isCardFilterEmpty, type CardFilter } from './filter.ts';
+import {
+  filterCardIds,
+  isCardFilterEmpty,
+  rankHardestCards,
+  splitHardestCriterion,
+  type CardFilter,
+} from './filter.ts';
 import {
   isCardInRaiseScope,
   isRaiseOnDay,
@@ -74,18 +80,40 @@ function incrementCount(map: Map<string, number>, key: string, by: number): void
   map.set(key, (map.get(key) ?? 0) + by);
 }
 
-/** Ids allowed by a non-empty Phase 9 filter, or `undefined` when every card is eligible. */
+/**
+ * Ids allowed by a non-empty Phase 9 filter (`allowed: undefined` when every card is eligible),
+ * without its `hardest` cap: that one is applied to the due cards only (see {@link keepHardestDue}).
+ */
 function resolveAllowedCardIds(
   state: CollectionState,
   options: StudyQueueOptions,
-): Set<string> | undefined {
-  if (options.filter === undefined || isCardFilterEmpty(options.filter)) return undefined;
-  return filterCardIds(state, options.filter, {
+): { allowed: Set<string> | undefined; hardest: number | undefined } {
+  if (options.filter === undefined || isCardFilterEmpty(options.filter)) {
+    return { allowed: undefined, hardest: undefined };
+  }
+  const { base, hardest } = splitHardestCriterion(options.filter);
+  if (isCardFilterEmpty(base)) return { allowed: undefined, hardest };
+  const allowed = filterCardIds(state, base, {
     nowMs: options.nowMs,
     tzOffsetMinutes: options.tzOffsetMinutes,
     ...(options.dayStartHour !== undefined ? { dayStartHour: options.dayStartHour } : {}),
     excludeSuspended: true,
   });
+  return { allowed, hardest };
+}
+
+/**
+ * A filter's "hardest N" on the schedule: rank only the cards that passed the due check (learning
+ * due now, reviews due today) and keep the N hardest. New cards never rank (like `hardest` in
+ * `filterCards`, which skips unreviewed cards).
+ */
+function keepHardestDue(eligible: EligibleCards, hardest: number): void {
+  const keep = new Set(
+    rankHardestCards([...eligible.learningCards, ...eligible.dueCards], hardest).map((c) => c.id),
+  );
+  eligible.learningCards = eligible.learningCards.filter((c) => keep.has(c.id));
+  eligible.dueCards = eligible.dueCards.filter((c) => keep.has(c.id));
+  eligible.newCardsByDeck.clear();
 }
 
 /** What today's active (not undone) reviews of a deck's cards have already consumed. */
@@ -294,8 +322,11 @@ function compareSourceOrder(state: CollectionState): (a: Card, b: Card) => numbe
   };
 }
 
-/** Code-unit order (not localeCompare): queues must be identical on every device. */
-function compareCodeUnits(a: string, b: string): number {
+/**
+ * Code-unit string order (not localeCompare): queues and lists must be identical on every device
+ * and locale. The shared comparator for sorting names and ids.
+ */
+export function compareCodeUnits(a: string, b: string): number {
   if (a < b) return -1;
   return a > b ? 1 : 0;
 }
@@ -470,7 +501,8 @@ function takeNewCards(
  * - Sibling burying (§5.1): if one card of a `note_id` was reviewed today (or is queued),
  *   sibling cards of the same note are buried until the next study day.
  * - Suspended cards (`CardSuspended`) are never queued.
- * - Optional Phase 9 `filter`: restricts which cards are eligible.
+ * - Optional Phase 9 `filter`: restricts which cards are eligible. Its `hardest` cap ranks the
+ *   cards that are due (after the due check and burying), not the whole selection.
  */
 export function buildStudyQueue(
   state: CollectionState,
@@ -482,7 +514,7 @@ export function buildStudyQueue(
     tzOffsetMinutes: options.tzOffsetMinutes,
     globalDayStart: options.dayStartHour ?? state.preferences.day_start_hour,
   };
-  const allowedCardIds = resolveAllowedCardIds(state, options);
+  const { allowed: allowedCardIds, hardest } = resolveAllowedCardIds(state, options);
 
   // Which notes already had a card reviewed today (sibling burying) and the per-deck
   // new/review quotas consumed today.
@@ -495,6 +527,7 @@ export function buildStudyQueue(
     allowedCardIds,
     activity.reviewedNoteIdsToday,
   );
+  if (hardest !== undefined) keepHardestDue(eligible, hardest);
   eligible.learningCards.sort(compareByDue);
   eligible.dueCards.sort(compareByDue);
 

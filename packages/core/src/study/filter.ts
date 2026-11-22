@@ -337,6 +337,31 @@ export function compareHardestCards(a: Card, b: Card): number {
   );
 }
 
+/** The `n` hardest of `cards` ({@link compareHardestCards} order). */
+export function rankHardestCards(cards: readonly Card[], n: number): Card[] {
+  return [...cards].sort(compareHardestCards).slice(0, n);
+}
+
+/**
+ * Splits a filter into its `performance.hardest` cap and everything else. Queues that only take
+ * due cards (on-schedule Study Sets, review ahead) apply the other criteria, then the due check,
+ * and rank the hardest N last, so "the 50 hardest" means the 50 hardest cards that are due rather
+ * than whichever of the 50 hardest overall happen to be due.
+ */
+export function splitHardestCriterion(filter: CardFilter): {
+  base: CardFilter;
+  hardest: number | undefined;
+} {
+  const hardest = filter.performance?.hardest;
+  if (hardest === undefined || !filter.performance) return { base: filter, hardest: undefined };
+  const performance: PerformanceCriterion = { ...filter.performance };
+  delete performance.hardest;
+  const base: CardFilter = { ...filter };
+  if (Object.keys(performance).length > 0) base.performance = performance;
+  else delete base.performance;
+  return { base, hardest };
+}
+
 function countAgain(
   state: CollectionState,
   card: Card,

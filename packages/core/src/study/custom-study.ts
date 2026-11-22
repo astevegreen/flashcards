@@ -14,6 +14,8 @@ import {
   filterCards,
   isCardFilterEmpty,
   normalizeCardFilter,
+  rankHardestCards,
+  splitHardestCriterion,
   type CardFilter,
   type CardFilterContext,
 } from './filter.ts';
@@ -438,7 +440,7 @@ export function buildReviewAheadQueue(
     buriedNoteIds: new Set<string>(),
     nextLearningDueAt: undefined,
   };
-  const allowed = aheadAllowedCardIds(state, options);
+  const { allowed, hardest } = aheadAllowedCardIds(state, options);
   const reviewedToday = cardsReviewedTodayByNote(state, options);
   const globalHour = options.dayStartHour ?? state.preferences.day_start_hour;
   for (const card of state.cards.values()) {
@@ -448,6 +450,7 @@ export function buildReviewAheadQueue(
     const window = { nowMs: options.nowMs, endOfToday, aheadUntil: endOfToday + days * MS_PER_DAY };
     placeAheadCard(sort, card, reviewedToday.get(card.note_id), window);
   }
+  if (hardest !== undefined) keepHardestAhead(sort, hardest);
   const byDue = (a: Card, b: Card) => a.schedule.due - b.schedule.due || cmpStr(a.id, b.id);
   sort.learning.sort(byDue);
   sort.reviews.sort(byDue);
@@ -472,17 +475,32 @@ interface AheadSort {
   nextLearningDueAt: number | undefined;
 }
 
+/** The filter's allowed card ids without its `hardest` cap, which ranks the in-window cards only. */
 function aheadAllowedCardIds(
   state: CollectionState,
   options: ReviewAheadOptions,
-): Set<string> | undefined {
-  if (options.filter === undefined || isCardFilterEmpty(options.filter)) return undefined;
-  return filterCardIds(state, options.filter, {
+): { allowed: Set<string> | undefined; hardest: number | undefined } {
+  if (options.filter === undefined || isCardFilterEmpty(options.filter)) {
+    return { allowed: undefined, hardest: undefined };
+  }
+  const { base, hardest } = splitHardestCriterion(options.filter);
+  if (isCardFilterEmpty(base)) return { allowed: undefined, hardest };
+  const allowed = filterCardIds(state, base, {
     nowMs: options.nowMs,
     tzOffsetMinutes: options.tzOffsetMinutes,
     ...(options.dayStartHour === undefined ? {} : { dayStartHour: options.dayStartHour }),
     excludeSuspended: true,
   });
+  return { allowed, hardest };
+}
+
+/** Keeps the `hardest` hardest of the cards inside the review-ahead window. */
+function keepHardestAhead(sort: AheadSort, hardest: number): void {
+  const keep = new Set(
+    rankHardestCards([...sort.learning, ...sort.reviews], hardest).map((c) => c.id),
+  );
+  sort.learning = sort.learning.filter((c) => keep.has(c.id));
+  sort.reviews = sort.reviews.filter((c) => keep.has(c.id));
 }
 
 /** A studied (not new), unsuspended card of an active deck and note inside the selection. */
