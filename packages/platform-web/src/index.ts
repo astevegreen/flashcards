@@ -1,6 +1,7 @@
 import type {
   Auth,
   DictionaryService,
+  AnkiPackageReader,
   FsrsOptimizer,
   GooglePickerAdapter,
   GoogleSourcesClient,
@@ -328,6 +329,11 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     return createWebFsrsOptimizer();
   };
 
+  const getAnkiPackageReader = async (): Promise<AnkiPackageReader> => {
+    const { createWebAnkiPackageReader } = await import('./anki/web-anki-reader.ts');
+    return createWebAnkiPackageReader();
+  };
+
   const getPurchase = async (): Promise<Purchase> => {
     if (!cachedPurchase) {
       const { WebLicensePurchase } = await import('./purchase/web-license-purchase.ts');
@@ -394,5 +400,6 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     getDictionaryService,
     getPurchase,
     getFsrsOptimizer,
+    getAnkiPackageReader,
   };
 }

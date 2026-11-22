@@ -12,7 +12,7 @@ import {
   type PackageNoteRecord,
   type SchemaValidationError,
 } from '@flash/content-schema';
-import { Unzip, UnzipInflate, UnzipPassThrough, zipSync } from 'fflate';
+import { zipSync } from 'fflate';
 import type { CollectionState, EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { decodeUtf8, deriveNoteId, encodeUtf8, uuidv5, FLASH_NAMESPACE_UUID } from '../ids.ts';
@@ -20,6 +20,13 @@ import type { Deck, Note, SourceRef } from '../model/types.ts';
 import { computeNoteContentHash, sha256Hex } from '../sources/hash.ts';
 import { compareCodeUnits } from '../study/queue.ts';
 import { normalizeTagList } from '../tags/index.ts';
+import {
+  safeUnzip,
+  unsafeArchivePathReason,
+  type ArchiveErrorFactory,
+  type ArchiveLimits,
+} from './safe-unzip.ts';
+import { safeMediaMimeForExt } from './media-types.ts';
 import {
   normalizeMarkdownPage,
   parseMarkdownFrontmatter,
@@ -91,21 +98,8 @@ export class FlashpkgValidationError extends Error {
 
 /** Validates archive entry path against path traversal & unsafe characters (§13). */
 export function assertSafeArchivePath(path: string): void {
-  if (!path || path.includes('\0')) {
-    throw new FlashpkgSecurityError(`Invalid empty or NUL path in archive.`);
-  }
-  if (path.startsWith('/') || path.startsWith('\\') || /^[a-zA-Z]:/.test(path)) {
-    throw new FlashpkgSecurityError(`Absolute path rejected in archive: "${path}"`);
-  }
-  if (path.includes('\\')) {
-    throw new FlashpkgSecurityError(`Backslash path separator rejected in archive: "${path}"`);
-  }
-  const parts = path.split('/');
-  for (const part of parts) {
-    if (part === '..') {
-      throw new FlashpkgSecurityError(`Path traversal rejected in archive: "${path}"`);
-    }
-  }
+  const reason = unsafeArchivePathReason(path);
+  if (reason) throw new FlashpkgSecurityError(reason);
 }
 
 function safeSlug(name: string, fallback: string): string {
@@ -397,7 +391,7 @@ export function exportFlashpkg(
       const blob = options.mediaBlobs.get(normHash) ?? options.mediaBlobs.get(hash);
       if (!blob) continue;
       const ext = entry.ext.toLowerCase().replace(/^\./, '');
-      if (!SAFE_MEDIA_MIME_BY_EXT[ext]) continue;
+      if (!safeMediaMimeForExt(ext)) continue;
       files[`media/${normHash}.${ext}`] = blob;
     }
   }
@@ -419,17 +413,10 @@ function parseJsonFile(files: Map<string, Uint8Array>, path: string): unknown {
   }
 }
 
-function concatChunks(chunks: readonly Uint8Array[], totalLength: number): Uint8Array {
-  if (chunks.length === 0) return new Uint8Array(0);
-  if (chunks.length === 1 && chunks[0]) return chunks[0];
-  const out = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return out;
-}
+const FLASHPKG_ARCHIVE_ERRORS: ArchiveErrorFactory = {
+  security: (message) => new FlashpkgSecurityError(message),
+  invalid: (message) => new FlashpkgValidationError(message),
+};
 
 /**
  * Streaming, chunked zip extractor that enforces path-traversal, file-count, and actual inflated
@@ -437,124 +424,10 @@ function concatChunks(chunks: readonly Uint8Array[], totalLength: number): Uint8
  */
 function safeUnzipArchive(
   archiveBytes: Uint8Array,
-  limits: {
-    maxFiles: number;
-    maxTotalUncompressedBytes: number;
-    maxSingleFileBytes: number;
-    maxCompressedBytes: number;
-  },
+  limits: ArchiveLimits,
 ): Map<string, Uint8Array> {
-  if (archiveBytes.byteLength > limits.maxCompressedBytes) {
-    throw new FlashpkgSecurityError(
-      `Archive exceeds max compressed size (${limits.maxCompressedBytes} bytes).`,
-    );
-  }
-
-  const extracted = new Map<string, Uint8Array>();
-  let fileCount = 0;
-  let declaredTotal = 0;
-  let actualTotal = 0;
-  let streamError: Error | null = null;
-
-  const unzipper = new Unzip((file) => {
-    if (streamError) return;
-    try {
-      assertSafeArchivePath(file.name);
-      fileCount += 1;
-      if (fileCount > limits.maxFiles) {
-        throw new FlashpkgSecurityError(`Archive exceeds maximum file count (${limits.maxFiles}).`);
-      }
-      if (file.originalSize !== undefined && file.originalSize > limits.maxSingleFileBytes) {
-        throw new FlashpkgSecurityError(
-          `File "${file.name}" exceeds max single-file size (${limits.maxSingleFileBytes} bytes).`,
-        );
-      }
-      if (file.originalSize !== undefined) {
-        declaredTotal += file.originalSize;
-        if (declaredTotal > limits.maxTotalUncompressedBytes) {
-          throw new FlashpkgSecurityError(
-            `Archive exceeds max uncompressed byte limit (${limits.maxTotalUncompressedBytes} bytes).`,
-          );
-        }
-      }
-
-      const chunks: Uint8Array[] = [];
-      let fileBytes = 0;
-
-      file.ondata = (err, chunk, final) => {
-        if (streamError) return;
-        if (err) {
-          streamError = new FlashpkgValidationError(
-            `Failed to inflate "${file.name}": ${err.message}`,
-          );
-          return;
-        }
-        if (chunk.byteLength > 0) {
-          fileBytes += chunk.byteLength;
-          if (fileBytes > limits.maxSingleFileBytes) {
-            streamError = new FlashpkgSecurityError(
-              `Inflated file "${file.name}" exceeds max single-file size (${limits.maxSingleFileBytes} bytes).`,
-            );
-            return;
-          }
-          actualTotal += chunk.byteLength;
-          if (actualTotal > limits.maxTotalUncompressedBytes) {
-            streamError = new FlashpkgSecurityError(
-              `Inflated archive exceeds max uncompressed byte limit (${limits.maxTotalUncompressedBytes} bytes).`,
-            );
-            return;
-          }
-          chunks.push(chunk);
-        }
-        if (final) {
-          extracted.set(file.name, concatChunks(chunks, fileBytes));
-        }
-      };
-
-      file.start();
-    } catch (err) {
-      streamError = err instanceof Error ? err : new Error(String(err));
-    }
-  });
-
-  unzipper.register(UnzipInflate);
-  unzipper.register(UnzipPassThrough);
-
-  const CHUNK_SIZE = 4096;
-  try {
-    for (let offset = 0; offset < archiveBytes.byteLength; offset += CHUNK_SIZE) {
-      const end = Math.min(offset + CHUNK_SIZE, archiveBytes.byteLength);
-      const isFinal = end >= archiveBytes.byteLength;
-      unzipper.push(archiveBytes.subarray(offset, end), isFinal);
-      if (streamError) {
-        throw streamError;
-      }
-    }
-    if (archiveBytes.byteLength === 0) {
-      throw new FlashpkgValidationError('Empty .flashpkg archive.');
-    }
-  } catch (err) {
-    if (streamError) throw streamError;
-    if (err instanceof FlashpkgSecurityError || err instanceof FlashpkgValidationError) throw err;
-    throw new FlashpkgValidationError(
-      `Failed to unzip .flashpkg archive: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  return extracted;
+  return safeUnzip(archiveBytes, limits, FLASHPKG_ARCHIVE_ERRORS, '.flashpkg archive');
 }
-
-const SAFE_MEDIA_MIME_BY_EXT: Readonly<Record<string, string>> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-  gif: 'image/gif',
-  mp3: 'audio/mpeg',
-  ogg: 'audio/ogg',
-  wav: 'audio/wav',
-  m4a: 'audio/mp4',
-};
 
 /**
  * Events for re-importing into a deck that already exists. A full package renames, unarchives and
@@ -952,7 +825,7 @@ export function importFlashpkg(
     if (!match) continue;
     const declaredHash = (match[1] ?? '').toLowerCase();
     const ext = (match[2] ?? '').toLowerCase();
-    const mime = SAFE_MEDIA_MIME_BY_EXT[ext];
+    const mime = safeMediaMimeForExt(ext);
     if (!mime) continue;
     const actualHash = sha256Hex(mediaBytes);
     if (actualHash !== declaredHash) {
