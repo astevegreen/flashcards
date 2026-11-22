@@ -1,6 +1,7 @@
 import { default_w } from 'ts-fsrs';
 import { isCardSuspended, resolveDeckFsrsConfig, type CollectionState } from '../events/replay.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
+import type { NoteUpsertedPayload } from '../events/types.ts';
 import type { Card, Note } from '../model/types.ts';
 
 /**
@@ -13,7 +14,11 @@ import type { Card, Note } from '../model/types.ts';
 /** Lapse count at which a card is treated as a leech (Anki / Flashcards Deluxe default). */
 export const LEECH_LAPSE_THRESHOLD = 8;
 
-/** Virtual category matched by cards whose lapses reached {@link LEECH_LAPSE_THRESHOLD}. */
+/**
+ * The `leech` category. Reaching {@link LEECH_LAPSE_THRESHOLD} lapses tags the note `leech` (a real
+ * tag, see {@link planLeechTag}); the filter also keeps matching such cards virtually, so leeches
+ * from before the tag existed (or imported histories) still match.
+ */
 export const LEECH_CATEGORY = 'leech';
 
 export type CardStateKind = 'new' | 'learning' | 'review' | 'due' | 'suspended' | 'leech';
@@ -249,6 +254,60 @@ export function shouldAutoSuspendLeech(
     lapsesAfter >= LEECH_LAPSE_THRESHOLD &&
     !isCardSuspended(state, cardId)
   );
+}
+
+/** True when one of the note's stored tags is exactly the `leech` category (any spelling). */
+function hasLeechTag(note: Note): boolean {
+  return note.tags.some((t) => normalizeTag(t) === LEECH_CATEGORY);
+}
+
+/**
+ * Leech tag (Phase 9): the review that takes a card's lapses from below
+ * {@link LEECH_LAPSE_THRESHOLD} to the threshold or above also tags its note `leech`, as one
+ * tag-only `NoteUpserted` appended next to the `ReviewRecorded` by the reviewing device (so every
+ * build replays the same tag). `undefined` when the review doesn't cross the threshold or the note
+ * is already tagged. Other tags are kept exactly as stored.
+ */
+export function planLeechTag(
+  state: CollectionState,
+  card: Card,
+  lapsesBefore: number,
+  lapsesAfter: number,
+): NoteUpsertedPayload | undefined {
+  if (lapsesBefore >= LEECH_LAPSE_THRESHOLD || lapsesAfter < LEECH_LAPSE_THRESHOLD)
+    return undefined;
+  const note = state.notes.get(card.note_id);
+  if (!note || hasLeechTag(note)) return undefined;
+  return {
+    note_id: note.id,
+    deck_id: note.deck_id,
+    source_key: note.source_key,
+    fields: {},
+    tags: [...note.tags, LEECH_CATEGORY],
+  };
+}
+
+/**
+ * Undo of the review that tagged a note `leech` (see {@link planLeechTag}): removes the tag again
+ * unless another card of the note is still a leech. `undefined` when nothing changes.
+ */
+export function planLeechTagUndo(
+  state: CollectionState,
+  card: Card,
+): NoteUpsertedPayload | undefined {
+  const note = state.notes.get(card.note_id);
+  if (!note || !hasLeechTag(note)) return undefined;
+  for (const siblingId of state.cardIdsByNote.get(note.id) ?? []) {
+    const sibling = state.cards.get(siblingId);
+    if (siblingId !== card.id && sibling && isLeechCard(sibling)) return undefined;
+  }
+  return {
+    note_id: note.id,
+    deck_id: note.deck_id,
+    source_key: note.source_key,
+    fields: {},
+    tags: note.tags.filter((t) => normalizeTag(t) !== LEECH_CATEGORY),
+  };
 }
 
 function tagMatches(noteTagsLower: readonly string[], wanted: string): boolean {
