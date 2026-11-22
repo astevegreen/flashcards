@@ -7,6 +7,7 @@ export default defineConfig({
       'packages/**/tests/**/*.test.ts',
       'apps/**/tests/**/*.test.ts',
       'tools/**/tests/**/*.test.ts',
+      'scripts/tests/**/*.test.mjs',
     ],
     environment: 'node',
     globals: false,
