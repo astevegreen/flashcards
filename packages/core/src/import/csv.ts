@@ -2,6 +2,7 @@ import { deriveNoteId, uuidv7 } from '../ids.ts';
 import type { EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import type { NoteType } from '../model/types.ts';
+import { convertAnkiRuby } from '../parsers/ruby.ts';
 
 export interface CsvParseOptions {
   delimiter?: ',' | '\t';
@@ -142,6 +143,8 @@ export function buildEventsFromCsv(
     eventFactory: EventFactory;
     delimiter?: ',' | '\t';
     nowMs?: number;
+    /** Convert Anki space-delimited furigana (` 漢字[かんじ]`) to app ruby syntax (§6.2). */
+    ankiRuby?: boolean;
   },
 ): CsvImportResult {
   const { deckId, noteType, eventFactory } = options;
@@ -236,7 +239,7 @@ export function buildEventsFromCsv(
       if (!value) continue;
 
       if (role.kind === 'field') {
-        fields[role.fieldKey] = value;
+        fields[role.fieldKey] = options.ankiRuby ? convertAnkiRuby(value) : value;
       } else if (role.kind === 'tags') {
         for (const part of value.split(/[;,]/)) {
           const t = part.trim();

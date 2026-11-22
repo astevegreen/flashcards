@@ -1,0 +1,7 @@
+{
+  "name": "Mandarin Basics (ZH)",
+  "package_id": "pkg:sample-zh-vocab",
+  "version": "1.0.0",
+  "language": "zh-Hans",
+  "note_type_id": "preset:vocab-zh"
+}

@@ -1,0 +1,7 @@
+{
+  "name": "Japanese Essentials (JA)",
+  "package_id": "pkg:sample-ja-vocab",
+  "version": "1.0.0",
+  "language": "ja",
+  "note_type_id": "preset:vocab-ja"
+}

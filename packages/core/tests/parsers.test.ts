@@ -1,6 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { formatPinyin, parsePinyin } from '../src/parsers/pinyin.ts';
-import { parseRuby, stripRuby } from '../src/parsers/ruby.ts';
+import { convertAnkiRuby, parseRuby, stripRuby } from '../src/parsers/ruby.ts';
+
+describe('Anki furigana conversion (§6.2)', () => {
+  it('turns space-delimited Han bases into strict ruby and mixed bases into explicit ruby', () => {
+    expect(convertAnkiRuby('私は 日本語[にほんご]を 勉強[べんきょう]します')).toBe(
+      '私は日本語[にほんご]を勉強[べんきょう]します',
+    );
+    expect(convertAnkiRuby('食べる[たべる]')).toBe('{食べる|たべる}');
+    expect(convertAnkiRuby('學[학]교')).toBe('學[학]교');
+    expect(parseRuby(convertAnkiRuby('私は 日本語[にほんご]'))).toEqual([
+      { type: 'text', value: '私は' },
+      { type: 'ruby', base: '日本語', reading: 'にほんご' },
+    ]);
+  });
+
+  it('leaves non-CJK brackets alone', () => {
+    expect(convertAnkiRuby('word [formal]')).toBe('word [formal]');
+    expect(convertAnkiRuby('test[abc] and more')).toBe('test[abc] and more');
+    expect(convertAnkiRuby('no brackets here')).toBe('no brackets here');
+  });
+});
 
 describe('Ruby parser (§6.2)', () => {
   it('parses strict Han[reading] without space before bracket', () => {

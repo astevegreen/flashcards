@@ -1,0 +1,4 @@
+Text,Meaning,Notes,Tags,Card ID
+私[わたし]{{c1::は::topic}}東京[とうきょう]{{c2::に::destination}}行[い]きます。,I am going to Tokyo.,は marks the topic; に marks the destination.,jlpt-n5;particles;cloze,ja-cloze-1
+りんご{{c1::も::also}}バナナ{{c1::も::also}}好[す]きです。,I like both apples and bananas.,Repeating c1 masks both blanks together on the same card.,jlpt-n5;particles;cloze,ja-cloze-2
+猫[ねこ]{{c1::が::subject}}机[つくえ]の上[うえ]にいます。,A cat is on top of the desk.,AI-drafted practice card — verify nuance and mark reviewed.,jlpt-n5;particles;ai-draft,ja-cloze-3

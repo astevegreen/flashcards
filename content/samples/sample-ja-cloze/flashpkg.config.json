@@ -1,0 +1,7 @@
+{
+  "name": "Japanese Particles Cloze (JA)",
+  "package_id": "pkg:sample-ja-cloze",
+  "version": "1.0.0",
+  "language": "ja",
+  "note_type_id": "preset:cloze"
+}

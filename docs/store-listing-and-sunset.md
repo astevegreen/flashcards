@@ -37,4 +37,4 @@ If active development or maintenance ever stops:
 1. **Offline Forever:** Every installed copy continues functioning offline indefinitely. All FSRS scheduling, study modes, local storage (SQLite / IndexedDB), `.flashpkg` import/export, and local folder sync require zero developer servers.
 2. **User-Owned Sync Continues:** Google Drive `appDataFolder`, Dropbox App Folder, iCloud Drive, and desktop folder sync operate directly between the user's device and the user's own cloud account. On Capacitor/Tauri native builds, Google OAuth refreshes directly against Google's OAuth servers with zero token-helper Worker dependency.
 3. **Final Open & Unlocked Release:** The developer commits to publishing the complete source code and a final build with the `unlock_full` license gate removed.
-4. **Open Documented Formats:** `.flashpkg`, `sync/v1/`, and event schema specifications remain documented in `docs/`.
+4. **Open Documented Formats:** `.flashpkg`, `sync/v1/`, and event schema specifications remain documented in [`docs/formats/`](./formats/README.md).

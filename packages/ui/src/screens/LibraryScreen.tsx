@@ -618,6 +618,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const [newDeckLang, setNewDeckLang] = useState('ko');
   const [csvTargetDeckId, setCsvTargetDeckId] = useState('');
   const [csvPaste, setCsvPaste] = useState('');
+  const [csvAnkiRuby, setCsvAnkiRuby] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -723,6 +724,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       deckId: deck.id,
       noteType,
       eventFactory: getEventFactory(),
+      ankiRuby: csvAnkiRuby,
     });
     if (result.events.length > 0) {
       emitEvents(result.events);
@@ -920,6 +922,18 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
           >
             Import CSV/TSV
           </button>
+          <label
+            className="flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs"
+            title="Anki exports put a space before each furigana base, e.g. 私は 日本語[にほんご]"
+          >
+            <input
+              type="checkbox"
+              data-testid="csv-anki-ruby-toggle"
+              checked={csvAnkiRuby}
+              onChange={(e) => setCsvAnkiRuby(e.target.checked)}
+            />
+            Anki furigana
+          </label>
           <button
             type="button"
             data-testid="import-flashpkg-btn"

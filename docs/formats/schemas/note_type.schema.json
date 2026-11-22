@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fields": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "text",
+              "reading",
+              "rich",
+              "image",
+              "audio"
+            ]
+          },
+          "lang": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tts": {
+            "type": "boolean"
+          },
+          "sortKey": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "lang"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "fields"
+  ],
+  "additionalProperties": false
+}

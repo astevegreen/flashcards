@@ -1,0 +1,7 @@
+{
+  "name": "English Idioms (EN)",
+  "package_id": "pkg:sample-en-vocab",
+  "version": "1.0.0",
+  "language": "en",
+  "note_type_id": "preset:sentence"
+}

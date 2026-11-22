@@ -1,0 +1,7 @@
+{
+  "name": "Korean Core + Hanja",
+  "package_id": "pkg:sample-ko-vocab",
+  "version": "1.0.0",
+  "language": "ko",
+  "note_type_id": "preset:vocab-ko"
+}
