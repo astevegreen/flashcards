@@ -1,11 +1,12 @@
 import {
-  filterNoteIds,
+  filterBrowseNoteIds,
   isCardSuspended,
   isLeechCard,
   LEECH_CATEGORY,
   listCategories,
   matchesCategoryCriterion,
   normalizeCardFilter,
+  normalizeTagList,
   stripCloze,
   stripRuby,
   type CardStateKind,
@@ -38,6 +39,12 @@ const LazyDictionaryPanel = lazy(() =>
 const LazyDrawLookupPanel = lazy(() =>
   import('../drawing/DrawLookupPanel.tsx').then((m) => ({ default: m.DrawLookupPanel })),
 );
+const LazyTagManagerPanel = lazy(() =>
+  import('../browse/TagManagerPanel.tsx').then((m) => ({ default: m.TagManagerPanel })),
+);
+const LazyBulkEditBar = lazy(() =>
+  import('../browse/BulkEditBar.tsx').then((m) => ({ default: m.BulkEditBar })),
+);
 
 export interface BrowseScreenProps {
   onOpenSettings?: () => void;
@@ -62,6 +69,9 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [showNotesDraw, setShowNotesDraw] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
+  const [showTagManager, setShowTagManager] = useState(false);
+  // Bulk edit selection (Phase 9). Only notes in the visible list count; see `selectedVisible`.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const parentRef = useRef<HTMLDivElement | null>(null);
 
   const decks = useMemo(
@@ -136,7 +146,8 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
     const isTagOnlyQuery = q.startsWith('#');
     const tagNeedle = isTagOnlyQuery ? q.slice(1) : q;
     const nowMs = Date.now();
-    const matchingNoteIds = filterNoteIds(
+    // "Due today" leaves suspended cards out, like Study (Phase 9).
+    const matchingNoteIds = filterBrowseNoteIds(
       state,
       cardFilter,
       { nowMs, tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset() },
@@ -186,6 +197,31 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
       events.push(factory.create(type, { card_id: cardId }, nowMs));
     }
     emitEvents(events);
+  };
+
+  const selectedVisible = useMemo(
+    () => filteredNotes.filter((n) => selected.has(n.id)).map((n) => n.id),
+    [filteredNotes, selected],
+  );
+  const allVisibleSelected =
+    filteredNotes.length > 0 && selectedVisible.length === filteredNotes.length;
+
+  const toggleSelected = (noteId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(noteId)) next.delete(noteId);
+      else next.add(noteId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) for (const n of filteredNotes) next.delete(n.id);
+      else for (const n of filteredNotes) next.add(n.id);
+      return next;
+    });
   };
 
   const rowVirtualizer = useVirtualizer({
@@ -319,7 +355,10 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                 type="button"
                 data-testid="archived-notes-filter"
                 aria-pressed={showArchivedOnly}
-                onClick={() => setShowArchivedOnly((prev) => !prev)}
+                onClick={() => {
+                  setShowArchivedOnly((prev) => !prev);
+                  setSelected(new Set());
+                }}
                 className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors ${
                   showArchivedOnly
                     ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
@@ -348,13 +387,38 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
         </Suspense>
       ) : (
         <>
-          <CategoryPicker
-            categories={categories}
-            virtualCategories={leechCategory}
-            value={categoryFilter}
-            onChange={setCategoryFilter}
-            testIdPrefix="browse-category"
-          />
+          <div className="flex flex-wrap items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <CategoryPicker
+                categories={categories}
+                virtualCategories={leechCategory}
+                value={categoryFilter}
+                onChange={setCategoryFilter}
+                testIdPrefix="browse-category"
+              />
+            </div>
+            <button
+              type="button"
+              data-testid="open-tag-manager"
+              aria-expanded={showTagManager}
+              onClick={() => setShowTagManager((v) => !v)}
+              className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] hover:text-[var(--fg)]"
+            >
+              Manage categories
+            </button>
+          </div>
+
+          {showTagManager && (
+            <Suspense
+              fallback={
+                <div className="py-6 text-center text-xs text-[var(--muted)]">
+                  Loading categories…
+                </div>
+              }
+            >
+              <LazyTagManagerPanel onClose={() => setShowTagManager(false)} />
+            </Suspense>
+          )}
 
           {showNotesDraw && (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
@@ -373,6 +437,30 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                 />
               </Suspense>
             </div>
+          )}
+
+          <div className="flex items-center gap-2 px-1 text-xs text-[var(--muted)]">
+            <label className="inline-flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                data-testid="browse-select-all"
+                aria-label="Select all visible notes"
+                checked={allVisibleSelected}
+                disabled={filteredNotes.length === 0}
+                onChange={toggleSelectAllVisible}
+              />
+              Select all ({filteredNotes.length})
+            </label>
+          </div>
+
+          {selectedVisible.length > 0 && (
+            <Suspense fallback={null}>
+              <LazyBulkEditBar
+                noteIds={selectedVisible}
+                showingArchived={showArchivedOnly}
+                onClear={() => setSelected(new Set())}
+              />
+            </Suspense>
           )}
 
           {/* Virtualized scroll container (§8) */}
@@ -435,6 +523,14 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                       }}
                       className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4"
                     >
+                      <input
+                        type="checkbox"
+                        data-testid={`browse-select-${note.id}`}
+                        aria-label="Select note"
+                        checked={selected.has(note.id)}
+                        onChange={() => toggleSelected(note.id)}
+                        className="shrink-0"
+                      />
                       <button
                         type="button"
                         onClick={() => setEditingNote(note)}
@@ -553,7 +649,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
             {...(editingNote && state.decks.get(editingNote.deck_id)?.source !== undefined
               ? { deckSource: state.decks.get(editingNote.deck_id)?.source }
               : {})}
-            onSave={(note, fields, tags) => updateNote(note, fields, tags)}
+            onSave={(note, fields, tags) => updateNote(note, fields, normalizeTagList(tags))}
             onClose={() => setEditingNote(null)}
           />
         </>

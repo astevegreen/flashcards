@@ -17,6 +17,12 @@ const MODES: ReadonlyArray<{ mode: CategoryMatchMode; label: string; hint: strin
   { mode: 'none', label: 'None', hint: 'Notes with none of the selected categories' },
 ];
 
+/** `a::b::` for `a::b::c`, `''` for a top-level tag. */
+function parentPath(tag: string): string {
+  const cut = tag.lastIndexOf('::');
+  return cut < 0 ? '' : tag.slice(0, cut + 2);
+}
+
 /**
  * Multi-select category (note tag) filter with any / all / none matching (Phase 9).
  * Tags are plain text rendered through React, never as HTML (§13).
@@ -127,7 +133,11 @@ export function CategoryPicker({
                         data-testid={`${testIdPrefix}-option-${c.tag}`}
                         onChange={() => toggleTag(c.tag)}
                       />
-                      <span>#{c.tag}</span>
+                      <span>
+                        {/* `::` hierarchy: dim the parent path so siblings read as a group. */}#
+                        <span className="opacity-60">{parentPath(c.tag)}</span>
+                        {c.tag.slice(parentPath(c.tag).length)}
+                      </span>
                       <span className="tabular-nums text-[var(--muted)]">{c.noteCount}</span>
                     </label>
                   </li>
