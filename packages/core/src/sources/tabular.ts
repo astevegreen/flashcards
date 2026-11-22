@@ -601,7 +601,7 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
         rawCardId = rawCell;
       } else if (role.kind === 'tags') {
         for (const part of rawCell.split(/[;,]/)) {
-          const t = part.trim();
+          const t = part.normalize('NFC').trim();
           if (t) tagSet.add(t);
         }
       } else if (role.kind === 'field') {
