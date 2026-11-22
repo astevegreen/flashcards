@@ -11,6 +11,8 @@ export default tseslint.config(
       'playwright-report/**',
       'test-results/**',
       'coverage/**',
+      '.cache/**',
+      'dist-packs/**',
     ],
   },
   js.configs.recommended,

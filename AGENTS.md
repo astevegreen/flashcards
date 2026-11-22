@@ -15,6 +15,8 @@ Run from repository root using `pnpm`:
 - `pnpm test` — Vitest unit, golden, and `fast-check` property tests
 - `pnpm size` — enforce §8 bundle budget (`<= 150 KB` gzipped initial study-screen JS, 0 web fonts)
 - `pnpm test:e2e` — Playwright end-to-end tests (study, undo, import/export, offline, multi-device isolation)
+- `node scripts/build-packs.mjs --starter` — regenerate the tiny attributed dictionary/stroke fixtures in `apps/web/public/packs/` (used by dev, `pnpm test`, and `pnpm test:e2e`; never needs network)
+- `node scripts/fetch-upstream-packs.mjs && node scripts/build-packs.mjs --full` — download real upstream open data (Unihan, KANJIDIC2, JMdict, CC-CEDICT, KanjiVG, Make Me a Hanzi) into gitignored `.cache/upstream-open-data/` and build real packs into gitignored `dist-packs/`; `pnpm exec vitest run packages/platform-web/tests/full-packs-smoke.test.ts` then smoke-tests them (it is skipped when `dist-packs/` is absent). Never commit full packs; CI publishes them via `.github/workflows/publish-packs.yml`.
 
 ## Agent-Friendly Dev Mode
 

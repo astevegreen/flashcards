@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Pack build mode (starter or full)'
+        description: 'Pack build mode (full = real upstream open data; starter = tiny dev fixtures)'
         required: false
-        default: 'starter'
+        default: 'full'
         type: choice
         options:
           - starter
@@ -15,10 +15,15 @@ on:
         description: 'Public HTTPS base URL for packs/ and index.json (e.g. https://packs.example.pages.dev)'
         required: false
         default: 'https://flashcards-packs.pages.dev'
+  schedule:
+    # Weekly refresh of upstream dictionaries (JMdict/KANJIDIC2/CC-CEDICT update daily-ish upstream).
+    - cron: '17 4 * * 1'
   push:
     branches: [main]
     paths:
       - 'scripts/build-packs.mjs'
+      - 'scripts/fetch-upstream-packs.mjs'
+      - 'scripts/packs/**'
       - 'packages/core/src/samples/**'
       - 'tools/cli/**'
       - '.github/workflows/publish-packs.yml'
@@ -31,7 +36,7 @@ permissions:
 jobs:
   build-and-validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -45,17 +50,42 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Raw upstream files are cached per ISO week so reruns don't re-download ~60 MB from EDRDG/Unicode/MDBG.
+      - name: Compute upstream cache week
+        id: week
+        run: echo "key=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache raw upstream open data
+        if: ${{ (inputs.mode || 'full') == 'full' }}
+        uses: actions/cache@v4
+        with:
+          path: .cache/upstream-open-data
+          key: upstream-open-data-${{ steps.week.outputs.key }}
+          restore-keys: upstream-open-data-
+
+      - name: Fetch upstream open data (Unihan, KANJIDIC2, JMdict, CC-CEDICT, KanjiVG, Make Me a Hanzi)
+        if: ${{ (inputs.mode || 'full') == 'full' }}
+        run: node scripts/fetch-upstream-packs.mjs --dir .cache/upstream-open-data
+
       - name: Build static dictionary & stroke packs
         env:
-          PACK_MODE: ${{ inputs.mode || 'starter' }}
+          PACK_MODE: ${{ inputs.mode || 'full' }}
           PACK_BASE_URL: ${{ inputs.base_url || 'https://flashcards-packs.pages.dev' }}
         run: |
           mkdir -p dist-static/packs dist-static/decks
-          if [ "$PACK_MODE" = "full" ] && [ -d "./upstream-open-data" ]; then
-            node scripts/build-packs.mjs --full --input ./upstream-open-data --out dist-static/packs --base-url "$PACK_BASE_URL/packs"
+          if [ "$PACK_MODE" = "full" ]; then
+            node scripts/build-packs.mjs --full --input .cache/upstream-open-data --out dist-static/packs --base-url "$PACK_BASE_URL/packs"
           else
             node scripts/build-packs.mjs --starter --out dist-static/packs --base-url "$PACK_BASE_URL/packs"
           fi
+          # Cloudflare Pages allows 20,000 files per deployment (per-character stroke files are ~16k).
+          echo "Static files: $(find dist-static -type f | wc -l)"
+
+      - name: Smoke-test real packs through the runtime pack manager
+        if: ${{ (inputs.mode || 'full') == 'full' }}
+        env:
+          FULL_PACKS_DIR: dist-static/packs
+        run: pnpm exec vitest run packages/platform-web/tests/full-packs-smoke.test.ts
 
       - name: Build starter .flashpkg & Family Library index.json
         env:

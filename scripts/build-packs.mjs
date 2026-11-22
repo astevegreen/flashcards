@@ -1190,14 +1190,15 @@ function emitPacks({ outDir, urlPrefix, packs, catalogName, updatedAt, writeChar
   mkdirSync(outDir, { recursive: true });
   const prefix = urlPrefix.replace(/\/+$/, '');
 
-  const catalogPacks = packs.map(({ id, payload, entryCount }) => {
+  const catalogPacks = packs.map(({ id, payload, entryCount, charFileNotice }) => {
     const meta = PACK_META[id];
     let charTemplate;
     if (meta.kind === 'strokes' && writeCharFiles) {
       const charDir = join(outDir, 'strokes', meta.script);
       mkdirSync(charDir, { recursive: true });
       for (const [ch, data] of Object.entries(payload.characters)) {
-        writeFileSync(join(charDir, `${charToHex5(ch)}.json`), JSON.stringify(data), 'utf8');
+        const body = charFileNotice ? { ...data, notice: charFileNotice } : data;
+        writeFileSync(join(charDir, `${charToHex5(ch)}.json`), JSON.stringify(body), 'utf8');
       }
       charTemplate = `${prefix}/strokes/${meta.script}/{hex5}.json`;
     }
@@ -1316,16 +1317,21 @@ async function buildFullPacks({ inputDir, outDir, urlPrefix, writeCharFiles, inc
 
   const packs = [];
   const versions = {};
-  const add = (id, version, body, entryCount, upstreamKey) => {
+  const builtOn = new Date().toISOString().slice(0, 10);
+  const add = (id, version, body, entryCount, upstreamKey, notice) => {
     versions[id] = version;
     const src = sources[upstreamKey];
     packs.push({
       id,
       payload: {
-        manifest: makeManifest(id, version, src ? { upstream_sha256: src.sha256 } : {}),
+        manifest: makeManifest(id, version, {
+          ...(src ? { upstream_sha256: src.sha256 } : {}),
+          ...(notice ? { modification_notice: notice } : {}),
+        }),
         ...body,
       },
       entryCount,
+      ...(notice ? { charFileNotice: notice } : {}),
     });
   };
 
@@ -1402,6 +1408,8 @@ async function buildFullPacks({ inputDir, outDir, urlPrefix, writeCharFiles, inc
     { characters: mmah },
     Object.keys(mmah).length,
     'mmah',
+    // Arphic PL §2(a): every modified file must state how and when it was changed.
+    `Modified ${builtOn}: re-encoded from Make Me a Hanzi graphics.txt (${(sources.mmah?.version ?? 'unknown').slice(0, 7)}) as JSON with medians rounded to integers. Arphic Public License; see ARPHIC-PL.txt.`,
   );
 
   // Clear previous per-character files so stale glyphs never linger between upstream versions.

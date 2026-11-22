@@ -6,3 +6,5 @@ test-results/
 docs/design_blueprint.md
 /*.csv
 /*.tsv
+.cache/
+dist-packs/
