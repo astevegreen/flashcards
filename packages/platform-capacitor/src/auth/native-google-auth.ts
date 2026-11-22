@@ -14,9 +14,11 @@ export interface NativeGoogleSignInPlugin {
 const NATIVE_SESSION_KV_KEY = 'capacitor_google_session_v1';
 
 /**
- * Native Capacitor Google Sign-In adapter (§4.3, §11, §15 Phase 8).
- * Uses Android/iOS native Google OAuth clients storing long-lived tokens directly in
- * Keychain/Keystore — **no Cloudflare Worker token helper needed**.
+ * Native Capacitor Google Sign-In adapter (§4.3, §11, §15 Phase 8), with **no Cloudflare Worker
+ * token helper**. The long-lived Google credential stays with the OS (Google Play services on
+ * Android, the GoogleSignIn SDK's Keychain items on iOS); "refresh" is a silent sign-in. The
+ * short-lived access token cached under `NATIVE_SESSION_KV_KEY` is one of `SECURE_KV_KEYS`, so the
+ * native boot keeps it in the Keychain / Keystore rather than SQLite.
  */
 export class CapacitorGoogleAuth implements Auth {
   private readonly plugin?: NativeGoogleSignInPlugin;

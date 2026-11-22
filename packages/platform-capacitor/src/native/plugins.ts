@@ -18,6 +18,7 @@ import { Share } from '@capacitor/share';
 import { FilePicker } from '@capawesome/capacitor-file-picker';
 import { SocialLogin } from '@capgo/capacitor-social-login';
 import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
+import { FlashSecureStorage } from '@flash/capacitor-secure-storage';
 import type { PickedFile } from '@flash/platform';
 import type { NativeGoogleSignInPlugin } from '../auth/native-google-auth.ts';
 import type { MlKitDigitalInkPlugin } from '../drawing/mlkit-ink-recognizer.ts';
@@ -26,7 +27,9 @@ import type { StoreBillingPlugin } from '../purchase/store-purchase.ts';
 import type { LocalNotificationsBridge } from '../reminders/local-notification-reminders.ts';
 import type { SystemBrowserLauncher } from '../sources/native-picker-bridge.ts';
 import type { SqliteDriver } from '../storage/sqlite-storage.ts';
+import type { NativeSecureStorage } from '../secure/secure-store.ts';
 import type { ICloudDocumentPlugin } from '../sync/icloud-transport.ts';
+import { isAppDeepLink, PICKER_CALLBACK_HOST } from './deep-links.ts';
 
 // ---------------------------------------------------------------------------
 // SQLite (@capacitor-community/sqlite)
@@ -62,6 +65,11 @@ export interface CapacitorGoogleSignInConfig {
   webClientId: string;
   /** Google OAuth iOS client ID (required on iOS only). */
   iOSClientId?: string;
+  /**
+   * Runs after every successful sign-in, silent or not. Android uses it to delete the ID and access
+   * tokens the plugin saves in plaintext SharedPreferences (§16: tokens only in Keychain/Keystore).
+   */
+  afterLogin?: () => Promise<void>;
 }
 
 /**
@@ -90,6 +98,11 @@ export async function createGoogleSignInPlugin(
         ...(silent ? { filterByAuthorizedAccounts: true, autoSelectEnabled: true } : {}),
       },
     });
+    if (config.afterLogin) {
+      await config.afterLogin().catch((err: unknown) => {
+        console.warn('Could not clear the Google sign-in plugin’s token copy:', err);
+      });
+    }
     const result = res.result;
     if (result.responseType !== 'online' || !result.accessToken?.token) {
       throw new Error('Google Sign-In did not return an access token.');
@@ -126,7 +139,6 @@ export async function createGoogleSignInPlugin(
 export function createSystemBrowserLauncher(): SystemBrowserLauncher {
   return {
     openAndAwaitDeepLink: async ({ url, callbackScheme }) => {
-      const prefix = `${callbackScheme}://picker-callback`;
       return new Promise<string>((resolve, reject) => {
         let settled = false;
         const handles: Array<Promise<{ remove: () => Promise<void> }>> = [];
@@ -135,7 +147,8 @@ export function createSystemBrowserLauncher(): SystemBrowserLauncher {
         };
         handles.push(
           App.addListener('appUrlOpen', (event) => {
-            if (settled || !event.url.startsWith(prefix)) return;
+            // Exact scheme + host: other deep links (e.g. the OneDrive sign-in redirect) are ignored.
+            if (settled || !isAppDeepLink(event.url, callbackScheme, PICKER_CALLBACK_HOST)) return;
             settled = true;
             cleanup();
             void Browser.close().catch(() => undefined);
@@ -331,6 +344,30 @@ export function createICloudDocumentPlugin(): ICloudDocumentPlugin {
         path,
         data: bytesToBase64(data),
         ...(ifAbsent !== undefined ? { ifAbsent } : {}),
+      });
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Keychain / Keystore (workspace plugin `@flash/capacitor-secure-storage`)
+// ---------------------------------------------------------------------------
+
+export function createNativeSecureStorage(): NativeSecureStorage {
+  return {
+    get: async (key) => (await FlashSecureStorage.get({ key })).value,
+    set: async (key, value) => {
+      await FlashSecureStorage.set({ key, value });
+    },
+    remove: async (key) => {
+      await FlashSecureStorage.remove({ key });
+    },
+    removeLegacyPreference: async (entry) => {
+      await FlashSecureStorage.removeLegacyPreference({
+        key: entry.key,
+        ...(entry.androidPreferencesName
+          ? { androidPreferencesName: entry.androidPreferencesName }
+          : {}),
       });
     },
   };

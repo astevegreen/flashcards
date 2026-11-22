@@ -12,6 +12,7 @@ import type {
   PackManager,
   PlatformServices,
   Purchase,
+  Storage,
   StrokeDataProvider,
   SyncTransport,
 } from '@flash/platform';
@@ -51,10 +52,24 @@ export {
   type SqliteDriver,
 } from './storage/sqlite-storage.ts';
 export { ICloudDriveSyncTransport, type ICloudDocumentPlugin } from './sync/icloud-transport.ts';
+export { createSecureKvRouting, type SecureKvRouting } from './secure/secure-kv-storage.ts';
+export {
+  MICROSOFT_REFRESH_TOKEN_KEY,
+  SECURE_KV_KEYS,
+  type LegacyPreferenceEntry,
+  type NativeSecureStorage,
+  type SecureStore,
+} from './secure/secure-store.ts';
 
 export interface CreateCapacitorPlatformOptions {
   deviceId: string;
   deviceLabel?: string;
+  /**
+   * The app database. Defaults to `CapacitorSqliteStorage` over `sqliteDriver`; the native boot
+   * passes the SQLite storage wrapped by `createSecureKvRouting`, so secret KV entries live in the
+   * Keychain / Keystore.
+   */
+  storage?: Storage;
   sqliteDriver?: SqliteDriver;
   fileBridge?: CapacitorFileBridge;
   googleSignInPlugin?: NativeGoogleSignInPlugin;
@@ -88,7 +103,9 @@ function withGetter<T, R extends object>(value: T | undefined, build: (v: T) => 
  * Creates a Capacitor (Android / iOS) `PlatformServices` bundle (§10.1, §11, §15 Phase 8).
  */
 export function createCapacitorPlatform(options: CreateCapacitorPlatformOptions): PlatformServices {
-  const storage = new CapacitorSqliteStorage(options.sqliteDriver ?? new InMemorySqliteDriver());
+  const storage =
+    options.storage ??
+    new CapacitorSqliteStorage(options.sqliteDriver ?? new InMemorySqliteDriver());
   const files = new CapacitorFiles(options.fileBridge);
   const googleAuth = new CapacitorGoogleAuth({
     storage,

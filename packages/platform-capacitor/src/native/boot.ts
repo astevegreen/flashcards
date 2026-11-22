@@ -5,13 +5,25 @@ import {
   lazyOneDriveFields,
 } from '@flash/platform-web/native-support';
 import { Capacitor } from '@capacitor/core';
-import { createCapacitorPlatform } from '../index.ts';
+import { CapacitorSqliteStorage, createCapacitorPlatform } from '../index.ts';
+import { createSecureKvRouting } from '../secure/secure-kv-storage.ts';
+import {
+  clearPluginTokenCopiesAtLaunch,
+  prepareSecureStorageAtLaunch,
+} from '../secure/secure-launch.ts';
+import {
+  MICROSOFT_REFRESH_TOKEN_KEY,
+  SECURE_KV_KEYS,
+  SOCIAL_LOGIN_GOOGLE_ANDROID_COPY,
+  type MobilePlatform,
+} from '../secure/secure-store.ts';
 import {
   createFileBridge,
   createGoogleSignInPlugin,
   createICloudDocumentPlugin,
   createLocalNotificationsBridge,
   createMlKitInkPlugin,
+  createNativeSecureStorage,
   createStoreBillingPlugin,
   createSystemBrowserLauncher,
   openCapacitorSqliteDriver,
@@ -33,23 +45,51 @@ export interface CapacitorBootConfig {
   microsoftTenant?: string;
 }
 
+/** Memoizes an async loader; a failed attempt is forgotten so the next call retries. */
+function retryableOnce<T>(load: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | null = null;
+  return () =>
+    (pending ??= load().catch((err: unknown) => {
+      pending = null;
+      throw err;
+    }));
+}
+
 /**
  * Boots `PlatformServices` for the Capacitor Android / iOS shell with real native plugins.
  * Called by `apps/web/src/main.tsx` only when `Capacitor.isNativePlatform()` is true.
  *
  * On iOS, iCloud Drive sync uses the app's own Swift plugin (`ICloudDocumentsPlugin.swift`),
  * registered by `MainViewController`.
+ *
+ * Sign-in secrets (the Google and OneDrive sessions, the OneDrive refresh token and the BYO TTS key)
+ * live only in the Keychain / Keystore (`@flash/capacitor-secure-storage`, §16), never in SQLite.
  */
 export async function bootCapacitorPlatform(
   config: CapacitorBootConfig,
 ): Promise<PlatformServices> {
   const platformName = Capacitor.getPlatform();
-  const sqliteDriver = await openCapacitorSqliteDriver();
+  const mobilePlatform: MobilePlatform = platformName === 'ios' ? 'ios' : 'android';
+  const database = new CapacitorSqliteStorage(await openCapacitorSqliteDriver());
+  const secureStorage = createNativeSecureStorage();
+  const secureKv = createSecureKvRouting({
+    inner: database,
+    secureStore: secureStorage,
+    kvKeys: SECURE_KV_KEYS,
+    extraSecretKeys: [MICROSOFT_REFRESH_TOKEN_KEY],
+  });
+  await prepareSecureStorageAtLaunch({ database, routing: secureKv });
 
   const googleSignInPlugin = config.googleClientId
     ? await createGoogleSignInPlugin({
         webClientId: config.googleClientId,
         ...(config.googleIosClientId ? { iOSClientId: config.googleIosClientId } : {}),
+        ...(mobilePlatform === 'android'
+          ? {
+              afterLogin: () =>
+                secureStorage.removeLegacyPreference(SOCIAL_LOGIN_GOOGLE_ANDROID_COPY),
+            }
+          : {}),
       }).catch((err: unknown) => {
         console.warn('Google Sign-In plugin unavailable:', err);
         return undefined;
@@ -60,7 +100,7 @@ export async function bootCapacitorPlatform(
   const native = createCapacitorPlatform({
     deviceId: `capacitor-${platformName}`,
     deviceLabel: platformName === 'ios' ? 'iPhone / iPad' : 'Android Device',
-    sqliteDriver,
+    storage: secureKv.storage,
     fileBridge: createFileBridge(),
     ...(googleSignInPlugin ? { googleSignInPlugin } : {}),
     ...(config.googleClientId ? { googleClientId: config.googleClientId } : {}),
@@ -79,8 +119,8 @@ export async function bootCapacitorPlatform(
   });
 
   const microsoftClientId = config.microsoftClientId;
-  const oneDrive = microsoftClientId
-    ? lazyOneDriveFields(async () => {
+  const loadOneDrive = microsoftClientId
+    ? retryableOnce(async () => {
         const [{ createMicrosoftSocialLoginBridge }, { createNativeOneDriveServices }] =
           await Promise.all([
             import('./microsoft-social-login.ts'),
@@ -90,15 +130,26 @@ export async function bootCapacitorPlatform(
           bridge: await createMicrosoftSocialLoginBridge({
             clientId: microsoftClientId,
             ...(config.microsoftTenant ? { tenant: config.microsoftTenant } : {}),
+            secureStore: secureStorage,
           }),
           storage: native.storage,
         });
       })
-    : {};
+    : undefined;
+
+  // In the background, so it never delays the first study screen.
+  void clearPluginTokenCopiesAtLaunch({
+    platform: mobilePlatform,
+    secureStorage,
+    storage: native.storage,
+    ...(loadOneDrive ? { loadOneDrive } : {}),
+  }).catch((err: unknown) => {
+    console.warn('Could not clear sign-in plugin token copies at launch:', err);
+  });
 
   return {
     ...composeNativePlatform(native, base),
-    ...oneDrive,
+    ...(loadOneDrive ? lazyOneDriveFields(loadOneDrive) : {}),
     // Phase 13 study reminders: OS local notifications (the PWA only shows an in-app badge).
     studyReminderDelivery: 'os-scheduled',
     getStudyReminderScheduler: async () => {
