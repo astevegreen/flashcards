@@ -78,6 +78,11 @@ export interface CreateCapacitorPlatformOptions {
   starterCatalogUrl?: string;
 }
 
+/** Spreads an optional service getter only when the service was injected. */
+function withGetter<T, R extends object>(value: T | undefined, build: (v: T) => R): R | object {
+  return value === undefined ? {} : build(value);
+}
+
 /**
  * Creates a Capacitor (Android / iOS) `PlatformServices` bundle (§10.1, §11, §15 Phase 8).
  */
@@ -162,14 +167,10 @@ export function createCapacitorPlatform(options: CreateCapacitorPlatformOptions)
     pickLocalSyncFolder: async () => null,
     restoreLocalSyncFolder: async () => null,
     disconnectLocalSyncFolder: async () => undefined,
-    ...(options.packManager ? { getPackManager: async () => options.packManager! } : {}),
-    ...(options.strokeDataProvider
-      ? { getStrokeDataProvider: async () => options.strokeDataProvider! }
-      : {}),
+    ...withGetter(options.packManager, (v) => ({ getPackManager: async () => v })),
+    ...withGetter(options.strokeDataProvider, (v) => ({ getStrokeDataProvider: async () => v })),
     getHandwritingRecognizer: async () => recognizer,
-    ...(options.dictionaryService
-      ? { getDictionaryService: async () => options.dictionaryService! }
-      : {}),
+    ...withGetter(options.dictionaryService, (v) => ({ getDictionaryService: async () => v })),
     getPurchase: async () => purchase,
     getNativePickerBridge: async () => pickerBridge,
   };
