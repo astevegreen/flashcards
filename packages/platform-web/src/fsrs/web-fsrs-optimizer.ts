@@ -94,7 +94,9 @@ export class WebFsrsOptimizer implements FsrsOptimizer {
 
 export function createWebFsrsOptimizer(): FsrsOptimizer {
   if (typeof Worker === 'undefined') {
-    throw new Error('This browser cannot run the FSRS optimizer (Web Workers are unavailable).');
+    throw new TypeError(
+      'This browser cannot run the FSRS optimizer (Web Workers are unavailable).',
+    );
   }
   return new WebFsrsOptimizer();
 }

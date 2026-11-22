@@ -267,7 +267,7 @@ describe('WebFsrsOptimizer (one Worker per run)', () => {
     const run = optimizer.optimize(original, { onStage: (s) => stages.push(s) });
     expect(worker.transfers[0]).toHaveLength(3);
     // The caller's arrays stay usable (a retry can reuse them).
-    expect(original.ratings.length).toBe(2);
+    expect(original.ratings).toHaveLength(2);
     worker.emit({ type: 'stage', stage: 'loading' });
     worker.emit({ type: 'stage', stage: 'training' });
     worker.emit({ type: 'done', weights: [0.4, 0.6] });

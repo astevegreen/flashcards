@@ -55,7 +55,7 @@ export function CategoryExportPanel({
   collectMediaBlobs,
   onStatus,
   onError,
-}: CategoryExportPanelProps) {
+}: Readonly<CategoryExportPanelProps>) {
   const { platform, state, stateVersion } = useApp();
   const [tag, setTag] = useState('');
   const [deckChoice, setDeckChoice] = useState('');

@@ -54,11 +54,11 @@ export function createDesktopReminderScheduler(
 
   const tick = () => {
     const now = clock.now();
-    const due = pending.filter((r) => r.atMs <= now);
-    if (due.length === 0) return;
+    const [first, ...rest] = pending.filter((r) => r.atMs <= now);
+    if (first === undefined) return;
     pending = pending.filter((r) => r.atMs > now);
     // Several overdue reminders (e.g. after a long sleep) collapse into the latest one.
-    const latest = due.reduce((a, b) => (b.atMs > a.atMs ? b : a));
+    const latest = rest.reduce((a, r) => (r.atMs > a.atMs ? r : a), first);
     if (now - latest.atMs <= DESKTOP_REMINDER_GRACE_MS) {
       bridge.notify({ title: latest.title, body: latest.body });
     }
@@ -71,17 +71,19 @@ export function createDesktopReminderScheduler(
       if (await bridge.isPermissionGranted()) return 'granted';
       return toPermission(await bridge.requestPermission());
     },
-    replaceAll: async (reminders) => {
+    replaceAll: (reminders) => {
       stop();
       const now = clock.now();
       pending = reminders
         .filter((r) => r.atMs > now)
         .map((r) => ({ atMs: r.atMs, title: r.title, body: r.body }));
       if (pending.length > 0) timer = clock.setInterval(tick, DESKTOP_REMINDER_TICK_MS);
+      return Promise.resolve();
     },
-    cancelAll: async () => {
+    cancelAll: () => {
       stop();
       pending = [];
+      return Promise.resolve();
     },
   };
 }

@@ -33,11 +33,11 @@ function FieldValue({
   field,
   value,
   pinyinToneColors,
-}: {
+}: Readonly<{
   field: NoteTypeField;
   value: string;
   pinyinToneColors: boolean;
-}) {
+}>) {
   if (!value.trim()) return <span className="text-[var(--muted)]">—</span>;
   // Media fields hold a `media:<sha256>` reference, never text worth showing.
   if (field.kind === 'image' || field.kind === 'audio') {
@@ -65,7 +65,7 @@ export interface NoteDetailPaneProps {
  * its categories and each card's schedule. Read-only; Edit opens the same editor as a row tap.
  * Text goes through `RichText` (ruby / pinyin markup only), never raw HTML.
  */
-export function NoteDetailPane({ note, onEdit }: NoteDetailPaneProps) {
+export function NoteDetailPane({ note, onEdit }: Readonly<NoteDetailPaneProps>) {
   const { state } = useApp();
   const deck = state.decks.get(note.deck_id);
   const noteType = deck ? state.noteTypes.get(deck.note_type_id) : undefined;

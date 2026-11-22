@@ -51,7 +51,7 @@ function percent(x: number): string {
   return `${(x * 100).toFixed(1)}%`;
 }
 
-function RunningView({ stage, onCancel }: { stage: RunStage; onCancel: () => void }) {
+function RunningView({ stage, onCancel }: Readonly<{ stage: RunStage; onCancel: () => void }>) {
   const index = Math.max(
     0,
     STAGES.findIndex((s) => s.stage === stage),
@@ -66,9 +66,9 @@ function RunningView({ stage, onCancel }: { stage: RunStage; onCancel: () => voi
         className="h-2 w-full"
       />
       <div className="flex flex-wrap items-center gap-2">
-        <span role="status">
+        <output>
           Step {index + 1} of {STAGES.length}: {label}…
-        </span>
+        </output>
         <button type="button" onClick={onCancel} className={buttonClass}>
           Cancel
         </button>
@@ -77,7 +77,10 @@ function RunningView({ stage, onCancel }: { stage: RunStage; onCancel: () => voi
   );
 }
 
-function EstimateRow({ label, estimate }: { label: string; estimate: RetentionEstimate }) {
+function EstimateRow({
+  label,
+  estimate,
+}: Readonly<{ label: string; estimate: RetentionEstimate }>) {
   return (
     <tr>
       <th scope="row" className="py-1 pr-3 text-left font-normal">
@@ -104,13 +107,13 @@ function ResultView({
   unchanged,
   onApply,
   onDiscard,
-}: {
+}: Readonly<{
   before: RetentionEstimate;
   after: RetentionEstimate;
   unchanged: boolean;
   onApply: (reschedule: boolean) => void;
   onDiscard: () => void;
-}) {
+}>) {
   const [reschedule, setReschedule] = useState(false);
   return (
     <div className="flex flex-col gap-2" data-testid="fsrs-optimizer-result">
@@ -164,8 +167,8 @@ function ResultView({
   );
 }
 
-function StatusLine({ phase }: { phase: Phase }) {
-  if (phase.kind === 'cancelled') return <p role="status">Optimization cancelled.</p>;
+function StatusLine({ phase }: Readonly<{ phase: Phase }>) {
+  if (phase.kind === 'cancelled') return <output className="block">Optimization cancelled.</output>;
   if (phase.kind === 'error') {
     return (
       <p role="alert" className="text-[var(--danger,#dc2626)]">
@@ -178,9 +181,9 @@ function StatusLine({ phase }: { phase: Phase }) {
       ? 'Existing cards were rescheduled.'
       : 'They apply to future reviews; existing due dates are unchanged.';
     return (
-      <p role="status">
+      <output className="block">
         Saved optimized weights as FSRS parameters v{phase.version}. {tail}
-      </p>
+      </output>
     );
   }
   return null;
@@ -230,7 +233,7 @@ async function runOptimization(args: RunArgs): Promise<Phase> {
   }
 }
 
-export default function FsrsOptimizerPanel({ deck }: { deck: Deck }) {
+export default function FsrsOptimizerPanel({ deck }: Readonly<{ deck: Deck }>) {
   const { platform, state, stateVersion, emitEvents, getEventFactory } = useApp();
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const runRef = useRef<FsrsOptimizerRun | null>(null);

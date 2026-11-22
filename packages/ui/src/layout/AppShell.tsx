@@ -20,7 +20,7 @@ function isScrolledFromTop(target: EventTarget | null): boolean {
 }
 
 /** Due-count badge on the Study tab (PWA reminders). */
-function StudyBadge({ count, position }: { count: number; position: string }) {
+function StudyBadge({ count, position }: Readonly<{ count: number; position: string }>) {
   if (count <= 0) return null;
   return (
     <span

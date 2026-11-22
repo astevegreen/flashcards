@@ -64,7 +64,7 @@ export function nextReminderOccurrences(
   // Day 0 may already be past; a DST jump can at most push one more day out.
   for (let day = 0; out.length < count && day < count + 2; day++) {
     const occurrence = localToUtc(localMidnight + day * DAY_MS + timeOfDayMs, tzOffsetAt);
-    const last = out[out.length - 1];
+    const last = out.at(-1);
     if (occurrence.atMs > nowMs && (!last || occurrence.atMs > last.atMs)) out.push(occurrence);
   }
   return out;

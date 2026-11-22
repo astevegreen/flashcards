@@ -158,30 +158,32 @@ function isExportedNote(note: Note, subset: ReadonlySet<string> | undefined): bo
   return !note.archived && (subset === undefined || subset.has(note.id));
 }
 
+function courseScope(state: CollectionState, courseId: string): ExportScope {
+  const course = state.courses.get(courseId);
+  const deckIds = new Set<string>();
+  const pageIds = new Set<string>();
+  for (const item of course?.items ?? []) {
+    if (item.kind === 'deck') deckIds.add(item.ref_id);
+    else pageIds.add(item.ref_id);
+    if (item.unlocks_after_page_id !== undefined) pageIds.add(item.unlocks_after_page_id);
+  }
+  return {
+    full: false,
+    deckIds,
+    pageIds,
+    courseIds: new Set(course ? [course.id] : []),
+    defaultPackageId: () => `pkg:course-${courseId}`,
+    defaultName: () => course?.name ?? 'Course',
+  };
+}
+
 function resolveExportScope(
   state: CollectionState,
   options: FlashpkgExportOptions,
   noteSubset: ReadonlySet<string> | undefined,
 ): ExportScope {
   if (noteSubset !== undefined) return noteSubsetScope(state, noteSubset, options.deckId);
-  if (options.courseId !== undefined) {
-    const course = state.courses.get(options.courseId);
-    const deckIds = new Set<string>();
-    const pageIds = new Set<string>();
-    for (const item of course?.items ?? []) {
-      if (item.kind === 'deck') deckIds.add(item.ref_id);
-      else pageIds.add(item.ref_id);
-      if (item.unlocks_after_page_id !== undefined) pageIds.add(item.unlocks_after_page_id);
-    }
-    return {
-      full: false,
-      deckIds,
-      pageIds,
-      courseIds: new Set(course ? [course.id] : []),
-      defaultPackageId: () => `pkg:course-${options.courseId}`,
-      defaultName: () => course?.name ?? 'Course',
-    };
-  }
+  if (options.courseId !== undefined) return courseScope(state, options.courseId);
   if (options.pageId !== undefined) {
     const page = state.pages.get(options.pageId);
     return {

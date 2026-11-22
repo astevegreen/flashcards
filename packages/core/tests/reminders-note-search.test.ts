@@ -235,7 +235,7 @@ describe('Phase 13 search_notes core (Browse search rule)', () => {
             expect(browse.has(n.id)).toBe(true);
             expect(noteMatchesSearchText(n, query)).toBe(true);
           }
-          expect(res.notes.length).toBe(Math.min(limit, res.total));
+          expect(res.notes).toHaveLength(Math.min(limit, res.total));
         },
       ),
     );
