@@ -1,4 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page, type Route } from '@playwright/test';
+import { PRODUCTION_CSP } from '../../apps/web/csp.ts';
 
 const DECK_NAME = 'Korean Core + Hanja';
 
@@ -326,5 +327,69 @@ test.describe('Phase 11 FSRS optimizer offline', () => {
       ]);
     const [v1, v2] = await readWeights(page, deckId);
     expect(v2).toEqual(v1);
+  });
+});
+
+/**
+ * CSP regression guard for WASM in Workers. `vite preview` sends no CSP header, so the page only
+ * has the production meta-tag CSP, which a dedicated Worker does not inherit. Here every response
+ * carries the CSP header documented for production hosting (docs/setup-gcp-cloudflare.md §6),
+ * so the optimizer Worker runs under exactly the policy a real host gives it.
+ */
+async function serveWithCspHeader(
+  context: BrowserContext,
+  policyFor: (url: URL) => string,
+): Promise<void> {
+  await context.route('**/*', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== '127.0.0.1') {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      headers: { ...response.headers(), 'content-security-policy': policyFor(url) },
+    });
+  });
+}
+
+const WORKER_SCRIPT = /\/assets\/fsrs-optimizer\.worker-[\w-]+\.js$/;
+
+test.describe('Phase 11 FSRS optimizer under the production CSP header', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('the documented hosting CSP lets the optimizer Worker compile its WASM', async ({
+    page,
+    context,
+  }) => {
+    await serveWithCspHeader(context, () => PRODUCTION_CSP);
+    await page.goto('/?device=fsrscsp');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await seedAndReload(page);
+    const panel = await openDeckOptions(page);
+    await panel.getByRole('button', { name: 'Optimize weights' }).click();
+    await expect(panel.getByTestId('fsrs-optimizer-result')).toBeVisible({ timeout: 30_000 });
+    await expect(panel.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('without wasm-unsafe-eval on the Worker response the run fails (the guard works)', async ({
+    page,
+    context,
+  }) => {
+    const noWasm = PRODUCTION_CSP.replace(" 'wasm-unsafe-eval'", '');
+    expect(noWasm).not.toContain('wasm-unsafe-eval');
+    await serveWithCspHeader(context, (url) =>
+      WORKER_SCRIPT.test(url.pathname) ? noWasm : PRODUCTION_CSP,
+    );
+    await page.goto('/?device=fsrscspneg');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await seedAndReload(page);
+    const panel = await openDeckOptions(page);
+    await panel.getByRole('button', { name: 'Optimize weights' }).click();
+    await expect(panel.getByRole('alert')).toContainText('Optimization failed', {
+      timeout: 30_000,
+    });
+    await expect(panel.getByTestId('fsrs-optimizer-result')).toHaveCount(0);
   });
 });

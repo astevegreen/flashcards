@@ -2,33 +2,18 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { PRODUCTION_CSP } from './csp.ts';
 
 function productionCspPlugin(): Plugin {
   return {
     name: 'production-csp',
     apply: 'build',
     transformIndexHtml(html) {
-      // Option A CSP (§13):
-      // - script-src strictly pinned to 'self' + Google Picker loader origins (zero unsafe-inline / unsafe-eval / wildcards)
-      // - frame-src strictly pinned to Google Picker iframe origins (docs.google.com / accounts.google.com)
-      // - connect-src allows 'self' + https: for Google APIs, token helper, and user-subscribed https: .flashpkg / index.json URLs
-      // - img-src remains strictly 'self' blob: data: (blocks external tracking pixels)
-      const csp =
-        [
-          "default-src 'self'",
-          "script-src 'self' https://apis.google.com https://www.gstatic.com https://accounts.google.com/gsi/client",
-          "style-src 'self' 'unsafe-inline'",
-          "img-src 'self' blob: data:",
-          "media-src 'self' blob:",
-          "font-src 'self'",
-          "frame-src 'self' https://docs.google.com https://accounts.google.com",
-          "connect-src 'self' https: ipc: http://ipc.localhost",
-          "object-src 'none'",
-          "base-uri 'self'",
-          "form-action 'self'",
-          "worker-src 'self'",
-          "manifest-src 'self'",
-        ].join('; ') + ';';
+      // The §13 policy lives in ./csp.ts (shared with the Tauri shell, the hosting docs and the
+      // CSP tests): script-src pinned to 'self' + 'wasm-unsafe-eval' (WASM only, never eval) +
+      // Google Picker / Identity loaders, frame-src pinned to the Google and OneDrive pickers,
+      // connect-src 'self' + https:, worker-src 'self', img-src 'self' blob: data:.
+      const csp = PRODUCTION_CSP;
       return html.replace(
         '<head>',
         `<head>\n    <meta http-equiv="Content-Security-Policy" content="${csp}" />`,
