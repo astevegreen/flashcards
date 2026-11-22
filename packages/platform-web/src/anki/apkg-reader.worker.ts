@@ -1,6 +1,10 @@
 import initSqlJs from 'sql.js';
 import sqlWasmUrl from 'sql.js/dist/sql-wasm-browser.wasm?url';
-import { handleAnkiReadRequest, type AnkiReadResponse } from './anki-reader-protocol.ts';
+import {
+  handleAnkiReadRequest,
+  transferablesOf,
+  type AnkiReadResponse,
+} from './anki-reader-protocol.ts';
 import { readApkg, type SqlDatabaseLike } from './apkg-reader.ts';
 import { zstdDecompressCapped } from './zstd.ts';
 
@@ -13,7 +17,7 @@ import { zstdDecompressCapped } from './zstd.ts';
 
 interface WorkerScopeLike {
   onmessage: ((ev: MessageEvent<unknown>) => void) | null;
-  postMessage(message: AnkiReadResponse): void;
+  postMessage(message: AnkiReadResponse, transfer: Transferable[]): void;
 }
 
 const scope = self as unknown as WorkerScopeLike;
@@ -31,6 +35,6 @@ scope.onmessage = (ev) => {
     ev.data,
     (bytes, options) =>
       readApkg(bytes, { openDatabase, zstdDecompress: zstdDecompressCapped }, options),
-    (msg) => scope.postMessage(msg),
+    (msg) => scope.postMessage(msg, transferablesOf(msg)),
   );
 };

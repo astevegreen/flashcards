@@ -5,7 +5,7 @@ import type { Layout, NoteType, ReviewRating } from '../../model/types.ts';
 import { computeNoteContentHash, sha256Hex } from '../../sources/hash.ts';
 import { compareCodeUnits } from '../../study/queue.ts';
 import { normalizeTagList } from '../../tags/index.ts';
-import { SAFE_MEDIA_MIME_BY_EXT } from '../media-types.ts';
+import { safeMediaMimeForExt } from '../media-types.ts';
 import { normalizeAnkiPackage } from './collection.ts';
 import {
   collectionUsesKana,
@@ -131,7 +131,7 @@ class MediaIndex {
     }
     const dot = name.lastIndexOf('.');
     const ext = dot === -1 ? '' : name.slice(dot + 1).toLowerCase();
-    const mime = SAFE_MEDIA_MIME_BY_EXT[ext];
+    const mime = safeMediaMimeForExt(ext);
     if (!mime) {
       this.unsupported.add(ext || '(none)');
       return null;
@@ -448,6 +448,43 @@ function emitReviews(
   return { imported, skipped };
 }
 
+/** Notes of `plan` with no Anki card for template `ord`. */
+function notesMissingOrd(
+  plan: ModelPlan,
+  ord: number,
+  cardsByNote: ReadonlyMap<string, AnkiCard[]>,
+): number {
+  let missing = 0;
+  for (const { note } of plan.notes) {
+    const cards = cardsByNote.get(note.id) ?? [];
+    if (!cards.some((c) => c.ord === ord)) missing += 1;
+  }
+  return missing;
+}
+
+/**
+ * Anki only makes a card when its template renders something (e.g. "Basic (optional reversed
+ * card)"); here a layout is on for every note of the type, so say when that adds cards.
+ */
+function conditionalTemplateWarnings(
+  plans: readonly ModelPlan[],
+  cardsByNote: ReadonlyMap<string, AnkiCard[]>,
+): string[] {
+  const warnings: string[] = [];
+  for (const plan of plans) {
+    if (plan.model.kind === 'cloze') continue;
+    for (const { layout, templateOrd } of plan.layouts) {
+      if (!layout.enabled) continue;
+      const missing = notesMissingOrd(plan, templateOrd, cardsByNote);
+      if (missing === 0) continue;
+      warnings.push(
+        `${missing} note(s) of "${plan.model.name}" had no "${layout.name}" card in Anki; every imported note gets one here.`,
+      );
+    }
+  }
+  return warnings;
+}
+
 function collectWarnings(
   plans: readonly ModelPlan[],
   media: MediaIndex,
@@ -498,6 +535,69 @@ function groupNotesByModel(notes: readonly AnkiNote[]): Map<string, AnkiNote[]> 
   return out;
 }
 
+/** One import plan per note type that has fields and at least one note. */
+function buildModelPlans(collection: AnkiCollection): ModelPlan[] {
+  const notesByModel = groupNotesByModel(collection.notes);
+  const ordsByModel = templateOrdsWithCards(collection);
+  const usesKana = collectionUsesKana(collection.notes);
+  const plans: ModelPlan[] = [];
+  for (const model of [...collection.models].sort(byNumericId)) {
+    const notes = notesByModel.get(model.id);
+    if (model.fields.length === 0 || !notes || notes.length === 0) continue;
+    plans.push(planAnkiModel(model, notes, ordsByModel.get(model.id) ?? new Set(), usesKana));
+  }
+  return plans;
+}
+
+function groupCardsByNote(cards: readonly AnkiCard[]): Map<string, AnkiCard[]> {
+  const out = new Map<string, AnkiCard[]>();
+  for (const card of cards) {
+    const list = out.get(card.noteId) ?? [];
+    list.push(card);
+    out.set(card.noteId, list);
+  }
+  return out;
+}
+
+/** Emits note types, decks and notes; returns how many of each were new or changed. */
+function emitContent(
+  e: Emitter,
+  state: CollectionState,
+  collection: AnkiCollection,
+  plans: readonly ModelPlan[],
+  groups: readonly DeckGroup[],
+  media: MediaIndex,
+): { noteTypes: number; newDecks: number; changedNotes: number } {
+  let noteTypes = 0;
+  for (const plan of plans) if (emitModel(e, state, plan)) noteTypes += 1;
+  let newDecks = 0;
+  let changedNotes = 0;
+  for (const group of groups) {
+    if (emitDeck(e, state, group, deckName(group, collection, groups))) newDecks += 1;
+    changedNotes += emitNotes(e, state, group, media);
+  }
+  return { noteTypes, newDecks, changedNotes };
+}
+
+/** Emits `MediaAdded` for every referenced file not already stored; returns them sorted. */
+function emitMedia(e: Emitter, state: CollectionState, media: MediaIndex): ResolvedMedia[] {
+  const used = [...media.used.values()].sort((a, b) => compareCodeUnits(a.hash, b.hash));
+  for (const m of used) {
+    if (state.media.has(m.hash)) continue;
+    emit(e, 'MediaAdded', {
+      media: { hash: m.hash, ext: m.ext, mime: m.mime, size: m.bytes.byteLength },
+    });
+  }
+  return used;
+}
+
+function noReviewHistory(): { imported: number; skipped: AnkiSkippedReviews } {
+  return {
+    imported: 0,
+    skipped: { manual: 0, filtered: 0, unknownCard: 0, invalid: 0, duplicate: 0 },
+  };
+}
+
 /** Converts a normalized collection plus its media into import events. */
 export function convertAnkiCollection(
   collection: AnkiCollection,
@@ -508,44 +608,14 @@ export function convertAnkiCollection(
 ): AnkiImportResult {
   const e: Emitter = { factory, nowMs: options.nowMs ?? Date.now(), events: [] };
   const media = new MediaIndex(mediaFiles);
-  const notesByModel = groupNotesByModel(collection.notes);
-  const ordsByModel = templateOrdsWithCards(collection);
-  const usesKana = collectionUsesKana(collection.notes);
-  const models = [...collection.models].sort(byNumericId);
-  const plans = models
-    .filter((m) => m.fields.length > 0 && (notesByModel.get(m.id)?.length ?? 0) > 0)
-    .map((m) =>
-      planAnkiModel(m, notesByModel.get(m.id) ?? [], ordsByModel.get(m.id) ?? new Set(), usesKana),
-    );
+  const plans = buildModelPlans(collection);
   const knownModels = new Set(plans.map((p) => p.model.id));
   const skippedNotes = collection.notes.filter((n) => !knownModels.has(n.modelId)).length;
-
-  const cardsByNote = new Map<string, AnkiCard[]>();
-  for (const card of collection.cards) {
-    const list = cardsByNote.get(card.noteId) ?? [];
-    list.push(card);
-    cardsByNote.set(card.noteId, list);
-  }
+  const cardsByNote = groupCardsByNote(collection.cards);
   const groups = groupDecks(plans, cardsByNote);
 
-  let noteTypes = 0;
-  for (const plan of plans) if (emitModel(e, state, plan)) noteTypes += 1;
-  let newDecks = 0;
-  let changedNotes = 0;
-  for (const group of groups) {
-    if (emitDeck(e, state, group, deckName(group, collection, groups))) newDecks += 1;
-    changedNotes += emitNotes(e, state, group, media);
-  }
-
-  const mediaEvents = [...media.used.values()].sort((a, b) => compareCodeUnits(a.hash, b.hash));
-  for (const m of mediaEvents) {
-    if (!state.media.has(m.hash)) {
-      emit(e, 'MediaAdded', {
-        media: { hash: m.hash, ext: m.ext, mime: m.mime, size: m.bytes.byteLength },
-      });
-    }
-  }
-
+  const counts = emitContent(e, state, collection, plans, groups, media);
+  const mediaEvents = emitMedia(e, state, media);
   const history = options.includeReviewHistory
     ? emitReviews(
         e,
@@ -554,10 +624,7 @@ export function convertAnkiCollection(
         cardTargets(groups, collection.cards),
         options.tzOffsetMinutes ?? 0,
       )
-    : {
-        imported: 0,
-        skipped: { manual: 0, filtered: 0, unknownCard: 0, invalid: 0, duplicate: 0 },
-      };
+    : noReviewHistory();
 
   return {
     events: e.events,
@@ -565,15 +632,16 @@ export function convertAnkiCollection(
     deckIds: groups.map((g) => g.deckId),
     summary: {
       decks: groups.length,
-      newDecks,
+      ...counts,
       notes: groups.reduce((n, g) => n + g.notes.length, 0),
-      changedNotes,
-      noteTypes,
       media: mediaEvents.length,
       reviews: history.imported,
       skippedReviews: history.skipped,
     },
-    warnings: collectWarnings(plans, media, skippedNotes),
+    warnings: [
+      ...conditionalTemplateWarnings(plans, cardsByNote),
+      ...collectWarnings(plans, media, skippedNotes),
+    ],
   };
 }
 

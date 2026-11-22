@@ -14,6 +14,27 @@ export type AnkiReadResponse =
   | { type: 'done'; pkg: AnkiRawPackage }
   | { type: 'error'; message: string; code?: string };
 
+/**
+ * Buffers a response can hand over instead of copying: a `done` message carries every media
+ * file (up to the archive caps), so transferring them avoids doubling peak memory. Deduplicated,
+ * since several views may share one buffer and a repeated transfer entry is an error.
+ */
+export function transferablesOf(msg: AnkiReadResponse): ArrayBuffer[] {
+  if (msg.type !== 'done') return [];
+  const buffers = new Set<ArrayBuffer>();
+  for (const file of msg.pkg.media) {
+    if (file.bytes.buffer instanceof ArrayBuffer) buffers.add(file.bytes.buffer);
+  }
+  return [...buffers];
+}
+
+/** The input's buffer when the view spans all of it (safe to transfer), else nothing. */
+export function transferableInput(bytes: Uint8Array): ArrayBuffer[] {
+  const { buffer } = bytes;
+  if (!(buffer instanceof ArrayBuffer)) return [];
+  return bytes.byteOffset === 0 && bytes.byteLength === buffer.byteLength ? [buffer] : [];
+}
+
 function isReadRequest(data: unknown): data is AnkiReadRequest {
   if (typeof data !== 'object' || data === null) return false;
   const req = data as Partial<AnkiReadRequest>;

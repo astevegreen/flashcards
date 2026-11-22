@@ -80,43 +80,44 @@ const BLOCK_ELEMENTS = new Set([
 
 const CELL_ELEMENTS = new Set(['td', 'th']);
 
-const NAMED_ENTITIES: Readonly<Record<string, string>> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  nbsp: ' ',
-  ensp: ' ',
-  emsp: ' ',
-  thinsp: ' ',
-  shy: '',
-  zwnj: '‌',
-  zwj: '‍',
-  ndash: '–',
-  mdash: '—',
-  hellip: '…',
-  lsquo: '‘',
-  rsquo: '’',
-  ldquo: '“',
-  rdquo: '”',
-  laquo: '«',
-  raquo: '»',
-  middot: '·',
-  bull: '•',
-  times: '×',
-  divide: '÷',
-  deg: '°',
-  plusmn: '±',
-  copy: '©',
-  reg: '®',
-  trade: '™',
-  hearts: '♥',
-  larr: '←',
-  rarr: '→',
-  uarr: '↑',
-  darr: '↓',
-};
+/** A `Map`, not an object literal, so `&constructor;` / `&__proto__;` never hit inherited keys. */
+const NAMED_ENTITIES: ReadonlyMap<string, string> = new Map([
+  ['amp', '&'],
+  ['lt', '<'],
+  ['gt', '>'],
+  ['quot', '"'],
+  ['apos', "'"],
+  ['nbsp', ' '],
+  ['ensp', ' '],
+  ['emsp', ' '],
+  ['thinsp', ' '],
+  ['shy', ''],
+  ['zwnj', '‌'],
+  ['zwj', '‍'],
+  ['ndash', '–'],
+  ['mdash', '—'],
+  ['hellip', '…'],
+  ['lsquo', '‘'],
+  ['rsquo', '’'],
+  ['ldquo', '“'],
+  ['rdquo', '”'],
+  ['laquo', '«'],
+  ['raquo', '»'],
+  ['middot', '·'],
+  ['bull', '•'],
+  ['times', '×'],
+  ['divide', '÷'],
+  ['deg', '°'],
+  ['plusmn', '±'],
+  ['copy', '©'],
+  ['reg', '®'],
+  ['trade', '™'],
+  ['hearts', '♥'],
+  ['larr', '←'],
+  ['rarr', '→'],
+  ['uarr', '↑'],
+  ['darr', '↓'],
+]);
 
 function isAsciiLetter(code: number): boolean {
   return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
@@ -149,29 +150,38 @@ function decodeNumericEntity(body: string): string | undefined {
   return String.fromCodePoint(cp);
 }
 
+/**
+ * Index of the first `;` after `amp`, reusing `semi` while it is still ahead (the next `;` is
+ * shared by every `&` before it, which keeps decoding linear). `Number.MAX_SAFE_INTEGER` = none.
+ */
+function nextSemicolon(text: string, amp: number, semi: number): number {
+  if (semi === Number.MAX_SAFE_INTEGER || semi > amp) return semi;
+  const found = text.indexOf(';', amp + 1);
+  return found === -1 ? Number.MAX_SAFE_INTEGER : found;
+}
+
+/** The decoded text of one entity body (between `&` and `;`), or `undefined` if unknown. */
+function decodeEntityBody(body: string): string | undefined {
+  if (body.startsWith('#')) return decodeNumericEntity(body);
+  return NAMED_ENTITIES.get(body);
+}
+
 /** Decodes HTML character references (named subset + numeric). Unknown ones stay literal. */
 export function decodeHtmlEntities(text: string): string {
   if (!text.includes('&')) return text;
   let out = '';
   let pos = 0;
   let semi = -1;
-  for (;;) {
-    const amp = text.indexOf('&', pos);
-    if (amp === -1) break;
-    // The next `;` is shared by every `&` before it: look it up once (keeps this linear).
-    if (semi !== Number.MAX_SAFE_INTEGER && semi <= amp) {
-      const found = text.indexOf(';', amp + 1);
-      semi = found === -1 ? Number.MAX_SAFE_INTEGER : found;
-    }
-    const body = semi - amp > 34 ? '' : text.slice(amp + 1, semi);
-    const decoded = body.startsWith('#') ? decodeNumericEntity(body) : NAMED_ENTITIES[body];
+  for (let amp = text.indexOf('&'); amp !== -1; amp = text.indexOf('&', pos)) {
+    semi = nextSemicolon(text, amp, semi);
+    const decoded = semi - amp > 34 ? undefined : decodeEntityBody(text.slice(amp + 1, semi));
     if (decoded === undefined) {
       out += text.slice(pos, amp + 1);
       pos = amp + 1;
-      continue;
+    } else {
+      out += text.slice(pos, amp) + decoded;
+      pos = semi + 1;
     }
-    out += text.slice(pos, amp) + decoded;
-    pos = semi + 1;
   }
   return out + text.slice(pos);
 }
@@ -420,8 +430,8 @@ function collapseBlankLines(text: string): string {
   return out.join('\n');
 }
 
-/** Applies one parsed tag to the builder; returns where scanning continues. */
-function applyTag(b: FieldTextBuilder, html: string, tag: ParsedTag): number {
+/** Handles elements skipped with their content; returns where scanning continues, if handled. */
+function applyDropOrRp(b: FieldTextBuilder, html: string, tag: ParsedTag): number | undefined {
   const { name, closing } = tag;
   if (DROP_WITH_CONTENT.has(name)) {
     b.flush();
@@ -432,15 +442,32 @@ function applyTag(b: FieldTextBuilder, html: string, tag: ParsedTag): number {
     b.flush();
     return skipElementContent(html, name, tag.end);
   }
+  return undefined;
+}
+
+/** Line breaks, block and cell boundaries, ruby; every other tag only ends the text run. */
+function applyFormattingTag(b: FieldTextBuilder, tag: ParsedTag): void {
+  const { name, closing } = tag;
   if (name === 'br') b.lineBreak();
   else if (BLOCK_ELEMENTS.has(name)) b.blockBoundary();
   else if (CELL_ELEMENTS.has(name) && closing) b.space();
   else if (name === 'ruby' || name === 'rt') b.rubyTag(name, closing);
   else b.flush();
-  if (name === 'img' && !closing) {
-    const src = decodeHtmlEntities(tag.attrs.get('src') ?? '').trim();
-    if (src) b.images.push(src);
-  }
+}
+
+/** Records an `<img src>` reference (the element itself is never rendered). */
+function collectImage(b: FieldTextBuilder, tag: ParsedTag): void {
+  if (tag.name !== 'img' || tag.closing) return;
+  const src = decodeHtmlEntities(tag.attrs.get('src') ?? '').trim();
+  if (src) b.images.push(src);
+}
+
+/** Applies one parsed tag to the builder; returns where scanning continues. */
+function applyTag(b: FieldTextBuilder, html: string, tag: ParsedTag): number {
+  const skipped = applyDropOrRp(b, html, tag);
+  if (skipped !== undefined) return skipped;
+  applyFormattingTag(b, tag);
+  collectImage(b, tag);
   return tag.end;
 }
 

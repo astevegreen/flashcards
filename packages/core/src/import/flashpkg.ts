@@ -26,7 +26,7 @@ import {
   type ArchiveErrorFactory,
   type ArchiveLimits,
 } from './safe-unzip.ts';
-import { SAFE_MEDIA_MIME_BY_EXT } from './media-types.ts';
+import { safeMediaMimeForExt } from './media-types.ts';
 import {
   normalizeMarkdownPage,
   parseMarkdownFrontmatter,
@@ -391,7 +391,7 @@ export function exportFlashpkg(
       const blob = options.mediaBlobs.get(normHash) ?? options.mediaBlobs.get(hash);
       if (!blob) continue;
       const ext = entry.ext.toLowerCase().replace(/^\./, '');
-      if (!SAFE_MEDIA_MIME_BY_EXT[ext]) continue;
+      if (!safeMediaMimeForExt(ext)) continue;
       files[`media/${normHash}.${ext}`] = blob;
     }
   }
@@ -825,7 +825,7 @@ export function importFlashpkg(
     if (!match) continue;
     const declaredHash = (match[1] ?? '').toLowerCase();
     const ext = (match[2] ?? '').toLowerCase();
-    const mime = SAFE_MEDIA_MIME_BY_EXT[ext];
+    const mime = safeMediaMimeForExt(ext);
     if (!mime) continue;
     const actualHash = sha256Hex(mediaBytes);
     if (actualHash !== declaredHash) {

@@ -22,7 +22,7 @@ function isAllHan(text: string): boolean {
 }
 
 function endsWithHan(text: string): boolean {
-  const last = Array.from(text.slice(-2)).pop();
+  const last = Array.from(text.slice(-2)).at(-1);
   return last !== undefined && isHanCodePoint(last.codePointAt(0) ?? 0);
 }
 

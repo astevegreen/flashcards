@@ -1,4 +1,5 @@
 import { Unzip, UnzipInflate, UnzipPassThrough } from 'fflate';
+import type { FlateError, UnzipFile } from 'fflate';
 
 /**
  * Streaming zip extraction for untrusted archives (`.flashpkg`, Anki `.apkg`; §13).
@@ -103,6 +104,65 @@ function countChunk(run: UnzipRun, name: string, fileBytes: number, size: number
   return null;
 }
 
+/** Collects one entry's inflated chunks, counting each against the caps as it arrives. */
+class EntrySink {
+  private readonly chunks: Uint8Array[] = [];
+  private fileBytes = 0;
+
+  constructor(
+    private readonly run: UnzipRun,
+    private readonly name: string,
+  ) {}
+
+  onData(err: FlateError | null, chunk: Uint8Array, final: boolean): void {
+    const { run } = this;
+    if (run.error) return;
+    if (err) {
+      run.error = run.errors.invalid(`Failed to inflate "${this.name}": ${err.message}`);
+      return;
+    }
+    if (chunk.byteLength > 0 && !this.accept(chunk)) return;
+    if (final) run.extracted.set(this.name, concatChunks(this.chunks, this.fileBytes));
+  }
+
+  /** Counts and keeps `chunk`; false (with `run.error` set) once a cap is crossed. */
+  private accept(chunk: Uint8Array): boolean {
+    this.fileBytes += chunk.byteLength;
+    this.run.error = countChunk(this.run, this.name, this.fileBytes, chunk.byteLength);
+    if (this.run.error) return false;
+    this.chunks.push(chunk);
+    return true;
+  }
+}
+
+/** Starts inflating one entry after its header passes the checks. */
+function onEntry(run: UnzipRun, file: UnzipFile): void {
+  if (run.error) return;
+  try {
+    checkEntryHeader(run, file.name, file.originalSize);
+    const sink = new EntrySink(run, file.name);
+    file.ondata = (err, chunk, final) => sink.onData(err, chunk, final);
+    file.start();
+  } catch (err) {
+    run.error = err instanceof Error ? err : new Error(String(err));
+  }
+}
+
+/** Feeds the archive to `unzipper` in small chunks, stopping at the first recorded error. */
+function pushAll(unzipper: Unzip, run: UnzipRun, archiveBytes: Uint8Array, label: string): void {
+  const CHUNK_SIZE = 4096;
+  try {
+    for (let offset = 0; offset < archiveBytes.byteLength; offset += CHUNK_SIZE) {
+      const end = Math.min(offset + CHUNK_SIZE, archiveBytes.byteLength);
+      unzipper.push(archiveBytes.subarray(offset, end), end >= archiveBytes.byteLength);
+      if (run.error) throw run.error;
+    }
+  } catch (err) {
+    if (run.error) throw run.error;
+    throw run.errors.invalid(`Failed to unzip ${label}: ${describe(err)}`);
+  }
+}
+
 /**
  * Extracts every entry of `archiveBytes` into memory, aborting mid-stream as soon as any cap is
  * crossed, so zip bombs with spoofed headers stop before exhausting memory.
@@ -129,45 +189,9 @@ export function safeUnzip(
     actualTotal: 0,
     error: null,
   };
-
-  const unzipper = new Unzip((file) => {
-    if (run.error) return;
-    try {
-      checkEntryHeader(run, file.name, file.originalSize);
-      const chunks: Uint8Array[] = [];
-      let fileBytes = 0;
-      file.ondata = (err, chunk, final) => {
-        if (run.error) return;
-        if (err) {
-          run.error = errors.invalid(`Failed to inflate "${file.name}": ${err.message}`);
-          return;
-        }
-        if (chunk.byteLength > 0) {
-          fileBytes += chunk.byteLength;
-          run.error = countChunk(run, file.name, fileBytes, chunk.byteLength);
-          if (run.error) return;
-          chunks.push(chunk);
-        }
-        if (final) run.extracted.set(file.name, concatChunks(chunks, fileBytes));
-      };
-      file.start();
-    } catch (err) {
-      run.error = err instanceof Error ? err : new Error(String(err));
-    }
-  });
+  const unzipper = new Unzip((file) => onEntry(run, file));
   unzipper.register(UnzipInflate);
   unzipper.register(UnzipPassThrough);
-
-  const CHUNK_SIZE = 4096;
-  try {
-    for (let offset = 0; offset < archiveBytes.byteLength; offset += CHUNK_SIZE) {
-      const end = Math.min(offset + CHUNK_SIZE, archiveBytes.byteLength);
-      unzipper.push(archiveBytes.subarray(offset, end), end >= archiveBytes.byteLength);
-      if (run.error) throw run.error;
-    }
-  } catch (err) {
-    if (run.error) throw run.error;
-    throw errors.invalid(`Failed to unzip ${label}: ${describe(err)}`);
-  }
+  pushAll(unzipper, run, archiveBytes, label);
   return run.extracted;
 }

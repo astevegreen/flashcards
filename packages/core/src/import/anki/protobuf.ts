@@ -81,14 +81,14 @@ export function decodeProtobuf(bytes: Uint8Array): ProtoMessage {
 /** Last varint value of `field` (proto3 "last one wins"), or `fallback`. */
 export function protoNumber(msg: ProtoMessage, field: number, fallback = 0): number {
   const list = msg.get(field);
-  const last = list?.[list.length - 1];
+  const last = list?.at(-1);
   return last?.wire === 0 ? last.value : fallback;
 }
 
 /** Last length-delimited value of `field` decoded as UTF-8, or `fallback`. */
 export function protoString(msg: ProtoMessage, field: number, fallback = ''): string {
   const list = msg.get(field);
-  const last = list?.[list.length - 1];
+  const last = list?.at(-1);
   return last?.wire === 2 ? decodeUtf8(last.bytes) : fallback;
 }
 

@@ -1,12 +1,16 @@
 import type { AnkiPackageReader, AnkiPackageReadStage } from '@flash/platform';
 import { AnkiImportError, type AnkiImportErrorCode, type AnkiRawPackage } from '@flash/core/anki';
-import type { AnkiReadRequest, AnkiReadResponse } from './anki-reader-protocol.ts';
+import {
+  transferableInput,
+  type AnkiReadRequest,
+  type AnkiReadResponse,
+} from './anki-reader-protocol.ts';
 
 /** Minimal Worker surface used here, so tests can pass a fake. */
 export interface AnkiReaderWorkerLike {
   onmessage: ((ev: MessageEvent<AnkiReadResponse>) => void) | null;
   onerror: ((ev: ErrorEvent) => void) | null;
-  postMessage(message: AnkiReadRequest): void;
+  postMessage(message: AnkiReadRequest, transfer?: Transferable[]): void;
   terminate(): void;
 }
 
@@ -31,7 +35,11 @@ function toError(msg: { message: string; code?: string }): Error {
   return new Error(msg.message);
 }
 
-/** Reads each `.apkg` in its own short-lived Worker, terminated once the read settles. */
+/**
+ * Reads each `.apkg` in its own short-lived Worker, terminated once the read settles. The input
+ * buffer is transferred to the worker when `bytes` spans all of it, so callers must not reuse
+ * `bytes` after `read` (the import panel never does).
+ */
 export class WebAnkiPackageReader implements AnkiPackageReader {
   private readonly createWorker: () => AnkiReaderWorkerLike;
 
@@ -67,11 +75,10 @@ export class WebAnkiPackageReader implements AnkiPackageReader {
         finish();
         reject(new Error(ev.message || 'The Anki import worker failed to load'));
       };
-      worker.postMessage({
-        type: 'read',
-        bytes,
-        includeReviewHistory: options?.includeReviewHistory === true,
-      });
+      worker.postMessage(
+        { type: 'read', bytes, includeReviewHistory: options?.includeReviewHistory === true },
+        transferableInput(bytes),
+      );
     });
   }
 }

@@ -39,6 +39,10 @@ describe('ankiHtmlToText (tokenizer, no raw HTML)', () => {
       `<tag> & "q" 's' AB caf&eacute;`,
     );
     expect(text('a&nbsp;&nbsp;b')).toBe('a  b');
+    // Inherited object keys are not entities (untrusted input must not reach the prototype).
+    expect(decodeHtmlEntities('&constructor; &__proto__; &hasOwnProperty; &toString;')).toBe(
+      '&constructor; &__proto__; &hasOwnProperty; &toString;',
+    );
     expect(decodeHtmlEntities('&#0; &#xD800; &#99999999; &#123456789; &#xZZ; &')).toBe(
       '\uFFFD \uFFFD \uFFFD &#123456789; &#xZZ; &',
     );

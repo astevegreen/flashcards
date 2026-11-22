@@ -8,6 +8,7 @@ import type { AnkiRawPackage } from '@flash/core/anki';
 export type AnkiPackageReadStage = 'reading';
 
 export interface AnkiPackageReader {
+  /** May take ownership of `bytes` (the web reader transfers them to its Worker). */
   read(
     bytes: Uint8Array,
     options?: {
