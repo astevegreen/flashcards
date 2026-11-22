@@ -30,6 +30,12 @@ export interface NewCardRaise {
   categories?: CategoryCriterion;
 }
 
+/** Code-unit order (not localeCompare): identical on every device. */
+function cmpStr(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 function canonicalKey(r: NewCardRaise): string {
   return JSON.stringify([
     r.extra,
@@ -79,9 +85,7 @@ export function listNewCardRaises(state: CollectionState): NewCardRaise[] {
       byId.set(r.id, r);
     }
   }
-  return [...byId.values()].sort(
-    (a, b) => a.raisedAt - b.raisedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-  );
+  return [...byId.values()].sort((a, b) => a.raisedAt - b.raisedAt || cmpStr(a.id, b.id));
 }
 
 /** True when `raise` counts on the study day `todayIndex` for a deck with rollover `dayStart`. */

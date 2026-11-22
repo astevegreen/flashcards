@@ -42,7 +42,33 @@ export { MAX_EXTRA_NEW_CARDS } from './new-card-raises.ts';
 const MS_PER_DAY = 86_400_000;
 
 function cmpStr(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
+/** The set stored under `key`, created on first use. */
+function setFor<K>(map: Map<K, Set<string>>, key: K): Set<string> {
+  let set = map.get(key);
+  if (!set) {
+    set = new Set();
+    map.set(key, set);
+  }
+  return set;
+}
+
+/** Keeps the first card of each note, in order; later siblings are buried. */
+function takeOnePerNote(cards: Iterable<Card>, buriedNoteIds: Set<string>): Card[] {
+  const queue: Card[] = [];
+  const queuedNotes = new Set<string>();
+  for (const card of cards) {
+    if (queuedNotes.has(card.note_id)) {
+      buriedNoteIds.add(card.note_id);
+      continue;
+    }
+    queuedNotes.add(card.note_id);
+    queue.push(card);
+  }
+  return queue;
 }
 
 function asRecord(payload: unknown): Record<string, unknown> | undefined {
@@ -121,6 +147,54 @@ function newer(current: UnknownEvent | undefined, ev: UnknownEvent): boolean {
   return current === undefined || compareEventOrder(ev, current) > 0;
 }
 
+/** Applies the fields a `StudySetSaved` carries to their LWW registers; false when it carries none. */
+function applyStudySetSave(r: StudySetRegisters, ev: UnknownEvent, p: Record<string, unknown>) {
+  let touched = false;
+  const name = normalizeStudySetName(p['name']);
+  if (name !== undefined) {
+    touched = true;
+    if (newer(r.name?.ev, ev)) r.name = { ev, value: name };
+  }
+  if (p['filter'] !== undefined) {
+    touched = true;
+    if (newer(r.filter?.ev, ev)) r.filter = { ev, value: normalizeCardFilter(p['filter']) };
+  }
+  const mode = p['mode'];
+  if (isStudySetMode(mode)) {
+    touched = true;
+    if (newer(r.mode?.ev, ev)) r.mode = { ev, value: mode };
+  }
+  if (touched && newer(r.lastSave, ev)) r.lastSave = ev;
+}
+
+function applyStudySetEvent(regs: Map<string, StudySetRegisters>, ev: UnknownEvent): void {
+  const p = asRecord(ev.payload);
+  const setId = nonEmptyString(p?.['set_id']);
+  if (!p || setId === undefined || typeof ev.hlc !== 'string') return;
+  let r = regs.get(setId);
+  if (!r) {
+    r = {};
+    regs.set(setId, r);
+  }
+  if (ev.type === 'StudySetDeleted') {
+    if (newer(r.lastDelete, ev)) r.lastDelete = ev;
+  } else {
+    applyStudySetSave(r, ev, p);
+  }
+}
+
+/** The set its registers describe, or `undefined` when never saved or deleted since. */
+function liveStudySet(id: string, r: StudySetRegisters): StudySet | undefined {
+  if (!r.lastSave) return undefined;
+  if (r.lastDelete && compareEventOrder(r.lastDelete, r.lastSave) > 0) return undefined;
+  return {
+    id,
+    name: r.name?.value ?? 'Untitled study set',
+    filter: r.filter?.value ?? {},
+    mode: r.mode?.value ?? 'schedule',
+  };
+}
+
 /**
  * Every live Study Set, sorted by name (code-point order) then id. Per-field LWW by HLC; a set is
  * deleted while its newest `StudySetDeleted` is newer than its newest `StudySetSaved`.
@@ -128,46 +202,12 @@ function newer(current: UnknownEvent | undefined, ev: UnknownEvent): boolean {
 export function listStudySets(state: CollectionState): StudySet[] {
   const regs = new Map<string, StudySetRegisters>();
   for (const ev of state.unknownEvents) {
-    if (ev.type !== 'StudySetSaved' && ev.type !== 'StudySetDeleted') continue;
-    const p = asRecord(ev.payload);
-    const setId = nonEmptyString(p?.['set_id']);
-    if (!p || setId === undefined || typeof ev.hlc !== 'string') continue;
-    let r = regs.get(setId);
-    if (!r) {
-      r = {};
-      regs.set(setId, r);
-    }
-    if (ev.type === 'StudySetDeleted') {
-      if (newer(r.lastDelete, ev)) r.lastDelete = ev;
-      continue;
-    }
-    let touched = false;
-    const name = normalizeStudySetName(p['name']);
-    if (name !== undefined) {
-      touched = true;
-      if (newer(r.name?.ev, ev)) r.name = { ev, value: name };
-    }
-    if (p['filter'] !== undefined) {
-      touched = true;
-      if (newer(r.filter?.ev, ev)) r.filter = { ev, value: normalizeCardFilter(p['filter']) };
-    }
-    if (isStudySetMode(p['mode'])) {
-      touched = true;
-      if (newer(r.mode?.ev, ev)) r.mode = { ev, value: p['mode'] };
-    }
-    if (touched && newer(r.lastSave, ev)) r.lastSave = ev;
+    if (ev.type === 'StudySetSaved' || ev.type === 'StudySetDeleted') applyStudySetEvent(regs, ev);
   }
-
   const out: StudySet[] = [];
   for (const [id, r] of regs) {
-    if (!r.lastSave) continue;
-    if (r.lastDelete && compareEventOrder(r.lastDelete, r.lastSave) > 0) continue;
-    out.push({
-      id,
-      name: r.name?.value ?? 'Untitled study set',
-      filter: r.filter?.value ?? {},
-      mode: r.mode?.value ?? 'schedule',
-    });
+    const set = liveStudySet(id, r);
+    if (set) out.push(set);
   }
   out.sort((a, b) => cmpStr(a.name, b.name) || cmpStr(a.id, b.id));
   return out;
@@ -190,6 +230,30 @@ function isRating(value: unknown): value is ReviewRating {
   return value === 1 || value === 2 || value === 3 || value === 4;
 }
 
+function undonePracticeIds(state: CollectionState): Set<string> {
+  const undone = new Set<string>();
+  for (const ev of state.unknownEvents) {
+    if (ev.type !== 'PracticeUndone') continue;
+    const id = nonEmptyString(asRecord(ev.payload)?.['practice_id']);
+    if (id !== undefined) undone.add(id);
+  }
+  return undone;
+}
+
+/** A well-formed `PracticeRecorded` as a record, else `undefined`. */
+function parsePracticeRecord(ev: UnknownEvent): PracticeRecord | undefined {
+  const p = asRecord(ev.payload) as Partial<Record<keyof PracticeRecordedPayload, unknown>>;
+  const practiceId = nonEmptyString(p?.practice_id);
+  const sessionId = nonEmptyString(p?.session_id);
+  const cardId = nonEmptyString(p?.card_id);
+  const practicedAt = p?.practiced_at;
+  if (practiceId === undefined || sessionId === undefined || cardId === undefined) return undefined;
+  if (!isRating(p.rating) || typeof practicedAt !== 'number' || !Number.isFinite(practicedAt)) {
+    return undefined;
+  }
+  return { practiceId, sessionId, cardId, rating: p.rating, practicedAt, hlc: ev.hlc };
+}
+
 /**
  * Active practice answers (not undone), deduplicated by `practice_id`, ordered by
  * `(practiced_at, hlc, practice_id)` like reviews (§4.1). Optionally only one session's.
@@ -198,37 +262,16 @@ export function getPracticeRecords(
   state: CollectionState,
   options: { sessionId?: string } = {},
 ): PracticeRecord[] {
-  const undone = new Set<string>();
-  for (const ev of state.unknownEvents) {
-    if (ev.type !== 'PracticeUndone') continue;
-    const id = nonEmptyString(asRecord(ev.payload)?.['practice_id']);
-    if (id !== undefined) undone.add(id);
-  }
+  const undone = undonePracticeIds(state);
   const byId = new Map<string, PracticeRecord>();
   for (const ev of state.unknownEvents) {
     if (ev.type !== 'PracticeRecorded') continue;
-    const p = asRecord(ev.payload) as Partial<Record<keyof PracticeRecordedPayload, unknown>>;
-    const practiceId = nonEmptyString(p?.practice_id);
-    const sessionId = nonEmptyString(p?.session_id);
-    const cardId = nonEmptyString(p?.card_id);
-    const practicedAt = p?.practiced_at;
-    if (practiceId === undefined || sessionId === undefined || cardId === undefined) continue;
-    if (!isRating(p.rating) || typeof practicedAt !== 'number' || !Number.isFinite(practicedAt)) {
-      continue;
-    }
-    if (undone.has(practiceId)) continue;
-    if (options.sessionId !== undefined && sessionId !== options.sessionId) continue;
-    const rec: PracticeRecord = {
-      practiceId,
-      sessionId,
-      cardId,
-      rating: p.rating,
-      practicedAt,
-      hlc: ev.hlc,
-    };
-    const prev = byId.get(practiceId);
+    const rec = parsePracticeRecord(ev);
+    if (!rec || undone.has(rec.practiceId)) continue;
+    if (options.sessionId !== undefined && rec.sessionId !== options.sessionId) continue;
+    const prev = byId.get(rec.practiceId);
     // A duplicated practice id keeps one deterministic winner (lowest HLC).
-    if (!prev || compareHlc(rec.hlc, prev.hlc) < 0) byId.set(practiceId, rec);
+    if (!prev || compareHlc(rec.hlc, prev.hlc) < 0) byId.set(rec.practiceId, rec);
   }
   return [...byId.values()].sort(comparePracticeRecords);
 }
@@ -270,12 +313,7 @@ function cardsReviewedTodayByNote(
     for (const r of reviews) {
       if (state.undoneReviewIds.has(r.review_id)) continue;
       if (getStudyDayIndex(r.reviewed_at, scope.tzOffsetMinutes, dayStart) !== today) continue;
-      let set = out.get(card.note_id);
-      if (!set) {
-        set = new Set();
-        out.set(card.note_id, set);
-      }
-      set.add(card.id);
+      setFor(out, card.note_id).add(card.id);
       break;
     }
   }
@@ -325,26 +363,14 @@ export function buildPracticeQueue(
   const ctx: CardFilterContext = {
     nowMs: options.nowMs,
     tzOffsetMinutes: options.tzOffsetMinutes,
-    ...(options.dayStartHour !== undefined ? { dayStartHour: options.dayStartHour } : {}),
+    ...(options.dayStartHour === undefined ? {} : { dayStartHour: options.dayStartHour }),
     excludeSuspended: true,
   };
   const candidates = filterCards(state, options.filter, ctx).filter(
     (c) => options.deckId === undefined || c.deck_id === options.deckId,
   );
 
-  const latest = new Map<string, PracticeRecord>();
-  const practicedByNote = new Map<string, Set<string>>();
-  for (const rec of getPracticeRecords(state, { sessionId: options.sessionId })) {
-    latest.set(rec.cardId, rec);
-    const card = state.cards.get(rec.cardId);
-    if (!card) continue;
-    let set = practicedByNote.get(card.note_id);
-    if (!set) {
-      set = new Set();
-      practicedByNote.set(card.note_id, set);
-    }
-    set.add(card.id);
-  }
+  const { latest, practicedByNote } = practiceSessionState(state, options.sessionId);
   const reviewedToday = cardsReviewedTodayByNote(state, options);
 
   const pending: Card[] = [];
@@ -360,26 +386,13 @@ export function buildPracticeQueue(
       continue;
     }
     const rec = latest.get(card.id);
-    if (rec && rec.rating !== 1) {
-      practiced += 1;
-    } else if (rec) {
-      againCards.push({ card, rec });
-    } else {
-      pending.push(card);
-    }
+    if (!rec) pending.push(card);
+    else if (rec.rating === 1) againCards.push({ card, rec });
+    else practiced += 1;
   }
   againCards.sort((a, b) => comparePracticeRecords(a.rec, b.rec));
 
-  const queue: Card[] = [];
-  const queuedNotes = new Set<string>();
-  for (const card of [...pending, ...againCards.map((a) => a.card)]) {
-    if (queuedNotes.has(card.note_id)) {
-      buriedNoteIds.add(card.note_id);
-      continue;
-    }
-    queuedNotes.add(card.note_id);
-    queue.push(card);
-  }
+  const queue = takeOnePerNote([...pending, ...againCards.map((a) => a.card)], buriedNoteIds);
   return {
     queue,
     counts: countByState(queue),
@@ -387,6 +400,18 @@ export function buildPracticeQueue(
     practiced,
     again: againCards.length,
   };
+}
+
+/** One session's latest answer per card, and the cards practiced per note (sibling burying). */
+function practiceSessionState(state: CollectionState, sessionId: string) {
+  const latest = new Map<string, PracticeRecord>();
+  const practicedByNote = new Map<string, Set<string>>();
+  for (const rec of getPracticeRecords(state, { sessionId })) {
+    latest.set(rec.cardId, rec);
+    const card = state.cards.get(rec.cardId);
+    if (card) setFor(practicedByNote, card.note_id).add(card.id);
+  }
+  return { latest, practicedByNote };
 }
 
 export interface ReviewAheadOptions extends QueueScope {
@@ -407,69 +432,98 @@ export function buildReviewAheadQueue(
   options: ReviewAheadOptions,
 ): StudyQueueResult {
   const days = Math.max(1, Math.min(MAX_REVIEW_AHEAD_DAYS, Math.floor(options.days) || 1));
-  const globalHour = options.dayStartHour ?? state.preferences.day_start_hour;
-  const allowed =
-    options.filter !== undefined && !isCardFilterEmpty(options.filter)
-      ? filterCardIds(state, options.filter, {
-          nowMs: options.nowMs,
-          tzOffsetMinutes: options.tzOffsetMinutes,
-          ...(options.dayStartHour !== undefined ? { dayStartHour: options.dayStartHour } : {}),
-          excludeSuspended: true,
-        })
-      : undefined;
+  const sort: AheadSort = {
+    learning: [],
+    reviews: [],
+    buriedNoteIds: new Set<string>(),
+    nextLearningDueAt: undefined,
+  };
+  const allowed = aheadAllowedCardIds(state, options);
   const reviewedToday = cardsReviewedTodayByNote(state, options);
-
-  const learning: Card[] = [];
-  const reviews: Card[] = [];
-  const buriedNoteIds = new Set<string>();
-  let nextLearningDueAt: number | undefined;
+  const globalHour = options.dayStartHour ?? state.preferences.day_start_hour;
   for (const card of state.cards.values()) {
-    if (options.deckId !== undefined && card.deck_id !== options.deckId) continue;
-    if (allowed !== undefined && !allowed.has(card.id)) continue;
-    if (isCardSuspended(state, card.id)) continue;
-    const deck = state.decks.get(card.deck_id);
-    const note = state.notes.get(card.note_id);
-    if (!deck || deck.archived || !note || note.archived) continue;
-    const s = card.schedule;
-    if (s.state === 0) continue;
-    const touched = reviewedToday.get(card.note_id);
+    if (!isAheadCandidate(state, card, options.deckId, allowed)) continue;
     const dayStart = dayStartFor(state, card.deck_id, globalHour);
     const endOfToday = getNextStudyDayRolloverMs(options.nowMs, options.tzOffsetMinutes, dayStart);
-    if (s.state === 1 || s.state === 3) {
-      if (hasOtherCard(touched, card.id)) {
-        buriedNoteIds.add(card.note_id);
-        continue;
-      }
-      if (s.due <= options.nowMs) learning.push(card);
-      else if (s.due < endOfToday && (nextLearningDueAt === undefined || s.due < nextLearningDueAt))
-        nextLearningDueAt = s.due;
-      continue;
-    }
-    if (touched) {
-      buriedNoteIds.add(card.note_id);
-      continue;
-    }
-    if (s.due < endOfToday + days * MS_PER_DAY) reviews.push(card);
+    const window = { nowMs: options.nowMs, endOfToday, aheadUntil: endOfToday + days * MS_PER_DAY };
+    placeAheadCard(sort, card, reviewedToday.get(card.note_id), window);
   }
   const byDue = (a: Card, b: Card) => a.schedule.due - b.schedule.due || cmpStr(a.id, b.id);
-  learning.sort(byDue);
-  reviews.sort(byDue);
+  sort.learning.sort(byDue);
+  sort.reviews.sort(byDue);
 
-  const queue: Card[] = [];
-  const queuedNotes = new Set<string>();
-  for (const card of [...learning, ...reviews]) {
-    if (queuedNotes.has(card.note_id)) {
-      buriedNoteIds.add(card.note_id);
-      continue;
-    }
-    queuedNotes.add(card.note_id);
-    queue.push(card);
-  }
-  const result: StudyQueueResult = { queue, counts: countByState(queue), buriedNoteIds };
-  if (nextLearningDueAt !== undefined && queue.length === 0) {
-    result.nextLearningDueAt = nextLearningDueAt;
+  const queue = takeOnePerNote([...sort.learning, ...sort.reviews], sort.buriedNoteIds);
+  const result: StudyQueueResult = {
+    queue,
+    counts: countByState(queue),
+    buriedNoteIds: sort.buriedNoteIds,
+  };
+  if (sort.nextLearningDueAt !== undefined && queue.length === 0) {
+    result.nextLearningDueAt = sort.nextLearningDueAt;
   }
   return result;
+}
+
+/** Review-ahead buckets while scanning the collection. */
+interface AheadSort {
+  learning: Card[];
+  reviews: Card[];
+  buriedNoteIds: Set<string>;
+  nextLearningDueAt: number | undefined;
+}
+
+function aheadAllowedCardIds(
+  state: CollectionState,
+  options: ReviewAheadOptions,
+): Set<string> | undefined {
+  if (options.filter === undefined || isCardFilterEmpty(options.filter)) return undefined;
+  return filterCardIds(state, options.filter, {
+    nowMs: options.nowMs,
+    tzOffsetMinutes: options.tzOffsetMinutes,
+    ...(options.dayStartHour === undefined ? {} : { dayStartHour: options.dayStartHour }),
+    excludeSuspended: true,
+  });
+}
+
+/** A studied (not new), unsuspended card of an active deck and note inside the selection. */
+function isAheadCandidate(
+  state: CollectionState,
+  card: Card,
+  deckId: string | undefined,
+  allowed: ReadonlySet<string> | undefined,
+): boolean {
+  if (deckId !== undefined && card.deck_id !== deckId) return false;
+  if (allowed !== undefined && !allowed.has(card.id)) return false;
+  if (card.schedule.state === 0 || isCardSuspended(state, card.id)) return false;
+  const deck = state.decks.get(card.deck_id);
+  const note = state.notes.get(card.note_id);
+  return Boolean(deck && !deck.archived && note && !note.archived);
+}
+
+/**
+ * Learning cards: due now (else the next intraday due time), buried when a sibling was reviewed
+ * today. Review cards: due before `aheadUntil`, buried when any card of the note was reviewed today.
+ */
+function placeAheadCard(
+  sort: AheadSort,
+  card: Card,
+  touched: ReadonlySet<string> | undefined,
+  window: { nowMs: number; endOfToday: number; aheadUntil: number },
+): void {
+  const s = card.schedule;
+  const isLearning = s.state === 1 || s.state === 3;
+  if (isLearning ? hasOtherCard(touched, card.id) : touched !== undefined) {
+    sort.buriedNoteIds.add(card.note_id);
+    return;
+  }
+  if (!isLearning) {
+    if (s.due < window.aheadUntil) sort.reviews.push(card);
+    return;
+  }
+  if (s.due <= window.nowMs) sort.learning.push(card);
+  else if (s.due < window.endOfToday) {
+    sort.nextLearningDueAt = Math.min(sort.nextLearningDueAt ?? s.due, s.due);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

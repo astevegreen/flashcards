@@ -76,6 +76,11 @@ export interface BrowseScreenProps {
   onOpenSettings?: () => void;
 }
 
+/** True when the visible list is non-empty and every visible note is selected. */
+function isEveryNoteSelected(visibleCount: number, selectedCount: number): boolean {
+  return visibleCount > 0 && selectedCount === visibleCount;
+}
+
 export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   const {
     state,
@@ -209,8 +214,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
     () => filteredNotes.filter((n) => selected.has(n.id)).map((n) => n.id),
     [filteredNotes, selected],
   );
-  const allVisibleSelected =
-    filteredNotes.length > 0 && selectedVisible.length === filteredNotes.length;
+  const allVisibleSelected = isEveryNoteSelected(filteredNotes.length, selectedVisible.length);
 
   const toggleSelected = (noteId: string) => {
     setSelected((prev) => {

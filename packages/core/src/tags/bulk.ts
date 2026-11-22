@@ -57,7 +57,8 @@ export interface BulkActionPlan {
 }
 
 function cmpStr(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
 }
 
 function sameList(a: readonly string[], b: readonly string[]): boolean {
@@ -128,114 +129,127 @@ export function planBulkNoteAction(
   action: BulkNoteAction,
 ): BulkActionPlan {
   const notes = selectedNotes(state, noteIds);
+  switch (action.kind) {
+    case 'add_tags':
+      return planAddTags(notes, action.tags);
+    case 'remove_tags':
+      return planRemoveTags(notes, action.tags);
+    case 'move_deck':
+      return planMoveDeck(state, notes, action.deckId);
+    case 'archive':
+    case 'restore':
+      return planArchive(notes, action.kind === 'archive');
+    case 'suspend':
+    case 'unsuspend':
+      return planSuspension(state, notes, action.kind === 'suspend');
+  }
+}
+
+function refused(error: BulkActionError): BulkActionPlan {
+  return { events: [], changedNoteCount: 0, error };
+}
+
+/** One event per note whose `next` tags differ from its current ones. */
+function planTagRewrite(
+  notes: readonly Note[],
+  rewrite: (note: Note) => string[] | undefined,
+): BulkActionPlan {
+  const events: BulkEventDraft[] = [];
+  for (const note of notes) {
+    const next = rewrite(note);
+    if (next) events.push(tagsPayload(note, next));
+  }
+  return { events, changedNoteCount: events.length };
+}
+
+function planAddTags(notes: readonly Note[], tags: readonly string[]): BulkActionPlan {
+  const invalid = tags.find((tag) => validateTagName(tag));
+  if (invalid !== undefined) return refused({ code: 'invalid_tag', tag: invalid });
+  const additions = normalizeTagList(tags.map(normalizeTagText));
+  return planTagRewrite(notes, (note) => {
+    const next = normalizeTagList([...note.tags, ...additions]);
+    return sameList(note.tags, next) ? undefined : next;
+  });
+}
+
+function planRemoveTags(notes: readonly Note[], tags: readonly string[]): BulkActionPlan {
+  const keys = [...new Set(tags.map(tagKey).filter((k) => k.length > 0))];
+  return planTagRewrite(notes, (note) => {
+    const kept = note.tags.filter((t) => !keys.some((k) => isTagInSubtree(tagKey(t), k)));
+    return kept.length === note.tags.length ? undefined : normalizeTagList(kept);
+  });
+}
+
+/** Why the selection can't move into `deck`, if it can't. */
+function moveDeckError(
+  state: CollectionState,
+  notes: readonly Note[],
+  deck: Deck,
+): BulkActionError | undefined {
+  const linked = notes
+    .filter((n) => n.deck_id !== deck.id)
+    .filter((n) => isLinkedDeck(deck) || isLinkedDeck(state.decks.get(n.deck_id)))
+    .map((n) => n.id);
+  if (linked.length > 0) return { code: 'source_linked', noteIds: linked };
+  const mismatched = notes
+    .filter((n) => state.decks.get(n.deck_id)?.note_type_id !== deck.note_type_id)
+    .map((n) => n.id);
+  if (mismatched.length > 0) return { code: 'note_type_mismatch', noteIds: mismatched };
+  const conflicts = sourceKeyConflicts(state, notes, deck.id);
+  if (conflicts.length > 0) return { code: 'source_key_conflict', noteIds: conflicts };
+  return undefined;
+}
+
+function planMoveDeck(
+  state: CollectionState,
+  notes: readonly Note[],
+  deckId: string,
+): BulkActionPlan {
+  const deck = state.decks.get(deckId);
+  if (!deck || deck.archived) return refused({ code: 'unknown_deck' });
+  const error = moveDeckError(state, notes, deck);
+  if (error) return refused(error);
+  // The moved note keeps its id (and so its cards and schedules), which was derived from
+  // its old deck. Imports into the new deck find it by `source_key`, not by derived id.
+  const events: BulkEventDraft[] = notes
+    .filter((note) => note.deck_id !== deck.id)
+    .map((note) => ({
+      type: 'NoteUpserted',
+      payload: { note_id: note.id, deck_id: deck.id, source_key: note.source_key, fields: {} },
+    }));
+  return { events, changedNoteCount: events.length };
+}
+
+function planArchive(notes: readonly Note[], archive: boolean): BulkActionPlan {
+  const events: BulkEventDraft[] = notes
+    .filter((note) => note.archived !== archive)
+    .map((note) =>
+      archive
+        ? { type: 'NoteArchived', payload: { note_id: note.id } }
+        : { type: 'NoteRestored', payload: { note_id: note.id } },
+    );
+  return { events, changedNoteCount: events.length };
+}
+
+function planSuspension(
+  state: CollectionState,
+  notes: readonly Note[],
+  suspend: boolean,
+): BulkActionPlan {
   const events: BulkEventDraft[] = [];
   let changedNoteCount = 0;
-
-  switch (action.kind) {
-    case 'add_tags': {
-      for (const tag of action.tags) {
-        if (validateTagName(tag)) {
-          return { events: [], changedNoteCount: 0, error: { code: 'invalid_tag', tag } };
-        }
-      }
-      const additions = normalizeTagList(action.tags.map(normalizeTagText));
-      for (const note of notes) {
-        const next = normalizeTagList([...note.tags, ...additions]);
-        if (sameList(note.tags, next)) continue;
-        events.push(tagsPayload(note, next));
-        changedNoteCount += 1;
-      }
-      break;
+  for (const note of notes) {
+    const cardIds = [...(state.cardIdsByNote.get(note.id) ?? [])]
+      .sort(cmpStr)
+      .filter((cardId) => isCardSuspended(state, cardId) !== suspend);
+    for (const cardId of cardIds) {
+      events.push(
+        suspend
+          ? { type: 'CardSuspended', payload: { card_id: cardId } }
+          : { type: 'CardUnsuspended', payload: { card_id: cardId } },
+      );
     }
-    case 'remove_tags': {
-      const keys = [...new Set(action.tags.map(tagKey).filter((k) => k.length > 0))];
-      for (const note of notes) {
-        const kept = note.tags.filter((t) => !keys.some((k) => isTagInSubtree(tagKey(t), k)));
-        if (kept.length === note.tags.length) continue;
-        events.push(tagsPayload(note, normalizeTagList(kept)));
-        changedNoteCount += 1;
-      }
-      break;
-    }
-    case 'move_deck': {
-      const deck = state.decks.get(action.deckId);
-      if (!deck || deck.archived) {
-        return { events: [], changedNoteCount: 0, error: { code: 'unknown_deck' } };
-      }
-      const linked = notes
-        .filter((n) => n.deck_id !== deck.id)
-        .filter((n) => isLinkedDeck(deck) || isLinkedDeck(state.decks.get(n.deck_id)))
-        .map((n) => n.id);
-      if (linked.length > 0) {
-        return {
-          events: [],
-          changedNoteCount: 0,
-          error: { code: 'source_linked', noteIds: linked },
-        };
-      }
-      const mismatched = notes
-        .filter((n) => state.decks.get(n.deck_id)?.note_type_id !== deck.note_type_id)
-        .map((n) => n.id);
-      if (mismatched.length > 0) {
-        return {
-          events: [],
-          changedNoteCount: 0,
-          error: { code: 'note_type_mismatch', noteIds: mismatched },
-        };
-      }
-      const conflicts = sourceKeyConflicts(state, notes, deck.id);
-      if (conflicts.length > 0) {
-        return {
-          events: [],
-          changedNoteCount: 0,
-          error: { code: 'source_key_conflict', noteIds: conflicts },
-        };
-      }
-      // The moved note keeps its id (and so its cards and schedules), which was derived from
-      // its old deck. Imports into the new deck find it by `source_key`, not by derived id.
-      for (const note of notes) {
-        if (note.deck_id === deck.id) continue;
-        events.push({
-          type: 'NoteUpserted',
-          payload: { note_id: note.id, deck_id: deck.id, source_key: note.source_key, fields: {} },
-        });
-        changedNoteCount += 1;
-      }
-      break;
-    }
-    case 'archive':
-    case 'restore': {
-      const archive = action.kind === 'archive';
-      for (const note of notes) {
-        if (note.archived === archive) continue;
-        events.push(
-          archive
-            ? { type: 'NoteArchived', payload: { note_id: note.id } }
-            : { type: 'NoteRestored', payload: { note_id: note.id } },
-        );
-        changedNoteCount += 1;
-      }
-      break;
-    }
-    case 'suspend':
-    case 'unsuspend': {
-      const suspend = action.kind === 'suspend';
-      for (const note of notes) {
-        const cardIds = [...(state.cardIdsByNote.get(note.id) ?? [])].sort(cmpStr);
-        let changed = false;
-        for (const cardId of cardIds) {
-          if (isCardSuspended(state, cardId) === suspend) continue;
-          events.push(
-            suspend
-              ? { type: 'CardSuspended', payload: { card_id: cardId } }
-              : { type: 'CardUnsuspended', payload: { card_id: cardId } },
-          );
-          changed = true;
-        }
-        if (changed) changedNoteCount += 1;
-      }
-      break;
-    }
+    if (cardIds.length > 0) changedNoteCount += 1;
   }
   return { events, changedNoteCount };
 }

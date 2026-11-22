@@ -97,7 +97,12 @@ export interface TagCollectionSummary {
 }
 
 function cmpStr(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
+function increment<K>(map: Map<K, number>, key: K): void {
+  map.set(key, (map.get(key) ?? 0) + 1);
 }
 
 function sameList(a: readonly string[], b: readonly string[]): boolean {
@@ -118,36 +123,22 @@ export function summarizeTags(state: CollectionState): TagCollectionSummary {
   const counts = new Map<string, number>();
   const archivedCounts = new Map<string, number>();
   const direct = new Map<string, number>();
-  const spellings = new Map<string, Map<string, number>>();
-  const archivedSpellings = new Map<string, Map<string, number>>();
+  const spellings: SpellingPool = new Map();
+  const archivedSpellings: SpellingPool = new Map();
   let unnormalizedNoteCount = 0;
 
   for (const note of state.notes.values()) {
     if (!sameList(note.tags, normalizeTagList(note.tags))) unnormalizedNoteCount += 1;
-    const noteSpellings = note.archived ? archivedSpellings : spellings;
-    const seen = new Set<string>();
-    const seenDirect = new Set<string>();
-    for (const raw of note.tags) {
-      const text = normalizeTagText(raw);
-      if (!text) continue;
-      const key = text.toLowerCase();
-      if (!seenDirect.has(key)) {
-        seenDirect.add(key);
-        const bySpelling = noteSpellings.get(key) ?? new Map<string, number>();
-        bySpelling.set(text, (bySpelling.get(text) ?? 0) + 1);
-        noteSpellings.set(key, bySpelling);
-      }
-      const parts = key.split(TAG_HIERARCHY_SEPARATOR);
-      for (let i = 1; i <= parts.length; i++) {
-        seen.add(parts.slice(0, i).join(TAG_HIERARCHY_SEPARATOR));
-      }
-    }
+    const { withParents, direct: directKeys } = collectNoteTags(
+      note,
+      note.archived ? archivedSpellings : spellings,
+    );
     if (note.archived) {
-      for (const key of seen) archivedCounts.set(key, (archivedCounts.get(key) ?? 0) + 1);
+      for (const key of withParents) increment(archivedCounts, key);
       continue;
     }
-    for (const key of seen) counts.set(key, (counts.get(key) ?? 0) + 1);
-    for (const key of seenDirect) direct.set(key, (direct.get(key) ?? 0) + 1);
+    for (const key of withParents) increment(counts, key);
+    for (const key of directKeys) increment(direct, key);
   }
 
   const keys = new Set([...counts.keys(), ...archivedCounts.keys()]);
@@ -156,28 +147,9 @@ export function summarizeTags(state: CollectionState): TagCollectionSummary {
       const parts = key.split(TAG_HIERARCHY_SEPARATOR);
       // Active spellings win; archived ones only label categories no active note uses.
       const pool = (counts.get(key) ?? 0) > 0 ? spellings : archivedSpellings;
-      let label = key;
-      let best = -1;
-      for (const [spelling, n] of pool.get(key) ?? []) {
-        if (n > best || (n === best && cmpStr(spelling, label) < 0)) {
-          label = spelling;
-          best = n;
-        }
-      }
-      if (best < 0) {
-        // Implicit parent: keep the stored spelling of its segments from a child when we can.
-        const child = [...pool.entries()].find(([k]) => isTagInSubtree(k, key));
-        const childSpelling = child ? [...child[1].keys()].sort(cmpStr)[0] : undefined;
-        if (childSpelling) {
-          label = childSpelling
-            .split(TAG_HIERARCHY_SEPARATOR)
-            .slice(0, parts.length)
-            .join(TAG_HIERARCHY_SEPARATOR);
-        }
-      }
       const summary: TagSummary = {
         key,
-        label,
+        label: tagLabel(key, parts.length, pool),
         noteCount: counts.get(key) ?? 0,
         directNoteCount: direct.get(key) ?? 0,
         archivedNoteCount: archivedCounts.get(key) ?? 0,
@@ -189,6 +161,57 @@ export function summarizeTags(state: CollectionState): TagCollectionSummary {
     .sort((a, b) => cmpStr(a.key, b.key));
 
   return { tags, unnormalizedNoteCount };
+}
+
+/** Category key -> stored spelling -> number of notes using that spelling. */
+type SpellingPool = Map<string, Map<string, number>>;
+
+/**
+ * One note's category keys: `direct` as stored, `withParents` adding every `::` ancestor. Each
+ * direct key's spelling is counted once in `pool`.
+ */
+function collectNoteTags(
+  note: Note,
+  pool: SpellingPool,
+): { withParents: Set<string>; direct: Set<string> } {
+  const withParents = new Set<string>();
+  const direct = new Set<string>();
+  for (const raw of note.tags) {
+    const text = normalizeTagText(raw);
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (!direct.has(key)) {
+      direct.add(key);
+      const bySpelling = pool.get(key) ?? new Map<string, number>();
+      increment(bySpelling, text);
+      pool.set(key, bySpelling);
+    }
+    const parts = key.split(TAG_HIERARCHY_SEPARATOR);
+    for (let i = 1; i <= parts.length; i++) {
+      withParents.add(parts.slice(0, i).join(TAG_HIERARCHY_SEPARATOR));
+    }
+  }
+  return { withParents, direct };
+}
+
+/**
+ * Display label: the most used stored spelling (ties: code-unit order). An implicit parent keeps
+ * the stored spelling of its segments from a child when one exists, else its key.
+ */
+function tagLabel(key: string, depth: number, pool: SpellingPool): string {
+  let label = key;
+  let best = -1;
+  for (const [spelling, n] of pool.get(key) ?? []) {
+    if (n > best || (n === best && cmpStr(spelling, label) < 0)) {
+      label = spelling;
+      best = n;
+    }
+  }
+  if (best >= 0) return label;
+  const child = [...pool.entries()].find(([k]) => isTagInSubtree(k, key));
+  const childSpelling = child ? [...child[1].keys()].sort(cmpStr)[0] : undefined;
+  if (!childSpelling) return label;
+  return childSpelling.split(TAG_HIERARCHY_SEPARATOR).slice(0, depth).join(TAG_HIERARCHY_SEPARATOR);
 }
 
 export type TagOperation =
@@ -246,38 +269,19 @@ function renameTag(raw: string, fromKey: string, to: string): string | undefined
  * plan is idempotent: running it again on the resulting state yields no payloads.
  */
 export function planTagOperation(state: CollectionState, op: TagOperation): TagOperationPlan {
-  if (op.kind === 'normalize') {
-    const payloads: NoteUpsertedPayload[] = [];
-    for (const note of sortedNotes(state)) {
-      const next = normalizeTagList(note.tags);
-      if (!sameList(note.tags, next)) payloads.push(tagOnlyPayload(note, next));
-    }
-    return { payloads };
-  }
+  if (op.kind === 'normalize') return planNormalize(state);
 
-  const rawSources = op.kind === 'rename' ? [op.from] : op.kind === 'merge' ? op.from : op.tags;
-  const sources = [...new Set(rawSources.map(tagKey).filter((k) => k.length > 0))].sort(cmpStr);
+  const sources = [
+    ...new Set(
+      operationSources(op)
+        .map(tagKey)
+        .filter((k) => k.length > 0),
+    ),
+  ].sort(cmpStr);
   if (sources.length === 0) return { payloads: [], error: { code: 'no_source' } };
 
-  let target: string | undefined;
-  if (op.kind !== 'delete') {
-    const raw = op.kind === 'rename' ? op.to : op.into;
-    const problem = validateTagName(raw);
-    if (problem) return { payloads: [], error: { code: 'invalid_name', problem } };
-    target = normalizeTagText(raw)
-      .split(TAG_HIERARCHY_SEPARATOR)
-      .map((s) => s.trim())
-      .join(TAG_HIERARCHY_SEPARATOR);
-    const targetKey = target.toLowerCase();
-    for (const source of sources) {
-      if (
-        targetKey !== source &&
-        (isTagInSubtree(targetKey, source) || isTagInSubtree(source, targetKey))
-      ) {
-        return { payloads: [], error: { code: 'target_overlaps_source', source } };
-      }
-    }
-  }
+  const resolved = op.kind === 'delete' ? { target: undefined } : resolveTarget(op, sources);
+  if ('error' in resolved) return { payloads: [], error: resolved.error };
 
   // Deepest source first so `a::b` wins over `a` for a tag inside both subtrees.
   const bySpecificity = [...sources].sort(
@@ -288,23 +292,74 @@ export function planTagOperation(state: CollectionState, op: TagOperation): TagO
 
   const payloads: NoteUpsertedPayload[] = [];
   for (const note of sortedNotes(state)) {
-    let touched = false;
-    const next: string[] = [];
-    for (const raw of note.tags) {
-      const key = tagKey(raw);
-      const source = bySpecificity.find((s) => isTagInSubtree(key, s));
-      if (source === undefined) {
-        next.push(raw);
-        continue;
-      }
-      touched = true;
-      if (target === undefined) continue; // delete
-      const renamed = renameTag(raw, source, target);
-      if (renamed !== undefined) next.push(renamed);
-    }
-    if (!touched) continue;
+    const next = rewriteNoteTags(note, bySpecificity, resolved.target);
+    if (next === undefined) continue;
     const normalized = normalizeTagList(next);
     if (!sameList(note.tags, normalized)) payloads.push(tagOnlyPayload(note, normalized));
   }
   return { payloads };
+}
+
+function planNormalize(state: CollectionState): TagOperationPlan {
+  const payloads: NoteUpsertedPayload[] = [];
+  for (const note of sortedNotes(state)) {
+    const next = normalizeTagList(note.tags);
+    if (!sameList(note.tags, next)) payloads.push(tagOnlyPayload(note, next));
+  }
+  return { payloads };
+}
+
+function operationSources(op: Exclude<TagOperation, { kind: 'normalize' }>): readonly string[] {
+  if (op.kind === 'rename') return [op.from];
+  return op.kind === 'merge' ? op.from : op.tags;
+}
+
+/** The normalized rename / merge target, or why it can't be used. */
+function resolveTarget(
+  op: Extract<TagOperation, { kind: 'rename' | 'merge' }>,
+  sources: readonly string[],
+): { target: string } | { error: TagOperationError } {
+  const raw = op.kind === 'rename' ? op.to : op.into;
+  const problem = validateTagName(raw);
+  if (problem) return { error: { code: 'invalid_name', problem } };
+  const target = normalizeTagText(raw)
+    .split(TAG_HIERARCHY_SEPARATOR)
+    .map((s) => s.trim())
+    .join(TAG_HIERARCHY_SEPARATOR);
+  const targetKey = target.toLowerCase();
+  const overlapping = sources.find(
+    (source) =>
+      targetKey !== source &&
+      (isTagInSubtree(targetKey, source) || isTagInSubtree(source, targetKey)),
+  );
+  if (overlapping !== undefined) {
+    return { error: { code: 'target_overlaps_source', source: overlapping } };
+  }
+  return { target };
+}
+
+/**
+ * A note's tags with every tag inside a source subtree renamed onto `target` (or removed when
+ * `target` is `undefined`); `undefined` when no tag of the note is inside a source.
+ */
+function rewriteNoteTags(
+  note: Note,
+  bySpecificity: readonly string[],
+  target: string | undefined,
+): string[] | undefined {
+  let touched = false;
+  const next: string[] = [];
+  for (const raw of note.tags) {
+    const key = tagKey(raw);
+    const source = bySpecificity.find((s) => isTagInSubtree(key, s));
+    if (source === undefined) {
+      next.push(raw);
+      continue;
+    }
+    touched = true;
+    if (target === undefined) continue; // delete
+    const renamed = renameTag(raw, source, target);
+    if (renamed !== undefined) next.push(renamed);
+  }
+  return touched ? next : undefined;
 }
