@@ -26,12 +26,19 @@ the same licence (share-alike); the app code that reads them is licensed separat
    conformance with the Group's licence (https://www.edrdg.org/edrdg/licence.html). Changes: headwords,
    readings, English glosses (one string per sense) and priority/frequency bands extracted to JSON.
 
-5. strokes-ja-kanjivg: CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/) — share-alike
+5. dict-krdict: CC BY-SA 2.0 KR (https://creativecommons.org/licenses/by-sa/2.0/kr/) — share-alike
+   Source: NIKL 한국어기초사전 (Korean Basic Dictionary), English edition — https://krdict.korean.go.kr/
+   Text © National Institute of Korean Language (국립국어원). Changes: headword, homonym number, part of
+   speech, vocabulary level, 원어 (Hanja origin), standard pronunciation, conjugations, Korean definitions,
+   English equivalents/definitions and up to 3 examples per sense extracted to JSON. Audio and images are
+   not included. The starter (dev/CI) pack is a small hand-authored sample in the same format.
+
+6. strokes-ja-kanjivg: CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/) — share-alike
    Source: KanjiVG (Ulrich Apel & contributors) — https://kanjivg.tagaini.net/
    Changes: stroke centerlines resampled and converted from 109×109 SVG to Hanzi Writer 1024×1024 JSON
    (medians + ribbon outlines).
 
-6. strokes-zh-mmah: Arphic Public License (1999) (https://ftp.gnu.org/gnu/non-gnu/chinese-fonts-truetype/LICENSE)
+7. strokes-zh-mmah: Arphic Public License (1999) (https://ftp.gnu.org/gnu/non-gnu/chinese-fonts-truetype/LICENSE)
    Source: Make Me a Hanzi graphics.txt — https://github.com/skishore/makemeahanzi
    graphics.txt is derived from the Arphic PL KaitiM GB and Arphic PL UKai fonts © 1994–1999 Arphic
    Technology Co., Ltd. and is redistributed (re-encoded as JSON, medians rounded) under the Arphic Public

@@ -210,6 +210,7 @@ export const PackIdSchema = z.enum([
   'dict-kanjidic2',
   'dict-cc-cedict',
   'dict-jmdict',
+  'dict-krdict',
   'strokes-ja-kanjivg',
   'strokes-zh-mmah',
 ]);
