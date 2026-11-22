@@ -1,0 +1,528 @@
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  applyEvents,
+  compareCodeUnits,
+  compareReviewRecords,
+  createEmptyState,
+  createEventFactory,
+  createHlcState,
+  deriveCardId,
+  deriveNoteId,
+  parseRuby,
+  sha256Hex,
+  type CollectionState,
+  type FlashEvent,
+  type KnownEvent,
+} from '@flash/core';
+import {
+  ankiDeckId,
+  ankiReviewId,
+  AnkiImportError,
+  importAnkiPackage,
+  type AnkiImportOptions,
+  type AnkiRawPackage,
+} from '@flash/core/anki';
+import initSqlJs from 'sql.js';
+import { describe, expect, it, vi } from 'vitest';
+import { handleAnkiReadRequest, type AnkiReadResponse } from '../src/anki/anki-reader-protocol.ts';
+import { readApkg, type ApkgReadOptions, type ApkgReaderDeps } from '../src/anki/apkg-reader.ts';
+import { WebAnkiPackageReader, type AnkiReaderWorkerLike } from '../src/anki/web-anki-reader.ts';
+import { zstdDecompressCapped } from '../src/anki/zstd.ts';
+
+const FIXTURES = resolve(fileURLToPath(import.meta.url), '../../../../tests/fixtures/anki');
+const NOW = Date.UTC(2026, 10, 1, 12, 0, 0);
+const sqlite = initSqlJs();
+
+function fixture(name: string): Uint8Array {
+  return new Uint8Array(readFileSync(join(FIXTURES, name)));
+}
+
+async function deps(): Promise<ApkgReaderDeps> {
+  const SQL = await sqlite;
+  return { openDatabase: async (b) => new SQL.Database(b), zstdDecompress: zstdDecompressCapped };
+}
+
+async function read(name: string, options?: ApkgReadOptions): Promise<AnkiRawPackage> {
+  return readApkg(fixture(name), await deps(), options);
+}
+
+function importInto(
+  state: CollectionState,
+  raw: AnkiRawPackage,
+  options: AnkiImportOptions = {},
+  device = 'device-a',
+) {
+  const factory = createEventFactory(device, 0, createHlcState(device, NOW));
+  const result = importAnkiPackage(raw, state, factory, { nowMs: NOW, ...options });
+  applyEvents(state, result.events);
+  return result;
+}
+
+async function importFixture(name: string, options: AnkiImportOptions = {}) {
+  const state = createEmptyState();
+  const raw = await read(name, { includeReviewHistory: options.includeReviewHistory === true });
+  const result = importInto(state, raw, options);
+  return { state, result, raw };
+}
+
+function activeNotes(state: CollectionState) {
+  return [...state.notes.values()]
+    .filter((n) => !n.archived)
+    .sort((a, b) => a.created_order - b.created_order);
+}
+
+function eventsOfType<T extends KnownEvent['type']>(events: readonly KnownEvent[], type: T) {
+  return events.filter((e): e is Extract<KnownEvent, { type: T }> => e.type === type);
+}
+
+/** Everything a user can see or that drives scheduling (HLC registers excluded). */
+function visibleState(state: CollectionState) {
+  const byId = <T extends { id: string }>(xs: Iterable<T>) =>
+    [...xs].sort((a, b) => compareCodeUnits(a.id, b.id));
+  return {
+    decks: byId(state.decks.values()).map((d) => ({ ...d, created_at: 0 })),
+    noteTypes: byId(state.noteTypes.values()),
+    layouts: byId(state.layouts.values()),
+    notes: byId(state.notes.values()),
+    cards: byId(state.cards.values()),
+    media: [...state.media.keys()].sort(compareCodeUnits),
+    reviews: [...state.reviewsByCard.values()]
+      .flat()
+      .map(({ hlc: _hlc, ...rest }) => rest)
+      .sort((a, b) => a.reviewed_at - b.reviewed_at || compareCodeUnits(a.review_id, b.review_id)),
+  };
+}
+
+describe('Anki .apkg import: golden conversions', () => {
+  it('Basic (and reversed card): note type, two layouts, hierarchical deck, HTML to text, tags', async () => {
+    const { state, result } = await importFixture('basic-reversed.apkg');
+    const deckId = ankiDeckId('1600000000100', '1600000000001');
+    expect(result.summary).toMatchObject({ decks: 1, newDecks: 1, notes: 2, noteTypes: 1 });
+    expect(result.warnings).toEqual([]);
+    expect(state.decks.get(deckId)).toMatchObject({
+      name: 'Japanese::Vocab',
+      note_type_id: 'anki:nt:1600000000001',
+    });
+    expect(state.noteTypes.get('anki:nt:1600000000001')).toEqual({
+      id: 'anki:nt:1600000000001',
+      name: 'Basic (and reversed card)',
+      fields: [
+        { key: 'front', label: 'Front', kind: 'text', lang: 'zh-Hans', sortKey: true },
+        { key: 'back', label: 'Back', kind: 'rich', lang: 'en' },
+      ],
+    });
+    expect(state.layouts.get('anki:layout:1600000000001:0')).toEqual({
+      id: 'anki:layout:1600000000001:0',
+      note_type_id: 'anki:nt:1600000000001',
+      name: 'Card 1',
+      front_fields: ['front'],
+      reveal_steps: [['back']],
+      answer_mode: 'flip',
+      hide_furigana_on_front: false,
+      enabled: true,
+    });
+    expect(state.layouts.get('anki:layout:1600000000001:1')).toMatchObject({
+      name: 'Card 2',
+      front_fields: ['back'],
+      reveal_steps: [['front']],
+      enabled: true,
+    });
+    expect(activeNotes(state).map((n) => [n.source_key, n.fields, n.tags])).toEqual([
+      ['anki:guidDog01', { front: '犬', back: 'dog\n(animal)' }, ['animals::mammals', 'pets']],
+      ['anki:guidCat02', { front: '猫', back: 'cat\nfeline' }, ['animals::mammals']],
+    ]);
+    const dogId = deriveNoteId(deckId, 'anki:guidDog01');
+    expect(state.notes.get(dogId)?.provenance).toEqual({ source: 'import', reviewed: true });
+    expect(state.cards.has(deriveCardId(dogId, 'anki:layout:1600000000001:0', 0))).toBe(true);
+    expect(state.cards.has(deriveCardId(dogId, 'anki:layout:1600000000001:1', 0))).toBe(true);
+    expect(state.cards.size).toBe(4);
+  });
+
+  it('Cloze: one cloze layout, Anki cloze syntax kept (hints too), one card per cloze number', async () => {
+    const { state } = await importFixture('cloze.apkg');
+    const deckId = ankiDeckId('1600000000200', '1600000000002');
+    expect(state.decks.get(deckId)?.name).toBe('Geography');
+    expect(state.layouts.get('anki:layout:1600000000002:0')).toMatchObject({
+      answer_mode: 'cloze',
+      front_fields: ['text'],
+      reveal_steps: [['back_extra']],
+    });
+    expect(activeNotes(state).map((n) => n.fields)).toEqual([
+      { text: '{{c1::東京}}は日本の{{c2::首都::capital}}です', back_extra: 'Tokyo' },
+      { text: '{{c1::Seoul}} is in {{c2::Korea}}' },
+    ]);
+    const tokyo = deriveNoteId(deckId, 'anki:guidTokyo3');
+    for (const variant of [1, 2]) {
+      expect(state.cards.has(deriveCardId(tokyo, 'anki:layout:1600000000002:0', variant))).toBe(
+        true,
+      );
+    }
+    expect(state.cards.size).toBe(4);
+  });
+
+  it('Japanese furigana: Anki space rule -> ruby syntax, kanji: filter hides furigana on the front, tts -> speak_field', async () => {
+    const { state } = await importFixture('japanese-furigana.apkg');
+    const readings = activeNotes(state).map((n) => n.fields['reading']);
+    expect(readings).toEqual([
+      '私[わたし]は日本語[にほんご]を勉強[べんきょう]します',
+      '{食べる|たべる}',
+      '日本[にほん]語[ご]',
+    ]);
+    expect(parseRuby(readings[0] ?? '')).toEqual([
+      { type: 'ruby', base: '私', reading: 'わたし' },
+      { type: 'text', value: 'は' },
+      { type: 'ruby', base: '日本語', reading: 'にほんご' },
+      { type: 'text', value: 'を' },
+      { type: 'ruby', base: '勉強', reading: 'べんきょう' },
+      { type: 'text', value: 'します' },
+    ]);
+    expect(state.layouts.get('anki:layout:1600000000003:0')).toMatchObject({
+      front_fields: ['reading'],
+      reveal_steps: [['meaning']],
+      hide_furigana_on_front: true,
+      speak_field: 'expression',
+      speak_on: 'reveal',
+    });
+    const expression = state.noteTypes
+      .get('anki:nt:1600000000003')
+      ?.fields.find((f) => f.key === 'expression');
+    expect(expression).toMatchObject({ lang: 'ja', tts: true });
+    expect([...state.decks.values()][0]?.language).toBe('ja');
+  });
+
+  it('media: numbered zip entries -> media:<sha256> fields; SVG and missing files are skipped', async () => {
+    const { state, result } = await importFixture('media.apkg');
+    const notes = activeNotes(state);
+    const png = result.extractedMedia.find((m) => m.ext === 'png');
+    const mp3 = result.extractedMedia.find((m) => m.ext === 'mp3');
+    expect(png?.mime).toBe('image/png');
+    expect(mp3?.mime).toBe('audio/mpeg');
+    expect(png && sha256Hex(png.bytes)).toBe(png?.hash);
+    expect(notes[0]?.fields).toEqual({
+      front: '犬',
+      front_image: `media:${png?.hash}`,
+      back: 'dog',
+      back_audio: `media:${mp3?.hash}`,
+    });
+    expect(notes[1]?.fields).toEqual({ front: '猫', back: 'cat' });
+    expect(result.extractedMedia).toHaveLength(2);
+    expect(eventsOfType(result.events, 'MediaAdded').map((e) => e.payload.media.ext)).toEqual(
+      expect.arrayContaining(['png', 'mp3']),
+    );
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        'Skipped media of unsupported types: svg.',
+        '1 media file(s) referenced by notes are not in the package.',
+      ]),
+    );
+    expect(state.layouts.get('anki:layout:1600000000004:0')).toMatchObject({
+      front_fields: ['front', 'front_image'],
+      reveal_steps: [['back', 'back_audio']],
+    });
+  });
+
+  it('anki21b (zstd + protobuf + schema 18) imports with \\x1f deck hierarchy and media', async () => {
+    const { state, result, raw } = await importFixture('anki21b.apkg');
+    expect(raw.format).toBe('anki21b');
+    expect([...state.decks.values()].map((d) => [d.name, d.language])).toEqual([
+      ['Korean::Greetings', 'ko'],
+    ]);
+    expect(activeNotes(state).map((n) => [n.fields, n.tags])).toEqual([
+      [
+        {
+          field_1: '안녕하세요',
+          field_1_image: `media:${result.extractedMedia[0]?.hash}`,
+          english: 'Hello',
+        },
+        ['greetings::formal'],
+      ],
+      [{ field_1: '고마워요', english: 'Thanks (polite)' }, ['greetings']],
+    ]);
+    expect(state.noteTypes.get('anki:nt:1600000000005')?.fields.map((f) => f.label)).toEqual([
+      '한국어',
+      '한국어 (image)',
+      'English',
+    ]);
+  });
+
+  it('prefers collection.anki21 over the legacy stub collection.anki2', async () => {
+    const raw = await read('cloze.apkg');
+    expect(raw.format).toBe('anki21');
+    const notes = raw.tables.notes?.rows ?? [];
+    expect(notes).toHaveLength(2);
+  });
+});
+
+describe('Anki .apkg import: untrusted HTML', () => {
+  it('drops script/style/iframe/svg with their content and every attribute; keeps text only', async () => {
+    const { state, result } = await importFixture('html-script.apkg');
+    const fields = activeNotes(state)[0]?.fields ?? {};
+    expect(fields).toEqual({ front: 'Hello world', back: 'link <b>not bold</b> & done' });
+    const allText = JSON.stringify([...state.notes.values()].map((n) => n.fields));
+    for (const bad of [
+      'alert',
+      'script',
+      'iframe',
+      'onerror',
+      'onclick',
+      'javascript:',
+      'display',
+    ]) {
+      expect(allText).not.toContain(bad);
+    }
+    expect(result.warnings).toContain(
+      'Removed scripts, styles or embedded frames from 2 field(s).',
+    );
+  });
+});
+
+describe('Anki .apkg import: review history (default OFF)', () => {
+  const cardA = '1600000011001';
+
+  it('is off by default: the review log is not even read and no ReviewRecorded is emitted', async () => {
+    const raw = await read('review-history.apkg');
+    expect(raw.tables.revlog).toBeUndefined();
+    const state = createEmptyState();
+    const result = importInto(state, raw);
+    expect(eventsOfType(result.events, 'ReviewRecorded')).toHaveLength(0);
+    expect(result.summary.reviews).toBe(0);
+    expect([...state.cards.values()].every((c) => c.schedule.reps === 0)).toBe(true);
+  });
+
+  it('maps ease 1-4 to ratings and skips manual, rescheduled, cram, unknown-card and bad entries', async () => {
+    const { state, result } = await importFixture('review-history.apkg', {
+      includeReviewHistory: true,
+      tzOffsetMinutes: 540,
+    });
+    expect(result.summary.reviews).toBe(6);
+    expect(result.summary.skippedReviews).toEqual({
+      manual: 2,
+      filtered: 1,
+      unknownCard: 1,
+      invalid: 1,
+      duplicate: 0,
+    });
+    const reviews = eventsOfType(result.events, 'ReviewRecorded').map((e) => e.payload);
+    const T0 = 1_700_000_000_000;
+    expect(reviews.map((r) => [r.reviewed_at - T0, r.rating, r.duration_ms])).toEqual([
+      [0, 3, 8000],
+      [600_000, 3, 6000],
+      [86_400_000, 3, 5000],
+      [2 * 86_400_000, 2, 9000],
+      [4 * 86_400_000, 1, 12000],
+      [4 * 86_400_000 + 600_000, 3, 7000],
+    ]);
+    expect(reviews[0]?.review_id).toBe(ankiReviewId(T0, cardA));
+    expect(reviews.every((r) => r.tz_offset === 540 && r.fsrs_params_version === 0)).toBe(true);
+    // Learning step of 600 s -> due 10 min later; review of 3 days -> due 3 days later.
+    expect(reviews[0]?.resulting_due_at).toBe(T0 + 600_000);
+    expect(reviews[2]?.resulting_due_at).toBe(T0 + 86_400_000 + 3 * 86_400_000);
+    // The card in the filtered deck lands in its home deck (Default) and keeps its review.
+    expect(state.decks.size).toBe(1);
+    const scheduled = [...state.cards.values()].map((c) => c.schedule.reps).sort((a, b) => a - b);
+    expect(scheduled).toEqual([1, 5]);
+    const lapsed = [...state.cards.values()].find((c) => c.schedule.reps === 5);
+    expect(lapsed?.schedule.lapses).toBe(1);
+  });
+
+  it('replays deterministically: shuffled delivery and a second import give the same state', async () => {
+    const raw = await read('review-history.apkg', { includeReviewHistory: true });
+    const first = createEmptyState();
+    const result = importInto(first, raw, { includeReviewHistory: true });
+
+    const shuffled = createEmptyState();
+    const events: FlashEvent[] = [...result.events].reverse();
+    applyEvents(shuffled, events.slice(0, 7));
+    applyEvents(shuffled, events.slice(7));
+    expect(visibleState(shuffled)).toEqual(visibleState(first));
+
+    // Same package on another device (different HLCs and event ids) converges too.
+    const other = createEmptyState();
+    importInto(other, raw, { includeReviewHistory: true }, 'device-b');
+    expect(visibleState(other)).toEqual(visibleState(first));
+
+    // Reviews replay in (reviewed_at, hlc, review_id) order regardless of event order.
+    for (const list of first.reviewsByCard.values()) {
+      const sorted = [...list].sort(compareReviewRecords).map((r) => r.reviewed_at);
+      expect(sorted).toEqual([...sorted].sort((a, b) => a - b));
+    }
+  });
+
+  it('importing the same package twice changes nothing and emits no new events', async () => {
+    const raw = await read('review-history.apkg', { includeReviewHistory: true });
+    const state = createEmptyState();
+    importInto(state, raw, { includeReviewHistory: true });
+    const before = visibleState(state);
+    const again = importInto(state, raw, { includeReviewHistory: true });
+    expect(again.events).toEqual([]);
+    expect(again.summary.skippedReviews.duplicate).toBe(6);
+    expect(again.summary.newDecks).toBe(0);
+    expect(visibleState(state)).toEqual(before);
+  });
+
+  it('a re-import after an edit only upserts the changed note and restores archived ones', async () => {
+    const raw = await read('basic-reversed.apkg');
+    const state = createEmptyState();
+    importInto(state, raw);
+    const [dog, cat] = activeNotes(state);
+    const factory = createEventFactory('device-a', 100, createHlcState('device-a', NOW + 1000));
+    applyEvents(state, [
+      factory.create(
+        'NoteUpserted',
+        {
+          note_id: dog?.id ?? '',
+          deck_id: dog?.deck_id ?? '',
+          source_key: dog?.source_key ?? '',
+          fields: { front: 'edited', back: 'x' },
+        },
+        NOW + 1000,
+      ),
+      factory.create('NoteArchived', { note_id: cat?.id ?? '' }, NOW + 1000),
+    ]);
+    const again = importInto(state, raw, {}, 'device-a');
+    expect(again.events.map((e) => e.type).sort(compareCodeUnits)).toEqual([
+      'NoteRestored',
+      'NoteUpserted',
+    ]);
+  });
+});
+
+describe('Anki .apkg import: archive safeguards', () => {
+  async function rejection(name: string, options?: ApkgReadOptions): Promise<AnkiImportError> {
+    const err = await read(name, options).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(AnkiImportError);
+    return err as AnkiImportError;
+  }
+
+  it.each([
+    ['malicious-traversal.apkg', 'Path traversal'],
+    ['malicious-traversal-nested.apkg', 'Path traversal'],
+    ['malicious-absolute.apkg', 'Absolute path'],
+    ['malicious-drive-letter.apkg', 'Absolute path'],
+    ['malicious-backslash.apkg', 'Backslash'],
+  ])('rejects %s', async (name, why) => {
+    const err = await rejection(name);
+    expect(err.code).toBe('unsafe_archive');
+    expect(err.message).toContain(why);
+  });
+
+  it('enforces the file-count cap', async () => {
+    const err = await rejection('malicious-too-many-files.apkg', { limits: { maxFiles: 50 } });
+    expect(err.code).toBe('unsafe_archive');
+    expect(err.message).toContain('maximum file count (50)');
+  });
+
+  it('counts inflated bytes while streaming, ignoring the lying size header (zip bomb)', async () => {
+    const err = await rejection('malicious-zip-bomb.apkg', {
+      limits: { maxSingleFileBytes: 1024 * 1024 },
+    });
+    expect(err.code).toBe('unsafe_archive');
+    expect(err.message).toContain('Inflated file "0" exceeds max single-file size');
+  });
+
+  it('enforces the total uncompressed cap', async () => {
+    const err = await rejection('malicious-zip-bomb.apkg', {
+      limits: { maxTotalUncompressedBytes: 2 * 1024 * 1024 },
+    });
+    expect(err.message).toContain('max uncompressed byte limit');
+  });
+
+  it('rejects a zstd bomb from its frame headers without decompressing it', async () => {
+    const base = await deps();
+    const zstdDecompress = vi.fn(base.zstdDecompress);
+    const err = await readApkg(fixture('malicious-zstd-bomb.apkg'), {
+      ...base,
+      zstdDecompress,
+    }).then(
+      () => undefined,
+      (e: unknown) => e as AnkiImportError,
+    );
+    expect(err?.code).toBe('too_large');
+    expect(zstdDecompress).not.toHaveBeenCalled();
+  });
+
+  it('caps zstd output while streaming even when headers look small', () => {
+    const big = new Uint8Array(300_000);
+    const encoded = [0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x58];
+    const bh = (300_000 << 3) | (1 << 1) | 1; // one RLE block of 300 000 bytes
+    encoded.push(bh & 0xff, (bh >> 8) & 0xff, (bh >> 16) & 0xff, 0);
+    expect(() => zstdDecompressCapped(new Uint8Array(encoded), 100_000)).toThrow(AnkiImportError);
+    expect(zstdDecompressCapped(new Uint8Array(encoded), 400_000)).toEqual(big);
+  });
+
+  it('explains non-Anki files and newer formats in user-facing words', async () => {
+    const notAnki = await rejection('not-anki.apkg');
+    expect(notAnki.code).toBe('not_apkg');
+    const newer = await rejection('newer-format.apkg');
+    expect(newer.code).toBe('unsupported_format');
+    expect(newer.message).toContain('Support older Anki versions');
+  });
+
+  it('rejects a damaged SQLite collection', async () => {
+    const { buildZip } = await import('../../../scripts/build-anki-fixtures.mjs');
+    const err = await readApkg(
+      buildZip([{ name: 'collection.anki2', data: new TextEncoder().encode('not sqlite') }]),
+      await deps(),
+    ).then(
+      () => undefined,
+      (e: unknown) => e as AnkiImportError,
+    );
+    expect(err?.code).toBe('invalid_collection');
+  });
+});
+
+describe('Anki import worker plumbing', () => {
+  it('protocol keeps AnkiImportError codes and always settles', async () => {
+    const posted: AnkiReadResponse[] = [];
+    await handleAnkiReadRequest(
+      { type: 'read', bytes: new Uint8Array([1]), includeReviewHistory: false },
+      () => Promise.reject(new AnkiImportError('not_apkg', 'nope')),
+      (m) => posted.push(m),
+    );
+    expect(posted).toEqual([
+      { type: 'stage', stage: 'reading' },
+      { type: 'error', message: 'nope', code: 'not_apkg' },
+    ]);
+    const malformed: AnkiReadResponse[] = [];
+    await handleAnkiReadRequest(
+      { type: 'nope' },
+      () => Promise.reject(new Error('x')),
+      (m) => malformed.push(m),
+    );
+    expect(malformed).toEqual([{ type: 'error', message: 'Malformed Anki import request' }]);
+  });
+
+  it('WebAnkiPackageReader forwards options, rebuilds errors and terminates the worker', async () => {
+    const terminate = vi.fn();
+    const sent: unknown[] = [];
+    const worker: AnkiReaderWorkerLike = {
+      onmessage: null,
+      onerror: null,
+      terminate,
+      postMessage(message) {
+        sent.push(message);
+        queueMicrotask(() =>
+          worker.onmessage?.({
+            data: { type: 'error', message: 'too big', code: 'too_large' },
+          } as MessageEvent<AnkiReadResponse>),
+        );
+      },
+    };
+    const reader = new WebAnkiPackageReader(() => worker);
+    const err = await reader.read(new Uint8Array([1, 2]), { includeReviewHistory: true }).then(
+      () => undefined,
+      (e: unknown) => e as AnkiImportError,
+    );
+    expect(err).toBeInstanceOf(AnkiImportError);
+    expect(err?.code).toBe('too_large');
+    expect(sent).toEqual([
+      { type: 'read', bytes: new Uint8Array([1, 2]), includeReviewHistory: true },
+    ]);
+    expect(terminate).toHaveBeenCalledTimes(1);
+  });
+});

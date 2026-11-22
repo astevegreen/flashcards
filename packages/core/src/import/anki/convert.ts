@@ -1,0 +1,590 @@
+import type { CollectionState, EventFactory } from '../../events/replay.ts';
+import type { EventPayloadMap, KnownEvent, KnownEventType } from '../../events/types.ts';
+import { deriveCardId, deriveNoteId, FLASH_NAMESPACE_UUID, uuidv5 } from '../../ids.ts';
+import type { Layout, NoteType, ReviewRating } from '../../model/types.ts';
+import { computeNoteContentHash, sha256Hex } from '../../sources/hash.ts';
+import { compareCodeUnits } from '../../study/queue.ts';
+import { normalizeTagList } from '../../tags/index.ts';
+import { SAFE_MEDIA_MIME_BY_EXT } from '../media-types.ts';
+import { normalizeAnkiPackage } from './collection.ts';
+import {
+  collectionUsesKana,
+  planAnkiModel,
+  type ConvertedNote,
+  type ModelPlan,
+} from './model-plan.ts';
+import {
+  ANKI_IMPORT_LIMITS,
+  type AnkiCard,
+  type AnkiCollection,
+  type AnkiImportLimits,
+  type AnkiMediaFile,
+  type AnkiNote,
+  type AnkiRawPackage,
+  type AnkiRevlogEntry,
+} from './types.ts';
+
+/**
+ * Converts a normalized Anki collection into events (§4.1: every mutation is an event).
+ * Identity is deterministic, so importing the same package again only emits what changed:
+ * - deck: `uuidv5(ns, "anki:deck:<anki deck id>:<model id>")` (one deck per Anki deck and note
+ *   type, since a deck here has a single note type);
+ * - note: `uuidv5(deck, "anki:<guid>")`; note type `anki:nt:<model id>`; layout
+ *   `anki:layout:<model id>:<template ord>`;
+ * - review (optional history): `uuidv5(ns, "anki:revlog:<revlog id>:<card id>")`.
+ */
+
+export interface AnkiImportOptions {
+  nowMs?: number;
+  /** Convert the Anki review log into `ReviewRecorded` events (default off). */
+  includeReviewHistory?: boolean;
+  /** Offset (minutes east of UTC) stamped on imported reviews; Anki does not store one. */
+  tzOffsetMinutes?: number;
+  limits?: Partial<AnkiImportLimits>;
+}
+
+export interface ExtractedAnkiMedia {
+  hash: string;
+  ext: string;
+  mime: string;
+  bytes: Uint8Array;
+}
+
+export interface AnkiSkippedReviews {
+  /** Manual reschedules / "set due date" / "forget" entries (revlog type 4 and 5, or ease 0). */
+  manual: number;
+  /** Reviews done in filtered decks (revlog type 3: cram / preview), never scheduled here. */
+  filtered: number;
+  /** Entries for cards that are not in the package. */
+  unknownCard: number;
+  /** Entries with an ease outside 1–4. */
+  invalid: number;
+  /** Already imported earlier (same review id). */
+  duplicate: number;
+}
+
+export interface AnkiImportSummary {
+  decks: number;
+  newDecks: number;
+  notes: number;
+  changedNotes: number;
+  noteTypes: number;
+  media: number;
+  reviews: number;
+  skippedReviews: AnkiSkippedReviews;
+}
+
+export interface AnkiImportResult {
+  events: KnownEvent[];
+  extractedMedia: ExtractedAnkiMedia[];
+  deckIds: string[];
+  summary: AnkiImportSummary;
+  warnings: string[];
+}
+
+interface ResolvedMedia {
+  hash: string;
+  ext: string;
+  mime: string;
+  bytes: Uint8Array;
+}
+
+/** Looks up media by the names notes use; hashes each file once. */
+class MediaIndex {
+  private readonly files = new Map<string, AnkiMediaFile>();
+  private readonly resolved = new Map<string, ResolvedMedia | null>();
+  readonly used = new Map<string, ResolvedMedia>();
+  missing = 0;
+  unsupported = new Set<string>();
+
+  constructor(media: readonly AnkiMediaFile[]) {
+    for (const file of media) this.files.set(file.name.normalize('NFC'), file);
+  }
+
+  private find(name: string): AnkiMediaFile | undefined {
+    const direct = this.files.get(name.normalize('NFC'));
+    if (direct) return direct;
+    try {
+      return this.files.get(decodeURIComponent(name).normalize('NFC'));
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** `media:<sha256>` for a referenced file, or `undefined` (missing / unsupported type). */
+  ref(name: string): string | undefined {
+    let entry = this.resolved.get(name);
+    if (entry === undefined) {
+      entry = this.resolve(name);
+      this.resolved.set(name, entry);
+    }
+    if (!entry) return undefined;
+    this.used.set(entry.hash, entry);
+    return `media:${entry.hash}`;
+  }
+
+  private resolve(name: string): ResolvedMedia | null {
+    const file = this.find(name);
+    if (!file) {
+      this.missing += 1;
+      return null;
+    }
+    const dot = name.lastIndexOf('.');
+    const ext = dot === -1 ? '' : name.slice(dot + 1).toLowerCase();
+    const mime = SAFE_MEDIA_MIME_BY_EXT[ext];
+    if (!mime) {
+      this.unsupported.add(ext || '(none)');
+      return null;
+    }
+    return {
+      hash: sha256Hex(file.bytes),
+      ext: ext === 'jpeg' ? 'jpg' : ext,
+      mime,
+      bytes: file.bytes,
+    };
+  }
+}
+
+function numericId(id: string): number {
+  const n = Number(id);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function byNumericId<T extends { id: string }>(a: T, b: T): number {
+  return numericId(a.id) - numericId(b.id);
+}
+
+interface DeckGroup {
+  key: string;
+  deckId: string;
+  ankiDeckId: string;
+  plan: ModelPlan;
+  notes: ConvertedNote[];
+}
+
+/** Home deck of a note: the deck of its first card (filtered decks resolve to the original). */
+function homeDeckOf(cards: readonly AnkiCard[] | undefined): string {
+  const first = [...(cards ?? [])].sort((a, b) => a.ord - b.ord)[0];
+  if (!first) return '1';
+  return first.originalDeckId !== '0' && first.originalDeckId !== ''
+    ? first.originalDeckId
+    : first.deckId;
+}
+
+export function ankiDeckId(ankiDeck: string, modelId: string): string {
+  return uuidv5(FLASH_NAMESPACE_UUID, `anki:deck:${ankiDeck}:${modelId}`);
+}
+
+export function ankiReviewId(revlogId: number, cardId: string): string {
+  return uuidv5(FLASH_NAMESPACE_UUID, `anki:revlog:${revlogId}:${cardId}`);
+}
+
+function groupDecks(
+  plans: readonly ModelPlan[],
+  cardsByNote: ReadonlyMap<string, AnkiCard[]>,
+): DeckGroup[] {
+  const groups = new Map<string, DeckGroup>();
+  for (const plan of plans) {
+    for (const converted of plan.notes) {
+      const ankiDeck = homeDeckOf(cardsByNote.get(converted.note.id));
+      const key = `${ankiDeck}:${plan.model.id}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = {
+          key,
+          deckId: ankiDeckId(ankiDeck, plan.model.id),
+          ankiDeckId: ankiDeck,
+          plan,
+          notes: [],
+        };
+        groups.set(key, group);
+      }
+      group.notes.push(converted);
+    }
+  }
+  return [...groups.values()];
+}
+
+function deckName(
+  group: DeckGroup,
+  collection: AnkiCollection,
+  groups: readonly DeckGroup[],
+): string {
+  const base = collection.decks.get(group.ankiDeckId)?.name ?? 'Default';
+  const shared = groups.filter((g) => g.ankiDeckId === group.ankiDeckId).length > 1;
+  return shared ? `${base} (${group.plan.model.name})` : base;
+}
+
+/** First reference in `names` that resolves to a usable media file. */
+function firstMediaRef(names: readonly string[], media: MediaIndex): string | undefined {
+  for (const name of names) {
+    const ref = media.ref(name);
+    if (ref) return ref;
+  }
+  return undefined;
+}
+
+function noteFields(
+  plan: ModelPlan,
+  converted: ConvertedNote,
+  media: MediaIndex,
+): Record<string, string> {
+  const fields: Record<string, string> = {};
+  plan.fields.forEach((field, i) => {
+    const text = converted.texts[i];
+    if (!text) return;
+    if (text.text) fields[field.key] = text.text;
+    const imageRef = field.imageKey ? firstMediaRef(text.images, media) : undefined;
+    if (field.imageKey && imageRef) fields[field.imageKey] = imageRef;
+    const soundRef = field.audioKey ? firstMediaRef(text.sounds, media) : undefined;
+    if (field.audioKey && soundRef) fields[field.audioKey] = soundRef;
+  });
+  return fields;
+}
+
+/** Merges new fields into an existing note type (keeps the user's own edits and order). */
+function mergedNoteType(existing: NoteType | undefined, next: NoteType): NoteType | undefined {
+  if (!existing) return next;
+  const known = new Set(existing.fields.map((f) => f.key));
+  const added = next.fields.filter((f) => !known.has(f.key));
+  if (added.length === 0) return undefined;
+  return { ...existing, fields: [...existing.fields, ...added] };
+}
+
+interface Emitter {
+  readonly factory: EventFactory;
+  readonly nowMs: number;
+  readonly events: KnownEvent[];
+}
+
+function emit<K extends KnownEventType>(e: Emitter, type: K, payload: EventPayloadMap[K]): void {
+  e.events.push(e.factory.create(type, payload, e.nowMs));
+}
+
+function emitModel(e: Emitter, state: CollectionState, plan: ModelPlan): boolean {
+  const noteType = mergedNoteType(state.noteTypes.get(plan.noteTypeId), plan.noteType);
+  if (noteType) emit(e, 'NoteTypeChanged', { note_type: noteType });
+  for (const { layout } of plan.layouts) {
+    // Existing layouts keep the user's own changes (enabled, answer mode, …).
+    if (!state.layouts.has(layout.id)) emit(e, 'LayoutChanged', { layout });
+  }
+  return noteType !== undefined;
+}
+
+function deckLanguage(plan: ModelPlan): string {
+  const firstLayout: Layout | undefined = plan.layouts.find((l) => l.layout.enabled)?.layout;
+  const frontKey = firstLayout?.front_fields[0];
+  const field = plan.fields.find((f) => f.key === frontKey) ?? plan.fields[0];
+  return field?.lang ?? 'en';
+}
+
+function emitDeck(e: Emitter, state: CollectionState, group: DeckGroup, name: string): boolean {
+  const existing = state.decks.get(group.deckId);
+  if (existing) {
+    if (existing.archived)
+      emit(e, 'DeckSettingsChanged', { deck_id: group.deckId, archived: false });
+    return false;
+  }
+  emit(e, 'DeckCreated', {
+    deck_id: group.deckId,
+    name,
+    note_type_id: group.plan.noteTypeId,
+    language: deckLanguage(group.plan),
+    created_at: e.nowMs,
+  });
+  return true;
+}
+
+/** Emits the deck's notes; returns how many were new or changed. */
+function emitNotes(
+  e: Emitter,
+  state: CollectionState,
+  group: DeckGroup,
+  media: MediaIndex,
+): number {
+  let changed = 0;
+  const notes = [...group.notes].sort((a, b) => byNumericId(a.note, b.note));
+  notes.forEach((converted, order) => {
+    const sourceKey = `anki:${converted.note.guid || converted.note.id}`;
+    const noteId = deriveNoteId(group.deckId, sourceKey);
+    const fields = noteFields(group.plan, converted, media);
+    const tags = normalizeTagList(converted.note.tags);
+    const existing = state.notes.get(noteId);
+    if (existing?.archived) emit(e, 'NoteRestored', { note_id: noteId });
+    const unchanged =
+      existing !== undefined &&
+      computeNoteContentHash(existing.fields, existing.tags) ===
+        computeNoteContentHash(fields, tags);
+    if (unchanged) return;
+    changed += 1;
+    emit(e, 'NoteUpserted', {
+      note_id: noteId,
+      deck_id: group.deckId,
+      source_key: sourceKey,
+      fields,
+      tags,
+      provenance: { source: 'import', reviewed: true },
+      created_order: order,
+    });
+  });
+  return changed;
+}
+
+/** Anki ease -> rating. The v1 scheduler showed three buttons while learning (Again/Good/Easy). */
+export function ankiEaseToRating(
+  ease: number,
+  type: number,
+  schedVer: number,
+): ReviewRating | undefined {
+  if (!Number.isInteger(ease) || ease < 1 || ease > 4) return undefined;
+  const learning = type === 0 || type === 2;
+  if (schedVer === 1 && learning) {
+    if (ease === 4) return undefined;
+    return ease === 1 ? 1 : ((ease + 1) as ReviewRating);
+  }
+  return ease as ReviewRating;
+}
+
+/** Anki revlog `ivl`: days when positive, seconds when negative. */
+function resultingDueAt(entry: AnkiRevlogEntry): number {
+  if (entry.ivl > 0) return entry.id + entry.ivl * 86_400_000;
+  if (entry.ivl < 0) return entry.id - entry.ivl * 1000;
+  return entry.id;
+}
+
+interface CardTarget {
+  cardId: string;
+  answerMode: Layout['answer_mode'];
+}
+
+function cardTargets(
+  groups: readonly DeckGroup[],
+  cards: readonly AnkiCard[],
+): Map<string, CardTarget> {
+  const noteIndex = new Map<string, { group: DeckGroup; noteId: string }>();
+  for (const group of groups) {
+    for (const { note } of group.notes) {
+      noteIndex.set(note.id, {
+        group,
+        noteId: deriveNoteId(group.deckId, `anki:${note.guid || note.id}`),
+      });
+    }
+  }
+  const out = new Map<string, CardTarget>();
+  for (const card of cards) {
+    const owner = noteIndex.get(card.noteId);
+    const layoutId = owner?.group.plan.layoutIdForOrd(card.ord);
+    if (!owner || !layoutId) continue;
+    const layout = owner.group.plan.layouts.find((l) => l.layout.id === layoutId)?.layout;
+    const variant = owner.group.plan.model.kind === 'cloze' ? card.ord + 1 : 0;
+    out.set(card.id, {
+      cardId: deriveCardId(owner.noteId, layoutId, variant),
+      answerMode: layout?.answer_mode ?? 'flip',
+    });
+  }
+  return out;
+}
+
+type ReviewVerdict = keyof AnkiSkippedReviews | 'import';
+
+function classifyReview(
+  entry: AnkiRevlogEntry,
+  target: CardTarget | undefined,
+  rating: ReviewRating | undefined,
+): ReviewVerdict {
+  if (entry.type === 4 || entry.type === 5 || entry.ease === 0) return 'manual';
+  if (entry.type === 3) return 'filtered';
+  if (!target) return 'unknownCard';
+  if (rating === undefined) return 'invalid';
+  return 'import';
+}
+
+function emitReviews(
+  e: Emitter,
+  state: CollectionState,
+  collection: AnkiCollection,
+  targets: ReadonlyMap<string, CardTarget>,
+  tzOffset: number,
+): { imported: number; skipped: AnkiSkippedReviews } {
+  const skipped: AnkiSkippedReviews = {
+    manual: 0,
+    filtered: 0,
+    unknownCard: 0,
+    invalid: 0,
+    duplicate: 0,
+  };
+  let imported = 0;
+  const entries = [...collection.revlog].sort(
+    (a, b) => a.id - b.id || numericId(a.cardId) - numericId(b.cardId),
+  );
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const target = targets.get(entry.cardId);
+    const rating = ankiEaseToRating(entry.ease, entry.type, collection.schedVer);
+    const verdict = classifyReview(entry, target, rating);
+    if (verdict !== 'import' || !target || rating === undefined) {
+      if (verdict !== 'import') skipped[verdict] += 1;
+      continue;
+    }
+    const reviewId = ankiReviewId(entry.id, entry.cardId);
+    if (seen.has(reviewId) || state.reviewIdToCardId.has(reviewId)) {
+      skipped.duplicate += 1;
+      continue;
+    }
+    seen.add(reviewId);
+    imported += 1;
+    emit(e, 'ReviewRecorded', {
+      review_id: reviewId,
+      card_id: target.cardId,
+      rating,
+      reviewed_at: entry.id,
+      tz_offset: tzOffset,
+      duration_ms: Math.max(0, Math.round(entry.time)),
+      answer_mode: target.answerMode,
+      fsrs_params_version: 0,
+      resulting_due_at: resultingDueAt(entry),
+    });
+  }
+  return { imported, skipped };
+}
+
+function collectWarnings(
+  plans: readonly ModelPlan[],
+  media: MediaIndex,
+  skippedNotes: number,
+): string[] {
+  const warnings: string[] = [];
+  if (skippedNotes > 0)
+    warnings.push(
+      `${skippedNotes} note(s) use a note type missing from the package and were skipped.`,
+    );
+  const extra = plans.reduce((n, p) => n + p.extraMediaRefs, 0);
+  if (extra > 0)
+    warnings.push(
+      `${extra} field(s) had several images or sounds; only the first usable one of each was kept.`,
+    );
+  const dropped = plans.reduce((n, p) => n + p.droppedActiveContent, 0);
+  if (dropped > 0)
+    warnings.push(`Removed scripts, styles or embedded frames from ${dropped} field(s).`);
+  if (media.missing > 0)
+    warnings.push(`${media.missing} media file(s) referenced by notes are not in the package.`);
+  if (media.unsupported.size > 0) {
+    const types = [...media.unsupported].sort(compareCodeUnits).join(', ');
+    warnings.push(`Skipped media of unsupported types: ${types}.`);
+  }
+  return warnings;
+}
+
+function templateOrdsWithCards(collection: AnkiCollection): Map<string, Set<number>> {
+  const modelOfNote = new Map(collection.notes.map((n) => [n.id, n.modelId]));
+  const out = new Map<string, Set<number>>();
+  for (const card of collection.cards) {
+    const mid = modelOfNote.get(card.noteId);
+    if (mid === undefined) continue;
+    const set = out.get(mid) ?? new Set<number>();
+    set.add(card.ord);
+    out.set(mid, set);
+  }
+  return out;
+}
+
+function groupNotesByModel(notes: readonly AnkiNote[]): Map<string, AnkiNote[]> {
+  const out = new Map<string, AnkiNote[]>();
+  for (const note of [...notes].sort(byNumericId)) {
+    const list = out.get(note.modelId) ?? [];
+    list.push(note);
+    out.set(note.modelId, list);
+  }
+  return out;
+}
+
+/** Converts a normalized collection plus its media into import events. */
+export function convertAnkiCollection(
+  collection: AnkiCollection,
+  mediaFiles: readonly AnkiMediaFile[],
+  state: CollectionState,
+  factory: EventFactory,
+  options: AnkiImportOptions = {},
+): AnkiImportResult {
+  const e: Emitter = { factory, nowMs: options.nowMs ?? Date.now(), events: [] };
+  const media = new MediaIndex(mediaFiles);
+  const notesByModel = groupNotesByModel(collection.notes);
+  const ordsByModel = templateOrdsWithCards(collection);
+  const usesKana = collectionUsesKana(collection.notes);
+  const models = [...collection.models].sort(byNumericId);
+  const plans = models
+    .filter((m) => m.fields.length > 0 && (notesByModel.get(m.id)?.length ?? 0) > 0)
+    .map((m) =>
+      planAnkiModel(m, notesByModel.get(m.id) ?? [], ordsByModel.get(m.id) ?? new Set(), usesKana),
+    );
+  const knownModels = new Set(plans.map((p) => p.model.id));
+  const skippedNotes = collection.notes.filter((n) => !knownModels.has(n.modelId)).length;
+
+  const cardsByNote = new Map<string, AnkiCard[]>();
+  for (const card of collection.cards) {
+    const list = cardsByNote.get(card.noteId) ?? [];
+    list.push(card);
+    cardsByNote.set(card.noteId, list);
+  }
+  const groups = groupDecks(plans, cardsByNote);
+
+  let noteTypes = 0;
+  for (const plan of plans) if (emitModel(e, state, plan)) noteTypes += 1;
+  let newDecks = 0;
+  let changedNotes = 0;
+  for (const group of groups) {
+    if (emitDeck(e, state, group, deckName(group, collection, groups))) newDecks += 1;
+    changedNotes += emitNotes(e, state, group, media);
+  }
+
+  const mediaEvents = [...media.used.values()].sort((a, b) => compareCodeUnits(a.hash, b.hash));
+  for (const m of mediaEvents) {
+    if (!state.media.has(m.hash)) {
+      emit(e, 'MediaAdded', {
+        media: { hash: m.hash, ext: m.ext, mime: m.mime, size: m.bytes.byteLength },
+      });
+    }
+  }
+
+  const history = options.includeReviewHistory
+    ? emitReviews(
+        e,
+        state,
+        collection,
+        cardTargets(groups, collection.cards),
+        options.tzOffsetMinutes ?? 0,
+      )
+    : {
+        imported: 0,
+        skipped: { manual: 0, filtered: 0, unknownCard: 0, invalid: 0, duplicate: 0 },
+      };
+
+  return {
+    events: e.events,
+    extractedMedia: mediaEvents,
+    deckIds: groups.map((g) => g.deckId),
+    summary: {
+      decks: groups.length,
+      newDecks,
+      notes: groups.reduce((n, g) => n + g.notes.length, 0),
+      changedNotes,
+      noteTypes,
+      media: mediaEvents.length,
+      reviews: history.imported,
+      skippedReviews: history.skipped,
+    },
+    warnings: collectWarnings(plans, media, skippedNotes),
+  };
+}
+
+/** Normalizes raw reader output and converts it (the one call the UI makes). */
+export function importAnkiPackage(
+  raw: AnkiRawPackage,
+  state: CollectionState,
+  factory: EventFactory,
+  options: AnkiImportOptions = {},
+): AnkiImportResult {
+  const collection = normalizeAnkiPackage(raw, { ...ANKI_IMPORT_LIMITS, ...options.limits });
+  const result = convertAnkiCollection(collection, raw.media, state, factory, options);
+  return { ...result, warnings: [...raw.warnings, ...result.warnings] };
+}

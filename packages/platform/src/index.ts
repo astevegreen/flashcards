@@ -23,8 +23,10 @@ import type {
   StrokeScript,
 } from '@flash/core/drawing';
 import type { EntitlementState, LicenseVerifyResult } from '@flash/core/license';
+import type { AnkiPackageReader } from './anki.ts';
 import type { FsrsOptimizer } from './fsrs-optimizer.ts';
 
+export type * from './anki.ts';
 export type * from './fsrs-optimizer.ts';
 
 export type {
@@ -732,4 +734,6 @@ export interface PlatformServices {
   readonly studyReminderDelivery?: StudyReminderDelivery;
   /** Phase 11 on-device FSRS optimizer (lazy: WASM + Worker load only when called). */
   getFsrsOptimizer?: () => Promise<FsrsOptimizer>;
+  /** Phase 12 Anki `.apkg` reader (lazy: Worker + sql.js WASM load only when called). */
+  getAnkiPackageReader?: () => Promise<AnkiPackageReader>;
 }
