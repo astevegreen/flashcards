@@ -9,6 +9,7 @@ import { canCreateOrImportDeck, canUseCloudSync } from '@flash/core/license';
 import type { InstalledPackInfo, TtsProviderKind } from '@flash/platform';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
+import { StudyRemindersSetting } from '../reminders/StudyRemindersSetting.tsx';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
 import { LeechAutoSuspendSetting } from '../study/LeechSettings.tsx';
@@ -444,8 +445,9 @@ export function SettingsScreen() {
         data-testid="cloud-sync-card"
         className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
       >
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
+        {/* The pill's text changes while syncing; it must not wrap onto its own line and shift the page. */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold">Cloud Sync</h2>
             <p className="text-xs text-[var(--muted)]">
               Provider: <strong className="text-[var(--fg)]">{providerLabel}</strong>
@@ -453,7 +455,7 @@ export function SettingsScreen() {
           </div>
           <span
             data-testid="sync-status-pill"
-            className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${getSyncPillClass(syncState.status)}`}
+            className={`min-w-[6.5rem] shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-center text-xs font-semibold ${getSyncPillClass(syncState.status)}`}
           >
             {formatSyncStatusLabel(syncState.status)}
           </span>
@@ -488,7 +490,9 @@ export function SettingsScreen() {
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
+        {/* One status per line on phones: "Never" -> a full date must not re-wrap this row and
+            shift everything below it (e.g. a pack's Install button) when the first sync lands. */}
+        <div className="grid gap-1 text-xs text-[var(--muted)] sm:flex sm:flex-wrap sm:items-center sm:gap-x-4">
           <span>
             Last synced:{' '}
             <strong data-testid="sync-last-synced" className="text-[var(--fg)]">
@@ -512,7 +516,7 @@ export function SettingsScreen() {
               data-testid="sync-now-btn"
               disabled={syncBusy || syncState.status === 'syncing'}
               onClick={() => void handleSyncNow()}
-              className="rounded-xl bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              className="min-w-[5.5rem] rounded-xl bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
             >
               {syncState.status === 'syncing' ? 'Syncing…' : 'Sync Now'}
             </button>
@@ -623,6 +627,8 @@ export function SettingsScreen() {
       {/* Study preferences */}
       <div className="flex flex-col gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
         <h2 className="text-sm font-semibold">Study Preferences</h2>
+
+        <StudyRemindersSetting />
 
         <label className="flex items-center justify-between gap-4 text-sm">
           <div>
@@ -909,7 +915,7 @@ export function SettingsScreen() {
         </div>
 
         {/* Diagnostics Strip */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[var(--border)] pt-2 text-[11px] text-[var(--muted)]">
+        <div className="grid gap-1 border-t border-[var(--border)] pt-2 text-[11px] text-[var(--muted)] sm:flex sm:flex-wrap sm:items-center sm:gap-x-4">
           <span>
             Cached / attached audio clips:{' '}
             <strong data-testid="audio-clip-count" className="text-[var(--fg)]">
