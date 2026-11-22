@@ -148,39 +148,6 @@ const LEVEL_BONUS: Readonly<Record<DictionaryLevel | 'none', number>> = {
   none: 0,
 };
 
-/** Normalized English equivalent → headwords, best sense first (Phase 10 reverse index). */
-export function buildEnglishReverseIndex(
-  entries: readonly Pick<DictionaryEntry, 'headword' | 'senses' | 'level'>[],
-): Record<string, string[]> {
-  const buckets = new Map<string, Array<{ headword: string; rank: number; order: number }>>();
-  entries.forEach((entry, order) => {
-    (entry.senses ?? []).forEach((sense, senseIdx) => {
-      for (const eq of sense.equivalents) {
-        const key = normalizeEnglishEquivalent(eq);
-        if (!key) continue;
-        let list = buckets.get(key);
-        if (!list) {
-          list = [];
-          buckets.set(key, list);
-        }
-        const rank = senseIdx * 10 - LEVEL_BONUS[entry.level ?? 'none'];
-        const existing = list.find((x) => x.headword === entry.headword);
-        if (existing) existing.rank = Math.min(existing.rank, rank);
-        else list.push({ headword: entry.headword, rank, order });
-      }
-    });
-  });
-  // Null prototype: keys come from pack data, so "__proto__" must stay an ordinary key.
-  const out = Object.create(null) as Record<string, string[]>;
-  // Code-unit order (not localeCompare) so the index is identical on every machine and locale.
-  for (const key of [...buckets.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
-    out[key] = (buckets.get(key) ?? [])
-      .sort((a, b) => a.rank - b.rank || a.order - b.order)
-      .map((x) => x.headword);
-  }
-  return out;
-}
-
 export interface DictionarySearchPlan {
   query: ReturnType<typeof normalizeDictionaryQuery>;
   /** Tokens for the `searchTokens` prefix index, most specific first. */
