@@ -56,6 +56,10 @@
     "./sync-dropbox": {
       "types": "./src/sync/dropbox-transport.ts",
       "default": "./src/sync/dropbox-transport.ts"
+    },
+    "./native-support": {
+      "types": "./src/native-support.ts",
+      "default": "./src/native-support.ts"
     }
   },
   "scripts": {

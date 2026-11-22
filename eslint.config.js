@@ -11,6 +11,11 @@ export default tseslint.config(
       'playwright-report/**',
       'test-results/**',
       'coverage/**',
+      // Generated native projects (copies of apps/web/dist, Rust target, Gradle/Xcode output)
+      'apps/mobile/android/**',
+      'apps/mobile/ios/**',
+      'apps/desktop/src-tauri/target/**',
+      'apps/desktop/src-tauri/gen/**',
     ],
   },
   js.configs.recommended,

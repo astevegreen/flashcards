@@ -8,7 +8,7 @@ import {
   type Card,
   type CollectionState,
 } from '@flash/core';
-import type { MaterializedCardRow, SyncConfig } from '@flash/platform';
+import type { MaterializedCardRow, PlatformServices, SyncConfig } from '@flash/platform';
 import { createWebPlatform, resolveDeviceFromUrl } from '@flash/platform-web';
 import { FlashcardsApp } from '@flash/ui';
 import { StrictMode } from 'react';
@@ -19,6 +19,19 @@ import './styles.css';
 const DEFAULT_GOOGLE_CLIENT_ID =
   '932735219487-p20rc5hu0gegb2bh43q8phe8lgi957v3.apps.googleusercontent.com';
 const DEFAULT_TOKEN_HELPER_URL = 'https://flashcards-token-helper.yodc.workers.dev';
+
+type NativeRuntime = 'capacitor' | 'tauri' | null;
+
+/** Detects the native shell without importing any native SDK into the initial chunk. */
+function detectNativeRuntime(): NativeRuntime {
+  const w = window as unknown as {
+    Capacitor?: { isNativePlatform?: () => boolean };
+    __TAURI_INTERNALS__?: unknown;
+  };
+  if (w.Capacitor?.isNativePlatform?.()) return 'capacitor';
+  if (w.__TAURI_INTERNALS__ !== undefined) return 'tauri';
+  return null;
+}
 
 function cardToRow(card: Card): MaterializedCardRow {
   return {
@@ -58,7 +71,7 @@ async function boot(): Promise<void> {
     (import.meta.env['VITE_LICENSE_PUBLIC_KEY'] as string | undefined)?.trim() ||
     '';
 
-  const platform = createWebPlatform({
+  const webPlatform = createWebPlatform({
     isDevMode,
     googleClientId,
     tokenHelperUrl,
@@ -69,6 +82,21 @@ async function boot(): Promise<void> {
     isPersonalBuild: !enableLicenseGate,
     ...(licensePublicKeyHex ? { licensePublicKeyHex } : {}),
   });
+
+  // Native shells (Capacitor / Tauri) run this identical bundle; swap in native services lazily (§10.1).
+  const nativeRuntime = detectNativeRuntime();
+  const platform: PlatformServices = nativeRuntime
+    ? await (
+        await import('./native-boot.ts')
+      ).bootNativePlatform(nativeRuntime, webPlatform, {
+        googleClientId,
+        googleApiKey,
+        isPersonalBuild: !enableLicenseGate,
+        licensePublicKeyHex,
+        packCatalogUrl: envPackCatalogUrl,
+        starterCatalogUrl,
+      })
+    : webPlatform;
 
   // Zero-overhead OAuth redirect callback check (only lazy-loads GoogleAuth if `?code=` / `?error=` is present)
   let initialOAuthError: string | undefined;
@@ -90,7 +118,7 @@ async function boot(): Promise<void> {
     await platform.storage.setDeviceMeta(meta);
   }
 
-  if (searchParams.has('code') || searchParams.has('error')) {
+  if (nativeRuntime === null && (searchParams.has('code') || searchParams.has('error'))) {
     try {
       // Dropbox returns null unless the callback matches its own pending PKCE state.
       const dropboxSession =

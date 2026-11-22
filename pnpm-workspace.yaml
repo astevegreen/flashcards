@@ -10,3 +10,8 @@ minimumReleaseAgeExclude:
   - '@cloudflare/workers-utils@0.56.0'
   - miniflare@5.20261119.0-beta
   - wrangler@4.166.0
+packageExtensions:
+  # Upstream imports tslib from its ESM build but does not declare it.
+  '@capgo/capacitor-social-login':
+    dependencies:
+      tslib: ^2.8.1

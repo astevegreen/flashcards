@@ -1,28 +1,15 @@
+import type { CapacitorConfig } from '@capacitor/cli';
+
 /**
  * Capacitor Android & iOS shell configuration (§10.1, §11, §15 Phase 8).
- * Wraps the static SPA output in `../web/dist` and configures custom URL scheme
- * `flashcards://picker-callback` for native system-browser Google Picker grants.
+ * Wraps the identical static SPA output in `../web/dist`; `apps/web` detects the native
+ * runtime and lazily boots `@flash/platform-capacitor/native`.
+ *
+ * The `flashcards://picker-callback` deep link is registered natively:
+ * Android — intent-filter in `android/app/src/main/AndroidManifest.xml`;
+ * iOS — `CFBundleURLTypes` in `ios/App/App/Info.plist` (see docs/native-shells.md).
  */
-export interface CapacitorShellConfig {
-  appId: string;
-  appName: string;
-  webDir: string;
-  server: {
-    androidScheme: 'https';
-    iosScheme: 'capacitor';
-  };
-  plugins: {
-    CapacitorSQLite: {
-      iosDatabaseLocation: string;
-      androidIsEncryption: boolean;
-    };
-    DeepLinks: {
-      customSchemes: string[];
-    };
-  };
-}
-
-const config: CapacitorShellConfig = {
+const config: CapacitorConfig = {
   appId: 'app.flashcards.localfirst',
   appName: 'Flashcards',
   webDir: '../web/dist',
@@ -33,10 +20,14 @@ const config: CapacitorShellConfig = {
   plugins: {
     CapacitorSQLite: {
       iosDatabaseLocation: 'Library/CapacitorDatabase',
+      iosIsEncryption: false,
       androidIsEncryption: false,
     },
-    DeepLinks: {
-      customSchemes: ['flashcards://picker-callback'],
+    SocialLogin: {
+      google: true,
+      apple: false,
+      facebook: false,
+      twitter: false,
     },
   },
 };

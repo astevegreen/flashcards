@@ -1,0 +1,34 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions used by @flash/platform-tauri/native in the main window.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "sql:default",
+    "sql:allow-execute",
+    "fs:default",
+    "fs:allow-read-dir",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    "fs:allow-mkdir",
+    "fs:allow-rename",
+    "fs:allow-stat",
+    "fs:allow-exists",
+    "fs:allow-watch",
+    "fs:allow-unwatch",
+    "dialog:default",
+    "deep-link:default",
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://*" }]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "https://oauth2.googleapis.com/*" }]
+    },
+    "oauth:allow-start",
+    "oauth:allow-cancel"
+  ]
+}

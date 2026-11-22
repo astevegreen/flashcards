@@ -8,6 +8,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./native": {
+      "types": "./src/native/boot.ts",
+      "default": "./src/native/boot.ts"
     }
   },
   "scripts": {
@@ -15,7 +19,18 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@capacitor-community/sqlite": "^8.1.1",
+    "@capacitor-mlkit/digital-ink-recognition": "^8.2.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
+    "@capawesome/capacitor-file-picker": "^8.1.1",
+    "@capgo/capacitor-social-login": "^8.7.13",
+    "@capgo/native-purchases": "^8.9.17",
     "@flash/core": "workspace:*",
-    "@flash/platform": "workspace:*"
+    "@flash/platform": "workspace:*",
+    "@flash/platform-web": "workspace:*"
   }
 }
