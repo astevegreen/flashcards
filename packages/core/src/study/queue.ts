@@ -1,5 +1,6 @@
 import { isCardSuspended, type CollectionState } from '../events/replay.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
+import type { NewCardLimitRaisedPayload } from '../events/types.ts';
 import type { Card } from '../model/types.ts';
 import { filterCardIds, isCardFilterEmpty, type CardFilter } from './filter.ts';
 
@@ -42,6 +43,39 @@ export interface StudyQueueResult {
   nextLearningDueAt?: number;
 }
 
+/**
+ * Extra new cards custom study granted a deck for today (`NewCardLimitRaised`, kept verbatim in
+ * `unknownEvents`). A raise counts on the study day containing its `raised_at` (in the raising
+ * device's offset, with the deck's rollover hour). Raises add up; a repeated `raise_id` counts once
+ * (its largest value), so the result is independent of delivery order and duplicates.
+ */
+export function getExtraNewCardsToday(
+  state: CollectionState,
+  deckId: string,
+  nowMs: number,
+  tzOffsetMinutes: number,
+  dayStartHour: number,
+): number {
+  const today = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStartHour);
+  const byRaise = new Map<string, number>();
+  for (const ev of state.unknownEvents) {
+    if (ev.type !== 'NewCardLimitRaised') continue;
+    const p = (ev.payload ?? {}) as Partial<NewCardLimitRaisedPayload>;
+    const n = p.extra;
+    if (typeof p.raise_id !== 'string' || typeof n !== 'number' || !(n >= 1)) continue;
+    if (typeof p.raised_at !== 'number') continue;
+    if (Array.isArray(p.deck_ids) && p.deck_ids.length > 0 && !p.deck_ids.includes(deckId)) {
+      continue;
+    }
+    const tz = typeof p.tz_offset === 'number' ? p.tz_offset : tzOffsetMinutes;
+    if (getStudyDayIndex(p.raised_at, tz, dayStartHour) !== today) continue;
+    byRaise.set(p.raise_id, Math.max(byRaise.get(p.raise_id) ?? 0, Math.min(9999, Math.floor(n))));
+  }
+  let extra = 0;
+  for (const v of byRaise.values()) extra += v;
+  return extra;
+}
+
 /** Simple deterministic hash for reproducible daily random new-card ordering. */
 function hashString32(input: string): number {
   let h = 0x811c9dc5;
@@ -56,7 +90,7 @@ function hashString32(input: string): number {
  * Builds today's study queue for a deck or the whole collection.
  * Enforces:
  * - Study-day rollover (default 04:00 local time)
- * - Per-deck `new_cards_per_day` & `max_reviews_per_day`
+ * - Per-deck `new_cards_per_day` (plus custom-study extra new cards today) & `max_reviews_per_day`
  * - `new_card_order` (`source` | `random`)
  * - Sibling burying (§5.1): if one card of a `note_id` was reviewed today (or is queued),
  *   sibling cards of the same note are buried until the next study day.
@@ -233,7 +267,10 @@ export function buildStudyQueue(
     const dayStart = resolveDayStartHour(deck.settings.day_start_hour, globalDayStart);
     const todayIndex = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
     const alreadyStarted = newCardsStartedTodayByDeck.get(dId) ?? 0;
-    const remainingNewQuota = Math.max(0, deck.settings.new_cards_per_day - alreadyStarted);
+    const newLimit =
+      deck.settings.new_cards_per_day +
+      getExtraNewCardsToday(state, dId, nowMs, tzOffsetMinutes, dayStart);
+    const remainingNewQuota = Math.max(0, newLimit - alreadyStarted);
     if (remainingNewQuota === 0) continue;
 
     const candidates = newCardsByDeck.get(dId);

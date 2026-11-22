@@ -123,10 +123,73 @@ export interface PreferencesChangedPayload {
  */
 export interface CardSuspendedPayload {
   card_id: string;
+  /** Why the card was suspended. `leech` = optional leech auto-suspend at review time. */
+  reason?: 'manual' | 'leech';
+  /** The review that made the card a leech (leech auto-suspend only; Undo unsuspends it). */
+  review_id?: string;
 }
 
 export interface CardUnsuspendedPayload {
   card_id: string;
+}
+
+/**
+ * Phase 9 study-side events (Study Sets, custom study). They are **log-retained**: replay keeps
+ * them verbatim in `CollectionState.unknownEvents` (they are deliberately not listed in
+ * {@link isKnownEventType}), exactly like an older build that does not know them. The study
+ * views in `study/custom-study.ts` and the new-card limit in `study/queue.ts` fold them on
+ * demand with order-independent rules, so the snapshot and sync formats stay byte-compatible
+ * (no `format_version` bump) and every build preserves them untouched (§4.2).
+ */
+export type StudySetMode = 'schedule' | 'practice';
+
+/**
+ * Creates or edits a named Study Set. Each present field is a per-field LWW register decided by
+ * the event HLC (a rename on one device and a filter edit on another both survive).
+ */
+export interface StudySetSavedPayload {
+  set_id: string;
+  name?: string;
+  /** Normalized `CardFilter` (see `normalizeCardFilter`). */
+  filter?: unknown;
+  mode?: StudySetMode;
+}
+
+/** Deletes a Study Set: it stays deleted unless a later (higher-HLC) `StudySetSaved` edits it. */
+export interface StudySetDeletedPayload {
+  set_id: string;
+}
+
+/**
+ * One answer in a cram / practice session. Never touches FSRS state, due dates, daily limits or
+ * the scheduled queue: it only drives the practice session it belongs to (`session_id`).
+ */
+export interface PracticeRecordedPayload {
+  practice_id: string;
+  session_id: string;
+  card_id: string;
+  rating: ReviewRating;
+  practiced_at: number; // Unix ms
+  tz_offset: number;
+  duration_ms: number;
+  answer_mode: AnswerMode;
+}
+
+export interface PracticeUndonePayload {
+  practice_id: string;
+}
+
+/**
+ * Custom study "extra new cards today": raises the new-card limit of `deck_ids` (empty = every
+ * deck) by `extra` for the study day that contains `raised_at` (in `tz_offset`, with each deck's
+ * rollover hour). Additive and deduplicated by `raise_id`, so it converges under any order.
+ */
+export interface NewCardLimitRaisedPayload {
+  raise_id: string;
+  deck_ids: string[];
+  extra: number;
+  raised_at: number; // Unix ms
+  tz_offset: number;
 }
 
 export interface EventPayloadMap {
@@ -148,6 +211,11 @@ export interface EventPayloadMap {
   PreferencesChanged: PreferencesChangedPayload;
   CardSuspended: CardSuspendedPayload;
   CardUnsuspended: CardUnsuspendedPayload;
+  StudySetSaved: StudySetSavedPayload;
+  StudySetDeleted: StudySetDeletedPayload;
+  PracticeRecorded: PracticeRecordedPayload;
+  PracticeUndone: PracticeUndonePayload;
+  NewCardLimitRaised: NewCardLimitRaisedPayload;
 }
 
 export type KnownEventType = keyof EventPayloadMap;
@@ -171,6 +239,18 @@ export type UnknownEvent = EventEnvelope<string, unknown>;
 
 export type FlashEvent = KnownEvent | UnknownEvent;
 
+/** Event types replay keeps verbatim in `unknownEvents` (see {@link StudySetSavedPayload}). */
+export type LogRetainedEventType =
+  | 'StudySetSaved'
+  | 'StudySetDeleted'
+  | 'PracticeRecorded'
+  | 'PracticeUndone'
+  | 'NewCardLimitRaised';
+
+/**
+ * Event types `applyKnownEvent` handles. Log-retained types are intentionally absent: they fall
+ * through to `unknownEvents`, which every build serializes into snapshots untouched.
+ */
 export function isKnownEventType(type: string): type is KnownEventType {
   return (
     type === 'ReviewRecorded' ||

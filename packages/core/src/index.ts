@@ -10,6 +10,7 @@ export * from './fsrs/scheduler.ts';
 export * from './events/suspension.ts';
 export * from './study/filter.ts';
 export * from './study/queue.ts';
+export * from './study/custom-study.ts';
 export * from './study/choice.ts';
 export * from './study/courses.ts';
 export * from './parsers/ruby.ts';

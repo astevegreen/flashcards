@@ -1161,6 +1161,13 @@ function applyKnownEvent(
         state.preferences.auto_play_audio = pref.auto_play_audio;
         changed = true;
       }
+      if (
+        typeof pref.leech_auto_suspend === 'boolean' &&
+        shouldApplyLww(state, 'prefs:leech_auto_suspend', hlc, collector)
+      ) {
+        state.preferences.leech_auto_suspend = pref.leech_auto_suspend;
+        changed = true;
+      }
       if (pref.tts_voices !== undefined) {
         for (const [langKey, voiceVal] of Object.entries(pref.tts_voices)) {
           if (shouldApplyLww(state, `prefs:tts_voices:${langKey}`, hlc, collector)) {
