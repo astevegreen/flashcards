@@ -3,9 +3,7 @@ import { canCreateOrImportDeck } from '@flash/core/license';
 import { useState } from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
 import { useApp } from '../state/AppContext.tsx';
-
-/** Keep in step with the Suspense fallback in LibraryScreen, so nothing jumps when it loads. */
-const ANKI_IMPORT_PANEL_MIN_HEIGHT = 'min-h-[13rem]';
+import { ANKI_IMPORT_PANEL_HEIGHT } from './anki-import-layout.ts';
 
 const MAX_LISTED_WARNINGS = 5;
 
@@ -124,16 +122,16 @@ export function AnkiImportPanel({ onImported }: Readonly<AnkiImportPanelProps>) 
     <section
       data-testid="anki-import-panel"
       aria-label="Import from Anki"
-      className={`flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 ${ANKI_IMPORT_PANEL_MIN_HEIGHT}`}
+      className={`flex flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 ${ANKI_IMPORT_PANEL_HEIGHT}`}
     >
-      <div>
+      <div className="shrink-0">
         <h2 className="text-sm font-semibold">Import from Anki</h2>
         <p className="text-xs text-[var(--muted)]">
           Notes, note types, cloze, tags and media from an Anki .apkg export. Each Anki deck becomes
           a deck here; scheduling starts fresh unless you include review history.
         </p>
       </div>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
         <label className="flex items-center gap-1.5 text-xs">
           <input
             type="checkbox"
@@ -154,28 +152,31 @@ export function AnkiImportPanel({ onImported }: Readonly<AnkiImportPanelProps>) 
           Choose .apkg file…
         </button>
       </div>
-      <div
-        role="status"
-        aria-live="polite"
-        data-testid="anki-import-status"
-        data-phase={phase}
-        className={`min-h-[3.75rem] whitespace-pre-line text-xs ${statusTone}`}
-      >
-        {readerAvailable ? message : 'Anki import is not available on this device.'}
-      </div>
-      {warnings.length > 0 && (
-        <ul
-          data-testid="anki-import-warnings"
-          className="list-disc pl-5 text-[11px] text-[var(--muted)]"
+      {/* One fixed box for the status and any warnings: it fills the rest of the fixed-height
+          panel and scrolls, so finishing an import never moves the Library below. */}
+      <div data-testid="anki-import-status-area" className="min-h-0 flex-1 overflow-y-auto text-xs">
+        <output
+          aria-live="polite"
+          data-testid="anki-import-status"
+          data-phase={phase}
+          className={`block whitespace-pre-line ${statusTone}`}
         >
-          {warnings.slice(0, MAX_LISTED_WARNINGS).map((warning) => (
-            <li key={warning}>{warning}</li>
-          ))}
-          {warnings.length > MAX_LISTED_WARNINGS && (
-            <li>…and {warnings.length - MAX_LISTED_WARNINGS} more</li>
-          )}
-        </ul>
-      )}
+          {readerAvailable ? message : 'Anki import is not available on this device.'}
+        </output>
+        {warnings.length > 0 && (
+          <ul
+            data-testid="anki-import-warnings"
+            className="mt-2 list-disc pl-5 text-[11px] text-[var(--muted)]"
+          >
+            {warnings.slice(0, MAX_LISTED_WARNINGS).map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+            {warnings.length > MAX_LISTED_WARNINGS && (
+              <li>…and {warnings.length - MAX_LISTED_WARNINGS} more</li>
+            )}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }

@@ -19,6 +19,7 @@ import { CoursesPanel } from '../components/CoursesPanel.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
+import { ANKI_IMPORT_PANEL_HEIGHT } from '../import/anki-import-layout.ts';
 
 const LazyPageViewer = lazy(() => import('../pages/PageViewer.tsx'));
 const LazyPageEditor = lazy(() => import('../pages/PageEditor.tsx'));
@@ -995,15 +996,16 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
         </div>
       )}
 
-      {/* Phase 12 Anki import: opened from the header, below every header control. The fallback
-          reserves the panel's height (min-h-[13rem]) so nothing moves when the chunk arrives. */}
+      {/* Phase 12 Anki import: opened from the header, below every header control. The panel and
+          this fallback share one fixed height (ANKI_IMPORT_PANEL_HEIGHT), so nothing below moves
+          when the chunk arrives or an import finishes. */}
       {showAnkiImport && (
         <div id="anki-import-region">
           <Suspense
             fallback={
               <div
                 data-testid="anki-import-loading"
-                className="min-h-[13rem] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-xs text-[var(--muted)]"
+                className={`rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-xs text-[var(--muted)] ${ANKI_IMPORT_PANEL_HEIGHT}`}
               >
                 Loading Anki import…
               </div>

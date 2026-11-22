@@ -115,3 +115,59 @@ test.describe('Phase 12 Anki .apkg import', () => {
     await expect(status).toContainText('2 manual/rescheduled, 1 filtered-deck (cram)');
   });
 });
+
+test.describe('Phase 12 Anki import panel layout stability', () => {
+  // Block the service worker so context.route can hold the lazy panel chunk.
+  test.use({ serviceWorkers: 'block' });
+
+  for (const width of [320, 390]) {
+    test(`keeps one fixed box at ${width}px wide: fallback, idle, done with warnings, error`, async ({
+      page,
+      context,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(`/?device=p12layout${width}`);
+      await expect(page.getByTestId('study-card')).toBeVisible();
+
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await context.route('**/AnkiImportPanel-*.js', async (route) => {
+        await held;
+        await route.continue();
+      });
+
+      await openLibrary(page);
+      await page.getByTestId('import-anki-btn').click();
+      const region = page.locator('#anki-import-region');
+      const size = async () => {
+        const box = await region.boundingBox();
+        return box && { width: box.width, height: box.height };
+      };
+
+      await expect(page.getByTestId('anki-import-loading')).toBeVisible();
+      const fallback = await size();
+      expect(fallback?.height).toBeGreaterThan(0);
+
+      release();
+      const status = page.getByTestId('anki-import-status');
+      await expect(status).toHaveAttribute('data-phase', 'idle');
+      expect(await size()).toEqual(fallback);
+      // The heading, description and controls fit, leaving room for the status text.
+      const area = await page.getByTestId('anki-import-status-area').boundingBox();
+      expect(area?.height ?? 0).toBeGreaterThanOrEqual(64);
+
+      await pickApkg(page, 'media.apkg');
+      await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
+      await expect(page.getByTestId('anki-import-warnings')).toBeAttached();
+      expect(await size()).toEqual(fallback);
+
+      await pickApkg(page, 'newer-format.apkg');
+      await expect(status).toHaveAttribute('data-phase', 'error', { timeout: 30_000 });
+      expect(await size()).toEqual(fallback);
+
+      await context.unroute('**/AnkiImportPanel-*.js');
+    });
+  }
+});
