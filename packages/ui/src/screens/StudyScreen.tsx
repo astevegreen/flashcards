@@ -15,7 +15,12 @@ import { SpeakerButton } from '../components/SpeakerButton.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
-import { isStudyFilterInScope, setStudyFilter, useStudyFilter } from '../study/filterStore.ts';
+import {
+  isStudyFilterInScope,
+  resolveStudyQueueDeckId,
+  setStudyFilter,
+  useStudyFilter,
+} from '../study/filterStore.ts';
 
 const LazyNoteEditDialog = lazy(() =>
   import('../components/NoteEditDialog.tsx').then((m) => ({ default: m.NoteEditDialog })),
@@ -99,16 +104,20 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   const nowMs = Date.now();
   const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
 
+  // A filter naming its own decks (e.g. a Study Set saved under another deck) runs on those decks.
+  const queueDeckId = resolveStudyQueueDeckId(studyFilter, activeDeckId);
   const queueResult = useMemo(
     () =>
-      buildStudyQueue(state, {
-        ...(activeDeckId !== undefined ? { deckId: activeDeckId } : {}),
-        ...(studyFilter !== undefined ? { filter: studyFilter.filter } : {}),
-        nowMs,
-        tzOffsetMinutes,
-      }),
+      studyFilter?.session
+        ? studyFilter.session.buildQueue(state, { deckId: queueDeckId, nowMs, tzOffsetMinutes })
+        : buildStudyQueue(state, {
+            ...(queueDeckId !== undefined ? { deckId: queueDeckId } : {}),
+            ...(studyFilter !== undefined ? { filter: studyFilter.filter } : {}),
+            nowMs,
+            tzOffsetMinutes,
+          }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, stateVersion, activeDeckId, studyFilter, clockTick],
+    [state, stateVersion, queueDeckId, studyFilter, clockTick],
   );
 
   // Auto-wake queue when an intraday learning/relearning card becomes due
@@ -406,25 +415,37 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       setFuriganaOverride(null);
       setEvaluation(null);
       cardShownAtRef.current = Date.now();
-      rateCard(
-        currentCard,
-        rating,
-        elapsed,
-        typedAnswer !== undefined ? { typedAnswer } : undefined,
-      );
+      // Custom study practice records its own answers (never FSRS); everything else is a review.
+      const sessionRate = studyFilter?.session?.rate;
+      if (sessionRate) sessionRate(currentCard, rating, elapsed);
+      else
+        rateCard(
+          currentCard,
+          rating,
+          elapsed,
+          typedAnswer !== undefined ? { typedAnswer } : undefined,
+        );
     },
-    [currentCard, evaluation?.typedAnswer, isRevealed, rateCard, stopAudio, unlockAudio],
+    [
+      currentCard,
+      evaluation?.typedAnswer,
+      isRevealed,
+      rateCard,
+      stopAudio,
+      studyFilter,
+      unlockAudio,
+    ],
   );
 
   const handleUndo = useCallback(() => {
     stopAudio();
-    if (undoLastReview()) {
+    if ((studyFilter?.session?.undo ?? undoLastReview)()) {
       setRevealStep(0);
       setFuriganaOverride(null);
       setEvaluation(null);
       cardShownAtRef.current = Date.now();
     }
-  }, [stopAudio, undoLastReview]);
+  }, [stopAudio, studyFilter, undoLastReview]);
 
   const handleToggleFurigana = useCallback(() => {
     setFuriganaOverride((prev) => {
@@ -711,7 +732,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               data-testid="study-filter-btn"
               aria-expanded={showFilterPanel}
               onClick={() => setShowFilterPanel((v) => !v)}
-              title="Study a filter: categories, Trouble cards, Failed this week"
+              title="Study sets, filters and custom study (review ahead, extra new, practice)"
               className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
             >
               Filter
@@ -764,7 +785,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           <button
             type="button"
             onClick={handleUndo}
-            disabled={undoStack.length === 0}
+            disabled={undoStack.length === 0 && !studyFilter?.session?.undo}
             title="Undo last review (Z)"
             className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)] disabled:opacity-40"
           >

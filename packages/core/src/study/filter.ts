@@ -230,6 +230,27 @@ export function isLeechCard(card: Card, threshold: number = LEECH_LAPSE_THRESHOL
   return card.schedule.lapses >= threshold;
 }
 
+/**
+ * Optional leech auto-suspend (Phase 9, default off). Decided once, at review time, by the device
+ * that records the review: true when the setting is on, the card is not already suspended, and
+ * this review takes its lapses from below {@link LEECH_LAPSE_THRESHOLD} to the threshold or above.
+ * The caller then appends one `CardSuspended { reason: 'leech' }` next to the `ReviewRecorded`, so
+ * every device (older builds included) replays the same suspension from the log.
+ */
+export function shouldAutoSuspendLeech(
+  state: CollectionState,
+  cardId: string,
+  lapsesBefore: number,
+  lapsesAfter: number,
+): boolean {
+  return (
+    state.preferences.leech_auto_suspend === true &&
+    lapsesBefore < LEECH_LAPSE_THRESHOLD &&
+    lapsesAfter >= LEECH_LAPSE_THRESHOLD &&
+    !isCardSuspended(state, cardId)
+  );
+}
+
 function tagMatches(noteTagsLower: readonly string[], wanted: string): boolean {
   for (const t of noteTagsLower) {
     if (t === wanted || t.startsWith(`${wanted}::`)) return true;

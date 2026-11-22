@@ -2,6 +2,12 @@ import { isCardSuspended, type CollectionState } from '../events/replay.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
 import type { Card, Deck } from '../model/types.ts';
 import { filterCardIds, isCardFilterEmpty, type CardFilter } from './filter.ts';
+import {
+  isCardInRaiseScope,
+  isRaiseOnDay,
+  listNewCardRaises,
+  type NewCardRaise,
+} from './new-card-raises.ts';
 
 export interface StudyQueueOptions {
   deckId?: string;
@@ -40,6 +46,33 @@ export interface StudyQueueResult {
   buriedNoteIds: Set<string>;
   /** Earliest due timestamp (Unix ms) among unburied intraday learning/relearning cards due later today. */
   nextLearningDueAt?: number;
+}
+
+/**
+ * Extra new cards custom study granted today by raises whose deck scope includes `deckId`
+ * (`NewCardLimitRaised`, kept verbatim in `unknownEvents`), whatever their category scope. A raise
+ * counts on the study day containing its `raised_at` (in the raising device's offset, with the
+ * deck's rollover hour). Raises add up; a repeated `raise_id` counts once (its largest value), so
+ * the result is independent of delivery order and duplicates.
+ *
+ * This is the gross grant: a raise shared by several decks is counted in full for each of them.
+ * {@link buildStudyQueue} spends each raise once, as one pool for its whole scope.
+ */
+export function getExtraNewCardsToday(
+  state: CollectionState,
+  deckId: string,
+  nowMs: number,
+  tzOffsetMinutes: number,
+  dayStartHour: number,
+): number {
+  const today = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStartHour);
+  let extra = 0;
+  for (const r of listNewCardRaises(state)) {
+    if (r.deckIds !== null && !r.deckIds.has(deckId)) continue;
+    if (!isRaiseOnDay(r, today, tzOffsetMinutes, dayStartHour)) continue;
+    extra += r.extra;
+  }
+  return extra;
 }
 
 /** Simple deterministic hash for reproducible daily random new-card ordering. */
@@ -88,6 +121,8 @@ interface TodayActivity {
   reviewedNoteIdsToday: Set<string>;
   reviewsTodayByDeck: Map<string, number>;
   newCardsStartedTodayByDeck: Map<string, number>;
+  /** New cards first studied today with their first active review time (extra-new-card pools). */
+  startedToday: Array<{ card: Card; at: number }>;
 }
 
 /** Active reviews of one card on study day `todayIndex`, plus whether its first ever active review was today. */
@@ -96,7 +131,7 @@ function summarizeCardReviewsToday(
   cardId: string,
   dayStart: number,
   todayIndex: number,
-): { activeCountToday: number; startedToday: boolean } {
+): { activeCountToday: number; startedToday: boolean; firstActiveReviewTime: number } {
   const { state, tzOffsetMinutes } = ctx;
   let firstActiveReviewTime = Infinity;
   let activeCountToday = 0;
@@ -112,7 +147,7 @@ function summarizeCardReviewsToday(
   const startedToday =
     firstActiveReviewTime < Infinity &&
     getStudyDayIndex(firstActiveReviewTime, tzOffsetMinutes, dayStart) === todayIndex;
-  return { activeCountToday, startedToday };
+  return { activeCountToday, startedToday, firstActiveReviewTime };
 }
 
 function collectTodayActivity(ctx: QueueContext): TodayActivity {
@@ -121,6 +156,7 @@ function collectTodayActivity(ctx: QueueContext): TodayActivity {
     reviewedNoteIdsToday: new Set(),
     reviewsTodayByDeck: new Map(),
     newCardsStartedTodayByDeck: new Map(),
+    startedToday: [],
   };
   for (const card of state.cards.values()) {
     const deck = state.decks.get(card.deck_id);
@@ -128,7 +164,7 @@ function collectTodayActivity(ctx: QueueContext): TodayActivity {
     if ((state.reviewsByCard.get(card.id)?.length ?? 0) === 0) continue;
     const dayStart = deckDayStart(ctx, deck);
     const todayIndex = getStudyDayIndex(ctx.nowMs, ctx.tzOffsetMinutes, dayStart);
-    const { activeCountToday, startedToday } = summarizeCardReviewsToday(
+    const { activeCountToday, startedToday, firstActiveReviewTime } = summarizeCardReviewsToday(
       ctx,
       card.id,
       dayStart,
@@ -137,7 +173,10 @@ function collectTodayActivity(ctx: QueueContext): TodayActivity {
     if (activeCountToday === 0) continue;
     activity.reviewedNoteIdsToday.add(card.note_id);
     incrementCount(activity.reviewsTodayByDeck, card.deck_id, activeCountToday);
-    if (startedToday) incrementCount(activity.newCardsStartedTodayByDeck, card.deck_id, 1);
+    if (startedToday) {
+      incrementCount(activity.newCardsStartedTodayByDeck, card.deck_id, 1);
+      activity.startedToday.push({ card, at: firstActiveReviewTime });
+    }
   }
   return activity;
 }
@@ -282,6 +321,75 @@ function compareSourceOrder(state: CollectionState): (a: Card, b: Card) => numbe
   };
 }
 
+/** Code-unit order (not localeCompare): queues must be identical on every device. */
+function compareCodeUnits(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
+/** Remaining quota of one extra-new-cards raise while a queue is built. */
+interface RaisePool {
+  raise: NewCardRaise;
+  left: number;
+}
+
+/** A raise is at most this far from now when it is on today's study day (any offset / rollover). */
+const RAISE_WINDOW_MS = 3 * 86_400_000;
+
+function hasOpenPool(pools: readonly RaisePool[]): boolean {
+  return pools.some((p) => p.left > 0);
+}
+
+/** First open pool that may take `card` today (deck, categories and study day all match). */
+function findRaisePool(
+  ctx: QueueContext,
+  pools: readonly RaisePool[],
+  card: Card,
+): RaisePool | undefined {
+  if (pools.length === 0) return undefined;
+  const { state } = ctx;
+  const dayStart = resolveDayStartHour(
+    state.decks.get(card.deck_id)?.settings.day_start_hour,
+    ctx.globalDayStart,
+  );
+  const todayIndex = getStudyDayIndex(ctx.nowMs, ctx.tzOffsetMinutes, dayStart);
+  return pools.find(
+    (p) =>
+      p.left > 0 &&
+      isRaiseOnDay(p.raise, todayIndex, ctx.tzOffsetMinutes, dayStart) &&
+      isCardInRaiseScope(state, p.raise, card),
+  );
+}
+
+/**
+ * Today's extra-new-card pools, each raise spent once for its whole scope. New cards first studied
+ * today beyond their deck's normal limit (in first-review order) already used the first matching
+ * pool, so the result depends only on the log, never on which deck or filter the queue is for.
+ */
+function openRaisePools(
+  ctx: QueueContext,
+  startedToday: ReadonlyArray<{ card: Card; at: number }>,
+): RaisePool[] {
+  const { state } = ctx;
+  const pools = listNewCardRaises(state)
+    .filter((r) => Math.abs(r.raisedAt - ctx.nowMs) <= RAISE_WINDOW_MS)
+    .map((raise) => ({ raise, left: raise.extra }));
+  if (pools.length === 0) return pools;
+  const ordered = [...startedToday].sort(
+    (a, b) => a.at - b.at || compareCodeUnits(a.card.id, b.card.id),
+  );
+  const seenByDeck = new Map<string, number>();
+  for (const { card } of ordered) {
+    const limit = state.decks.get(card.deck_id)?.settings.new_cards_per_day ?? 0;
+    const seen = (seenByDeck.get(card.deck_id) ?? 0) + 1;
+    seenByDeck.set(card.deck_id, seen);
+    if (seen <= limit) continue;
+    const pool = findRaisePool(ctx, pools, card);
+    if (pool) pool.left -= 1;
+  }
+  return pools;
+}
+
 /** Selected cards plus in-queue sibling burying state (at most one card per note_id). */
 interface QueueSelection {
   queuedNoteIds: Set<string>;
@@ -324,46 +432,58 @@ function selectDueCards(
   return finalDue;
 }
 
-/** New cards per deck (sorted deck ids) within `new_cards_per_day`, in `new_card_order`. */
+/**
+ * New cards per deck (sorted deck ids) within `new_cards_per_day`, in `new_card_order`, plus
+ * custom-study extra new cards today (each raise one pool shared by its decks / categories).
+ */
 function selectNewCards(
   ctx: QueueContext,
   newCardsByDeck: Map<string, Card[]>,
-  newCardsStartedTodayByDeck: Map<string, number>,
+  activity: TodayActivity,
   selection: QueueSelection,
 ): Card[] {
   const { state } = ctx;
   const finalNew: Card[] = [];
-  // Code-unit order (not localeCompare): the queue must be identical on every device.
-  const deckIdsSorted = [...newCardsByDeck.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const pools = openRaisePools(ctx, activity.startedToday);
+  const deckIdsSorted = [...newCardsByDeck.keys()].sort(compareCodeUnits);
   for (const dId of deckIdsSorted) {
     const deck = state.decks.get(dId);
-    if (!deck) continue;
-    const todayIndex = getStudyDayIndex(ctx.nowMs, ctx.tzOffsetMinutes, deckDayStart(ctx, deck));
-    const alreadyStarted = newCardsStartedTodayByDeck.get(dId) ?? 0;
-    const remainingNewQuota = Math.max(0, deck.settings.new_cards_per_day - alreadyStarted);
     const candidates = newCardsByDeck.get(dId);
-    if (remainingNewQuota === 0 || !candidates) continue;
+    if (!deck || !candidates) continue;
+    const alreadyStarted = activity.newCardsStartedTodayByDeck.get(dId) ?? 0;
+    const baseQuota = Math.max(0, deck.settings.new_cards_per_day - alreadyStarted);
+    if (baseQuota === 0 && !hasOpenPool(pools)) continue;
+    const todayIndex = getStudyDayIndex(ctx.nowMs, ctx.tzOffsetMinutes, deckDayStart(ctx, deck));
     candidates.sort(
       deck.settings.new_card_order === 'random'
         ? compareDailyRandom(todayIndex)
         : compareSourceOrder(state),
     );
-    takeUpTo(candidates, remainingNewQuota, selection, finalNew);
+    takeNewCards(ctx, candidates, { baseQuota, pools }, selection, finalNew);
   }
   return finalNew;
 }
 
-/** Queues sorted candidates in order until `quota` of them were taken (siblings get buried). */
-function takeUpTo(
+/**
+ * Queues sorted candidates in order: first within the deck's own remaining quota, then while a
+ * matching extra-new-card pool has room (siblings get buried).
+ */
+function takeNewCards(
+  ctx: QueueContext,
   candidates: readonly Card[],
-  quota: number,
+  quota: { baseQuota: number; pools: readonly RaisePool[] },
   selection: QueueSelection,
   into: Card[],
 ): void {
-  let taken = 0;
+  let baseLeft = quota.baseQuota;
   for (const card of candidates) {
-    if (taken >= quota) break;
-    if (tryQueue(selection, card, into)) taken += 1;
+    if (baseLeft > 0) {
+      if (tryQueue(selection, card, into)) baseLeft -= 1;
+      continue;
+    }
+    if (!hasOpenPool(quota.pools)) break;
+    const pool = findRaisePool(ctx, quota.pools, card);
+    if (pool && tryQueue(selection, card, into)) pool.left -= 1;
   }
 }
 
@@ -371,7 +491,8 @@ function takeUpTo(
  * Builds today's study queue for a deck or the whole collection.
  * Enforces:
  * - Study-day rollover (default 04:00 local time)
- * - Per-deck `new_cards_per_day` & `max_reviews_per_day`
+ * - Per-deck `new_cards_per_day` & `max_reviews_per_day`, plus custom-study extra new cards today
+ *   (each `NewCardLimitRaised` is one pool shared by its decks / categories, spent once)
  * - `new_card_order` (`source` | `random`)
  * - Sibling burying (§5.1): if one card of a `note_id` was reviewed today (or is queued),
  *   sibling cards of the same note are buried until the next study day.
@@ -412,12 +533,7 @@ export function buildStudyQueue(
   const finalLearning: Card[] = [];
   for (const card of eligible.learningCards) tryQueue(selection, card, finalLearning);
   const finalDue = selectDueCards(state, eligible.dueCards, activity.reviewsTodayByDeck, selection);
-  const finalNew = selectNewCards(
-    ctx,
-    eligible.newCardsByDeck,
-    activity.newCardsStartedTodayByDeck,
-    selection,
-  );
+  const finalNew = selectNewCards(ctx, eligible.newCardsByDeck, activity, selection);
 
   const queue = [...finalLearning, ...finalDue, ...finalNew];
   const result: StudyQueueResult = {

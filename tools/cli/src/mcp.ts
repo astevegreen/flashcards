@@ -5,10 +5,14 @@ import { createInterface } from 'node:readline';
 import {
   applyEvents,
   buildStudyQueue,
+  cardFilterToStatsFilter,
   createEmptyState,
   createEventFactory,
   createHlcState,
+  filterCards,
+  normalizeCardFilter,
   type Card,
+  type CardFilter,
   type CollectionState,
   type FlashEvent,
   type Note,
@@ -106,6 +110,61 @@ function resolveState(ctx: McpServerContext): CollectionState {
   return createEmptyState();
 }
 
+/** JSON Schema of the Phase 9 `CardFilter` (the same model Browse, Study and Stats use). */
+const CARD_FILTER_SCHEMA = {
+  type: 'object',
+  description:
+    'Phase 9 card filter, all criteria AND-ed: decks, categories (note tags; "a" also matches "a::b") with any/all/none matching, card states and performance criteria.',
+  properties: {
+    deckIds: { type: 'array', items: { type: 'string' } },
+    categories: {
+      type: 'object',
+      properties: {
+        mode: { type: 'string', enum: ['any', 'all', 'none'] },
+        tags: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['mode', 'tags'],
+    },
+    states: {
+      type: 'array',
+      items: { type: 'string', enum: ['new', 'learning', 'review', 'due', 'suspended', 'leech'] },
+    },
+    performance: {
+      type: 'object',
+      properties: {
+        minLapses: { type: 'integer', minimum: 1 },
+        minAgainCount: { type: 'integer', minimum: 1 },
+        failedWithinDays: { type: 'integer', minimum: 1 },
+        maxRetrievability: { type: 'number', exclusiveMinimum: 0, maximum: 1 },
+        hardest: { type: 'integer', minimum: 1 },
+      },
+    },
+  },
+} as const;
+
+function resolveTz(args: Record<string, unknown>, now: number): number {
+  const tz = args['tzOffsetMinutes'];
+  return typeof tz === 'number' && Number.isFinite(tz)
+    ? Math.round(tz)
+    : -new Date(now).getTimezoneOffset();
+}
+
+/**
+ * Normalizes the optional `filter` argument and narrows it to `deckIds` when both are given.
+ * Returns `undefined` when the two contradict (no deck can match).
+ */
+function resolveFilterArg(
+  raw: unknown,
+  deckIds: readonly string[] | undefined,
+): CardFilter | undefined {
+  const filter = normalizeCardFilter(raw);
+  if (deckIds === undefined) return filter;
+  const own = filter.deckIds;
+  const wanted = own ? deckIds.filter((id) => own.includes(id)) : [...deckIds];
+  if (wanted.length === 0) return undefined;
+  return normalizeCardFilter({ ...filter, deckIds: wanted });
+}
+
 export const MCP_TOOLS = [
   {
     name: 'list_decks',
@@ -120,12 +179,17 @@ export const MCP_TOOLS = [
   {
     name: 'get_weak_cards',
     description:
-      'Return cards with the highest lapses or lowest FSRS stability so AI tools can propose targeted reinforcement drills.',
+      'Return the hardest reviewed cards (lapses desc, stability asc, difficulty desc: the ranking of the Trouble cards preset) so AI tools can propose targeted reinforcement drills. Optionally restricted by deck and by a Phase 9 filter (e.g. categories).',
     inputSchema: {
       type: 'object',
       properties: {
         deckId: { type: 'string', description: 'Optional deck ID filter' },
         limit: { type: 'number', description: 'Maximum cards to return (default 20)' },
+        filter: CARD_FILTER_SCHEMA,
+        tzOffsetMinutes: {
+          type: 'integer',
+          description: 'Minutes east of UTC for day-based criteria (default: this machine).',
+        },
       },
       additionalProperties: false,
     },
@@ -133,7 +197,7 @@ export const MCP_TOOLS = [
   {
     name: 'get_stats',
     description:
-      'Return collection-wide review counts, due counts, AI unreviewed backlog, and Markdown page progress, plus `stats`: the same Phase 11 statistics as the Stats screen (reviews per day with time spent, true retention vs target, due forecast, calendar heatmap with streaks, maturity breakdown), optionally filtered by deck.',
+      'Return collection-wide review counts, due counts, AI unreviewed backlog, and Markdown page progress, plus `stats`: the same Phase 11 statistics as the Stats screen (reviews per day with time spent, true retention vs target, due forecast, calendar heatmap with streaks, maturity breakdown), optionally filtered by deck and by a Phase 9 filter (categories, card state, performance).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -142,6 +206,7 @@ export const MCP_TOOLS = [
           items: { type: 'string' },
           description: 'Restrict `stats` to these deck ids (default: every active deck).',
         },
+        filter: CARD_FILTER_SCHEMA,
         tzOffsetMinutes: {
           type: 'integer',
           description: 'Minutes east of UTC used for "today" (default: this machine).',
@@ -276,22 +341,18 @@ function listDecksTool(
   return { decks };
 }
 
-/** A reviewed card of an active deck and note as a `get_weak_cards` row, else `undefined`. */
-function toWeakCardCandidate(state: CollectionState, card: Card): WeakCardCandidate | undefined {
-  const deck = state.decks.get(card.deck_id);
+/** A ranked card as a `get_weak_cards` row. */
+function toWeakCardRow(state: CollectionState, card: Card): WeakCardCandidate {
   const note = state.notes.get(card.note_id);
-  if (!deck || deck.archived || !note || note.archived) return undefined;
-  if (card.schedule.reps === 0 && card.schedule.lapses === 0) return undefined;
-
   const preview =
-    Object.values(note.fields)
+    Object.values(note?.fields ?? {})
       .find((v) => v.trim().length > 0)
       ?.slice(0, 120) ?? '';
   return {
     cardId: card.id,
-    deckId: deck.id,
-    deckName: deck.name,
-    noteId: note.id,
+    deckId: card.deck_id,
+    deckName: state.decks.get(card.deck_id)?.name ?? '',
+    noteId: card.note_id,
     frontPreview: preview,
     lapses: card.schedule.lapses,
     stability: Number(card.schedule.stability.toFixed(4)),
@@ -302,28 +363,31 @@ function toWeakCardCandidate(state: CollectionState, card: Card): WeakCardCandid
   };
 }
 
-function getWeakCardsTool(args: Record<string, unknown>, ctx: McpServerContext): unknown {
+function getWeakCardsTool(
+  args: Record<string, unknown>,
+  ctx: McpServerContext,
+  now: number,
+): unknown {
   const state = resolveState(ctx);
   const deckFilter = typeof args['deckId'] === 'string' ? args['deckId'] : undefined;
   const rawLimit = typeof args['limit'] === 'number' ? Math.floor(args['limit']) : 20;
   const limit = Math.max(1, Math.min(200, rawLimit));
-
-  const candidates: WeakCardCandidate[] = [];
-  for (const card of state.cards.values()) {
-    if (deckFilter && card.deck_id !== deckFilter) continue;
-    const candidate = toWeakCardCandidate(state, card);
-    if (candidate) candidates.push(candidate);
-  }
-
-  candidates.sort(
-    (a, b) =>
-      b.lapses - a.lapses ||
-      a.stability - b.stability ||
-      b.difficulty - a.difficulty ||
-      (a.cardId < b.cardId ? -1 : 1),
+  const filter = resolveFilterArg(
+    args['filter'],
+    deckFilter === undefined ? undefined : [deckFilter],
   );
+  if (!filter) return { cards: [] };
 
-  return { cards: candidates.slice(0, limit) };
+  // The core `hardest` criterion ranks with `compareHardestCards` (lapses desc, stability asc,
+  // difficulty desc, id) and skips unreviewed cards: the Trouble cards / Stats ordering. A
+  // filter's own `hardest` still caps the result.
+  const hardest = Math.min(limit, filter.performance?.hardest ?? limit);
+  const ranked = filterCards(
+    state,
+    { ...filter, performance: { ...filter.performance, hardest } },
+    { nowMs: now, tzOffsetMinutes: resolveTz(args, now) },
+  );
+  return { cards: ranked.map((card) => toWeakCardRow(state, card)) };
 }
 
 /** Active deck / note counts and read pages for the legacy `get_stats` fields. */
@@ -362,11 +426,7 @@ function getStatsTool(args: Record<string, unknown>, ctx: McpServerContext, now:
   const state = resolveState(ctx);
   const { activeDecks, activeNotes, needsReviewNotes, pagesRead } = countCollectionContent(state);
 
-  const rawTz = args['tzOffsetMinutes'];
-  const tzOffsetMinutes =
-    typeof rawTz === 'number' && Number.isFinite(rawTz)
-      ? Math.round(rawTz)
-      : -new Date(now).getTimezoneOffset();
+  const tzOffsetMinutes = resolveTz(args, now);
   const queue = buildStudyQueue(state, { nowMs: now, tzOffsetMinutes });
 
   const statsOptions: CollectionStatsOptions = { nowMs: now, tzOffsetMinutes };
@@ -377,10 +437,19 @@ function getStatsTool(args: Record<string, unknown>, ctx: McpServerContext, now:
   // The collection-wide legacy fields come from the same core stats module as `stats`, so the
   // two always agree (archived notes/decks and undone reviews are excluded from both).
   const collectionStats = computeCollectionStats(state, statsOptions);
+  // `deckIds` and the Phase 9 `filter` compile through the core `cardFilterToStatsFilter`
+  // bridge, so a filtered `stats` covers exactly the cards Browse / Study select for it.
   const deckIds = stringArray(args['deckIds']);
-  const stats = deckIds
-    ? computeCollectionStats(state, { ...statsOptions, filter: { deckIds } })
-    : collectionStats;
+  let stats = collectionStats;
+  if (deckIds !== undefined || args['filter'] !== undefined) {
+    const filter = resolveFilterArg(args['filter'], deckIds);
+    stats = computeCollectionStats(state, {
+      ...statsOptions,
+      filter: filter
+        ? cardFilterToStatsFilter(state, filter, { nowMs: now, tzOffsetMinutes })
+        : { deckIds: [] },
+    });
+  }
   const { totals } = collectionStats;
 
   return {

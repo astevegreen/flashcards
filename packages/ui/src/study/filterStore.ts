@@ -1,4 +1,10 @@
-import type { CardFilter } from '@flash/core';
+import type {
+  Card,
+  CardFilter,
+  CollectionState,
+  ReviewRating,
+  StudyQueueResult,
+} from '@flash/core';
 import { useSyncExternalStore } from 'react';
 
 /**
@@ -7,8 +13,9 @@ import { useSyncExternalStore } from 'react';
  *   in Study as "Study this filter".
  * - `studyFilter`: the filter the current Study session runs (`undefined` = normal queue).
  *
- * Kept deliberately tiny because Study imports it on the critical path (§8). Persisting named
- * filters as synced Study Sets is a later Phase 9 slice.
+ * Kept deliberately tiny because Study imports it on the critical path (§8). Named filters are
+ * synced Study Sets (`StudySetSaved` events, see `@flash/core` custom-study); this store only
+ * holds the session that is running now.
  */
 export interface ActiveStudyFilter {
   label: string;
@@ -19,6 +26,24 @@ export interface ActiveStudyFilter {
    * filter never intersects a different deck into an empty queue. Omitted = not bound to a deck.
    */
   scope?: { deckId: string | undefined };
+  /**
+   * Custom study session (practice / cram, review ahead). Created by the lazily loaded filter
+   * panel, so its queue and answer logic stay off the study critical path (§8). Omitted = the
+   * normal scheduled queue restricted to `filter`.
+   */
+  session?: StudySession;
+}
+
+export interface StudySession {
+  kind: 'practice' | 'ahead';
+  buildQueue: (
+    state: CollectionState,
+    scope: { deckId: string | undefined; nowMs: number; tzOffsetMinutes: number },
+  ) => StudyQueueResult;
+  /** Records an answer instead of `rateCard` (practice: `PracticeRecorded`, never FSRS). */
+  rate?: (card: Card, rating: ReviewRating, durationMs: number) => void;
+  /** Undoes this session's last answer instead of the last review. */
+  undo?: () => boolean;
 }
 
 /**
@@ -37,6 +62,18 @@ export function isStudyFilterInScope(
     if (!deck || deck.archived) return false;
   }
   return true;
+}
+
+/**
+ * Deck the queue of a started filter is built for. A filter that names its own decks (a synced
+ * Study Set saved under another deck, say) runs on exactly those decks, whatever the Study header
+ * shows; any other filter is intersected with the header deck (`undefined` = all decks).
+ */
+export function resolveStudyQueueDeckId(
+  active: Pick<ActiveStudyFilter, 'filter'> | undefined,
+  deckId: string | undefined,
+): string | undefined {
+  return active !== undefined && (active.filter.deckIds?.length ?? 0) > 0 ? undefined : deckId;
 }
 
 interface FilterStoreState {
