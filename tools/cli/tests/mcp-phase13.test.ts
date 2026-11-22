@@ -1,17 +1,24 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import fc from 'fast-check';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   applyEvents,
+  compareCodeUnits,
+  compareHardestCards,
   createEmptyState,
   createEventFactory,
   createHlcState,
   deriveNoteId,
   normalizeCardFilter,
   searchNotes,
+  type Card,
+  type CollectionState,
   type FlashEvent,
+  type ReviewRating,
 } from '../../../packages/core/src/index.ts';
+import { computeHardestCards } from '../../../packages/core/src/stats/index.ts';
 import { encodeEventsSegment, SYNC_V1_PREFIX } from '../../../packages/core/src/sync/index.ts';
 import { handleMcpRequest, loadCollectionFromMirror, type JsonRpcRequest } from '../src/index.ts';
 import { createMirrorStateCache, mirrorFingerprint } from '../src/mirror-cache.ts';
@@ -312,5 +319,172 @@ describe('Phase 13 MCP: protocol versions', () => {
       id: null,
       result: {},
     });
+  });
+});
+
+describe('Phase 13 MCP: get_weak_cards with the Phase 9 filter', () => {
+  const NOW = Date.UTC(2026, 2, 10, 3, 0, 0);
+  const DAY = 86_400_000;
+  const TZ = 540;
+  const OTHER_DECK = 'deck-ko-13-b';
+
+  function otherDeckEvents(f: ReturnType<typeof createEventFactory>): FlashEvent[] {
+    return [
+      f.create(
+        'DeckCreated',
+        {
+          deck_id: OTHER_DECK,
+          name: 'Korean Extra',
+          note_type_id: 'preset:vocab-ko',
+          language: 'ko',
+          created_at: 1000,
+        },
+        1000,
+      ),
+      f.create(
+        'NoteUpserted',
+        {
+          note_id: deriveNoteId(OTHER_DECK, 'm1'),
+          deck_id: OTHER_DECK,
+          source_key: 'm1',
+          fields: { word: '사랑', meaning: 'love' },
+          tags: ['vocab', 'topik::2'],
+          provenance: { source: 'user', reviewed: true },
+          created_order: 0,
+        },
+        1010,
+      ),
+    ];
+  }
+
+  /** Two passes, then `lapses` Again + Good pairs, four days apart. */
+  function reviewEvents(
+    f: ReturnType<typeof createEventFactory>,
+    cardId: string,
+    index: number,
+    lapses: number,
+  ): FlashEvent[] {
+    const out: FlashEvent[] = [];
+    let t = NOW - 40 * DAY + index * 1000;
+    const ratings: ReviewRating[] = [3, 3];
+    for (let i = 0; i < lapses; i++) ratings.push(1, 3);
+    ratings.forEach((rating, i) => {
+      if (i > 0) t += rating === 1 ? 4 * DAY : 600_000;
+      out.push(
+        f.create(
+          'ReviewRecorded',
+          {
+            review_id: `weak-${index}-${i}`,
+            card_id: cardId,
+            rating,
+            reviewed_at: t,
+            tz_offset: TZ,
+            duration_ms: 1000,
+            answer_mode: 'flip',
+            fsrs_params_version: 0,
+            resulting_due_at: t,
+          },
+          t,
+        ),
+      );
+    });
+    return out;
+  }
+
+  /** Two decks, tagged notes, and a different number of lapses on every card (card 0 unreviewed). */
+  function reviewedState(): CollectionState {
+    const f = createEventFactory('device-w', 0, createHlcState('device-w', 1000));
+    const events: FlashEvent[] = [...baseEvents(), ...otherDeckEvents(f)];
+    const seeded = createEmptyState();
+    applyEvents(seeded, events);
+    const cardIds = [...seeded.cards.keys()].sort(compareCodeUnits);
+    cardIds.forEach((cardId, index) => {
+      if (index > 0) events.push(...reviewEvents(f, cardId, index, (index * 7) % 4));
+    });
+    const state = createEmptyState();
+    applyEvents(state, events);
+    return state;
+  }
+
+  const filterCtx = { nowMs: NOW, tzOffsetMinutes: TZ };
+
+  function weakIds(state: CollectionState, args: Record<string, unknown>): string[] {
+    const resp = call({ state, nowMs: () => NOW }, 'get_weak_cards', {
+      tzOffsetMinutes: TZ,
+      ...args,
+    });
+    const data = (resp?.result as { structuredContent: { cards: Array<{ cardId: string }> } })
+      .structuredContent;
+    return data.cards.map((c) => c.cardId);
+  }
+
+  it('lists the same cards in the same order as the Stats screen hardest cards', () => {
+    const state = reviewedState();
+    const filters = [
+      {},
+      { categories: { mode: 'any', tags: ['topik'] } },
+      { categories: { mode: 'all', tags: ['vocab', 'topik::1'] } },
+      { categories: { mode: 'none', tags: ['grammar'] } },
+      { deckIds: [OTHER_DECK], categories: { mode: 'any', tags: ['vocab'] } },
+      { categories: { mode: 'any', tags: ['vocab'] }, performance: { minLapses: 1, hardest: 2 } },
+      { states: ['review'], categories: { mode: 'none', tags: ['topik::2'] } },
+    ];
+    for (const filter of filters) {
+      const screen = computeHardestCards(state, filter, filterCtx).map((c) => c.id);
+      expect(weakIds(state, { filter })).toEqual(screen);
+    }
+  });
+
+  it('a category filter narrows the ranked list to that category, hardest first', () => {
+    const state = reviewedState();
+    const all = computeHardestCards(state, {}, filterCtx);
+    const topik = computeHardestCards(
+      state,
+      { categories: { mode: 'any', tags: ['topik'] } },
+      filterCtx,
+    );
+    expect(topik.length).toBeGreaterThan(0);
+    expect(topik.length).toBeLessThan(all.length);
+    const topikTagged = topik.filter((card) =>
+      state.notes.get(card.note_id)?.tags.some((t) => t.startsWith('topik')),
+    );
+    expect(topikTagged).toHaveLength(topik.length);
+    const pairs = all.slice(1).map((card, i) => compareHardestCards(all[i] as Card, card));
+    expect(pairs.every((cmp) => cmp < 0)).toBe(true);
+    expect(all.every((c) => c.schedule.reps > 0)).toBe(true);
+  });
+
+  it('agrees with computeHardestCards for any filter, deck and limit (property)', () => {
+    const state = reviewedState();
+    const tag = fc.constantFrom('vocab', 'grammar', 'topik', 'topik::1', 'topik::2', 'leech');
+    const filterArb = fc.record(
+      {
+        deckIds: fc.subarray([DECK_ID, OTHER_DECK]),
+        categories: fc.record({
+          mode: fc.constantFrom('any', 'all', 'none'),
+          tags: fc.uniqueArray(tag, { maxLength: 3 }),
+        }),
+        performance: fc.record(
+          { minLapses: fc.integer({ min: 1, max: 3 }), hardest: fc.integer({ min: 1, max: 6 }) },
+          { requiredKeys: [] },
+        ),
+      },
+      { requiredKeys: [] },
+    );
+    const deckArb = fc.option(fc.constantFrom(DECK_ID, OTHER_DECK), { nil: undefined });
+    fc.assert(
+      fc.property(filterArb, deckArb, fc.integer({ min: 1, max: 8 }), (filter, deckId, limit) => {
+        const args = { filter, limit, ...(deckId === undefined ? {} : { deckId }) };
+        const own = normalizeCardFilter(filter).deckIds;
+        const narrowed = own?.filter((d) => d === deckId) ?? [deckId];
+        const deckIds = deckId === undefined ? own : narrowed;
+        const expected =
+          deckIds?.length === 0
+            ? []
+            : computeHardestCards(state, { ...filter, deckIds }, filterCtx, limit).map((c) => c.id);
+        expect(weakIds(state, args)).toEqual(expected);
+      }),
+      { numRuns: 150 },
+    );
   });
 });

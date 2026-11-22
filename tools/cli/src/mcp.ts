@@ -8,7 +8,6 @@ import {
   createEmptyState,
   createEventFactory,
   createHlcState,
-  filterCards,
   normalizeCardFilter,
   searchNotes,
   type Card,
@@ -22,6 +21,8 @@ import { deserializeCollectionState } from '@flash/core/snapshot';
 import {
   computeCollectionStats,
   computeFilteredCollectionStats,
+  computeHardestCards,
+  HARDEST_CARDS_DEFAULT_LIMIT,
   type CollectionStatsOptions,
 } from '@flash/core/stats';
 import { decodeEventsSegment, decodeSyncSnapshot, SYNC_V1_PREFIX } from '@flash/core/sync';
@@ -237,12 +238,17 @@ export const MCP_TOOLS = [
   {
     name: 'get_weak_cards',
     description:
-      'Return the hardest reviewed cards (lapses desc, stability asc, difficulty desc: the ranking of the Trouble cards preset) so AI tools can propose targeted reinforcement drills. Optionally restricted by deck and by a Phase 9 filter (e.g. categories).',
+      'Return the hardest reviewed cards (lapses desc, stability asc, difficulty desc: the ranking of the Trouble cards preset and of the Stats screen "Hardest cards" list) so AI tools can propose targeted reinforcement drills. Optionally restricted by deck and by a Phase 9 filter: decks, categories with any/all/none matching (e.g. {"categories":{"mode":"any","tags":["topik::1"]}}), card state and performance.',
     inputSchema: {
       type: 'object',
       properties: {
         deckId: { type: 'string', description: 'Optional deck ID filter' },
-        limit: { type: 'number', description: 'Maximum cards to return (default 20)' },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 200,
+          description: 'Maximum cards to return (default 20)',
+        },
         filter: CARD_FILTER_SCHEMA,
         tzOffsetMinutes: {
           type: 'integer',
@@ -466,7 +472,10 @@ function getWeakCardsTool(
 ): unknown {
   const state = resolveState(ctx);
   const deckFilter = typeof args['deckId'] === 'string' ? args['deckId'] : undefined;
-  const rawLimit = typeof args['limit'] === 'number' ? Math.floor(args['limit']) : 20;
+  const rawLimit =
+    typeof args['limit'] === 'number' && Number.isFinite(args['limit'])
+      ? Math.floor(args['limit'])
+      : HARDEST_CARDS_DEFAULT_LIMIT;
   const limit = Math.max(1, Math.min(200, rawLimit));
   const filter = resolveFilterArg(
     args['filter'],
@@ -474,14 +483,17 @@ function getWeakCardsTool(
   );
   if (!filter) return { cards: [] };
 
-  // The core `hardest` criterion ranks with `compareHardestCards` (lapses desc, stability asc,
-  // difficulty desc, id) and skips unreviewed cards: the Trouble cards / Stats ordering. A
-  // filter's own `hardest` still caps the result.
-  const hardest = Math.min(limit, filter.performance?.hardest ?? limit);
-  const ranked = filterCards(
+  // The same core ranking as the Stats screen "Hardest cards" list (`computeHardestCards`:
+  // lapses desc, stability asc, difficulty desc, id; unreviewed cards skipped). A filter's own
+  // `hardest` still caps the result.
+  const ranked = computeHardestCards(
     state,
-    { ...filter, performance: { ...filter.performance, hardest } },
-    { nowMs: now, tzOffsetMinutes: resolveTz(args, now) },
+    filter,
+    {
+      nowMs: now,
+      tzOffsetMinutes: resolveTz(args, now),
+    },
+    limit,
   );
   return { cards: ranked.map((card) => toWeakCardRow(state, card)) };
 }
