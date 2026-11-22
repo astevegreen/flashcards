@@ -111,6 +111,22 @@ test.describe('Phase 9 Study Sets, custom study and leech auto-suspend', () => {
     const rowB = pageB.getByTestId('study-set-row');
     await expect(rowB.getByTestId('study-set-name')).toHaveText('Hanja words');
 
+    // Device B is studying Japanese: the set still runs on its own deck (Korean #hanja), and its
+    // row counts exactly what starting it queues.
+    await pageB.getByTestId('study-filter-close').click();
+    await pageB
+      .getByLabel('Select deck to study')
+      .selectOption({ label: 'Japanese Essentials (JA)' });
+    await openPanel(pageB);
+    await expect(rowB.getByTestId('study-set-count')).toHaveText('3 due · 3 cards');
+    await rowB.getByTestId('study-set-start').click();
+    await expect(pageB.getByTestId('study-filter-chip')).toContainText('Hanja words');
+    await expect(pageB.getByTestId('count-new')).toHaveText('3');
+    await expect(pageB.getByTestId('study-card')).not.toContainText('약속');
+    await pageB.getByTestId('study-filter-clear').click();
+    await pageB.getByLabel('Select deck to study').selectOption({ label: 'All Decks' });
+    await openPanel(pageB);
+
     // Device B renames it, then saves a practice-mode set (#daily); both sync back to A.
     await rowB.getByTestId('study-set-rename').click();
     await pageB.getByTestId('study-set-rename-input').fill('한자 단어');

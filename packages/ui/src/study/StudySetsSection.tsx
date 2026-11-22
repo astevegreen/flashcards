@@ -3,6 +3,7 @@ import {
   buildStudySetSavedPayload,
   filterCards,
   listStudySets,
+  normalizeCardFilter,
   STUDY_SET_NAME_MAX_LENGTH,
   type CardFilter,
   type CollectionState,
@@ -90,28 +91,49 @@ export interface StudySetsSectionProps {
   state: CollectionState;
   stateVersion: number;
   deps: StudySetEventDeps;
+  /** Deck chosen in the Study header (`undefined` = all decks). */
+  deckId: string | undefined;
   onStudy: (set: StudySet) => void;
+}
+
+/**
+ * The selection a set's session really runs on: a set naming its own decks runs on those decks
+ * whatever the Study header shows (see `resolveStudyQueueDeckId`); any other set is limited to
+ * the header deck. Row counts use it so they match what starting the set queues.
+ */
+export function studySetScopeFilter(filter: CardFilter, deckId: string | undefined): CardFilter {
+  if (deckId === undefined || (filter.deckIds?.length ?? 0) > 0) return filter;
+  return normalizeCardFilter({ ...filter, deckIds: [deckId] });
 }
 
 /**
  * Saved Study Sets (Phase 9): named filters that sync as `StudySetSaved` / `StudySetDeleted`
  * events. Names are plain text rendered by React, never HTML (§13).
  */
-export function StudySetsSection({ state, stateVersion, deps, onStudy }: StudySetsSectionProps) {
+export function StudySetsSection({
+  state,
+  stateVersion,
+  deps,
+  deckId,
+  onStudy,
+}: StudySetsSectionProps) {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const rows = useMemo(() => {
     const nowMs = Date.now();
     const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
-    return listStudySets(state).map((set) => ({
-      set,
-      matching: filterCards(state, set.filter, { nowMs, tzOffsetMinutes, excludeSuspended: true })
-        .length,
-      dueNow: buildStudyQueue(state, { nowMs, tzOffsetMinutes, filter: set.filter }).counts.total,
-    }));
+    return listStudySets(state).map((set) => {
+      const filter = studySetScopeFilter(set.filter, deckId);
+      return {
+        set,
+        matching: filterCards(state, filter, { nowMs, tzOffsetMinutes, excludeSuspended: true })
+          .length,
+        dueNow: buildStudyQueue(state, { nowMs, tzOffsetMinutes, filter }).counts.total,
+      };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, stateVersion]);
+  }, [state, stateVersion, deckId]);
 
   return (
     <section aria-label="Study sets" data-testid="study-sets" className="flex flex-col gap-2">

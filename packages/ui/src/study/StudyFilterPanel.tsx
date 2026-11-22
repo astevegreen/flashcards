@@ -211,7 +211,13 @@ export function StudyFilterPanel({ deckId, onStart, onClose }: StudyFilterPanelP
         })}
       </ul>
 
-      <StudySetsSection state={state} stateVersion={stateVersion} deps={deps} onStudy={studySet} />
+      <StudySetsSection
+        state={state}
+        stateVersion={stateVersion}
+        deps={deps}
+        deckId={deckId}
+        onStudy={studySet}
+      />
 
       <CustomStudySection
         state={state}

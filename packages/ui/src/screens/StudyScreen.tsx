@@ -15,7 +15,12 @@ import { SpeakerButton } from '../components/SpeakerButton.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
-import { isStudyFilterInScope, setStudyFilter, useStudyFilter } from '../study/filterStore.ts';
+import {
+  isStudyFilterInScope,
+  resolveStudyQueueDeckId,
+  setStudyFilter,
+  useStudyFilter,
+} from '../study/filterStore.ts';
 
 const LazyNoteEditDialog = lazy(() =>
   import('../components/NoteEditDialog.tsx').then((m) => ({ default: m.NoteEditDialog })),
@@ -99,18 +104,20 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   const nowMs = Date.now();
   const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
 
+  // A filter naming its own decks (e.g. a Study Set saved under another deck) runs on those decks.
+  const queueDeckId = resolveStudyQueueDeckId(studyFilter, activeDeckId);
   const queueResult = useMemo(
     () =>
       studyFilter?.session
-        ? studyFilter.session.buildQueue(state, { deckId: activeDeckId, nowMs, tzOffsetMinutes })
+        ? studyFilter.session.buildQueue(state, { deckId: queueDeckId, nowMs, tzOffsetMinutes })
         : buildStudyQueue(state, {
-            ...(activeDeckId !== undefined ? { deckId: activeDeckId } : {}),
+            ...(queueDeckId !== undefined ? { deckId: queueDeckId } : {}),
             ...(studyFilter !== undefined ? { filter: studyFilter.filter } : {}),
             nowMs,
             tzOffsetMinutes,
           }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, stateVersion, activeDeckId, studyFilter, clockTick],
+    [state, stateVersion, queueDeckId, studyFilter, clockTick],
   );
 
   // Auto-wake queue when an intraday learning/relearning card becomes due

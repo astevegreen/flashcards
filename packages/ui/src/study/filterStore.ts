@@ -64,6 +64,18 @@ export function isStudyFilterInScope(
   return true;
 }
 
+/**
+ * Deck the queue of a started filter is built for. A filter that names its own decks (a synced
+ * Study Set saved under another deck, say) runs on exactly those decks, whatever the Study header
+ * shows; any other filter is intersected with the header deck (`undefined` = all decks).
+ */
+export function resolveStudyQueueDeckId(
+  active: Pick<ActiveStudyFilter, 'filter'> | undefined,
+  deckId: string | undefined,
+): string | undefined {
+  return active !== undefined && (active.filter.deckIds?.length ?? 0) > 0 ? undefined : deckId;
+}
+
 interface FilterStoreState {
   browseFilter: CardFilter;
   studyFilter: ActiveStudyFilter | undefined;
