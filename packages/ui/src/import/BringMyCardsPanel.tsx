@@ -1,4 +1,4 @@
-import { decodeUtf8, type NoteType } from '@flash/core';
+import { compareCodeUnits, decodeUtf8, type NoteType } from '@flash/core';
 import type { DetectedImport } from '@flash/core/import-detect';
 import { lazy, Suspense, useEffect, useState, type DragEvent, type FormEvent } from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
@@ -61,6 +61,20 @@ const FIELD =
 
 function toneClass(error: boolean): string {
   return error ? 'text-rose-700 dark:text-rose-300' : 'text-[var(--muted)]';
+}
+
+/** Name order, then id, the same order the Library lists decks in. */
+function byNameThenId(a: { name: string; id: string }, b: { name: string; id: string }): number {
+  return compareCodeUnits(a.name, b.name) || compareCodeUnits(a.id, b.id);
+}
+
+/** Lets a route tell the panel it is importing, so "Start over" cannot interrupt it. */
+type BusyReporter = (busy: boolean) => void;
+
+function useReportBusy(busy: boolean, onBusyChange: BusyReporter): void {
+  useEffect(() => {
+    onBusyChange(busy);
+  }, [busy, onBusyChange]);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -214,7 +228,7 @@ interface NewDeckFieldsProps {
 
 function NewDeckFields(props: Readonly<NewDeckFieldsProps>) {
   const { state } = useApp();
-  const noteTypes = [...state.noteTypes.values()];
+  const noteTypes = [...state.noteTypes.values()].toSorted(byNameThenId);
   return (
     <>
       <label className="flex min-w-0 flex-col gap-1">
@@ -270,12 +284,13 @@ interface CsvRouteProps {
   name: string;
   text: string;
   detected: CsvDetection;
+  onBusyChange: BusyReporter;
 }
 
-function CsvRoute({ name, text, detected }: Readonly<CsvRouteProps>) {
+function CsvRoute({ name, text, detected, onBusyChange }: Readonly<CsvRouteProps>) {
   const { state, createDeck } = useApp();
   const ctx = useImportContext();
-  const decks = [...state.decks.values()].filter((d) => !d.archived);
+  const decks = [...state.decks.values()].filter((d) => !d.archived).toSorted(byNameThenId);
   const [target, setTarget] = useState('new');
   const [deckName, setDeckName] = useState(baseName(name));
   const [noteTypeId, setNoteTypeId] = useState(
@@ -284,9 +299,11 @@ function CsvRoute({ name, text, detected }: Readonly<CsvRouteProps>) {
       : ([...state.noteTypes.keys()][0] ?? ''),
   );
   const [language, setLanguage] = useState('ko');
+  const [ankiRuby, setAnkiRuby] = useState(false);
   const [phase, setPhase] = useState<'idle' | 'importing' | 'done' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const locked = phase === 'importing' || phase === 'done';
+  useReportBusy(phase === 'importing', onBusyChange);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -298,7 +315,7 @@ function CsvRoute({ name, text, detected }: Readonly<CsvRouteProps>) {
         assertCanAddDecks(ctx, 1);
         deckId = createDeck(deckName.trim() || baseName(name), noteTypeId, language);
       }
-      const outcome = await importCsvIntoDeck(ctx, text, deckId);
+      const outcome = await importCsvIntoDeck(ctx, text, deckId, { ankiRuby });
       setPhase('done');
       setMessage(outcome.message);
     } catch (err) {
@@ -360,6 +377,19 @@ function CsvRoute({ name, text, detected }: Readonly<CsvRouteProps>) {
           {mapping}
         </p>
       )}
+      <label
+        className="flex min-w-0 items-center gap-1.5"
+        title="Anki exports put a space before each furigana base, e.g. 私は 日本語[にほんご]"
+      >
+        <input
+          type="checkbox"
+          data-testid="bring-csv-anki-ruby"
+          checked={ankiRuby}
+          disabled={locked}
+          onChange={(e) => setAnkiRuby(e.target.checked)}
+        />
+        <span className="min-w-0 break-words">Anki furigana</span>
+      </label>
       <div>
         <button
           type="submit"
@@ -389,6 +419,7 @@ function CsvRoute({ name, text, detected }: Readonly<CsvRouteProps>) {
 interface SheetsRouteProps {
   spreadsheetId: string;
   url: string;
+  onBusyChange: BusyReporter;
 }
 
 function useGoogleConnected(): boolean | null {
@@ -414,7 +445,7 @@ function useGoogleConnected(): boolean | null {
 const PICKER_HINT =
   'If Google says the file is not found, use "Choose it with Google Picker": Google only lets this app open Sheets you pick there.';
 
-function SheetsRoute({ spreadsheetId, url }: Readonly<SheetsRouteProps>) {
+function SheetsRoute({ spreadsheetId, url, onBusyChange }: Readonly<SheetsRouteProps>) {
   const { platform, state, getEventFactory, emitEvents } = useApp();
   const ctx = useImportContext();
   const connected = useGoogleConnected();
@@ -422,6 +453,7 @@ function SheetsRoute({ spreadsheetId, url }: Readonly<SheetsRouteProps>) {
   const [message, setMessage] = useState('');
   const configured = platform.googleOAuthConfigured;
   const busy = phase === 'working';
+  useReportBusy(busy, onBusyChange);
 
   const runLink = async (pick: boolean) => {
     setPhase('working');
@@ -536,19 +568,37 @@ function detectedLabel(route: Route): string | undefined {
   return route.kind === 'google-sheets' ? label : `${label}: ${route.name}`;
 }
 
-function RouteBody({ route }: Readonly<{ route: Route }>) {
+interface RouteBodyProps {
+  route: Route;
+  onBusyChange: BusyReporter;
+}
+
+function RouteBody({ route, onBusyChange }: Readonly<RouteBodyProps>) {
   if (route.kind === 'anki') {
     return (
       <Suspense fallback={<p className="text-xs text-[var(--muted)]">Loading Anki import…</p>}>
-        <LazyAnkiImportPanel embedded pendingFile={route.file} />
+        <LazyAnkiImportPanel embedded pendingFile={route.file} onBusyChange={onBusyChange} />
       </Suspense>
     );
   }
   if (route.kind === 'csv') {
-    return <CsvRoute name={route.name} text={route.text} detected={route.detected} />;
+    return (
+      <CsvRoute
+        name={route.name}
+        text={route.text}
+        detected={route.detected}
+        onBusyChange={onBusyChange}
+      />
+    );
   }
   if (route.kind === 'google-sheets') {
-    return <SheetsRoute spreadsheetId={route.spreadsheetId} url={route.url} />;
+    return (
+      <SheetsRoute
+        spreadsheetId={route.spreadsheetId}
+        url={route.url}
+        onBusyChange={onBusyChange}
+      />
+    );
   }
   if (route.kind === 'flashpkg') {
     return (
@@ -574,6 +624,8 @@ function RouteBody({ route }: Readonly<{ route: Route }>) {
 export function BringMyCardsPanel() {
   const ctx = useImportContext();
   const [route, setRoute] = useState<Route>(INITIAL_ROUTE);
+  // An Anki, CSV or Sheets route that is still importing (the .flashpkg route reports its phase).
+  const [routeBusy, setRouteBusy] = useState(false);
 
   const fail = (message: string) => setRoute({ kind: 'input', message, tone: 'error' });
 
@@ -623,6 +675,11 @@ export function BringMyCardsPanel() {
 
   const detected = detectedLabel(route);
   const routed = detected !== undefined;
+  const importing = routeBusy || (route.kind === 'flashpkg' && route.phase === 'importing');
+  const startOver = () => {
+    setRouteBusy(false);
+    setRoute(INITIAL_ROUTE);
+  };
   return (
     <section
       data-testid="bring-my-cards-panel"
@@ -641,7 +698,8 @@ export function BringMyCardsPanel() {
           <button
             type="button"
             data-testid="bring-start-over-btn"
-            onClick={() => setRoute(INITIAL_ROUTE)}
+            disabled={importing}
+            onClick={startOver}
             className={BUTTON}
           >
             Start over
@@ -654,7 +712,7 @@ export function BringMyCardsPanel() {
         className="min-h-0 flex-1 overflow-y-auto"
       >
         {routed ? (
-          <RouteBody route={route} />
+          <RouteBody route={route} onBusyChange={setRouteBusy} />
         ) : (
           <InputView
             busyName={route.kind === 'reading' ? route.name : null}

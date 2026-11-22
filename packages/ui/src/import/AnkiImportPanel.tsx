@@ -150,6 +150,8 @@ export interface AnkiImportPanelProps {
   pendingFile?: PendingAnkiFile;
   /** Drop the panel's own border and fixed height (it sits inside another fixed-height box). */
   embedded?: boolean;
+  /** Told when an import starts and ends, so a host can hold controls that would interrupt it. */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 /**
@@ -161,6 +163,7 @@ export function AnkiImportPanel({
   onImported,
   pendingFile,
   embedded = false,
+  onBusyChange,
 }: Readonly<AnkiImportPanelProps>) {
   const { platform, state, entitlement, emitEvents, getEventFactory } = useApp();
   const [includeHistory, setIncludeHistory] = useState(false);
@@ -174,6 +177,10 @@ export function AnkiImportPanel({
   const startedPending = useRef<Uint8Array | null>(null);
   const busy = phase === 'reading' || phase === 'converting' || phase === 'saving';
   const readerAvailable = typeof platform.getAnkiPackageReader === 'function';
+
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
 
   const go = (next: Phase) => {
     setPhase(next);

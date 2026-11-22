@@ -13,6 +13,10 @@ import { BUILTIN_NOTE_TYPE_IDS } from '../../packages/core/src/model/presets.ts'
 const fixture = (path: string) => fileURLToPath(new URL(`../fixtures/${path}`, import.meta.url));
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+const CP949_CSV = Buffer.from([
+  0xb4, 0xdc, 0xbe, 0xee, 0x2c, 0xb6, 0xe6, 0x0d, 0x0a, 0xb0, 0xed, 0xbe, 0xe7, 0xc0, 0xcc, 0x2c,
+  0x63, 0x61, 0x74, 0x0d, 0x0a,
+]);
 
 function buildFlashpkg(): Buffer {
   const st = createEmptyState();
@@ -91,6 +95,15 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
       page.locator('[data-testid^="deck-row-"]', { hasText: 'Japanese::Vocab' }),
     ).toBeVisible();
 
+    // Anki 2.1 legacy export: collection.anki21 beside a stub collection.anki2.
+    await startOver(page);
+    await pick(page, fixture('anki/cloze.apkg'));
+    await expect(route(page)).toHaveAttribute('data-kind', 'anki');
+    await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
+    await expect(
+      page.locator('[data-testid^="deck-row-"]', { hasText: 'Geography' }),
+    ).toBeVisible();
+
     await startOver(page);
     await pick(page, fixture('anki/anki21b.apkg'));
     await expect(route(page)).toHaveAttribute('data-kind', 'anki');
@@ -159,6 +172,11 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
     await pick(page, { name: 'photo.png', mimeType: 'image/png', buffer: PNG_MAGIC });
     await expect(status).toContainText("isn't a format this app can import");
 
+    // A Korean Excel CSV saved as CP949 (단어,뜻 / 고양이,cat) gets a "save as UTF-8" hint.
+    await pick(page, { name: 'cards.csv', mimeType: 'text/csv', buffer: CP949_CSV });
+    await expect(route(page)).toHaveAttribute('data-kind', 'input');
+    await expect(status).toContainText('CSV UTF-8');
+
     await page.getByTestId('bring-link-input').fill('https://example.com/cards.csv');
     await page.getByTestId('bring-link-submit').click();
     await expect(status).toContainText("isn't a Google Sheets link");
@@ -175,9 +193,15 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
     page,
   }) => {
     const SHEET_ID = 'mockBringSheet303';
+    // The rows are held until the test has seen that "Start over" is locked while linking.
+    let releaseRows: () => void = () => {};
+    const rowsHeld = new Promise<void>((resolve) => {
+      releaseRows = resolve;
+    });
     await page.route('https://sheets.googleapis.com/v4/spreadsheets/**', async (r) => {
       const url = r.request().url();
       if (url.includes('/values/')) {
+        await rowsHeld;
         await r.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -270,7 +294,11 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
     await expect(link).toBeEnabled();
     await link.click();
     const status = page.getByTestId('bring-sheets-status');
+    await expect(status).toHaveAttribute('data-phase', 'working');
+    await expect(page.getByTestId('bring-start-over-btn')).toBeDisabled();
+    releaseRows();
     await expect(status).toHaveAttribute('data-phase', 'done');
+    await expect(page.getByTestId('bring-start-over-btn')).toBeEnabled();
     await expect(status).toContainText('Linked 1 Google file(s): 2 note(s)');
     await expect(page.getByTestId(`source-row-${SHEET_ID}`)).toBeVisible();
     await expect(

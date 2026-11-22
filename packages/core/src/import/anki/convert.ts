@@ -456,7 +456,7 @@ function emitSuspensions(
 ): number {
   const done = new Set<string>();
   let count = 0;
-  for (const card of [...cards].sort(byNumericId)) {
+  for (const card of cards.toSorted(byNumericId)) {
     const target = card.suspended ? targets.get(card.id) : undefined;
     if (!target || done.has(target.cardId)) continue;
     done.add(target.cardId);
