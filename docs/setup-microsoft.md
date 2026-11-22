@@ -54,16 +54,20 @@ Leave **Implicit grant and hybrid flows** unticked, because the app uses authori
 
 Add a **Mobile and desktop applications** platform with these custom redirect URIs:
 
-| Shell                   | Redirect URI                   | Notes                                                                                                                                                                                                                                                                              |
-| ----------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tauri (Windows / macOS) | `http://localhost`             | Loopback PKCE (RFC 8252) through `tauri-plugin-oauth`, same as Google. Entra ignores the port for `localhost` on public clients, so the random port the plugin picks is accepted.                                                                                                  |
-| Android / iOS           | `flashcards://oauth/microsoft` | `@capgo/capacitor-social-login` (generic `oauth2` provider) with PKCE. iOS already registers the `flashcards` scheme in `Info.plist`. On Android the plugin opens its own in-app sign-in view and catches the redirect there, so `AndroidManifest.xml` needs no new intent filter. |
+| Shell                   | Redirect URI                   | Notes                                                                                                                                                                                                                                                                                           |
+| ----------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tauri (Windows / macOS) | `http://localhost`             | Loopback PKCE (RFC 8252) through `tauri-plugin-oauth`, same as Google. Entra ignores the port for `localhost` on public clients, so the random port the plugin picks is accepted.                                                                                                               |
+| Android / iOS           | `flashcards://oauth/microsoft` | `@capgo/capacitor-social-login` (generic `oauth2` provider) with PKCE. iOS uses `ASWebAuthenticationSession` and the `flashcards` scheme already in `Info.plist`. Android uses Chrome Custom Tabs (`androidUseCustomTabs`) and the `flashcards://oauth` intent filter in `AndroidManifest.xml`. |
 
 These are public clients. They send no secret and get Microsoft's rolling refresh tokens.
 
 - **Tauri** keeps the refresh token in the OS keychain (account `microsoft-refresh-token`).
-- **Capacitor:** the social-login plugin keeps it in its own app storage (UserDefaults on iOS,
-  SharedPreferences on Android), not in Keychain or Keystore.
+- **Capacitor** keeps it only in the iOS Keychain or the Android Keystore
+  (`@flash/capacitor-secure-storage`, key `microsoft_refresh_token_v1`). The sign-in plugin always
+  saves the tokens it receives in UserDefaults or SharedPreferences, so the app moves the refresh
+  token to the secure store right after sign-in and deletes the plugin's copy. Refreshes then go
+  straight to the token endpoint over native HTTP (`CapacitorHttp`, no `Origin` header), never
+  through the plugin. See `docs/native-shells.md` for the details and the migration of older copies.
 
 Leave **Allow public client flows** set to **No**. That switch is only for device-code and
 username/password flows, which the app doesn't use.
