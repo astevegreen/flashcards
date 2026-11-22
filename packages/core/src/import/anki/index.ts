@@ -29,6 +29,8 @@ export {
   ankiReviewId,
   convertAnkiCollection,
   importAnkiPackage,
+  type AnkiImportedField,
+  type AnkiImportedNoteType,
   type AnkiImportOptions,
   type AnkiImportResult,
   type AnkiImportSummary,
@@ -45,8 +47,14 @@ export {
   type ApkgPlan,
 } from './package.ts';
 export { ankiHtmlToText, decodeHtmlEntities, type AnkiFieldText } from './html.ts';
-export { convertAnkiFuriganaRun } from './furigana.ts';
+export { convertAnkiFuriganaRun, type AnkiFuriganaOutput } from './furigana.ts';
+export {
+  ANKI_FIELD_LANGUAGES,
+  ankiFieldLanguageEvents,
+  isAnkiFieldLanguage,
+  type AnkiFieldLanguageOption,
+} from './field-languages.ts';
 export { parseAnkiTemplate, type AnkiFieldRef, type AnkiTemplateSide } from './template.ts';
-export { ankiLayoutId, ankiNoteTypeId } from './model-plan.ts';
+export { ankiLayoutId, ankiNoteTypeId, MAX_MEDIA_PER_FIELD } from './model-plan.ts';
 export { encodeZstdRaw, inspectZstdStream, isZstd, type ZstdStreamInfo } from './zstd-frames.ts';
 export { decodeProtobuf } from './protobuf.ts';

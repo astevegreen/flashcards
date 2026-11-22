@@ -1,5 +1,6 @@
 import type { FieldKind, Layout, NoteType, NoteTypeField } from '../../model/types.ts';
 import { isHanCodePoint } from '../../parsers/ruby.ts';
+import type { AnkiFuriganaOutput } from './furigana.ts';
 import { ankiHtmlToText, type AnkiFieldText } from './html.ts';
 import { FURIGANA_FILTERS, parseAnkiTemplate, type AnkiTemplateSide } from './template.ts';
 import type { AnkiModel, AnkiModelTemplate, AnkiNote } from './types.ts';
@@ -7,21 +8,28 @@ import type { AnkiModel, AnkiModelTemplate, AnkiNote } from './types.ts';
 /**
  * Maps one Anki note type (model) onto this app's Note Type + Layouts (§2.1):
  * - every Anki field becomes a field (key from its name, label = the name);
- * - a field whose notes embed `<img>` / `[sound:]` gets a companion `image` / `audio` field
- *   holding the first `media:<sha256>` reference (this app keeps one media file per field);
+ * - a field whose notes embed `<img>` / `[sound:]` gets companion `image` / `audio` fields, one
+ *   per reference (`front_image`, `front_image_2`, …), since a field here holds one media file;
+ * - a field shown only through `{{kana:F}}` keeps the readings alone and one shown only through
+ *   `{{kanji:F}}` keeps the bases alone, as Anki displays them; other furigana stays ruby;
  * - every card template becomes a Layout: fields on the question side are the front, the other
  *   fields on the answer side are revealed; `{{type:F}}` -> typed mode, cloze models -> cloze,
  *   `{{tts …:F}}` -> `speak_field`, `{{kanji:F}}` on the front -> furigana hidden on the front.
  */
 
+/** Most companion media fields made for one Anki field (per kind); more references are dropped. */
+export const MAX_MEDIA_PER_FIELD = 20;
+
 export interface FieldPlan {
   ord: number;
   name: string;
   key: string;
-  /** Converts Anki furigana in this field (used with furigana / kana / kanji filters). */
-  furigana: boolean;
-  imageKey?: string;
-  audioKey?: string;
+  /** How Anki furigana in this field is converted; absent when no template filter asks for it. */
+  furigana?: AnkiFuriganaOutput;
+  /** Companion image fields, in reference order. */
+  imageKeys: string[];
+  /** Companion audio fields, in reference order. */
+  audioKeys: string[];
   lang: string;
   kind: FieldKind;
   tts: boolean;
@@ -42,7 +50,7 @@ export interface ModelPlan {
   /** Layout that scheduled cards of template `ord` belong to (cloze: one for all). */
   layoutIdForOrd(ord: number): string | undefined;
   notes: ConvertedNote[];
-  /** Fields with more than one image / sound in a note (only the first is kept). */
+  /** Media references dropped because a field had more than {@link MAX_MEDIA_PER_FIELD}. */
   extraMediaRefs: number;
   droppedActiveContent: number;
 }
@@ -124,12 +132,30 @@ interface TemplateSides {
   a: AnkiTemplateSide;
 }
 
-function furiganaFields(sides: readonly TemplateSides[]): Set<string> {
-  const out = new Set<string>();
+/** How one template reference shows a field: its furigana filter, or `plain`. */
+function useKind(filters: readonly string[]): string {
+  return filters.find((f) => FURIGANA_FILTERS.has(f)) ?? 'plain';
+}
+
+/**
+ * Furigana handling per field name, from every reference in every template. Fields only ever
+ * shown through `kana:` (or only `kanji:`) keep what Anki displays; any other mix keeps ruby,
+ * which can show both (and `kanji:` on a front hides it there, see `buildLayout`).
+ */
+function furiganaFields(sides: readonly TemplateSides[]): Map<string, AnkiFuriganaOutput> {
+  const kinds = new Map<string, Set<string>>();
   for (const { q, a } of sides) {
-    for (const ref of [...q.refs, ...a.refs]) {
-      if (ref.filters.some((f) => FURIGANA_FILTERS.has(f))) out.add(ref.field);
+    for (const use of [...q.uses, ...a.uses]) {
+      const set = kinds.get(use.field) ?? new Set<string>();
+      set.add(useKind(use.filters));
+      kinds.set(use.field, set);
     }
+  }
+  const out = new Map<string, AnkiFuriganaOutput>();
+  for (const [field, set] of kinds) {
+    if (set.size === 1 && set.has('kana')) out.set(field, 'kana');
+    else if (set.size === 1 && set.has('kanji')) out.set(field, 'kanji');
+    else if ([...set].some((k) => k !== 'plain')) out.set(field, 'ruby');
   }
   return out;
 }
@@ -148,40 +174,75 @@ function ttsFields(sides: readonly TemplateSides[]): Map<string, string> {
 interface FieldStats {
   scripts: ScriptCounts;
   multiline: boolean;
-  images: boolean;
-  sounds: boolean;
+  /** Most distinct images / sounds one note references in this field (capped). */
+  images: number;
+  sounds: number;
+}
+
+/** Distinct names in reference order (the same picture twice is one media field). */
+function distinct(names: readonly string[]): string[] {
+  return [...new Set(names)];
+}
+
+/**
+ * Keeps the distinct references to files the package really has (at most
+ * {@link MAX_MEDIA_PER_FIELD} of each kind); returns how many usable ones were cut.
+ */
+function capMedia(text: AnkiFieldText, isUsable: (name: string) => boolean): number {
+  const images = distinct(text.images).filter(isUsable);
+  const sounds = distinct(text.sounds).filter(isUsable);
+  const cut =
+    Math.max(0, images.length - MAX_MEDIA_PER_FIELD) +
+    Math.max(0, sounds.length - MAX_MEDIA_PER_FIELD);
+  text.images = images.slice(0, MAX_MEDIA_PER_FIELD);
+  text.sounds = sounds.slice(0, MAX_MEDIA_PER_FIELD);
+  return cut;
+}
+
+function recordStats(s: FieldStats | undefined, text: AnkiFieldText): void {
+  if (!s) return;
+  countScripts(text.text, s.scripts);
+  s.multiline ||= text.text.includes('\n');
+  s.images = Math.max(s.images, text.images.length);
+  s.sounds = Math.max(s.sounds, text.sounds.length);
 }
 
 function convertNotes(
   model: AnkiModel,
   notes: readonly AnkiNote[],
-  furigana: ReadonlySet<string>,
+  furigana: ReadonlyMap<string, AnkiFuriganaOutput>,
+  isUsable: (name: string) => boolean,
 ): { converted: ConvertedNote[]; stats: FieldStats[]; extra: number; dropped: number } {
   const stats: FieldStats[] = model.fields.map(() => ({
     scripts: { kana: 0, hangul: 0, han: 0, latin: 0 },
     multiline: false,
-    images: false,
-    sounds: false,
+    images: 0,
+    sounds: 0,
   }));
   let extra = 0;
   let dropped = 0;
   const converted = notes.map((note) => {
     const texts = model.fields.map((field, i) => {
-      const text = ankiHtmlToText(note.fields[i] ?? '', { furigana: furigana.has(field.name) });
-      const s = stats[i];
-      if (s) {
-        countScripts(text.text, s.scripts);
-        s.multiline ||= text.text.includes('\n');
-        s.images ||= text.images.length > 0;
-        s.sounds ||= text.sounds.length > 0;
-      }
-      if (text.images.length > 1 || text.sounds.length > 1) extra += 1;
+      const output = furigana.get(field.name);
+      const text = ankiHtmlToText(note.fields[i] ?? '', {
+        furigana: output !== undefined,
+        ...(output ? { furiganaOutput: output } : {}),
+      });
+      extra += capMedia(text, isUsable);
+      recordStats(stats[i], text);
       if (text.droppedActiveContent) dropped += 1;
       return text;
     });
     return { note, texts };
   });
   return { converted, stats, extra, dropped };
+}
+
+/** `base`, `base_2`, `base_3`, … (the first keeps the pre-Phase-14 key for re-imports). */
+function mediaKeys(base: string, count: number, used: Set<string>): string[] {
+  return Array.from({ length: count }, (_, i) =>
+    uniqueKey(i === 0 ? base : `${base}_${i + 1}`, used),
+  );
 }
 
 function planFields(
@@ -199,19 +260,24 @@ function planFields(
     stat: stats[i],
   }));
   return plans.map(({ field, key, stat }) => {
-    const plan: FieldPlan = {
+    const output = furigana.get(field.name);
+    return {
       ord: field.ord,
       name: field.name,
       key,
-      furigana: furigana.has(field.name),
+      ...(output ? { furigana: output } : {}),
+      imageKeys: mediaKeys(`${key}_image`, stat?.images ?? 0, used),
+      audioKeys: mediaKeys(`${key}_audio`, stat?.sounds ?? 0, used),
       lang: tts.get(field.name) ?? (stat ? detectLang(stat.scripts, collectionUsesKana) : 'en'),
       kind: stat?.multiline ? 'rich' : 'text',
       tts: tts.has(field.name),
     };
-    if (stat?.images) plan.imageKey = uniqueKey(`${key}_image`, used);
-    if (stat?.sounds) plan.audioKey = uniqueKey(`${key}_audio`, used);
-    return plan;
   });
+}
+
+/** `Front (image)`, `Front (image 2)`, … */
+function mediaLabel(name: string, what: 'image' | 'audio', index: number): string {
+  return index === 0 ? `${name} (${what})` : `${name} (${what} ${index + 1})`;
 }
 
 function noteTypeFields(fields: readonly FieldPlan[]): NoteTypeField[] {
@@ -225,10 +291,12 @@ function noteTypeFields(fields: readonly FieldPlan[]): NoteTypeField[] {
       ...(f.tts ? { tts: true } : {}),
       ...(i === 0 ? { sortKey: true } : {}),
     });
-    if (f.imageKey)
-      out.push({ key: f.imageKey, label: `${f.name} (image)`, kind: 'image', lang: f.lang });
-    if (f.audioKey)
-      out.push({ key: f.audioKey, label: `${f.name} (audio)`, kind: 'audio', lang: f.lang });
+    f.imageKeys.forEach((key, n) => {
+      out.push({ key, label: mediaLabel(f.name, 'image', n), kind: 'image', lang: f.lang });
+    });
+    f.audioKeys.forEach((key, n) => {
+      out.push({ key, label: mediaLabel(f.name, 'audio', n), kind: 'audio', lang: f.lang });
+    });
   });
   return out;
 }
@@ -239,8 +307,8 @@ function keysFor(names: readonly string[], byName: ReadonlyMap<string, FieldPlan
   for (const name of names) {
     const plan = byName.get(name);
     if (!plan) continue;
-    for (const key of [plan.key, plan.imageKey, plan.audioKey]) {
-      if (key && !out.includes(key)) out.push(key);
+    for (const key of [plan.key, ...plan.imageKeys, ...plan.audioKeys]) {
+      if (!out.includes(key)) out.push(key);
     }
   }
   return out;
@@ -301,20 +369,29 @@ function buildLayout(
   return layout;
 }
 
+export interface ModelPlanContext {
+  /** Template ords that have at least one card in Anki (other layouts start disabled). */
+  templateOrdsWithCards: ReadonlySet<number>;
+  /** Any note in the collection uses kana (Han-only fields are then Japanese). */
+  collectionUsesKana: boolean;
+  /** The package has this media file with a supported type (companion fields are sized by it). */
+  isUsableMedia: (name: string) => boolean;
+}
+
 /** Builds the full plan for one model and converts its notes' fields. */
 export function planAnkiModel(
   model: AnkiModel,
   notes: readonly AnkiNote[],
-  templateOrdsWithCards: ReadonlySet<number>,
-  collectionUsesKana: boolean,
+  ctx: ModelPlanContext,
 ): ModelPlan {
+  const { templateOrdsWithCards, collectionUsesKana } = ctx;
   const templates = model.kind === 'cloze' ? model.templates.slice(0, 1) : model.templates;
   const sides: TemplateSides[] = templates.map((tmpl) => ({
     tmpl,
     q: parseAnkiTemplate(tmpl.qfmt),
     a: parseAnkiTemplate(tmpl.afmt),
   }));
-  const converted = convertNotes(model, notes, furiganaFields(sides));
+  const converted = convertNotes(model, notes, furiganaFields(sides), ctx.isUsableMedia);
   const fields = planFields(model, converted.stats, sides, collectionUsesKana);
   const byName = new Map(fields.map((f) => [f.name, f]));
   const firstKey = fields[0]?.key ?? 'field_1';

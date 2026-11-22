@@ -1,4 +1,4 @@
-import { convertAnkiFuriganaRun } from './furigana.ts';
+import { convertAnkiFuriganaRun, type AnkiFuriganaOutput } from './furigana.ts';
 
 /**
  * Converts an Anki field (HTML) into this app's plain-text + ruby model (§13: no raw HTML).
@@ -25,6 +25,8 @@ export interface AnkiFieldText {
 export interface AnkiFieldTextOptions {
   /** Convert Anki furigana (`日本語[にほんご]`) to ruby syntax. */
   furigana: boolean;
+  /** What converted furigana becomes (default `ruby`; `kana` = reading only, `kanji` = base). */
+  furiganaOutput?: AnkiFuriganaOutput;
 }
 
 /** Elements dropped together with everything inside them. */
@@ -345,7 +347,9 @@ class FieldTextBuilder {
     this.run = '';
     let text = decodeHtmlEntities(collapseWhitespace(raw)).replaceAll(' ', ' ');
     text = extractSounds(text, this.sounds);
-    if (this.options.furigana) text = convertAnkiFuriganaRun(text);
+    if (this.options.furigana) {
+      text = convertAnkiFuriganaRun(text, this.options.furiganaOutput ?? 'ruby');
+    }
     this.append(text);
   }
 
