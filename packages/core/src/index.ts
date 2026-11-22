@@ -7,6 +7,8 @@ export * from './events/replay.ts';
 export * from './events/snapshot.ts';
 export * from './events/patch.ts';
 export * from './fsrs/scheduler.ts';
+export * from './events/suspension.ts';
+export * from './study/filter.ts';
 export * from './study/queue.ts';
 export * from './study/choice.ts';
 export * from './study/courses.ts';

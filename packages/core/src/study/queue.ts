@@ -1,6 +1,7 @@
-import type { CollectionState } from '../events/replay.ts';
+import { isCardSuspended, type CollectionState } from '../events/replay.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
 import type { Card } from '../model/types.ts';
+import { filterCardIds, isCardFilterEmpty, type CardFilter } from './filter.ts';
 
 export interface StudyQueueOptions {
   deckId?: string;
@@ -9,6 +10,11 @@ export interface StudyQueueOptions {
   tzOffsetMinutes: number;
   /** Optional override for study day rollover hour (defaults to state.preferences.day_start_hour = 4). */
   dayStartHour?: number;
+  /**
+   * Phase 9 filtered study: only cards matching this filter are queued. The schedule, daily
+   * limits and sibling burying are exactly those of the unfiltered queue (no forked FSRS state).
+   */
+  filter?: CardFilter;
 }
 
 /**
@@ -54,6 +60,8 @@ function hashString32(input: string): number {
  * - `new_card_order` (`source` | `random`)
  * - Sibling burying (§5.1): if one card of a `note_id` was reviewed today (or is queued),
  *   sibling cards of the same note are buried until the next study day.
+ * - Suspended cards (`CardSuspended`) are never queued.
+ * - Optional Phase 9 `filter`: restricts which cards are eligible.
  */
 export function buildStudyQueue(
   state: CollectionState,
@@ -61,6 +69,15 @@ export function buildStudyQueue(
 ): StudyQueueResult {
   const { deckId, nowMs, tzOffsetMinutes } = options;
   const globalDayStart = options.dayStartHour ?? state.preferences.day_start_hour;
+  const allowedCardIds =
+    options.filter !== undefined && !isCardFilterEmpty(options.filter)
+      ? filterCardIds(state, options.filter, {
+          nowMs,
+          tzOffsetMinutes,
+          ...(options.dayStartHour !== undefined ? { dayStartHour: options.dayStartHour } : {}),
+          excludeSuspended: true,
+        })
+      : undefined;
 
   // Determine which notes already had a card reviewed today (for sibling burying)
   // AND count per-deck new/review quotas consumed today.
@@ -117,6 +134,8 @@ export function buildStudyQueue(
 
   for (const card of state.cards.values()) {
     if (deckId !== undefined && card.deck_id !== deckId) continue;
+    if (allowedCardIds !== undefined && !allowedCardIds.has(card.id)) continue;
+    if (isCardSuspended(state, card.id)) continue;
     const deck = state.decks.get(card.deck_id);
     if (!deck || deck.archived) continue;
     const note = state.notes.get(card.note_id);

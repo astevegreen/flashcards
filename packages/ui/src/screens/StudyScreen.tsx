@@ -15,9 +15,14 @@ import { SpeakerButton } from '../components/SpeakerButton.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
+import { isStudyFilterInScope, setStudyFilter, useStudyFilter } from '../study/filterStore.ts';
 
 const LazyNoteEditDialog = lazy(() =>
   import('../components/NoteEditDialog.tsx').then((m) => ({ default: m.NoteEditDialog })),
+);
+// Phase 9 "Study this filter" panel is off the critical path (§8).
+const LazyStudyFilterPanel = lazy(() =>
+  import('../study/StudyFilterPanel.tsx').then((m) => ({ default: m.StudyFilterPanel })),
 );
 
 export interface StudyScreenProps {
@@ -67,6 +72,17 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [swipe, setSwipe] = useState<SwipeState>({ dx: 0, dy: 0, active: false });
   const [clockTick, setClockTick] = useState(0);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const storedStudyFilter = useStudyFilter();
+  // A filter only applies to the deck selection it was started under and while its decks exist;
+  // switching deck elsewhere (Library "Study", archive) or resetting the collection drops it.
+  const studyFilter =
+    storedStudyFilter && isStudyFilterInScope(storedStudyFilter, activeDeckId, state.decks)
+      ? storedStudyFilter
+      : undefined;
+  useEffect(() => {
+    if (storedStudyFilter && !studyFilter) setStudyFilter(undefined);
+  }, [storedStudyFilter, studyFilter]);
 
   const pointerStartRef = useRef<{ id: number; x: number; y: number } | null>(null);
   const cardShownAtRef = useRef<number>(Date.now());
@@ -87,11 +103,12 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     () =>
       buildStudyQueue(state, {
         ...(activeDeckId !== undefined ? { deckId: activeDeckId } : {}),
+        ...(studyFilter !== undefined ? { filter: studyFilter.filter } : {}),
         nowMs,
         tzOffsetMinutes,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, stateVersion, activeDeckId, clockTick],
+    [state, stateVersion, activeDeckId, studyFilter, clockTick],
   );
 
   // Auto-wake queue when an intraday learning/relearning card becomes due
@@ -659,6 +676,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
             onChange={(e) => {
               audio.stop();
               setActiveDeckId(e.target.value || undefined);
+              setStudyFilter(undefined);
               e.currentTarget.blur();
             }}
             className="max-w-[14rem] truncate rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none sm:max-w-xs"
@@ -670,6 +688,35 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               </option>
             ))}
           </select>
+
+          {studyFilter ? (
+            <span
+              data-testid="study-filter-chip"
+              className="inline-flex max-w-[10rem] items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] py-0.5 pl-2.5 pr-1 text-xs font-semibold text-[var(--accent)]"
+            >
+              <span className="truncate">{studyFilter.label}</span>
+              <button
+                type="button"
+                data-testid="study-filter-clear"
+                aria-label="Clear study filter"
+                onClick={() => setStudyFilter(undefined)}
+                className="rounded-full px-1 hover:bg-[var(--surface-2)]"
+              >
+                ×
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              data-testid="study-filter-btn"
+              aria-expanded={showFilterPanel}
+              onClick={() => setShowFilterPanel((v) => !v)}
+              title="Study a filter: categories, Trouble cards, Failed this week"
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+            >
+              Filter
+            </button>
+          )}
 
           <div
             aria-label="Due card counts"
@@ -737,6 +784,22 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         </div>
       </header>
 
+      {showFilterPanel && !studyFilter && (
+        <Suspense
+          fallback={<div className="py-4 text-center text-xs text-[var(--muted)]">Loading…</div>}
+        >
+          <LazyStudyFilterPanel
+            deckId={activeDeckId}
+            onStart={(active) => {
+              audio.stop();
+              setStudyFilter({ ...active, scope: { deckId: activeDeckId } });
+              setShowFilterPanel(false);
+            }}
+            onClose={() => setShowFilterPanel(false)}
+          />
+        </Suspense>
+      )}
+
       {/* One-time OS Offline Voice Pack setup banner (§7.1) */}
       {audio.missingVoicePrompt && (
         <div
@@ -786,12 +849,24 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           <p className="max-w-sm text-sm text-[var(--muted)]">
             {nextLearningDueAt !== undefined
               ? `Next learning card is due in ${formatIntervalLabel(nextLearningDueAt, nowMs)}. It will appear automatically.`
-              : queueResult.buriedNoteIds.size > 0
-                ? `${queueResult.buriedNoteIds.size} sibling card(s) are buried until tomorrow's study day.`
-                : 'You have finished all scheduled cards in this selection.'}
+              : studyFilter
+                ? `No cards in "${studyFilter.label}" are due right now.`
+                : queueResult.buriedNoteIds.size > 0
+                  ? `${queueResult.buriedNoteIds.size} sibling card(s) are buried until tomorrow's study day.`
+                  : 'You have finished all scheduled cards in this selection.'}
           </p>
           <div className="flex flex-wrap justify-center gap-2">
-            {activeDeckId && (
+            {studyFilter && (
+              <button
+                type="button"
+                data-testid="study-filter-clear-empty"
+                onClick={() => setStudyFilter(undefined)}
+                className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
+              >
+                Clear filter
+              </button>
+            )}
+            {activeDeckId && !studyFilter && (
               <button
                 type="button"
                 onClick={() => setActiveDeckId(undefined)}

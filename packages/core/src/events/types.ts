@@ -114,6 +114,21 @@ export interface PreferencesChangedPayload {
   preferences: Partial<CollectionPreferences>;
 }
 
+/**
+ * Phase 9 card control. Suspension is tracked as two grow-only HLC registers per card
+ * (`card:<id>:suspend` / `card:<id>:unsuspend` in `fieldHlcs`): the card is suspended when its
+ * newest `CardSuspended` HLC is greater than its newest `CardUnsuspended` HLC. Max-merge is
+ * commutative and idempotent, so replay converges under any delivery order, and older builds
+ * that do not know these types keep them untouched in `unknownEvents` (§4.2).
+ */
+export interface CardSuspendedPayload {
+  card_id: string;
+}
+
+export interface CardUnsuspendedPayload {
+  card_id: string;
+}
+
 export interface EventPayloadMap {
   ReviewRecorded: ReviewRecordedPayload;
   ReviewUndone: ReviewUndonePayload;
@@ -131,6 +146,8 @@ export interface EventPayloadMap {
   MediaAdded: MediaAddedPayload;
   SourceLinked: SourceLinkedPayload;
   PreferencesChanged: PreferencesChangedPayload;
+  CardSuspended: CardSuspendedPayload;
+  CardUnsuspended: CardUnsuspendedPayload;
 }
 
 export type KnownEventType = keyof EventPayloadMap;
@@ -171,6 +188,8 @@ export function isKnownEventType(type: string): type is KnownEventType {
     type === 'CourseChanged' ||
     type === 'MediaAdded' ||
     type === 'SourceLinked' ||
-    type === 'PreferencesChanged'
+    type === 'PreferencesChanged' ||
+    type === 'CardSuspended' ||
+    type === 'CardUnsuspended'
   );
 }

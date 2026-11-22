@@ -17,6 +17,7 @@ import {
   type PendingDeckPatch,
   type PendingPagePatch,
 } from './replay.ts';
+import { foldSuspensionEventsFromUnknown } from './suspension.ts';
 import type { UnknownEvent } from './types.ts';
 
 export const SERIALIZED_STATE_FORMAT_VERSION = 1;
@@ -397,6 +398,11 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
   }
 
   const fieldHlcs = new Map<string, string>(Object.entries(serialized.fieldHlcs));
+  // Snapshots from builds that predate card suspension carry those events as unknown.
+  const unknownEvents = foldSuspensionEventsFromUnknown(
+    fieldHlcs,
+    serialized.unknownEvents.map((ev) => cloneJsonValue(ev)),
+  );
   const noteArchivedState = new Map<string, boolean>(Object.entries(serialized.noteArchivedState));
 
   const pendingDeckPatches = new Map<string, PendingDeckPatch>();
@@ -449,7 +455,7 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
         ? { drawing_modes: { ...serialized.preferences.drawing_modes } }
         : {}),
     },
-    unknownEvents: serialized.unknownEvents.map((ev) => cloneJsonValue(ev)),
+    unknownEvents,
     fieldHlcs,
     noteArchivedState,
     pendingDeckPatches,

@@ -1,9 +1,36 @@
-import { stripCloze, stripRuby, type Note } from '@flash/core';
+import {
+  filterNoteIds,
+  isCardSuspended,
+  isLeechCard,
+  LEECH_CATEGORY,
+  listCategories,
+  matchesCategoryCriterion,
+  normalizeCardFilter,
+  stripCloze,
+  stripRuby,
+  type CardStateKind,
+  type CategoryCriterion,
+  type KnownEvent,
+  type Note,
+} from '@flash/core';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { lazy, Suspense, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { NoteEditDialog } from '../components/NoteEditDialog.tsx';
 import { RichText } from '../components/RichText.tsx';
 import { useApp } from '../state/AppContext.tsx';
+import { CategoryPicker } from '../study/CategoryPicker.tsx';
+import { setBrowseFilter } from '../study/filterStore.ts';
+
+const STATE_FILTER_OPTIONS: ReadonlyArray<{ value: CardStateKind; label: string }> = [
+  { value: 'new', label: 'New' },
+  { value: 'learning', label: 'Learning' },
+  { value: 'due', label: 'Due today' },
+  { value: 'review', label: 'Review' },
+  { value: 'suspended', label: 'Suspended' },
+  { value: 'leech', label: 'Leech' },
+];
+
+const lower = (t: string) => t.toLowerCase();
 
 const LazyDictionaryPanel = lazy(() =>
   import('../dictionary/DictionaryPanel.tsx').then((m) => ({ default: m.DictionaryPanel })),
@@ -17,10 +44,20 @@ export interface BrowseScreenProps {
 }
 
 export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
-  const { state, stateVersion, updateNote, setNoteArchived, markNoteReviewed } = useApp();
+  const {
+    state,
+    stateVersion,
+    updateNote,
+    setNoteArchived,
+    markNoteReviewed,
+    emitEvents,
+    getEventFactory,
+  } = useApp();
   const [browseMode, setBrowseMode] = useState<'notes' | 'dictionary'>('notes');
   const [query, setQuery] = useState('');
   const [deckFilter, setDeckFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<CategoryCriterion | undefined>(undefined);
+  const [stateFilter, setStateFilter] = useState<CardStateKind | ''>('');
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [showNotesDraw, setShowNotesDraw] = useState(false);
@@ -35,6 +72,40 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
+
+  // Phase 9 shared filter model (decks + categories + card state), also offered in Study.
+  const cardFilter = useMemo(
+    () =>
+      normalizeCardFilter({
+        deckIds: deckFilter ? [deckFilter] : [],
+        categories: categoryFilter,
+        states: stateFilter ? [stateFilter] : [],
+      }),
+    [deckFilter, categoryFilter, stateFilter],
+  );
+
+  useEffect(() => {
+    setBrowseFilter(cardFilter);
+  }, [cardFilter]);
+
+  const categories = useMemo(
+    () => listCategories(state, deckFilter ? { deckIds: [deckFilter] } : {}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, stateVersion, deckFilter],
+  );
+
+  const leechCategory = useMemo(() => {
+    const leechNotes = new Set<string>();
+    for (const card of state.cards.values()) {
+      if (deckFilter && card.deck_id !== deckFilter) continue;
+      if (isLeechCard(card)) leechNotes.add(card.note_id);
+    }
+    // A real `leech` tag (e.g. from an Anki import) is already listed with the note tags.
+    return leechNotes.size > 0 && !categories.some((c) => c.tag === LEECH_CATEGORY)
+      ? [{ tag: LEECH_CATEGORY, noteCount: leechNotes.size }]
+      : [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, stateVersion, deckFilter, categories]);
 
   const needsReviewCount = useMemo(() => {
     let count = 0;
@@ -64,19 +135,28 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
     const q = query.trim().toLowerCase();
     const isTagOnlyQuery = q.startsWith('#');
     const tagNeedle = isTagOnlyQuery ? q.slice(1) : q;
+    const nowMs = Date.now();
+    const matchingNoteIds = filterNoteIds(
+      state,
+      cardFilter,
+      { nowMs, tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset() },
+      { archived: showArchivedOnly },
+    );
     const list: Note[] = [];
     for (const note of state.notes.values()) {
-      if (showArchivedOnly ? !note.archived : note.archived) continue;
-      if (deckFilter && note.deck_id !== deckFilter) continue;
+      if (!matchingNoteIds.has(note.id)) continue;
       if (needsReviewOnly && !(note.provenance.source === 'ai' && !note.provenance.reviewed)) {
         continue;
       }
       if (q) {
-        const matchesTag =
-          tagNeedle.length > 0 && note.tags.some((t) => t.toLowerCase().includes(tagNeedle));
         if (isTagOnlyQuery) {
-          if (!matchesTag) continue;
+          // `#tag` shortcut: same category matching as the picker (exact tag or `tag::child`).
+          const tagCriterion: CategoryCriterion = { mode: 'any', tags: [tagNeedle] };
+          if (!tagNeedle || !matchesCategoryCriterion(note.tags.map(lower), tagCriterion)) {
+            continue;
+          }
         } else {
+          const matchesTag = note.tags.some((t) => t.toLowerCase().includes(tagNeedle));
           const matchesField = Object.values(note.fields).some((val) => {
             if (val.toLowerCase().includes(q)) return true;
             if (val.includes('[') || val.includes('{')) {
@@ -92,7 +172,21 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
     list.sort((a, b) => a.created_order - b.created_order || (a.id < b.id ? -1 : 1));
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, stateVersion, query, deckFilter, needsReviewOnly, showArchivedOnly]);
+  }, [state, stateVersion, query, cardFilter, needsReviewOnly, showArchivedOnly]);
+
+  /** Suspends / unsuspends every card of a note (one `CardSuspended` event per changed card). */
+  const setNoteCardsSuspended = (noteId: string, suspended: boolean) => {
+    const cardIds = [...(state.cardIdsByNote.get(noteId) ?? [])].sort();
+    const factory = getEventFactory();
+    const nowMs = Date.now();
+    const events: KnownEvent[] = [];
+    for (const cardId of cardIds) {
+      if (isCardSuspended(state, cardId) === suspended) continue;
+      const type = suspended ? 'CardSuspended' : 'CardUnsuspended';
+      events.push(factory.create(type, { card_id: cardId }, nowMs));
+    }
+    emitEvents(events);
+  };
 
   const rowVirtualizer = useVirtualizer({
     count: filteredNotes.length,
@@ -193,6 +287,20 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                 </option>
               ))}
             </select>
+            <select
+              aria-label="Filter by card state"
+              data-testid="browse-state-filter"
+              value={stateFilter}
+              onChange={(e) => setStateFilter(e.target.value as CardStateKind | '')}
+              className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm"
+            >
+              <option value="">Any state</option>
+              {STATE_FILTER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               data-testid="needs-review-filter"
@@ -240,6 +348,14 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
         </Suspense>
       ) : (
         <>
+          <CategoryPicker
+            categories={categories}
+            virtualCategories={leechCategory}
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            testIdPrefix="browse-category"
+          />
+
           {showNotesDraw && (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
               <Suspense
@@ -294,6 +410,16 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                   const primaryLang = nt?.fields[0]?.lang ?? deck?.language ?? 'en';
                   const secondaryMeta = nt?.fields.find((f) => f.key === secondaryKey);
                   const needsReview = note.provenance.source === 'ai' && !note.provenance.reviewed;
+                  const noteCardIds = state.cardIdsByNote.get(note.id);
+                  const cardCount = noteCardIds?.size ?? 0;
+                  let suspendedCount = 0;
+                  let isLeech = false;
+                  for (const cardId of noteCardIds ?? []) {
+                    if (isCardSuspended(state, cardId)) suspendedCount += 1;
+                    const card = state.cards.get(cardId);
+                    if (card && isLeechCard(card)) isLeech = true;
+                  }
+                  const allSuspended = cardCount > 0 && suspendedCount === cardCount;
 
                   return (
                     <div
@@ -342,6 +468,22 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                               Needs review
                             </span>
                           )}
+                          {suspendedCount > 0 && (
+                            <span
+                              data-testid="browse-suspended-badge"
+                              className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-[11px] font-semibold text-[var(--muted)]"
+                            >
+                              {allSuspended ? 'Suspended' : `${suspendedCount} suspended`}
+                            </span>
+                          )}
+                          {isLeech && (
+                            <span
+                              data-testid="browse-leech-badge"
+                              className="rounded-full border border-rose-500/40 bg-rose-500/15 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:text-rose-300"
+                            >
+                              Leech
+                            </span>
+                          )}
                           {note.tags.slice(0, 2).map((tag) => (
                             <span
                               key={tag}
@@ -364,6 +506,23 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                           className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-[11px] font-semibold text-[var(--fg)] hover:opacity-90"
                         >
                           Restore
+                        </button>
+                      )}
+
+                      {!note.archived && cardCount > 0 && (
+                        <button
+                          type="button"
+                          data-testid={`browse-suspend-note-${note.id}`}
+                          aria-pressed={allSuspended}
+                          title={
+                            allSuspended
+                              ? 'Unsuspend: show these cards in Study again'
+                              : 'Suspend: hide these cards from Study until unsuspended'
+                          }
+                          onClick={() => setNoteCardsSuspended(note.id, !allSuspended)}
+                          className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-[11px] font-semibold text-[var(--fg)] hover:opacity-90"
+                        >
+                          {allSuspended ? 'Unsuspend' : 'Suspend'}
                         </button>
                       )}
 
