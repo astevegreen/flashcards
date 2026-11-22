@@ -18,6 +18,8 @@ export default tseslint.config(
       'apps/desktop/src-tauri/gen/**',
       '.cache/**',
       'dist-packs/**',
+      // Agent worktrees (full repo copies checked out under .claude/worktrees)
+      '.claude/**',
     ],
   },
   js.configs.recommended,

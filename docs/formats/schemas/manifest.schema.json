@@ -2,80 +2,30 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "package_id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "name": {
-      "type": "string",
-      "minLength": 1
-    },
-    "version": {
-      "type": "string",
-      "minLength": 1
-    },
-    "format_version": {
-      "type": "number",
-      "const": 1
-    },
-    "author": {
-      "type": "string"
-    },
-    "license": {
-      "type": "string"
-    },
-    "languages": {
-      "default": [],
-      "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      }
-    },
+    "package_id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "format_version": { "type": "number", "const": 1 },
+    "author": { "type": "string" },
+    "license": { "type": "string" },
+    "languages": { "default": [], "type": "array", "items": { "type": "string", "minLength": 1 } },
     "decks": {
       "default": [],
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1
-          },
-          "file": {
-            "type": "string",
-            "minLength": 1
-          },
-          "note_type_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "language": {
-            "type": "string",
-            "minLength": 1
-          }
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "file": { "type": "string", "minLength": 1 },
+          "note_type_id": { "type": "string", "minLength": 1 },
+          "language": { "type": "string", "minLength": 1 }
         },
-        "required": [
-          "id",
-          "name",
-          "file",
-          "note_type_id"
-        ],
+        "required": ["id", "name", "file", "note_type_id"],
         "additionalProperties": false
       }
     }
   },
-  "required": [
-    "package_id",
-    "name",
-    "version",
-    "format_version",
-    "languages",
-    "decks"
-  ],
+  "required": ["package_id", "name", "version", "format_version", "languages", "decks"],
   "additionalProperties": false
 }

@@ -2,51 +2,24 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "name": {
-      "type": "string",
-      "minLength": 1
-    },
-    "description": {
-      "type": "string"
-    },
+    "id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
     "items": {
       "default": [],
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "page",
-              "deck"
-            ]
-          },
-          "ref_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "unlocks_after_page_id": {
-            "type": "string",
-            "minLength": 1
-          }
+          "kind": { "type": "string", "enum": ["page", "deck"] },
+          "ref_id": { "type": "string", "minLength": 1 },
+          "unlocks_after_page_id": { "type": "string", "minLength": 1 }
         },
-        "required": [
-          "kind",
-          "ref_id"
-        ],
+        "required": ["kind", "ref_id"],
         "additionalProperties": false
       }
     }
   },
-  "required": [
-    "id",
-    "name",
-    "items"
-  ],
+  "required": ["id", "name", "items"],
   "additionalProperties": false
 }

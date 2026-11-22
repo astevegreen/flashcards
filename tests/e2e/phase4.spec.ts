@@ -388,6 +388,31 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await expect(filterBtn).toContainText('Needs review (0)');
     await expect(page.getByTestId('browse-needs-review-badge')).toHaveCount(0);
 
+    // The UI updates optimistically and persists asynchronously (§8), so wait until the
+    // NoteUpserted{provenance.reviewed} event is committed before reloading.
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const req = indexedDB.open('flashcards-db-p4ai');
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+          const rows = await new Promise<
+            Array<{ type: string; payload?: { provenance?: { reviewed?: boolean } } }>
+          >((resolve, reject) => {
+            const req = db.transaction('events', 'readonly').objectStore('events').getAll();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+          db.close();
+          return rows.some(
+            (r) => r.type === 'NoteUpserted' && r.payload?.provenance?.reviewed === true,
+          );
+        }),
+      )
+      .toBe(true);
+
     // Reload and confirm reviewed state persists from IndexedDB
     await page.reload();
     await page.getByRole('button', { name: 'Browse' }).first().click();

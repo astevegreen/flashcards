@@ -2,77 +2,30 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "note_type_id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "name": {
-      "type": "string",
-      "minLength": 1
-    },
+    "id": { "type": "string", "minLength": 1 },
+    "note_type_id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
     "front_fields": {
       "minItems": 1,
       "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      }
+      "items": { "type": "string", "minLength": 1 }
     },
     "reveal_steps": {
       "minItems": 1,
       "type": "array",
-      "items": {
-        "minItems": 1,
-        "type": "array",
-        "items": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
+      "items": { "minItems": 1, "type": "array", "items": { "type": "string", "minLength": 1 } }
     },
     "answer_mode": {
       "default": "flip",
       "type": "string",
-      "enum": [
-        "flip",
-        "typed",
-        "choice",
-        "cloze",
-        "listen",
-        "draw"
-      ]
+      "enum": ["flip", "typed", "choice", "cloze", "listen", "draw"]
     },
-    "speak_field": {
-      "type": "string",
-      "minLength": 1
-    },
-    "speak_on": {
-      "type": "string",
-      "enum": [
-        "front",
-        "reveal",
-        "manual"
-      ]
-    },
-    "hide_furigana_on_front": {
-      "default": false,
-      "type": "boolean"
-    },
-    "enabled": {
-      "default": true,
-      "type": "boolean"
-    },
-    "cloze_typed": {
-      "type": "boolean"
-    },
-    "answer_field": {
-      "type": "string",
-      "minLength": 1
-    }
+    "speak_field": { "type": "string", "minLength": 1 },
+    "speak_on": { "type": "string", "enum": ["front", "reveal", "manual"] },
+    "hide_furigana_on_front": { "default": false, "type": "boolean" },
+    "enabled": { "default": true, "type": "boolean" },
+    "cloze_typed": { "type": "boolean" },
+    "answer_field": { "type": "string", "minLength": 1 }
   },
   "required": [
     "id",

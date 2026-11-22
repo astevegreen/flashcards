@@ -5,7 +5,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env['CI'],
   retries: process.env['CI'] ? 2 : 0,
-  workers: process.env['CI'] ? 1 : undefined,
+  // Several specs drive two pages plus replay Web Workers each; at Playwright's default
+  // (half the logical cores) they starve each other locally and time out. 4 keeps runs stable.
+  workers: process.env['CI'] ? 1 : 4,
   reporter: 'list',
   use: {
     baseURL: 'http://127.0.0.1:4173',
