@@ -152,7 +152,7 @@ The policy (identical for the meta tag and every header):
 default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://apis.google.com https://www.gstatic.com https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self'; frame-src 'self' https://docs.google.com https://accounts.google.com; connect-src 'self' https: ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self'; manifest-src 'self';
 ```
 
-On **Cloudflare Pages** this is a `_headers` file in `apps/web/public/` (copied to `dist/`; not committed yet, see the §16 checklist):
+On **Cloudflare Pages** this is the committed `apps/web/public/_headers` file, which the build copies to `dist/`. `apps/web/tests/headers.test.ts` fails if it differs from `PRODUCTION_CSP` or from the block below, if the `.wasm` or `nosniff` rule is missing, or if a COOP/COEP header appears. It contains:
 
 ```text
 /*
