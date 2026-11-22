@@ -60,6 +60,10 @@
     "./stats": {
       "types": "./src/stats/index.ts",
       "default": "./src/stats/index.ts"
+    },
+    "./fsrs-optimizer": {
+      "types": "./src/optimizer/fsrs-optimizer.ts",
+      "default": "./src/optimizer/fsrs-optimizer.ts"
     }
   },
   "scripts": {
