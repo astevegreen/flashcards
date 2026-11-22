@@ -333,7 +333,8 @@ function selectNewCards(
 ): Card[] {
   const { state } = ctx;
   const finalNew: Card[] = [];
-  const deckIdsSorted = [...newCardsByDeck.keys()].sort();
+  // Code-unit order (not localeCompare): the queue must be identical on every device.
+  const deckIdsSorted = [...newCardsByDeck.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   for (const dId of deckIdsSorted) {
     const deck = state.decks.get(dId);
     if (!deck) continue;

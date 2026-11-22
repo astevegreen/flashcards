@@ -425,12 +425,12 @@ function toProposedPage(item: unknown, idx: number): BuildPageSpec {
 }
 
 function packageSlug(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'proposed'
-  );
+  // The first replace collapses every run to a single '-', so trimming one is enough.
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return slug || 'proposed';
 }
 
 function proposePackageTool(
