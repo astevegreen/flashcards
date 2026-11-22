@@ -13,11 +13,8 @@ import { StudyRemindersSetting } from '../reminders/StudyRemindersSetting.tsx';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
 import { LeechAutoSuspendSetting } from '../study/LeechSettings.tsx';
-import { AddDeviceCollectionNotice } from '../sync/AddDeviceCollectionNotice.tsx';
-import { isAddDeviceProvider } from '../sync/addDeviceLink.ts';
-import { AddDevicePanel } from '../sync/AddDevicePanel.tsx';
 import { OneDriveSyncButtons } from '../sync/OneDriveSyncButtons.tsx';
-import { SyncMyDevicesPanel } from '../sync/SyncMyDevicesPanel.tsx';
+import { SettingsAddDevice, SettingsSyncMyDevices } from '../sync/SettingsSyncBlocks.tsx';
 import { describeSyncProvider } from '../sync/syncProviderLabel.ts';
 
 const LazyPackManagerPanel = lazy(() =>
@@ -90,13 +87,11 @@ export function SettingsScreen() {
     loadSampleDecks,
     markBackupCompleted,
     resetLocalData,
-    addDeviceLink,
   } = useApp();
 
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
-  const [addDeviceOpen, setAddDeviceOpen] = useState(false);
   const [installedPacks, setInstalledPacks] = useState<InstalledPackInfo[]>([]);
 
   // Audio & BYO Cloud TTS form state (API key stays strictly device-local)
@@ -235,10 +230,6 @@ export function SettingsScreen() {
 
   const isSyncConnected = syncState.provider !== 'none';
   const providerLabel = describeSyncProvider(syncState.provider, syncState.localFolderName);
-  // Phase 14: one "Sync my devices" button while nothing syncs (or an add-device link asks for a
-  // provider), and "Add a device" (QR code + link) on a device that syncs with a real provider.
-  const showSyncMyDevices = syncState.provider === 'none' || addDeviceLink !== undefined;
-  const canAddDevice = isAddDeviceProvider(syncState.provider) && !syncState.readOnly;
 
   const handleSyncNow = async () => {
     const syncGate = canUseCloudSync(entitlement);
@@ -510,12 +501,8 @@ export function SettingsScreen() {
           )}
         </div>
 
-        {showSyncMyDevices && (
-          <>
-            <SyncMyDevicesPanel variant="settings" />
-            <p className="text-xs font-semibold text-[var(--muted)]">Or choose a provider</p>
-          </>
-        )}
+        {/* Phase 14: one "Sync my devices" button, then every provider below it. */}
+        <SettingsSyncMyDevices />
 
         <div className="flex flex-wrap gap-2 pt-1">
           {isSyncConnected && (
@@ -527,18 +514,6 @@ export function SettingsScreen() {
               className="min-w-[5.5rem] rounded-xl bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
             >
               {syncState.status === 'syncing' ? 'Syncing…' : 'Sync Now'}
-            </button>
-          )}
-
-          {canAddDevice && (
-            <button
-              type="button"
-              data-testid="add-device-btn"
-              aria-expanded={addDeviceOpen}
-              onClick={() => setAddDeviceOpen((open) => !open)}
-              className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)]"
-            >
-              Add a device
             </button>
           )}
 
@@ -645,8 +620,8 @@ export function SettingsScreen() {
           )}
         </div>
 
-        {canAddDevice && addDeviceOpen && <AddDevicePanel />}
-        <AddDeviceCollectionNotice />
+        {/* Phase 14: "Add a device" (QR code + link) and the add-device collection check. */}
+        <SettingsAddDevice />
       </div>
 
       {/* Study preferences */}
