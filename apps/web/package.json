@@ -10,8 +10,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@capacitor/core": "^8.6.2",
     "@flash/core": "workspace:*",
     "@flash/platform": "workspace:*",
+    "@flash/platform-capacitor": "workspace:*",
+    "@flash/platform-tauri": "workspace:*",
     "@flash/platform-web": "workspace:*",
     "@flash/ui": "workspace:*",
     "react": "^19.3.1",
