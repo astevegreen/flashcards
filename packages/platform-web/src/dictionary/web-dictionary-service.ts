@@ -1,5 +1,5 @@
 import {
-  normalizeDictionaryQuery,
+  planDictionarySearch,
   rankDictionaryResults,
   type DictionaryEntry,
   type DictionaryPackId,
@@ -52,30 +52,21 @@ export class WebDictionaryService implements DictionaryService {
   }
 
   async search(query: string, opts: DictionarySearchOptions = {}): Promise<DictionaryEntry[]> {
-    const q = normalizeDictionaryQuery(query);
+    // Core plans the lookups: prefix tokens (incl. 초성 / jamo / English reverse-index keys) plus
+    // exact headword candidates from Korean deinflection and romanization, validated by fetching them.
+    const plan = planDictionarySearch(query);
+    const q = plan.query;
     if (!q.raw) return [];
 
-    const prefixTokens = new Set<string>();
-    prefixTokens.add(q.lower);
-    if (q.kanaFolded) prefixTokens.add(q.kanaFolded);
-    if (q.latinStripped) {
-      prefixTokens.add(q.latinStripped);
-      for (const word of q.latinStripped.split(/\s+/)) {
-        if (word.length >= 2) prefixTokens.add(word);
-      }
-    }
-    if (q.latinCompact && q.latinCompact.length >= 2) {
-      prefixTokens.add(q.latinCompact);
-    }
-
-    const [direct, candidates] = await Promise.all([
+    const [direct, lemmas, candidates] = await Promise.all([
       this.packStorage.lookupDictionaryByHeadword(q.raw, opts.packIds),
-      this.packStorage.queryDictionaryCandidates([...prefixTokens], opts.packIds, 450),
+      this.packStorage.lookupDictionaryByHeadwords(plan.headwordCandidates, opts.packIds),
+      this.packStorage.queryDictionaryCandidates(plan.prefixTokens, opts.packIds, 450),
     ]);
 
     const seen = new Set<string>();
     const merged: DictionaryEntry[] = [];
-    for (const entry of [...direct, ...candidates]) {
+    for (const entry of [...direct, ...lemmas, ...candidates]) {
       if (seen.has(entry.id)) continue;
       seen.add(entry.id);
       merged.push(entry);

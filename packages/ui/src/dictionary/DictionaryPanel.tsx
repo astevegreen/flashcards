@@ -7,6 +7,7 @@ import {
 } from '@flash/core';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import type { DictionaryEntry, DictionaryPackId, InstalledPackInfo } from '@flash/platform';
+import type { DictionaryLevel, DictionarySenseSource } from '@flash/core/dictionary';
 import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { RichText } from '../components/RichText.tsx';
 import { DrawLookupPanel } from '../drawing/DrawLookupPanel.tsx';
@@ -23,13 +24,40 @@ const PACK_SHORT_LABEL: Record<DictionaryPackId, string> = {
   'dict-kanjidic2': 'Kanji',
   'dict-cc-cedict': 'Chinese',
   'dict-jmdict': 'Japanese',
+  'dict-krdict': 'Korean',
 };
+
+/** Per-sense source badge (Phase 10: every sense shows where it came from). */
+const SENSE_SOURCE_LABEL: Record<DictionarySenseSource, string> = {
+  krdict: 'KRDict',
+};
+
+const LEVEL_LABEL: Record<DictionaryLevel, string> = {
+  beginner: 'Beginner · 초급',
+  intermediate: 'Intermediate · 중급',
+  advanced: 'Advanced · 고급',
+};
+
+const LEVEL_CLASS: Record<DictionaryLevel, string> = {
+  beginner: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  intermediate: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  advanced: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
+};
+
+/** Single Han ideographs go through character lookup; everything else (Hangul, 초성, romanization, English) through search. */
+function isSingleIdeograph(text: string): boolean {
+  const chars = [...text];
+  if (chars.length !== 1) return false;
+  const cp = chars[0]?.codePointAt(0) ?? 0;
+  return (cp >= 0x3400 && cp <= 0x9fff) || (cp >= 0xf900 && cp <= 0xfaff) || cp >= 0x20000;
+}
 
 const PACK_LANG: Record<DictionaryPackId, string> = {
   'dict-hanja-unihan': 'ko',
   'dict-kanjidic2': 'ja',
   'dict-cc-cedict': 'zh-Hans',
   'dict-jmdict': 'ja',
+  'dict-krdict': 'ko',
 };
 
 function mapEntryToNoteFields(
@@ -46,6 +74,25 @@ function mapEntryToNoteFields(
   const metaNotes = metaNotesParts.join(' · ');
 
   const keys = new Set((noteType?.fields ?? []).map((f) => f.key));
+
+  // Korean word packs (KRDict) → Korean vocabulary note type: word / Hanja / meaning / example / notes.
+  if (entry.packId === 'dict-krdict' && keys.has('word') && keys.has('hanja')) {
+    const firstExample = entry.senses?.find((s) => s.examples?.length)?.examples?.[0]?.text ?? '';
+    const notes = [
+      entry.pos?.join(', '),
+      entry.level ? LEVEL_LABEL[entry.level] : undefined,
+      entry.readings.length > 0 ? `[${entry.readings.join(', ')}]` : undefined,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    return {
+      word: entry.headword,
+      hanja: entry.altForms?.[0] ?? '',
+      meaning: entry.meanings.slice(0, 3).join('; '),
+      ...(keys.has('example') ? { example: firstExample } : {}),
+      notes,
+    };
+  }
 
   if (keys.has('character') && keys.has('eumhun')) {
     return {
@@ -100,6 +147,12 @@ function defaultDeckSpecForPack(packId: DictionaryPackId): {
         name: 'Chinese Vocabulary',
         noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_ZH,
         language: 'zh-Hans',
+      };
+    case 'dict-krdict':
+      return {
+        name: 'Korean Vocabulary',
+        noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+        language: 'ko',
       };
     case 'dict-kanjidic2':
     case 'dict-jmdict':
@@ -245,10 +298,9 @@ export function DictionaryPanel({
       try {
         const svc = await platform.getDictionaryService();
         const packIds = packFilter === 'all' ? undefined : [packFilter];
-        const found =
-          [...trimmed].length === 1
-            ? await svc.lookupCharacter(trimmed, packIds ? { packIds } : undefined)
-            : await svc.search(trimmed, { ...(packIds ? { packIds } : {}), limit: 60 });
+        const found = isSingleIdeograph(trimmed)
+          ? await svc.lookupCharacter(trimmed, packIds ? { packIds } : undefined)
+          : await svc.search(trimmed, { ...(packIds ? { packIds } : {}), limit: 60 });
         setResults(found);
       } finally {
         setSearching(false);
@@ -279,6 +331,10 @@ export function DictionaryPanel({
     if (entry.packId === 'dict-hanja-unihan') {
       const hanjaDeck = decks.find((d) => d.note_type_id === BUILTIN_NOTE_TYPE_IDS.HANJA);
       if (hanjaDeck) return hanjaDeck;
+    }
+    if (entry.packId === 'dict-krdict') {
+      const koDeck = decks.find((d) => d.note_type_id === BUILTIN_NOTE_TYPE_IDS.VOCAB_KO);
+      if (koDeck) return koDeck;
     }
     return decks.find((d) => d.language === lang) ?? decks[0];
   };
@@ -351,7 +407,8 @@ export function DictionaryPanel({
       {/* Native dictation-safe & IME-safe search bar (§6.3, modern-web-guidance ime-safe-enter-submit) */}
       <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-2">
         <label htmlFor={searchInputId} className="sr-only">
-          Search offline dictionaries in English, Hanja, Kanji, Kana, or Pinyin
+          Search offline dictionaries in English, Hangul (any form, 초성, or romanization), Hanja,
+          Kanji, Kana, or Pinyin
         </label>
         <input
           id={searchInputId}
@@ -359,7 +416,7 @@ export function DictionaryPanel({
           enterKeyHint="search"
           autoComplete="off"
           data-testid="dictionary-search-input"
-          placeholder="Search Hanja, Kanji, Pinyin, or English…"
+          placeholder="Search 한국어, ㅎㄱ, hanguk, Hanja, Kanji, Pinyin, or English…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="min-w-[14rem] flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-sm text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none"
@@ -477,9 +534,9 @@ export function DictionaryPanel({
         >
           <h2 className="text-base font-semibold">No Offline Dictionaries Installed</h2>
           <p className="max-w-md text-xs text-[var(--muted)]">
-            Download standalone offline dictionaries (Hanja / Unihan, KANJIDIC2, CC-CEDICT, JMdict)
-            once to look up any word or character offline—even terms not in your decks—and add them
-            to your study decks in one tap.
+            Download standalone offline dictionaries (KRDict Korean, Hanja / Unihan, KANJIDIC2,
+            CC-CEDICT, JMdict) once to look up any word or character offline—even terms not in your
+            decks—and add them to your study decks in one tap.
           </p>
           {onOpenSettings && (
             <button
@@ -502,8 +559,9 @@ export function DictionaryPanel({
             <div className="py-8 text-center text-xs text-[var(--muted)]">Searching…</div>
           ) : !query.trim() ? (
             <div className="py-8 text-center text-xs text-[var(--muted)]">
-              Type any English word, reading (Hangul / Kana / Pinyin), or draw a character to look
-              up definitions offline.
+              Type any English word, a Korean word in any form (먹었어요), 초성 (ㅎㄱ), romanization
+              (hanguk), a reading (Kana / Pinyin), or draw a character to look up definitions
+              offline.
             </div>
           ) : results.length === 0 ? (
             <div className="py-8 text-center text-xs text-[var(--muted)]">
@@ -539,8 +597,16 @@ export function DictionaryPanel({
                         >
                           {entry.headword}
                         </span>
+                        {entry.homonym !== undefined && entry.homonym > 0 && (
+                          <sup className="text-xs text-[var(--muted)]">{entry.homonym}</sup>
+                        )}
                         {entry.altForms && entry.altForms.length > 0 && (
-                          <span lang={lang} className="text-xs text-[var(--muted)]">
+                          <span
+                            lang={lang}
+                            data-testid={`dict-alt-${entry.headword}`}
+                            title={entry.packId === 'dict-krdict' ? 'Hanja (원어)' : undefined}
+                            className="text-xs text-[var(--muted)]"
+                          >
                             ({entry.altForms.join(', ')})
                           </span>
                         )}
@@ -550,7 +616,15 @@ export function DictionaryPanel({
                           </span>
                         ) : entry.readings.length > 0 ? (
                           <span className="text-sm font-medium text-[var(--accent)]">
-                            {entry.packId === 'dict-cc-cedict' ? (
+                            {entry.packId === 'dict-krdict' ? (
+                              <span
+                                lang="ko"
+                                data-testid={`dict-pron-${entry.headword}`}
+                                title="Standard pronunciation (표준 발음)"
+                              >
+                                [{entry.readings.join(', ')}]
+                              </span>
+                            ) : entry.packId === 'dict-cc-cedict' ? (
                               <RichText
                                 text={entry.readings.join(' · ')}
                                 lang="zh-Latn-pinyin"
@@ -564,12 +638,78 @@ export function DictionaryPanel({
                         ) : null}
                       </div>
 
-                      <p className="mt-1 text-sm text-[var(--fg)]">{entry.meanings.join('; ')}</p>
+                      {entry.senses && entry.senses.length > 0 ? (
+                        <ol
+                          data-testid={`dict-senses-${entry.headword}`}
+                          className="mt-1.5 flex flex-col gap-1.5"
+                        >
+                          {entry.senses.map((sense, senseIdx) => (
+                            <li key={senseIdx} className="text-sm">
+                              <div className="flex flex-wrap items-baseline gap-1.5">
+                                <span className="text-[11px] font-semibold text-[var(--muted)]">
+                                  {senseIdx + 1}.
+                                </span>
+                                <span className="font-semibold text-[var(--fg)]">
+                                  {sense.equivalents.length > 0
+                                    ? sense.equivalents.join('; ')
+                                    : sense.definition}
+                                </span>
+                                {sense.source && (
+                                  <span
+                                    data-testid="dict-sense-source"
+                                    className="rounded bg-[var(--surface-2)] px-1 py-0.5 text-[10px] font-semibold text-[var(--muted)]"
+                                  >
+                                    {SENSE_SOURCE_LABEL[sense.source]}
+                                  </span>
+                                )}
+                              </div>
+                              {sense.definition && sense.equivalents.length > 0 && (
+                                <p className="text-xs text-[var(--muted)]">{sense.definition}</p>
+                              )}
+                              {sense.examples && sense.examples.length > 0 && (
+                                <ul className="mt-0.5 flex flex-col gap-0.5 border-l-2 border-[var(--border)] pl-2 text-xs">
+                                  {sense.examples.map((ex, exIdx) => (
+                                    <li key={exIdx} data-testid="dict-example">
+                                      <span lang="ko" className="text-[var(--fg)]">
+                                        {ex.text}
+                                      </span>
+                                      {ex.translation && (
+                                        <span lang="en" className="text-[var(--muted)]">
+                                          {' — '}
+                                          {ex.translation}
+                                        </span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="mt-1 text-sm text-[var(--fg)]">{entry.meanings.join('; ')}</p>
+                      )}
 
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--muted)]">
                         <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 font-semibold">
                           {PACK_SHORT_LABEL[entry.packId]}
                         </span>
+                        {entry.pos && entry.pos.length > 0 && (
+                          <span data-testid={`dict-pos-${entry.headword}`} className="italic">
+                            {entry.pos.join(', ')}
+                          </span>
+                        )}
+                        {entry.level && (
+                          <span
+                            data-testid={`dict-level-${entry.headword}`}
+                            className={`rounded-full px-2 py-0.5 font-semibold ${LEVEL_CLASS[entry.level]}`}
+                          >
+                            {LEVEL_LABEL[entry.level]}
+                          </span>
+                        )}
+                        {entry.origin && !entry.altForms?.length && (
+                          <span lang="ko">원어 {entry.origin}</span>
+                        )}
                         {entry.radical && <span>Radical: {entry.radical}</span>}
                         {entry.strokeCount && <span>{entry.strokeCount} strokes</span>}
                         {entry.grade && <span>· {entry.grade}</span>}
