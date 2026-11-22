@@ -2,10 +2,18 @@
 
 Open items left after the Phase 12/13/14 batch (PR #8). Tick an item off, or delete it, once it is resolved. Product decisions belong to the owner. Until one is made, the shipped default is the least-committal, reversible option described here.
 
-## Release blockers (fix before store submission)
+## Next batch (decided 2026-11-22): Phase 14 code + the release blocker
 
-- [ ] **Capacitor OneDrive tokens are not in Keychain/Keystore.** No maintained MSAL plugin supports Capacitor 8, so the Microsoft sign-in on Android/iOS uses the generic OAuth2 provider of `@capgo/capacitor-social-login`. That plugin keeps tokens in UserDefaults (iOS) and SharedPreferences (Android). Phase 14's compliance checklist requires tokens only in Keychain/Keystore on native. Move the refresh token into secure storage, or switch to an MSAL-based plugin once one supports Capacitor 8. Code: `packages/platform-capacitor` (`microsoft-social-login.ts`).
+- [ ] **Secure-store bridge for phone tokens (release blocker).** Add a small Keychain (iOS) / Keystore (Android) storage plugin and keep the Microsoft refresh token only there. `@capgo/capacitor-social-login` stays for the sign-in itself. Today it keeps tokens in UserDefaults/SharedPreferences, which Phase 14's compliance checklist forbids. Code: `packages/platform-capacitor` (`microsoft-social-login.ts`).
 - [ ] **Android Microsoft redirect.** The flow uses an in-app view. Using Custom Tabs needs a `flashcards://oauth` intent filter, and `AndroidManifest.xml` was not changed.
+- [ ] **"Sync my devices" default.** iOS/macOS devices default to iCloud (no sign-in). Android, Windows and web default to Google Drive. The other providers are always listed as alternatives.
+- [ ] **Add-device QR code or short link.** It carries the provider and collection, never tokens.
+- [ ] **Guided "Bring my cards" import.** Detects Flashcards Deluxe CSV, Anki `.apkg`, `.flashpkg` and Google Sheets.
+- [ ] **Curated starter decks** per language for onboarding (e.g. TOPIK 1 vocabulary, JLPT N5, HSK 1). They must be small, properly attributed and shipped in the app, replacing the sample decks in onboarding. Open questions for that batch: the source list and licence per deck, and deck size.
+- [ ] **Commit a Cloudflare Pages `_headers` file** to `apps/web/public`, with the CSP and `.wasm` headers from `docs/setup-gcp-cloudflare.md` §6, plus a test that keeps it in sync with `apps/web/csp.ts`.
+- [ ] **Anki `kana:` fields render readings only.** `漢字[かんじ]` becomes `かんじ`, matching Anki. Today they show as ruby.
+- [ ] **Anki field languages.** Keep automatic detection, but show the detected language per field in the import summary with a way to change it.
+- [ ] `docs/onboarding-review.md`, the audit with measured tester results on real devices. This needs real devices and non-technical testers, so it may not fit in a code batch.
 
 ## Not verified on real devices or services
 
@@ -19,48 +27,34 @@ Only Chromium Playwright with faked endpoints has covered these.
 - [ ] iOS WKWebView module Workers loaded from the `capacitor://` scheme.
 - [ ] Real Anki 23.x/24.x `anki21b` exports. The fixture is synthetic, and its schema-18 DDL was written from memory.
 
-## Owner decisions (defaults shipped in PR #8)
+## Decided, no change needed (2026-11-22)
 
-### Onboarding (Phase 13/14)
+- **OneDrive accounts:** personal only (tenant `consumers`).
+- **Leech tag lost to a concurrent edit from another device:** accepted. It is rare, state converges, and the leech filter still finds those cards by lapse count.
+- **Leech backfill timing:** once per launch, after that launch's first sync. An offline launch waits for the next one.
+- **Anki deck mapping:** one deck per (Anki deck, model) pair, because a deck has a single note type here.
 
-- [ ] **Starter deck per language.** Today it offers the built-in sample decks. Curated starter decks, or the remote starter catalog inside onboarding, are undecided.
-- [ ] **Language list.** It comes from the sample decks, in sample order. Ordering or preselecting by device locale is undecided.
-- [ ] **Existing users.** Onboarding appears only on an empty collection and only on a device with no onboarding record. Prompting existing users once was not chosen.
-- [ ] **Empty-screen buttons.** "Connect Cloud Sync" and "Load Sample Decks" are kept below onboarding. Phase 14 may want them de-emphasised.
-- [ ] **Re-offering onboarding after "Reset Local Device Data"** depends on whether that reset clears the kv store.
+## Still open
 
-### Leech backfill
+### Onboarding details (owner wants to discuss first)
 
-- [ ] **Backfill timing.** It runs once per launch, after that launch's first sync. On a device with a sync provider that never syncs during a launch (for example, offline all session), it waits for the next launch.
-- [ ] **A concurrent tag edit can drop the leech tag.** A `NoteUpserted` with a later HLC, from a device that hadn't seen the backfill, drops the automatic leech tag for good. State still converges, and the virtual leech filter still matches those cards.
-- [ ] **Older builds.** Builds from before `NoteTagsAdded` keep the event as unknown and don't show the tag. Acceptable before launch; confirm.
+- [ ] **Preselect the language from the device locale.** Today the order is fixed: Korean, Japanese, Mandarin, English.
+- [ ] **Show onboarding once to existing users.** Today it appears only on an empty collection.
+- [ ] **Move "Connect Cloud Sync" and "Load Sample Decks"** behind a "More options" link on the empty screen.
+- [ ] **Re-offer onboarding after "Reset Local Device Data".**
 
-### Anki import
+### Anki extras (owner: no preference; proposed defaults)
 
-- [ ] **Deck mapping.** Each (Anki deck, model) pair becomes one deck, named `Deck (Model)` when an Anki deck holds several models.
-- [ ] **How to render the Anki `kana:` filter.** Today it shows as ruby.
-- [ ] **Field language detection.** Language is guessed per field (kana means ja, hangul means ko, and so on). A deck-level language prompt may be better.
-- [ ] **Media per field.** Only the first image and the first audio reference per field are kept, with a warning.
-- [ ] **Card state.** Suspended, buried and flagged states, deck options and Anki's current scheduling state are not imported.
-- [ ] **`.colpkg`.** Full collection backups are not offered.
-- [ ] **Import caps.** See `ANKI_IMPORT_LIMITS` for the current values.
+- [ ] **Suspended state:** import it (`CardSuspended` events). Proposed: yes, cheap and expected.
+- [ ] **All media per field:** keep every image and audio reference, not just the first. Proposed: yes.
+- [ ] **Current scheduling:** seed FSRS from Anki's due/interval/ease when review history isn't imported. Proposed: no for now, because the mapping from SM-2 state is lossy.
+- [ ] **`.colpkg` full backups.** Proposed: later.
+- [ ] **Older builds and `NoteTagsAdded`.** Builds from before `NoteTagsAdded` keep the event as unknown and don't show the tag. Acceptable before launch.
 
-### OneDrive
+### OneDrive later
 
-- [ ] **Tenant.** The default is `consumers` (personal accounts only). Work and school accounts need `MS_TENANT`/`VITE_MS_TENANT=common`, plus `*.sharepoint.com` hosts.
-- [ ] **The picker is a one-shot import.** Linked OneDrive sources that refresh were not built.
-- [ ] **Web depends on the token-helper.** There is no fallback to an SPA client with 24-hour refresh tokens.
-- [ ] **Hosted File Picker v8.** Not adopted. Adopting it would need its redirect hosts verified under the CSP and pinned.
-
-### Hosting
-
-- [ ] **Cloudflare `_headers` file.** Decide whether to commit one to `apps/web/public`. The required headers are in `docs/setup-gcp-cloudflare.md` §6.
-
-## Skipped Phase 14 work
-
-- [ ] "Sync my devices" default-provider logic: iCloud for Apple-only users, Google otherwise.
-- [ ] Add-device QR code or short link.
-- [ ] `docs/onboarding-review.md`, the audit with measured tester results on real devices.
+- [ ] **Linked OneDrive sources** that refresh like Google Sheets sources (owner: yes, later). Today the picker is a one-shot import.
+- Not planned: a web fallback without the token-helper, and Microsoft's hosted File Picker v8.
 
 ## Phase 10 remainder (to audit)
 
