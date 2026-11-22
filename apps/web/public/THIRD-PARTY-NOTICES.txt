@@ -51,23 +51,24 @@ THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR I
 Onboarding starter decks: open data
 ===================================
 
-The curated starter decks offered at first run (Korean Core + Hanja; Mandarin Basics: Common
-Characters) are built by scripts/build-starter-decks.mjs from the open data below, changed only as
-described. Each deck also records its sources (the deck's source link, and the Notes field of
+The curated starter decks offered at first run (Korean Starter: Beginner Words; Mandarin Basics:
+Common Characters) are built by scripts/build-starter-decks.mjs from the open data below, changed
+only as described. Each deck also records its sources (the deck's source link, and the Notes field of
 every card).
 
 NIKL Korean learning vocabulary list (한국어 학습용 어휘 목록, 2003): KOGL Type 1 (공공누리 제1유형)
 Source: https://www.korean.go.kr/front_eng/down/down_02V.do?etc_seq=70
 Licence: https://www.kogl.or.kr/info/licenseType1.do
-Used in: Korean Core + Hanja (words, part of speech, Hanja origin, level, frequency order)
+Used in: Korean Starter: Beginner Words (words, part of speech, Hanja origin, level, frequency order)
 
 이 덱은 국립국어원에서 2003년 작성하여 공공누리 제1유형으로 개방한 '한국어 학습용 어휘 목록'을
 이용하였으며, 해당 저작물은 국립국어원 누리집(https://www.korean.go.kr)에서 무료로 내려받을 수 있습니다.
 
 This deck uses the Korean learning vocabulary list published in 2003 by the National Institute of
 Korean Language (국립국어원) under the Korea Open Government License (KOGL) Type 1. Changes: level-A
-(beginner) entries only, in the list's frequency-rank order; homograph numbers dropped; English
-meanings added from Wikidata. The National Institute of Korean Language does not sponsor or endorse
+(beginner) entries only, in the list's frequency-rank order; homograph numbers dropped; a word listed
+under two parts of speech with the same meaning kept as one card; English meanings added from
+Wikidata. The National Institute of Korean Language does not sponsor or endorse
 this app.
 
 ------------------------------------------------------------------------
@@ -75,7 +76,8 @@ this app.
 Wikidata lexemes (Korean, English glosses): CC0 1.0 Universal
 Source: https://www.wikidata.org/wiki/Wikidata:Lexicographical_data
 Licence: https://creativecommons.org/publicdomain/zero/1.0/
-Used in: Korean Core + Hanja (English meanings; each card names its lexeme, e.g. "Wikidata L196")
+Used in: Korean Starter: Beginner Words (English meanings; each card names its lexeme, e.g.
+"Wikidata L196")
 
 Wikidata's structured data, including the Lexeme namespace, is dedicated to the public domain
 under CC0 (https://www.wikidata.org/wiki/Wikidata:Licensing). No attribution is required; it is
@@ -86,7 +88,8 @@ given anyway. Each lexeme is pinned to one revision in content/starters/wikidata
 Unicode Unihan database 17.0.0: Unicode License v3
 Source: https://www.unicode.org/Public/17.0.0/ucd/Unihan.zip
 Used in: Mandarin Basics: Common Characters (kHanyuPinlu frequency order, kMandarin pinyin,
-kDefinition meanings, kSimplifiedVariant to leave out traditional-only forms)
+kDefinition meanings without Cantonese-only senses, kSimplifiedVariant to leave out
+traditional-only forms and counts that belong to a simplified variant)
 
 UNICODE LICENSE V3
 

@@ -112,7 +112,7 @@ const deck: StarterDeckContent = {
         notes:
           'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L131 (CC0).',
       },
-      tags: ['nikl-a', 'determiner'],
+      tags: ['nikl-a', 'determiner', 'pronoun'],
     },
     {
       key: 'nikl:그01:pronoun',
@@ -186,19 +186,6 @@ const deck: StarterDeckContent = {
           'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L744807 (CC0).',
       },
       tags: ['nikl-a', 'noun'],
-    },
-    {
-      key: 'nikl:이05:pronoun',
-      fields: {
-        word: '이',
-        hanja: '',
-        meaning:
-          'this (something close to the speaker or that the speaker thinks of); this (something just recently mentioned)',
-        example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L745344 (CC0).',
-      },
-      tags: ['nikl-a', 'pronoun'],
     },
     {
       key: 'nikl:알다:verb',

@@ -14,6 +14,9 @@ import {
 } from '../build-starter-decks.mjs';
 import {
   canonicalLexemeJson,
+  cardReading,
+  hasToneMark,
+  mandarinDefinition,
   normalizeLexeme,
   parseHanyuPinlu,
   parseNiklList,
@@ -27,6 +30,8 @@ const NIKL = [
   '25\t가다01\t동\t\tA',
   '30\t그01\t대\t\tA',
   '31\t그01\t관\t\tA',
+  '35\t이05\t대\t\tA',
+  '36\t이05\t관\t\tA',
   '500\t씨07\t의\t氏\tA',
   '600\t전화07\t명\t電話\tA',
   '601\t전화하다02\t동\t電話-\tA',
@@ -93,6 +98,9 @@ const RAW_LEXEMES = [
   lexemeJson('L29', 11, 'Q1084', [['ko', '나무']], ['tree']),
   // Right spelling, wrong part of speech.
   lexemeJson('L30', 12, 'Q1084', [['ko', '그리고']], ['and']),
+  // 이 as pronoun and as determiner with the same meaning: one card, not two identical ones.
+  lexemeJson('L31', 13, 'Q36224', [['ko', '이']], ['this']),
+  lexemeJson('L32', 14, 'Q576271', [['ko', '이']], ['this']),
 ];
 const LEXEMES = RAW_LEXEMES.map((json) => {
   const id = Object.keys(json.entities)[0];
@@ -109,9 +117,17 @@ const UNIHAN_READINGS = [
   'U+7684\tkDefinition\tpossessive, adjectival suffix',
   'U+7684\tkHanyuPinlu\tdí(5) de(100) dì(1)',
   'U+7684\tkMandarin\tde',
-  'U+8457\tkDefinition\tmanifest',
+  // 地: the first (zh-Hans) kMandarin value is the neutral-tone particle; the gloss is dì's.
+  'U+5730\tkDefinition\tearth; soil',
+  'U+5730\tkHanyuPinlu\tde(7) dì(5)',
+  'U+5730\tkMandarin\tde dì',
+  'U+7740\tkDefinition\tmake move, take action',
+  'U+7740\tkHanyuPinlu\tzhe(20)',
+  'U+7740\tkMandarin\tzhe',
+  // 著 repeats the counts of its simplified variant 着; only zhù(4) is its own.
+  'U+8457\tkDefinition\tmanifest; (Cant.) to wear',
   'U+8457\tkHanyuPinlu\tzhe(20) zhù(4)',
-  'U+8457\tkMandarin\tzhù',
+  'U+8457\tkMandarin\tzhù zhe',
   'U+8FD9\tkDefinition\tthis, the, here',
   'U+8FD9\tkHanyuPinlu\tzhè(50)',
   'U+8FD9\tkMandarin\tzhè',
@@ -136,7 +152,7 @@ const build = (lexemes = LEXEMES) =>
 describe('starter-deck parsers', () => {
   it('parses NIKL rows and strips homograph numbers only', () => {
     const rows = parseNiklList(NIKL);
-    expect(rows).toHaveLength(11);
+    expect(rows).toHaveLength(13);
     expect(rows[0]).toEqual({
       rank: 25,
       entry: '가다01',
@@ -147,6 +163,20 @@ describe('starter-deck parsers', () => {
     });
     expect(stripHomographNumber('십이월')).toBe('십이월');
     expect(stripHomographNumber('3월02')).toBe('3월');
+  });
+
+  it('picks a toned reading over a neutral-tone first value, and drops Cantonese-only senses', () => {
+    expect(hasToneMark('dì')).toBe(true);
+    expect(hasToneMark('lǚ')).toBe(true);
+    expect(hasToneMark('de')).toBe(false);
+    expect(hasToneMark('nü')).toBe(false);
+    expect(cardReading(['de', 'dì'])).toBe('dì');
+    expect(cardReading(['zhù', 'zhe'])).toBe('zhù');
+    expect(cardReading(['le'])).toBe('le');
+    expect(mandarinDefinition('interrogative or emphatic final; (Cant.) this')).toBe(
+      'interrogative or emphatic final',
+    );
+    expect(mandarinDefinition('(Cant.) only')).toBe('');
   });
 
   it('orders kHanyuPinlu readings by count, stably', () => {
@@ -176,12 +206,15 @@ describe('starter-deck builder', () => {
       ['nikl:가다01:verb', '', 'to go; to leave'],
       ['nikl:그01:pronoun', '', 'he or she'],
       ['nikl:그01:determiner', '', 'that'],
+      ['nikl:이05:pronoun', '', 'this'],
       ['nikl:전화07:noun', '電話', 'telephone'],
       ['nikl:전화하다02:verb', '電話', 'to phone'],
     ]);
     expect(ko.notes[0].fields.notes).toContain('Wikidata L20 (CC0)');
     expect(ko.notes[0].tags).toEqual(['nikl-a', 'verb']);
-    expect(ko.info.noteCount).toBe(5);
+    // The determiner row repeats the pronoun card exactly, so it only adds its tag.
+    expect(ko.notes[3].tags).toEqual(['nikl-a', 'pronoun', 'determiner']);
+    expect(ko.info.noteCount).toBe(6);
   });
 
   it('builds Mandarin notes from frequent simplified characters with customary pinyin', () => {
@@ -190,10 +223,16 @@ describe('starter-deck builder', () => {
       ['的', 'de'],
       ['一', 'yī'],
       ['这', 'zhè'],
+      ['着', 'zhe'],
+      ['地', 'dì'],
+      // Ranked by its own count (4), not the 24 it shares with 着.
       ['著', 'zhù'],
     ]);
     expect(zh.notes[0].key).toBe('unihan:U+7684');
     expect(zh.notes[0].fields.notes).toMatch(/^Also read: dí, dì\. Source: Unicode Unihan/);
+    expect(zh.notes[4].fields.notes).toMatch(/^Also read: de\. /);
+    expect(zh.notes[5].fields.meaning).toBe('manifest');
+    expect(zh.notes[5].fields.notes).toMatch(/^Source: /);
   });
 
   it('is deterministic: input order never changes the output, and rendering is byte-identical', async () => {

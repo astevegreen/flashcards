@@ -4,12 +4,12 @@ import type { StarterDeckInfo } from '../types.ts';
 export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
   {
     slug: 'starter-ko-core',
-    name: 'Korean Core + Hanja',
+    name: 'Korean Starter: Beginner Words',
     language: 'ko',
     noteTypeId: 'preset:vocab-ko',
-    noteCount: 146,
+    noteCount: 145,
     version: '1.0.0',
-    contentHash: '8c7b1ce02c6491309b5dcabd215711c2fff0388b4b9c391ca17de2c3b66f2b00',
+    contentHash: '58bd853d525abe03c1bec52fe82ffd50ebca33d13b840c94486ac5c4001419a0',
     description:
       'Beginner (level A) Korean words from the NIKL learning vocabulary list, most frequent first, with Hanja for Sino-Korean words and English meanings from Wikidata.',
     sources: [
@@ -21,7 +21,7 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
         attribution:
           "National Institute of Korean Language (국립국어원), 한국어 학습용 어휘 목록 (2003), KOGL Type 1. 이 덱은 국립국어원에서 2003년 작성하여 공공누리 제1유형으로 개방한 '한국어 학습용 어휘 목록'을 이용하였으며, 해당 저작물은 국립국어원 누리집(https://www.korean.go.kr)에서 무료로 내려받을 수 있습니다.",
         changes:
-          'Level-A (초급) entries kept in the list’s frequency-rank order; homograph numbers dropped.',
+          'Level-A (초급) entries kept in the list’s frequency-rank order; homograph numbers dropped; a word listed under two parts of speech with the same meaning is one note.',
       },
       {
         name: 'Wikidata lexemes (Korean, English glosses)',
@@ -42,7 +42,7 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
     noteTypeId: 'preset:vocab-zh',
     noteCount: 150,
     version: '1.0.0',
-    contentHash: '23f406f210dbb3a8d61a97a1dcbad510aef8953eb9edeb460c8872c2109cf776',
+    contentHash: '26a08bc5ecbd38a13d3f5cd439d3fa8ff43f9daffb56963ffc05fe637cd6e6bc',
     description:
       'The most frequent characters of modern Mandarin, with pinyin and English definitions from the Unicode Unihan database.',
     sources: [
@@ -54,7 +54,7 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
         attribution:
           'Copyright © 1991-2026 Unicode, Inc. Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition, kSimplifiedVariant), used under the Unicode License v3.',
         changes:
-          'The most frequent simplified characters by kHanyuPinlu counts, with their kMandarin pinyin and kDefinition.',
+          'The most frequent simplified characters by their own kHanyuPinlu counts, with kMandarin pinyin (a toned reading before a neutral-tone particle one) and kDefinition without Cantonese-only senses.',
       },
     ],
     module: 'zh-common',

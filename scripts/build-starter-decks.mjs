@@ -23,7 +23,7 @@ import {
   canonicalLexemeJson,
   normalizeLexeme,
   parseNiklList,
-  parseTraditionalOnly,
+  parseSimplifiedVariants,
   parseUnihanReadings,
   renderCatalogModule,
   renderDeckModule,
@@ -50,7 +50,7 @@ const NIKL_SOURCE = {
   sourceUrl: NIKL_VOCAB.pageUrl,
   attribution: `National Institute of Korean Language (국립국어원), 한국어 학습용 어휘 목록 (2003), KOGL Type 1. ${KOGL_ATTRIBUTION_KO}`,
   changes:
-    'Level-A (초급) entries kept in the list’s frequency-rank order; homograph numbers dropped.',
+    'Level-A (초급) entries kept in the list’s frequency-rank order; homograph numbers dropped; a word listed under two parts of speech with the same meaning is one note.',
 };
 
 const WIKIDATA_SOURCE = {
@@ -69,7 +69,7 @@ const UNIHAN_SOURCE = {
   sourceUrl: 'https://www.unicode.org/charts/unihan.html',
   attribution: `Copyright © 1991-2026 Unicode, Inc. Unihan ${UNIHAN.version} (kHanyuPinlu, kMandarin, kDefinition, kSimplifiedVariant), used under the Unicode License v3.`,
   changes:
-    'The most frequent simplified characters by kHanyuPinlu counts, with their kMandarin pinyin and kDefinition.',
+    'The most frequent simplified characters by their own kHanyuPinlu counts, with kMandarin pinyin (a toned reading before a neutral-tone particle one) and kDefinition without Cantonese-only senses.',
 };
 
 function readCached(dir, rel, sha256) {
@@ -111,7 +111,7 @@ export function buildStarterDecks({
   validateNotes(koNotes, 'word');
   const zhNotes = buildMandarinNotes({
     readings: parseUnihanReadings(unihanReadingsText),
-    traditional: parseTraditionalOnly(unihanVariantsText),
+    simplifiedVariants: parseSimplifiedVariants(unihanVariantsText),
     unihanVersion: UNIHAN.version,
     size,
   });
@@ -121,7 +121,7 @@ export function buildStarterDecks({
       file: 'ko-core.ts',
       info: {
         slug: 'starter-ko-core',
-        name: 'Korean Core + Hanja',
+        name: 'Korean Starter: Beginner Words',
         language: 'ko',
         noteTypeId: 'preset:vocab-ko',
         noteCount: koNotes.length,

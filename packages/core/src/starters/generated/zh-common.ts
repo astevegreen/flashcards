@@ -188,11 +188,11 @@ const deck: StarterDeckContent = {
       key: 'unihan:U+5730',
       fields: {
         word: '地',
-        reading: 'de',
+        reading: 'dì',
         meaning: 'earth; soil, ground; region',
         example: '',
         notes:
-          'Also read: dì. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: de. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
       },
       tags: ['hanzi-common'],
     },
@@ -205,18 +205,6 @@ const deck: StarterDeckContent = {
         example: '',
         notes:
           'Also read: dài. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
-      },
-      tags: ['hanzi-common'],
-    },
-    {
-      key: 'unihan:U+8457',
-      fields: {
-        word: '著',
-        reading: 'zhù',
-        meaning: 'manifest; (Cant.) to wear',
-        example: '',
-        notes:
-          'Also read: zhe, zháo, zhuó, zhāo. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
       },
       tags: ['hanzi-common'],
     },
@@ -1714,7 +1702,7 @@ const deck: StarterDeckContent = {
       fields: {
         word: '呢',
         reading: 'ne',
-        meaning: 'interrogative or emphatic final; (Cant.) this',
+        meaning: 'interrogative or emphatic final',
         example: '',
         notes:
           'Also read: ní. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
@@ -1802,6 +1790,18 @@ const deck: StarterDeckContent = {
         example: '',
         notes:
           'Also read: da. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+      },
+      tags: ['hanzi-common'],
+    },
+    {
+      key: 'unihan:U+53EB',
+      fields: {
+        word: '叫',
+        reading: 'jiào',
+        meaning: 'cry, shout; hail, greet, call',
+        example: '',
+        notes:
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
       },
       tags: ['hanzi-common'],
     },

@@ -216,7 +216,9 @@ function indexLexemesByHangul(lexemes) {
  * The Korean starter deck: NIKL level-A (초급) words in NIKL frequency-rank order, each with the
  * English glosses of the one Wikidata lexeme that unambiguously matches its spelling, part of
  * speech and Hanja (see `uniqueMatch`). A lexeme is used for one row only; rows without an
- * unambiguous match are skipped rather than guessed.
+ * unambiguous match are skipped rather than guessed. A row whose word, Hanja and meaning all
+ * equal an earlier note's (one word listed under two parts of speech, e.g. 이 as pronoun and
+ * determiner) would be an identical card: it is merged into that note as an extra tag instead.
  */
 export function buildKoreanNotes({ niklRows, lexemes, size, maxGlosses = 3 }) {
   const byLemma = indexLexemesByHangul(lexemes);
@@ -226,6 +228,8 @@ export function buildKoreanNotes({ niklRows, lexemes, size, maxGlosses = 3 }) {
     .toSorted((a, b) => a.rank - b.rank || compareCodeUnits(a.entry, b.entry));
   const used = new Set();
   const notes = [];
+  /** `word␟hanja␟meaning` → the note already showing that card. */
+  const byCard = new Map();
   for (const row of rows) {
     if (notes.length === size) break;
     const candidates = (byLemma.get(row.word) ?? []).filter((l) => !used.has(l.id));
@@ -233,17 +237,27 @@ export function buildKoreanNotes({ niklRows, lexemes, size, maxGlosses = 3 }) {
     if (lexeme === undefined) continue;
     used.add(lexeme.id);
     const pos = NIKL_POS.get(row.pos);
-    notes.push({
+    const hanja = hanOnly(row.origin);
+    const meaning = collectGlosses([lexeme], maxGlosses).join('; ');
+    const cardKey = `${row.word}␟${hanja}␟${meaning}`;
+    const same = byCard.get(cardKey);
+    if (same !== undefined) {
+      if (!same.tags.includes(pos.tag)) same.tags.push(pos.tag);
+      continue;
+    }
+    const note = {
       key: `nikl:${row.entry}:${pos.tag}`,
       fields: {
         word: row.word,
-        hanja: hanOnly(row.origin),
-        meaning: collectGlosses([lexeme], maxGlosses).join('; '),
+        hanja,
+        meaning,
         example: '',
         notes: `Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata ${lexeme.id} (CC0).`,
       },
       tags: ['nikl-a', pos.tag],
-    });
+    };
+    byCard.set(cardKey, note);
+    notes.push(note);
   }
   return notes;
 }
@@ -290,21 +304,28 @@ export function parseUnihanReadings(text) {
     const code = codePointOf(cp);
     if (field === 'kHanyuPinlu') pinlu.set(code, parseHanyuPinlu(value));
     else if (field === 'kDefinition') definition.set(code, value.trim());
-    else mandarin.set(code, value.trim().split(' ')[0]);
+    else mandarin.set(code, value.trim().split(' '));
   }
   return { pinlu, definition, mandarin };
 }
 
-/** Code points whose kSimplifiedVariant (Unihan_Variants.txt) names only other characters. */
-export function parseTraditionalOnly(variantsText) {
-  const traditional = new Set();
+/** kSimplifiedVariant (Unihan_Variants.txt) by code point: the simplified forms of a character. */
+export function parseSimplifiedVariants(variantsText) {
+  const variants = new Map();
   for (const raw of variantsText.split('\n')) {
     if (!raw.startsWith('U+')) continue;
     const [cp, field, value] = raw.replace(/\r$/, '').split('\t');
     if (field !== 'kSimplifiedVariant' || value === undefined) continue;
-    const self = codePointOf(cp);
-    const targets = value.trim().split(' ').map(codePointOf);
-    if (!targets.includes(self)) traditional.add(self);
+    variants.set(codePointOf(cp), value.trim().split(' ').map(codePointOf));
+  }
+  return variants;
+}
+
+/** Code points whose kSimplifiedVariant names only other characters (traditional-only forms). */
+export function traditionalOnly(simplifiedVariants) {
+  const traditional = new Set();
+  for (const [cp, targets] of simplifiedVariants) {
+    if (!targets.includes(cp)) traditional.add(cp);
   }
   return traditional;
 }
@@ -313,22 +334,65 @@ function hexCodePoint(cp) {
   return `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
 }
 
+/** True for a pinyin syllable with a tone mark (after NFD: macron, acute, caron or grave). */
+export function hasToneMark(pinyin) {
+  return /[̀́̄̌]/u.test(pinyin.normalize('NFD'));
+}
+
+/**
+ * The reading a card shows: kMandarin's first (zh-Hans) value, unless that is a neutral-tone
+ * particle reading and kMandarin also gives a toned one (地 `de dì`): the kDefinition gloss is
+ * the toned word's ("earth; soil"), so the card shows that and lists the particle as "also read".
+ */
+export function cardReading(values) {
+  const first = values[0];
+  if (hasToneMark(first)) return first;
+  return values.find((v) => hasToneMark(v)) ?? first;
+}
+
+/** kDefinition without its Cantonese-only senses (`manifest; (Cant.) to wear` → `manifest`). */
+export function mandarinDefinition(definition) {
+  return definition
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s !== '' && !s.startsWith('(Cant.)'))
+    .join('; ');
+}
+
+/**
+ * kHanyuPinlu counts that belong to the character itself. A character whose simplified variants
+ * include another character (著 → 着, 著) is often given that variant's counts too: a reading
+ * with exactly the same count in a simplified variant is that variant's, so it is not counted.
+ */
+function ownCounts(cp, counts, pinlu, simplifiedVariants) {
+  const others = (simplifiedVariants.get(cp) ?? []).filter((v) => v !== cp);
+  if (others.length === 0) return counts;
+  const shared = new Set();
+  for (const v of others) {
+    for (const r of pinlu.get(v) ?? []) shared.add(`${r.pinyin}(${r.count})`);
+  }
+  return counts.filter((r) => !shared.has(`${r.pinyin}(${r.count})`));
+}
+
 /**
  * The Mandarin starter deck: the `size` most frequent simplified characters of modern Mandarin by
- * the kHanyuPinlu counts (from 《現代漢語頻率詞典》, summed over readings), with their customary
- * kMandarin pinyin and the Unihan English definition. Traditional-only forms are left out. Ties
- * break by code point.
+ * the kHanyuPinlu counts (from 《現代漢語頻率詞典》, summed over the character's own readings, see
+ * `ownCounts`), with their kMandarin pinyin (see `cardReading`) and the Unihan English definition
+ * without Cantonese-only senses. Traditional-only forms are left out. Ties break by code point.
  */
-export function buildMandarinNotes({ readings, traditional, unihanVersion, size }) {
+export function buildMandarinNotes({ readings, simplifiedVariants, unihanVersion, size }) {
   const { pinlu, definition, mandarin } = readings;
+  const traditional = traditionalOnly(simplifiedVariants);
   const ranked = [...pinlu.entries()]
-    .filter(([cp, counts]) => counts.length > 0 && definition.has(cp) && mandarin.has(cp))
-    .filter(([cp]) => !traditional.has(cp))
-    .map(([cp, counts]) => ({ cp, counts, total: counts.reduce((sum, r) => sum + r.count, 0) }))
+    .filter(([cp]) => !traditional.has(cp) && mandarin.has(cp))
+    .filter(([cp]) => mandarinDefinition(definition.get(cp) ?? '') !== '')
+    .map(([cp, counts]) => ({ cp, counts: ownCounts(cp, counts, pinlu, simplifiedVariants) }))
+    .filter(({ counts }) => counts.length > 0)
+    .map((r) => ({ ...r, total: r.counts.reduce((sum, c) => sum + c.count, 0) }))
     .toSorted((a, b) => b.total - a.total || a.cp - b.cp)
     .slice(0, size);
   return ranked.map(({ cp, counts }) => {
-    const reading = mandarin.get(cp);
+    const reading = cardReading(mandarin.get(cp));
     const others = counts.map((r) => r.pinyin).filter((p) => p !== reading);
     const also = others.length > 0 ? `Also read: ${others.join(', ')}. ` : '';
     return {
@@ -336,7 +400,7 @@ export function buildMandarinNotes({ readings, traditional, unihanVersion, size 
       fields: {
         word: String.fromCodePoint(cp),
         reading,
-        meaning: definition.get(cp),
+        meaning: mandarinDefinition(definition.get(cp)),
         example: '',
         notes: `${also}Source: Unicode Unihan ${unihanVersion} (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.`,
       },
