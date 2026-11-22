@@ -10,7 +10,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@capacitor/core": "^8.6.2",
     "@flash/core": "workspace:*",
     "@flash/platform": "workspace:*",
     "@flash/platform-capacitor": "workspace:*",

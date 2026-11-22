@@ -22,7 +22,7 @@ function productionCspPlugin(): Plugin {
           "media-src 'self' blob:",
           "font-src 'self'",
           "frame-src 'self' https://docs.google.com https://accounts.google.com",
-          "connect-src 'self' https:",
+          "connect-src 'self' https: ipc: http://ipc.localhost",
           "object-src 'none'",
           "base-uri 'self'",
           "form-action 'self'",

@@ -162,6 +162,8 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+packageExtensionsChecksum: sha256-zqLbWQL+EFS3lMrrtoTj2yqSbPLXG6ihl3kNjRywcJo=
+
 importers:
 
   .:
@@ -285,9 +287,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@capacitor/core':
-        specifier: ^8.6.2
-        version: 8.6.2
       '@flash/core':
         specifier: workspace:*
         version: link:../../packages/core
