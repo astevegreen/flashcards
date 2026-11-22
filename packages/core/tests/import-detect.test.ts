@@ -69,6 +69,12 @@ describe('detectImportFile (magic bytes + zip entry names + header row)', () => 
       'n.txt',
       'unsupported:no-columns',
     ],
+    [
+      'Anki plain-text export',
+      encodeUtf8('#separator:tab\n#html:true\n犬\tdog\n'),
+      'notes.txt',
+      'unsupported:anki-text',
+    ],
     ['empty file', new Uint8Array(0), 'e.csv', 'unsupported:empty'],
     ['whitespace only', encodeUtf8(' \n\n\t'), 'e.csv', 'unsupported:empty'],
     ['UTF-16 text', new Uint8Array([0xff, 0xfe, 0x54, 0x00]), 'u.txt', 'unsupported:utf16'],

@@ -20,6 +20,7 @@ export type UnsupportedImportReason =
   | 'binary'
   | 'utf16'
   | 'no-columns'
+  | 'anki-text'
   | 'google-docs'
   | 'google-published'
   | 'google-drive-file'
@@ -139,6 +140,14 @@ function isFlashcardsDeluxeTextHeader(header: string): boolean {
 
 /** Text with a header row of two or more columns is a CSV/TSV table. */
 function detectDelimitedText(text: string): DetectedImport {
+  // Anki 2.1.55+ "Notes in Plain Text" exports start with `#separator:` / `#html:` headers.
+  const body = text.startsWith('﻿') ? text.slice(1) : text;
+  if (body.startsWith('#separator:')) {
+    return unsupported(
+      'anki-text',
+      'This is an Anki plain-text export. In Anki, choose File > Export and pick "Anki Deck Package (*.apkg)" instead, so note types, media and furigana come along.',
+    );
+  }
   const parsed = parseDelimitedText(text);
   const headers = parsed.headers.filter((h) => h.length > 0);
   if (headers.some(isFlashcardsDeluxeTextHeader)) {
