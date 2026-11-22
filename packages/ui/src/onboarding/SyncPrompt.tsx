@@ -18,7 +18,7 @@ export function SyncPrompt({
       className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left"
     >
       <p className="min-w-0 flex-1 basis-56 text-sm">
-        <span className="font-semibold">Nice first session.</span>{' '}
+        <span className="font-semibold">Nice session.</span>{' '}
         <span className="text-[var(--muted)]">
           Want your cards and progress on your other devices too?
         </span>

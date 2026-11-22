@@ -79,6 +79,14 @@ export function peekOnboardingRecord(storage: KvStore): OnboardingRecord | undef
   return settled.get(storage);
 }
 
+/**
+ * True once this device's record has been read (or saved, or forgotten). "No record" and "not
+ * read yet" both peek as `undefined`; UI that treats "no record" as "ask" checks this first.
+ */
+export function isOnboardingRecordSettled(storage: KvStore): boolean {
+  return settled.has(storage);
+}
+
 export async function saveOnboardingRecord(
   storage: KvStore,
   record: OnboardingRecord,

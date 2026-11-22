@@ -237,7 +237,7 @@ export function AppProvider({
   // Phase 14 add-device link (`?sync=<provider>&col=<collection id>`): read and stripped from
   // the address bar once per page load. Its collection id is kept on this device until the first
   // sync confirms the new device reached that collection (it survives the sign-in redirect).
-  const [openedAddDeviceLink] = useState(consumeAddDeviceLinkFromLocation);
+  const [openedAddDeviceLink, setOpenedAddDeviceLink] = useState(consumeAddDeviceLinkFromLocation);
   useEffect(() => {
     const storage = platform.storage;
     void import('../sync/addDeviceExpectation.ts')
@@ -866,6 +866,8 @@ export function AppProvider({
     ]);
     void onboarding?.forgetOnboardingRecord(platform.storage);
     void addDevice?.clearAddDeviceExpectation(platform.storage);
+    // The link this page load was opened with is forgotten too (it was read once and stripped).
+    setOpenedAddDeviceLink(undefined);
     metaRef.current = freshMeta;
     stateRef.current = createEmptyState();
     factoryRef.current = createEventFactory(freshMeta.deviceId, 0, freshMeta.hlc);

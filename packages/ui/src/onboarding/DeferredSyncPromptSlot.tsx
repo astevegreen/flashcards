@@ -1,6 +1,7 @@
 import type { Storage, SyncProviderKind } from '@flash/platform';
 import { lazy, Suspense, useState } from 'react';
 import {
+  isOnboardingRecordSettled,
   onboardingRecordResource,
   peekOnboardingRecord,
   saveOnboardingRecord,
@@ -57,6 +58,9 @@ export function DeferredSyncPromptSlot({
   const [answered, setAnswered] = useState<OnboardingRecord | undefined>(undefined);
   const [panelOpen, setPanelOpen] = useState(false);
   const record = answered ?? peekOnboardingRecord(storage);
+  // "No record" asks (a collection from before onboarding), so the read must have settled first:
+  // otherwise a device that already answered could be asked again in a narrow race.
+  const recordKnown = answered !== undefined || isOnboardingRecordSettled(storage);
 
   if (panelOpen) {
     return (
@@ -69,7 +73,12 @@ export function DeferredSyncPromptSlot({
   }
 
   const visible =
-    armed && caughtUp && sessionReviewed && provider === 'none' && wantsSyncPrompt(record);
+    armed &&
+    caughtUp &&
+    sessionReviewed &&
+    provider === 'none' &&
+    recordKnown &&
+    wantsSyncPrompt(record);
   if (!visible) return null;
 
   const answer = (syncPrompt: SyncPromptState) => {
