@@ -18,7 +18,8 @@ import {
   type ReviewRating,
 } from '@flash/core';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useApp } from '../state/AppContext.tsx';
+import { DeferredSyncPromptSlot } from '../onboarding/DeferredSyncPromptSlot.tsx';
+import { useApp, type AppContextValue } from '../state/AppContext.tsx';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
 import {
@@ -40,7 +41,8 @@ const LazyStudyFilterPanel = lazy(() =>
   import('../study/StudyFilterPanel.tsx').then((m) => ({ default: m.StudyFilterPanel })),
 );
 
-// First-run zero-deck onboarding: shown once per collection, so it stays off the critical path (§8).
+// Zero-deck screen with first-run onboarding (pick a language, then a starter deck): shown only
+// while the collection is empty, so it stays off the critical path (§8).
 const LazyEmptyCollection = lazy(() =>
   import('../study/EmptyCollection.tsx').then((m) => ({ default: m.EmptyCollection })),
 );
@@ -271,6 +273,22 @@ function CaughtUpPanel({
   );
 }
 
+/** Onboarding's starter deck: seeds only that sample deck (lazily) and studies it right away. */
+function startWithSampleDeck(
+  slug: string,
+  app: Pick<AppContextValue, 'getEventFactory' | 'setActiveDeckId' | 'emitEvents'>,
+): void {
+  void import('@flash/core/samples').then((samples) => {
+    const events = samples.buildSampleDeckEvents(
+      app.getEventFactory(),
+      samples.SAMPLE_SEED_EPOCH_MS,
+      { deckSlugs: [slug] },
+    );
+    app.setActiveDeckId(samples.sampleDeckId(slug));
+    app.emitEvents(events);
+  });
+}
+
 export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps) {
   const {
     platform,
@@ -285,6 +303,9 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     updateNote,
     markNoteReviewed,
     loadSampleDecks,
+    emitEvents,
+    getEventFactory,
+    syncState,
   } = useApp();
 
   const [revealStep, setRevealStep] = useState(0);
@@ -700,10 +721,14 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     return (
       <Suspense fallback={null}>
         <LazyEmptyCollection
+          storage={platform.storage}
           starterCatalogUrl={platform.starterCatalogUrl}
           onOpenLibrary={onOpenLibrary}
           onOpenSettings={onOpenSettings}
           onLoadSamples={loadSampleDecks}
+          onStartWithDeck={(deck) =>
+            startWithSampleDeck(deck.slug, { getEventFactory, setActiveDeckId, emitEvents })
+          }
         />
       </Suspense>
     );
@@ -884,19 +909,28 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
 
       {/* Main Card Surface or Caught-Up State */}
       {!currentCard || !currentNote || !currentLayout || !currentDeck ? (
-        <CaughtUpPanel
-          message={caughtUpMessage(
-            nextLearningDueAt,
-            nowMs,
-            studyFilter,
-            queueResult.buriedNoteIds.size,
-          )}
-          learningPending={nextLearningDueAt !== undefined}
-          hasFilter={Boolean(studyFilter)}
-          canStudyAll={activeDeckId !== undefined}
-          onStudyAll={() => setActiveDeckId(undefined)}
-          onOpenLibrary={onOpenLibrary}
-        />
+        <>
+          <CaughtUpPanel
+            message={caughtUpMessage(
+              nextLearningDueAt,
+              nowMs,
+              studyFilter,
+              queueResult.buriedNoteIds.size,
+            )}
+            learningPending={nextLearningDueAt !== undefined}
+            hasFilter={Boolean(studyFilter)}
+            canStudyAll={activeDeckId !== undefined}
+            onStudyAll={() => setActiveDeckId(undefined)}
+            onOpenLibrary={onOpenLibrary}
+          />
+          {/* Deferred onboarding sync step: after the first finished session, below every control. */}
+          <DeferredSyncPromptSlot
+            storage={platform.storage}
+            provider={syncState.provider}
+            sessionReviewed={undoStack.length > 0}
+            onOpenSettings={onOpenSettings}
+          />
+        </>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3 short:flex-row">
           <StudyCard
