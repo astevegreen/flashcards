@@ -240,17 +240,19 @@ export function AppProvider({
   const [openedAddDeviceLink, setOpenedAddDeviceLink] = useState(consumeAddDeviceLinkFromLocation);
   useEffect(() => {
     const storage = platform.storage;
-    void import('../sync/addDeviceExpectation.ts')
-      .then((m) => {
-        if (openedAddDeviceLink?.collectionId !== undefined) {
-          return m.saveAddDeviceExpectation(storage, openedAddDeviceLink);
-        }
-        if (openedAddDeviceLink) return m.clearAddDeviceExpectation(storage);
-        return m.addDeviceExpectationResource(storage).then(() => undefined);
-      })
-      .catch(() => {
-        // Optional: without it the app just cannot confirm the collection after sign-in.
-      });
+    const persist = async (): Promise<void> => {
+      const m = await import('../sync/addDeviceExpectation.ts');
+      if (openedAddDeviceLink?.collectionId !== undefined) {
+        await m.saveAddDeviceExpectation(storage, openedAddDeviceLink);
+      } else if (openedAddDeviceLink) {
+        await m.clearAddDeviceExpectation(storage);
+      } else {
+        await m.addDeviceExpectationResource(storage);
+      }
+    };
+    persist().catch(() => {
+      // Optional: without it the app just cannot confirm the collection after sign-in.
+    });
   }, [openedAddDeviceLink, platform.storage]);
 
   const enqueuePersist = useCallback((task: () => Promise<void>): Promise<void> => {

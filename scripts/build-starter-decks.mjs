@@ -210,8 +210,10 @@ async function main() {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch((err) => {
+  try {
+    await main();
+  } catch (err) {
     console.error(err instanceof Error ? err.message : err);
     process.exit(1);
-  });
+  }
 }

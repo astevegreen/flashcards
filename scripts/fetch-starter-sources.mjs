@@ -93,7 +93,7 @@ function extractUnihanTables(zip, dir) {
 }
 
 function sparqlString(value) {
-  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"@ko`;
+  return `"${value.replaceAll('\\', String.raw`\\`).replaceAll('"', String.raw`\"`)}"@ko`;
 }
 
 /** Owner step: pins every Korean lexeme with an English gloss whose lemma is a NIKL A word. */
@@ -192,7 +192,9 @@ async function main() {
   console.log(`Starter-deck sources ready in ${opts.dir}`);
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}

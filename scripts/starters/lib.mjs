@@ -52,7 +52,7 @@ export function parseNiklList(text) {
 /** `가다01` → `가다` (only trailing ASCII digits are removed). */
 export function stripHomographNumber(entry) {
   let end = entry.length;
-  while (end > 0 && entry.charCodeAt(end - 1) >= 48 && entry.charCodeAt(end - 1) <= 57) end--;
+  while (end > 0 && entry.codePointAt(end - 1) >= 48 && entry.codePointAt(end - 1) <= 57) end--;
   return entry.slice(0, end);
 }
 
@@ -72,8 +72,7 @@ export function hanOnly(text) {
  */
 export function normalizeLexeme(entityJson, id) {
   const entity = entityJson?.entities?.[id];
-  if (!entity || entity.type !== 'lexeme')
-    throw new Error(`${id}: not a lexeme in EntityData JSON`);
+  if (entity?.type !== 'lexeme') throw new Error(`${id}: not a lexeme in EntityData JSON`);
   const lemmas = Object.values(entity.lemmas ?? {})
     .map((l) => [l.language, l.value])
     .toSorted((a, b) => compareCodeUnits(a[0], b[0]));

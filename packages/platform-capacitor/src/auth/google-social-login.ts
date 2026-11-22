@@ -54,7 +54,9 @@ export function createGoogleSignIn(
     await runAfterLogin();
     const token = result.responseType === 'online' ? result.accessToken?.token : undefined;
     if (!token) throw new Error('Google Sign-In did not return an access token.');
-    const expiresAt = result.accessToken?.expires ? Date.parse(result.accessToken.expires) : NaN;
+    const expiresAt = result.accessToken?.expires
+      ? Date.parse(result.accessToken.expires)
+      : Number.NaN;
     const expiresInSeconds = Number.isFinite(expiresAt)
       ? Math.max(60, Math.round((expiresAt - nowMs()) / 1000))
       : 3500;

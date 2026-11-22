@@ -80,17 +80,10 @@ export async function bootCapacitorPlatform(
   });
   await prepareSecureStorageAtLaunch({ database, routing: secureKv });
 
-  const googleAfterLogin = googleSignInCleanup(mobilePlatform, secureStorage);
-  const googleSignInPlugin = config.googleClientId
-    ? await createGoogleSignInPlugin({
-        webClientId: config.googleClientId,
-        ...(config.googleIosClientId ? { iOSClientId: config.googleIosClientId } : {}),
-        ...(googleAfterLogin ? { afterLogin: googleAfterLogin } : {}),
-      }).catch((err: unknown) => {
-        console.warn('Google Sign-In plugin unavailable:', err);
-        return undefined;
-      })
-    : undefined;
+  const googleSignInPlugin = await loadGoogleSignInPlugin(
+    config,
+    googleSignInCleanup(mobilePlatform, secureStorage),
+  );
 
   const base = config.base;
   const native = createCapacitorPlatform({
@@ -114,24 +107,7 @@ export async function bootCapacitorPlatform(
     ...(config.starterCatalogUrl ? { starterCatalogUrl: config.starterCatalogUrl } : {}),
   });
 
-  const microsoftClientId = config.microsoftClientId;
-  const loadOneDrive = microsoftClientId
-    ? retryableOnce(async () => {
-        const [{ createMicrosoftSocialLoginBridge }, { createNativeOneDriveServices }] =
-          await Promise.all([
-            import('./microsoft-social-login.ts'),
-            import('@flash/platform-web/onedrive'),
-          ]);
-        return createNativeOneDriveServices({
-          bridge: await createMicrosoftSocialLoginBridge({
-            clientId: microsoftClientId,
-            ...(config.microsoftTenant ? { tenant: config.microsoftTenant } : {}),
-            secureStore: secureStorage,
-          }),
-          storage: native.storage,
-        });
-      })
-    : undefined;
+  const loadOneDrive = oneDriveLoader(config, secureStorage, native.storage);
 
   // In the background, so it never delays the first study screen.
   void clearPluginTokenCopiesAtLaunch({
@@ -154,4 +130,47 @@ export async function bootCapacitorPlatform(
       return createLocalNotificationReminderScheduler(createLocalNotificationsBridge());
     },
   };
+}
+
+/** The native Google sign-in plugin, or `undefined` when Google isn't configured or won't load. */
+async function loadGoogleSignInPlugin(
+  config: CapacitorBootConfig,
+  afterLogin: ReturnType<typeof googleSignInCleanup>,
+): Promise<Awaited<ReturnType<typeof createGoogleSignInPlugin>> | undefined> {
+  if (!config.googleClientId) return undefined;
+  try {
+    return await createGoogleSignInPlugin({
+      webClientId: config.googleClientId,
+      ...(config.googleIosClientId ? { iOSClientId: config.googleIosClientId } : {}),
+      ...(afterLogin ? { afterLogin } : {}),
+    });
+  } catch (err: unknown) {
+    console.warn('Google Sign-In plugin unavailable:', err);
+    return undefined;
+  }
+}
+
+/** Lazily builds the OneDrive services (only when a Microsoft client id is configured). */
+function oneDriveLoader(
+  config: CapacitorBootConfig,
+  secureStore: ReturnType<typeof createNativeSecureStorage>,
+  storage: PlatformServices['storage'],
+) {
+  const clientId = config.microsoftClientId;
+  if (!clientId) return undefined;
+  return retryableOnce(async () => {
+    const [{ createMicrosoftSocialLoginBridge }, { createNativeOneDriveServices }] =
+      await Promise.all([
+        import('./microsoft-social-login.ts'),
+        import('@flash/platform-web/onedrive'),
+      ]);
+    return createNativeOneDriveServices({
+      bridge: await createMicrosoftSocialLoginBridge({
+        clientId,
+        ...(config.microsoftTenant ? { tenant: config.microsoftTenant } : {}),
+        secureStore,
+      }),
+      storage,
+    });
+  });
 }

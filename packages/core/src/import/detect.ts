@@ -57,7 +57,7 @@ function startsWithBytes(bytes: Uint8Array, prefix: readonly number[]): boolean 
   return prefix.every((b, i) => bytes[i] === b);
 }
 
-const SQLITE_MAGIC = [...'SQLite format 3'].map((c) => c.charCodeAt(0));
+const SQLITE_MAGIC = [...'SQLite format 3'].map((c) => c.codePointAt(0) ?? 0);
 
 function lowerExtension(fileName: string | undefined): string {
   if (!fileName) return '';
@@ -301,7 +301,7 @@ export function parseGoogleSheetsUrl(
   text: string,
 ): { spreadsheetId: string; url: string } | undefined {
   const link = parseLink(text);
-  if (!link || link.host !== 'docs.google.com') return undefined;
+  if (link?.host !== 'docs.google.com') return undefined;
   const id = spreadsheetIdFrom(link.segments);
   if (!id || !isDriveFileId(id)) return undefined;
   return { spreadsheetId: id, url: `https://docs.google.com/spreadsheets/d/${id}/edit` };

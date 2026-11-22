@@ -119,6 +119,8 @@ export function EmptyCollection({
     });
   };
 
+  const onboardingErrorProps = startError === undefined ? {} : { error: startError };
+
   return (
     <section className="flex min-w-0 flex-1 flex-col items-center justify-center gap-5 py-12 text-center">
       <div className="max-w-md min-w-0 space-y-2">
@@ -133,7 +135,7 @@ export function EmptyCollection({
               onPickDeck={(deck) => void startWithDeck(deck)}
               onSkip={skipOnboarding}
               busy={starting}
-              {...(startError === undefined ? {} : { error: startError })}
+              {...onboardingErrorProps}
             />
           ) : (
             <SyncMyDevicesPanel variant="panel" fromEmptyScreen onOpenSettings={onOpenSettings} />

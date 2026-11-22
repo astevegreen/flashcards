@@ -90,7 +90,14 @@ interface InputViewProps {
   onLink: (text: string) => void;
 }
 
-function InputView({ busyName, message, error, onFile, onTooLarge, onLink }: InputViewProps) {
+function InputView({
+  busyName,
+  message,
+  error,
+  onFile,
+  onTooLarge,
+  onLink,
+}: Readonly<InputViewProps>) {
   const { platform } = useApp();
   const [link, setLink] = useState('');
   const [dragging, setDragging] = useState(false);

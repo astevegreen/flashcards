@@ -701,7 +701,7 @@ async function suspended() {
 
 /** A second 1x1 PNG and a second tiny MP3 with different bytes, so their hashes differ. */
 const PNG_1X1_B = new Uint8Array([...PNG_1X1, 0x00]); // decoders ignore bytes after IEND
-const MP3_TINY_B = new Uint8Array([...MP3_TINY.subarray(0, MP3_TINY.length - 1), 0x01]);
+const MP3_TINY_B = new Uint8Array([...MP3_TINY.subarray(0, -1), 0x01]);
 
 /** Phase 14: several images and sounds in one field (all are kept, duplicates once). */
 async function multiMedia() {

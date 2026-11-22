@@ -43,7 +43,7 @@ describe('curated starter decks (generated data)', () => {
       const info = findStarterDeck(slug);
       if (!info) throw new Error(`missing ${slug}`);
       const content = await loadStarterDeck(slug);
-      expect(content.notes.length).toBe(info.noteCount);
+      expect(content.notes).toHaveLength(info.noteCount);
       const hash = createHash('sha256').update(JSON.stringify(content.notes)).digest('hex');
       expect(hash).toBe(info.contentHash);
 
