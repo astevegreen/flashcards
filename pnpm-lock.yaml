@@ -268,6 +268,9 @@ importers:
       '@capgo/native-purchases':
         specifier: ^8.9.17
         version: 8.9.17(@capacitor/core@8.6.2)
+      '@flash/capacitor-secure-storage':
+        specifier: workspace:*
+        version: link:../../packages/capacitor-secure-storage
       '@flash/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -340,6 +343,12 @@ importers:
         specifier: ^2.0.0
         version: 2.0.0(supports-color@10.2.2)(vite@8.3.8(@types/node@18.19.130)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))(workbox-build@7.4.1(supports-color@10.2.2))(workbox-window@7.4.1)
 
+  packages/capacitor-secure-storage:
+    devDependencies:
+      '@capacitor/core':
+        specifier: ^8.6.2
+        version: 8.6.2
+
   packages/content-schema:
     dependencies:
       zod:
@@ -402,6 +411,9 @@ importers:
       '@capgo/native-purchases':
         specifier: ^8.9.17
         version: 8.9.17(@capacitor/core@8.6.2)
+      '@flash/capacitor-secure-storage':
+        specifier: workspace:*
+        version: link:../capacitor-secure-storage
       '@flash/core':
         specifier: workspace:*
         version: link:../core

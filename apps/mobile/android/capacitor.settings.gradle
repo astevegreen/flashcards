@@ -31,3 +31,6 @@ project(':capgo-capacitor-social-login').projectDir = new File('../../../node_mo
 
 include ':capgo-native-purchases'
 project(':capgo-native-purchases').projectDir = new File('../../../node_modules/.pnpm/@capgo+native-purchases@8.9.17_@capacitor+core@8.6.2/node_modules/@capgo/native-purchases/android')
+
+include ':flash-capacitor-secure-storage'
+project(':flash-capacitor-secure-storage').projectDir = new File('../../../packages/capacitor-secure-storage/android')

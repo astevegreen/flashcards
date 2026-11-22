@@ -27,6 +27,7 @@
     "@capawesome/capacitor-file-picker": "^8.1.1",
     "@capgo/capacitor-social-login": "^8.7.13",
     "@capgo/native-purchases": "^8.9.17",
+    "@flash/capacitor-secure-storage": "workspace:*",
     "@flash/core": "workspace:*",
     "@flash/platform": "workspace:*",
     "@flash/platform-capacitor": "workspace:*"

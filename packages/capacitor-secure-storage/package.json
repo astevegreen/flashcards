@@ -1,0 +1,40 @@
+{
+  "name": "@flash/capacitor-secure-storage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Key/value secret storage for the Capacitor shell: iOS Keychain and Android Keystore.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/",
+    "android/src/main/",
+    "android/build.gradle",
+    "ios/Sources",
+    "Package.swift"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^8.6.2"
+  }
+}
