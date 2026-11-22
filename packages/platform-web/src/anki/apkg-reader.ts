@@ -70,6 +70,78 @@ function decompress(
   }
 }
 
+const UNICASE = 'unicase';
+const COLLATE = 'collate';
+
+function asciiLower(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const code = ch.charCodeAt(0);
+    out += code >= 65 && code <= 90 ? String.fromCodePoint(code + 32) : ch;
+  }
+  return out;
+}
+
+function isSqlSpace(ch: string | undefined): boolean {
+  return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
+}
+
+function isIdentChar(ch: string | undefined): boolean {
+  if (ch === undefined) return false;
+  const code = ch.charCodeAt(0);
+  return (code >= 97 && code <= 122) || (code >= 48 && code <= 57) || ch === '_';
+}
+
+/** Start of the `COLLATE` (and the spaces before it) that `unicase` at `at` belongs to, or -1. */
+function collateClauseStart(lower: string, at: number): number {
+  if (isIdentChar(lower[at + UNICASE.length])) return -1;
+  let end = at;
+  while (end > 0 && isSqlSpace(lower[end - 1])) end -= 1;
+  if (end === at || !lower.endsWith(COLLATE, end)) return -1;
+  let start = end - COLLATE.length;
+  if (isIdentChar(lower[start - 1])) return -1;
+  while (start > 0 && isSqlSpace(lower[start - 1])) start -= 1;
+  return start;
+}
+
+/** Removes every `COLLATE unicase` clause (any ASCII case or spacing) from a schema statement. */
+export function stripUnicaseCollation(sql: string): string {
+  const lower = asciiLower(sql);
+  let out = '';
+  let pos = 0;
+  for (let at = lower.indexOf(UNICASE); at !== -1; at = lower.indexOf(UNICASE, at + 1)) {
+    const start = collateClauseStart(lower, at);
+    if (start === -1 || start < pos) continue;
+    out += sql.slice(pos, start);
+    pos = at + UNICASE.length;
+  }
+  return out + sql.slice(pos);
+}
+
+function sqlString(text: string): string {
+  return `'${text.replaceAll("'", "''")}'`;
+}
+
+/**
+ * Anki 2.1.50+ (schema 18) declares names `COLLATE unicase`, a collation Anki registers itself.
+ * sql.js cannot register collations, and SQLite refuses to plan any query on a `WITHOUT ROWID`
+ * table or index that uses a missing one, so the reader drops the clause from this throwaway
+ * in-memory copy's schema. Only full-table reads follow, so the B-tree order is irrelevant.
+ */
+function dropUnicaseCollation(db: SqlDatabaseLike): void {
+  const rows = db.exec("SELECT name, sql FROM sqlite_master WHERE sql LIKE '%unicase%'")[0];
+  if (!rows || rows.values.length === 0) return;
+  const version = Number(db.exec('PRAGMA schema_version')[0]?.values[0]?.[0] ?? 0);
+  db.exec('PRAGMA writable_schema = ON');
+  for (const [name, sql] of rows.values) {
+    const stripped = sqlString(stripUnicaseCollation(String(sql)));
+    db.exec(`UPDATE sqlite_master SET sql = ${stripped} WHERE name = ${sqlString(String(name))}`);
+  }
+  // Bumping the schema cookie makes SQLite reload the edited schema before the next query.
+  db.exec(`PRAGMA schema_version = ${version + 1}`);
+  db.exec('PRAGMA writable_schema = OFF');
+}
+
 function tableNames(db: SqlDatabaseLike): Set<string> {
   const result = db.exec("SELECT name FROM sqlite_master WHERE type = 'table'")[0];
   return new Set((result?.values ?? []).map((row) => String(row[0]).toLowerCase()));
@@ -174,6 +246,7 @@ export async function readApkg(
   const db = await openCollection(deps, collectionBytes);
   let tables: Partial<Record<AnkiTableName, AnkiSqlTable>>;
   try {
+    dropUnicaseCollation(db);
     tables = readTables(db, limits, options.includeReviewHistory === true);
   } catch (err) {
     if (err instanceof AnkiImportError) throw err;

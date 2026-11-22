@@ -179,14 +179,64 @@ CREATE TABLE revlog (id integer primary key, cid integer not null, usn integer n
 CREATE TABLE graves (usn integer not null, oid integer not null, type integer not null);
 `;
 
-const SCHEMA_18 = `
-CREATE TABLE notetypes (id integer not null primary key, name text not null, mtime_secs integer not null, usn integer not null, config blob not null);
-CREATE TABLE fields (ntid integer not null, ord integer not null, name text not null, config blob not null, primary key (ntid, ord));
-CREATE TABLE templates (ntid integer not null, ord integer not null, name text not null, mtime_secs integer not null, usn integer not null, config blob not null, primary key (ntid, ord));
-CREATE TABLE decks (id integer primary key not null, name text not null, mtime_secs integer not null, usn integer not null, common blob not null, kind blob not null);
-CREATE TABLE config (KEY text not null primary key, usn integer not null, mtime_secs integer not null, val blob not null);
-CREATE TABLE tags (tag text not null primary key, usn integer not null, collapsed boolean not null, config blob null);
-`;
+/**
+ * Anki's own schema-18 DDL for the tables the reader touches, `COLLATE unicase`, unique name
+ * indexes and `WITHOUT ROWID` included. sql.js has no `unicase` collation (and no API to add
+ * one), so `createSchema18` creates the tables without it and `restoreUnicase` then writes the
+ * real declarations into `sqlite_master`: the fixture carries the exact schema a real export
+ * has, and the reader must cope with the missing collation.
+ */
+const SCHEMA_18 = [
+  [
+    'notetypes',
+    'CREATE TABLE notetypes (id integer NOT NULL PRIMARY KEY, name text NOT NULL COLLATE unicase, mtime_secs integer NOT NULL, usn integer NOT NULL, config blob NOT NULL)',
+  ],
+  ['idx_notetypes_name', 'CREATE UNIQUE INDEX idx_notetypes_name ON notetypes (name)'],
+  ['idx_notetypes_usn', 'CREATE INDEX idx_notetypes_usn ON notetypes (usn)'],
+  [
+    'fields',
+    'CREATE TABLE fields (ntid integer NOT NULL, ord integer NOT NULL, name text NOT NULL COLLATE unicase, config blob NOT NULL, PRIMARY KEY (ntid, ord)) without rowid',
+  ],
+  ['idx_fields_name_ntid', 'CREATE UNIQUE INDEX idx_fields_name_ntid ON fields (name, ntid)'],
+  [
+    'templates',
+    'CREATE TABLE templates (ntid integer NOT NULL, ord integer NOT NULL, name text NOT NULL COLLATE unicase, mtime_secs integer NOT NULL, usn integer NOT NULL, config blob NOT NULL, PRIMARY KEY (ntid, ord)) without rowid',
+  ],
+  [
+    'idx_templates_name_ntid',
+    'CREATE UNIQUE INDEX idx_templates_name_ntid ON templates (name, ntid)',
+  ],
+  ['idx_templates_usn', 'CREATE INDEX idx_templates_usn ON templates (usn)'],
+  [
+    'decks',
+    'CREATE TABLE decks (id integer PRIMARY KEY NOT NULL, name text NOT NULL COLLATE unicase, mtime_secs integer NOT NULL, usn integer NOT NULL, common blob NOT NULL, kind blob NOT NULL)',
+  ],
+  ['idx_decks_name', 'CREATE UNIQUE INDEX idx_decks_name ON decks (name)'],
+  [
+    'config',
+    'CREATE TABLE config (KEY text NOT NULL PRIMARY KEY, usn integer NOT NULL, mtime_secs integer NOT NULL, val blob NOT NULL) without rowid',
+  ],
+  [
+    'tags',
+    'CREATE TABLE tags (tag text NOT NULL PRIMARY KEY COLLATE unicase, usn integer NOT NULL, collapsed boolean NOT NULL, config blob NULL) without rowid',
+  ],
+];
+
+const UNICASE = ' COLLATE unicase';
+
+function createSchema18(db) {
+  for (const [, sql] of SCHEMA_18) db.run(sql.replaceAll(UNICASE, ''));
+}
+
+/** Writes Anki's real `COLLATE unicase` declarations into the schema (after the rows exist). */
+function restoreUnicase(db) {
+  db.run('PRAGMA writable_schema = ON');
+  for (const [name, sql] of SCHEMA_18) {
+    if (sql.includes(UNICASE))
+      db.run('UPDATE sqlite_master SET sql = ? WHERE name = ?', [sql, name]);
+  }
+  db.run('PRAGMA writable_schema = OFF');
+}
 
 let sqlPromise;
 function sqlJs() {
@@ -610,7 +660,7 @@ async function anki21b() {
   const db = new SQL.Database();
   db.run(SMALL_PAGES);
   db.run(SCHEMA_COMMON);
-  db.run(SCHEMA_18);
+  createSchema18(db);
   db.run("INSERT INTO col VALUES (1, ?, ?, ?, 18, 0, 0, 0, '', '', '', '', '')", [
     CRT,
     CRT * 1000,
@@ -678,6 +728,7 @@ async function anki21b() {
       [1_600_000_014_001, 1_600_000_014_000, 1_600_000_000_500, 0],
     ],
   });
+  restoreUnicase(db);
   const collection = db.export();
   db.close();
   const mediaMap = new Uint8Array(

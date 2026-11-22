@@ -26,8 +26,18 @@ import {
 } from '@flash/core/anki';
 import initSqlJs from 'sql.js';
 import { describe, expect, it, vi } from 'vitest';
-import { handleAnkiReadRequest, type AnkiReadResponse } from '../src/anki/anki-reader-protocol.ts';
-import { readApkg, type ApkgReadOptions, type ApkgReaderDeps } from '../src/anki/apkg-reader.ts';
+import {
+  handleAnkiReadRequest,
+  transferableInput,
+  transferablesOf,
+  type AnkiReadResponse,
+} from '../src/anki/anki-reader-protocol.ts';
+import {
+  readApkg,
+  stripUnicaseCollation,
+  type ApkgReadOptions,
+  type ApkgReaderDeps,
+} from '../src/anki/apkg-reader.ts';
 import { WebAnkiPackageReader, type AnkiReaderWorkerLike } from '../src/anki/web-anki-reader.ts';
 import { zstdDecompressCapped } from '../src/anki/zstd.ts';
 
@@ -75,6 +85,23 @@ function activeNotes(state: CollectionState) {
 
 function eventsOfType<T extends KnownEvent['type']>(events: readonly KnownEvent[], type: T) {
   return events.filter((e): e is Extract<KnownEvent, { type: T }> => e.type === type);
+}
+
+/** Rewrites one column of every row of `table` in `raw` (for hand-crafted hostile variants). */
+function mapColumn(
+  raw: AnkiRawPackage,
+  table: 'notes' | 'cards',
+  column: string,
+  fn: (value: unknown, row: unknown[]) => unknown,
+): void {
+  const t = raw.tables[table];
+  if (!t) throw new Error(`fixture has no ${table} table`);
+  const idx = t.columns.indexOf(column);
+  t.rows = t.rows.map((row) => {
+    const next = [...row];
+    next[idx] = fn(row[idx], row) as (typeof row)[number];
+    return next;
+  });
 }
 
 /** Everything a user can see or that drives scheduling (HLC registers excluded). */
@@ -223,6 +250,46 @@ describe('Anki .apkg import: golden conversions', () => {
     });
   });
 
+  it('media names ending in inherited object keys (constructor, __proto__) are unsupported, not trusted', async () => {
+    const state = createEmptyState();
+    const raw = await read('media.apkg');
+    mapColumn(raw, 'notes', 'flds', (flds) => {
+      const [front = '', back = '', ...rest] = String(flds).split('');
+      if (!front.includes('猫')) return flds;
+      return [`${front}<img src="x.constructor">`, `${back}<img src="y.__proto__">`, ...rest].join(
+        '',
+      );
+    });
+    raw.media.push(
+      { name: 'x.constructor', bytes: new Uint8Array([1, 2, 3]) },
+      { name: 'y.__proto__', bytes: new Uint8Array([4, 5, 6]) },
+    );
+    const result = importInto(state, raw);
+    const added = eventsOfType(result.events, 'MediaAdded').map((e) => e.payload.media);
+    expect(added.map((m) => m.ext).sort(compareCodeUnits)).toEqual(['mp3', 'png']);
+    expect(added.every((m) => typeof m.mime === 'string')).toBe(true);
+    expect(result.extractedMedia.every((m) => typeof m.mime === 'string')).toBe(true);
+    expect(activeNotes(state)[1]?.fields).toEqual({ front: '猫', back: 'cat' });
+    expect(result.warnings).toContain(
+      'Skipped media of unsupported types: __proto__, constructor, svg.',
+    );
+  });
+
+  it('warns when a template had no card for some notes in Anki (conditional reverse card)', async () => {
+    const state = createEmptyState();
+    const raw = await read('basic-reversed.apkg');
+    const cards = raw.tables.cards;
+    if (!cards) throw new Error('fixture has no cards table');
+    const nid = cards.columns.indexOf('nid');
+    const ord = cards.columns.indexOf('ord');
+    const firstNote = cards.rows[0]?.[nid];
+    cards.rows = cards.rows.filter((row) => !(row[nid] === firstNote && row[ord] === 1));
+    const result = importInto(state, raw);
+    expect(result.warnings).toEqual([
+      '1 note(s) of "Basic (and reversed card)" had no "Card 2" card in Anki; every imported note gets one here.',
+    ]);
+  });
+
   it('anki21b (zstd + protobuf + schema 18) imports with \\x1f deck hierarchy and media', async () => {
     const { state, result, raw } = await importFixture('anki21b.apkg');
     expect(raw.format).toBe('anki21b');
@@ -245,6 +312,46 @@ describe('Anki .apkg import: golden conversions', () => {
       '한국어 (image)',
       'English',
     ]);
+  });
+
+  it('anki21b: reads the real schema-18 DDL (COLLATE unicase, WITHOUT ROWID) despite sql.js lacking unicase', async () => {
+    const base = await deps();
+    const schema: string[] = [];
+    const raw = await readApkg(fixture('anki21b.apkg'), {
+      ...base,
+      openDatabase: async (b) => {
+        const db = await base.openDatabase(b);
+        const rows = db.exec("SELECT sql FROM sqlite_master WHERE name IN ('tags', 'notetypes')");
+        schema.push(...(rows[0]?.values ?? []).map((r) => String(r[0])));
+        return db;
+      },
+    });
+    expect(schema).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(
+          /^CREATE TABLE tags \(tag text NOT NULL PRIMARY KEY COLLATE unicase.* without rowid$/,
+        ),
+        expect.stringContaining('name text NOT NULL COLLATE unicase'),
+      ]),
+    );
+    expect(raw.tables.notetypes?.rows).toHaveLength(1);
+    expect(raw.tables.fields?.rows).toHaveLength(2);
+  });
+
+  it('stripUnicaseCollation removes only COLLATE unicase clauses', () => {
+    expect(stripUnicaseCollation('CREATE TABLE t (a text NOT NULL COLLATE unicase, b int)')).toBe(
+      'CREATE TABLE t (a text NOT NULL, b int)',
+    );
+    expect(
+      stripUnicaseCollation('CREATE TABLE t (a PRIMARY KEY collate\n  UNICASE) without rowid'),
+    ).toBe('CREATE TABLE t (a PRIMARY KEY) without rowid');
+    expect(
+      stripUnicaseCollation(
+        "CREATE TABLE unicase (x COLLATE nocase, 'unicase', mycollate unicase, y COLLATE unicase2)",
+      ),
+    ).toBe(
+      "CREATE TABLE unicase (x COLLATE nocase, 'unicase', mycollate unicase, y COLLATE unicase2)",
+    );
   });
 
   it('prefers collection.anki21 over the legacy stub collection.anki2', async () => {
@@ -495,6 +602,25 @@ describe('Anki import worker plumbing', () => {
       (m) => malformed.push(m),
     );
     expect(malformed).toEqual([{ type: 'error', message: 'Malformed Anki import request' }]);
+  });
+
+  it('transfers media buffers out of the worker and a whole input buffer into it', () => {
+    const shared = new Uint8Array(8);
+    const own = new Uint8Array([9]);
+    const pkg: AnkiRawPackage = {
+      format: 'anki21',
+      tables: {},
+      warnings: [],
+      media: [
+        { name: 'a.png', bytes: shared.subarray(0, 4) },
+        { name: 'b.png', bytes: shared.subarray(4) },
+        { name: 'c.mp3', bytes: own },
+      ],
+    };
+    expect(transferablesOf({ type: 'done', pkg })).toEqual([shared.buffer, own.buffer]);
+    expect(transferablesOf({ type: 'stage', stage: 'reading' })).toEqual([]);
+    expect(transferableInput(own)).toEqual([own.buffer]);
+    expect(transferableInput(shared.subarray(1))).toEqual([]);
   });
 
   it('WebAnkiPackageReader forwards options, rebuilds errors and terminates the worker', async () => {
