@@ -134,6 +134,20 @@ export interface CardUnsuspendedPayload {
 }
 
 /**
+ * Set-union tag add (automatic `leech` tagging and the leech backfill). Unlike `NoteUpserted`,
+ * which rewrites the whole tag list, this only adds tags, so concurrent adds on several devices
+ * converge without duplicates and never undo a concurrent tag edit. Replay rules:
+ * `events/tag-adds.ts`. Older builds keep it untouched in `unknownEvents` (§4.2).
+ */
+export interface NoteTagsAddedPayload {
+  note_id: string;
+  /** Tags to add (stored NFC, trimmed, lowercase). */
+  tags: string[];
+  /** Why: `leech` = a review reached the leech threshold; `leech-backfill` = see `planLeechBackfill`. */
+  reason?: 'leech' | 'leech-backfill';
+}
+
+/**
  * Phase 9 study-side events (Study Sets, custom study). They are **log-retained**: replay keeps
  * them verbatim in `CollectionState.unknownEvents` (they are deliberately not listed in
  * {@link isKnownEventType}), exactly like an older build that does not know them. The study
@@ -221,6 +235,7 @@ export interface EventPayloadMap {
   PreferencesChanged: PreferencesChangedPayload;
   CardSuspended: CardSuspendedPayload;
   CardUnsuspended: CardUnsuspendedPayload;
+  NoteTagsAdded: NoteTagsAddedPayload;
   StudySetSaved: StudySetSavedPayload;
   StudySetDeleted: StudySetDeletedPayload;
   PracticeRecorded: PracticeRecordedPayload;
@@ -280,6 +295,7 @@ export function isKnownEventType(type: string): type is KnownEventType {
     type === 'SourceLinked' ||
     type === 'PreferencesChanged' ||
     type === 'CardSuspended' ||
-    type === 'CardUnsuspended'
+    type === 'CardUnsuspended' ||
+    type === 'NoteTagsAdded'
   );
 }

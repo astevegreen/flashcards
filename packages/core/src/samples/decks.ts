@@ -258,6 +258,35 @@ Even though は is written with the hiragana character **ha**, as a topic partic
  */
 export const SAMPLE_SEED_EPOCH_MS = Date.UTC(2025, 0, 1, 0, 0, 0);
 
+/** A built-in sample deck, as offered by first-run onboarding (pick a language, then a deck). */
+export interface SampleDeckInfo {
+  slug: string;
+  name: string;
+  /** BCP 47 deck language (`ko`, `ja`, `zh-Hans`, `en`). */
+  language: string;
+  noteCount: number;
+}
+
+/** The built-in sample decks, in display order. */
+export const SAMPLE_DECKS: readonly SampleDeckInfo[] = SAMPLE_DECK_SEEDS.map((seed) => ({
+  slug: seed.slug,
+  name: seed.name,
+  language: seed.language,
+  noteCount: seed.notes.length,
+}));
+
+/** The deck id a sample deck slug always gets (deterministic, so re-seeding never duplicates). */
+export function sampleDeckId(slug: string): string {
+  return uuidv5(FLASH_NAMESPACE_UUID, slug);
+}
+
+const SAMPLE_CLOZE_DECK_SLUG = 'sample-ja-cloze';
+
+export interface BuildSampleDeckOptions {
+  /** Only these sample decks (default: all). The lesson page and course need the cloze deck. */
+  deckSlugs?: readonly string[];
+}
+
 /**
  * Generates deterministic seed events for the built-in sample decks (`ko`, `ja`, `zh-Hans`, `en`),
  * plus Phase 4 sample Cloze deck, Lesson Page, and Course.
@@ -265,10 +294,13 @@ export const SAMPLE_SEED_EPOCH_MS = Date.UTC(2025, 0, 1, 0, 0, 0);
 export function buildSampleDeckEvents(
   eventFactory: EventFactory,
   nowMs: number = SAMPLE_SEED_EPOCH_MS,
+  options: BuildSampleDeckOptions = {},
 ): KnownEvent[] {
   const events: KnownEvent[] = [];
+  const wanted = options.deckSlugs === undefined ? undefined : new Set(options.deckSlugs);
+  const seeds = SAMPLE_DECK_SEEDS.filter((seed) => wanted?.has(seed.slug) ?? true);
 
-  for (const seed of SAMPLE_DECK_SEEDS) {
+  for (const seed of seeds) {
     const deckId = uuidv5(FLASH_NAMESPACE_UUID, seed.slug);
     events.push(
       eventFactory.create(
@@ -307,9 +339,11 @@ export function buildSampleDeckEvents(
     }
   }
 
+  if (wanted && !wanted.has(SAMPLE_CLOZE_DECK_SLUG)) return events;
+
   // Sample Lesson Page (Phase 4 §2.3)
   const samplePageId = uuidv5(FLASH_NAMESPACE_UUID, `page:sample:${SAMPLE_LESSON_PAGE_SLUG}`);
-  const clozeDeckId = uuidv5(FLASH_NAMESPACE_UUID, 'sample-ja-cloze');
+  const clozeDeckId = sampleDeckId(SAMPLE_CLOZE_DECK_SLUG);
   events.push(
     eventFactory.create(
       'PageUpserted',

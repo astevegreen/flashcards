@@ -26,6 +26,7 @@ import {
   type SourceRef,
 } from '../model/types.ts';
 import { applySuspensionRegister, isCardSuspendedIn } from './suspension.ts';
+import { applyTagAddRegisters, canonicalizeNoteTags, noteHasTagAdds } from './tag-adds.ts';
 import {
   isKnownEventType,
   type DeckFSRSParamsChangedPayload,
@@ -1002,6 +1003,8 @@ function applyNoteUpserted(ctx: ApplyEventContext, p: EventPayloadMap['NoteUpser
   if (p.tags !== undefined && shouldApplyLww(state, `note:${p.note_id}:tags`, hlc, collector)) {
     note.tags = [...p.tags];
   }
+  // Set-union `NoteTagsAdded` adds newer than the tags register stay (see ./tag-adds.ts).
+  if (noteHasTagAdds(state, p.note_id)) canonicalizeNoteTags(state, note);
 
   collector?.noteIds.add(p.note_id);
   dirtyNotes.add(p.note_id);
@@ -1348,6 +1351,18 @@ function applyCardSuspension(
   if (key !== undefined) ctx.collector?.fieldHlcKeys.add(key);
 }
 
+function applyNoteTagsAdded(ctx: ApplyEventContext, payload: unknown): void {
+  // Grow-only add registers in `fieldHlcs` merged into the note's tags (see ./tag-adds.ts).
+  const applied = applyTagAddRegisters(ctx.state, payload, ctx.hlc);
+  if (!applied || applied.keys.length === 0) return;
+  for (const key of applied.keys) ctx.collector?.fieldHlcKeys.add(key);
+  const note = ctx.state.notes.get(applied.noteId);
+  if (note && canonicalizeNoteTags(ctx.state, note)) {
+    ctx.collector?.noteIds.add(note.id);
+    ctx.dirtyNotes.add(note.id);
+  }
+}
+
 function applyKnownEvent(
   state: CollectionState,
   event: KnownEvent,
@@ -1416,6 +1431,9 @@ function applyKnownEvent(
     case 'CardSuspended':
     case 'CardUnsuspended':
       applyCardSuspension(ctx, event);
+      break;
+    case 'NoteTagsAdded':
+      applyNoteTagsAdded(ctx, event.payload);
       break;
   }
 }

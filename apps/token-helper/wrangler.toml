@@ -7,6 +7,10 @@ compatibility_date = "2026-11-01"
 #   pnpm --filter @flash/token-helper exec wrangler secret put GOOGLE_CLIENT_ID
 #   pnpm --filter @flash/token-helper exec wrangler secret put GOOGLE_CLIENT_SECRET
 #   pnpm --filter @flash/token-helper exec wrangler secret put ALLOWED_ORIGINS
+# Optional OneDrive storage connector (/ms/*, docs/setup-microsoft.md):
+#   pnpm --filter @flash/token-helper exec wrangler secret put MS_CLIENT_ID
+#   pnpm --filter @flash/token-helper exec wrangler secret put MS_CLIENT_SECRET
+#   pnpm --filter @flash/token-helper exec wrangler secret put MS_TENANT   (default: consumers)
 
 [observability]
 enabled = false

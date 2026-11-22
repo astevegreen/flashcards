@@ -1,5 +1,5 @@
 import type { PlatformServices } from '@flash/platform';
-import { composeNativePlatform } from '@flash/platform-web/native-support';
+import { composeNativePlatform, lazyOneDriveFields } from '@flash/platform-web/native-support';
 import {
   createSqliteRefreshTokenStore,
   resolveRefreshTokenStore,
@@ -27,6 +27,9 @@ export interface TauriBootConfig {
   pickerPageUrl?: string;
   isPersonalBuild: boolean;
   licensePublicKeyHex?: string;
+  /** Entra client ID for OneDrive (public client, loopback redirect `http://localhost`). */
+  microsoftClientId?: string;
+  microsoftTenant?: string;
   packCatalogUrl?: string;
   starterCatalogUrl?: string;
 }
@@ -34,6 +37,10 @@ export interface TauriBootConfig {
 /** Shown in Settings when the Google refresh token has to stay in SQLite. */
 export const INSECURE_TOKEN_STORAGE_WARNING =
   'Your Google sign-in is saved in the app database, not in a secure store, because no OS keychain was found. Install and unlock a keyring (for example GNOME Keyring or KWallet), then restart the app to move it there.';
+
+/** Shown in Settings when the Microsoft (OneDrive) refresh token has to stay in SQLite. */
+export const INSECURE_MICROSOFT_TOKEN_STORAGE_WARNING =
+  'Your OneDrive sign-in is saved in the app database, not in a secure store, because the OS keychain could not be used. Install and unlock a keyring (for example GNOME Keyring or KWallet), then restart the app to move it there.';
 
 /**
  * Boots `PlatformServices` for the Tauri desktop shell with real Tauri v2 plugins.
@@ -85,8 +92,41 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
     ...(oauthPlugin && secureStorageWarning ? { secureStorageWarning } : {}),
   });
 
-  return {
+  const microsoftClientId = config.microsoftClientId;
+  // Set when OneDrive first loads (lazily) and its token has to stay in SQLite.
+  let microsoftStorageWarning: string | undefined;
+  const oneDrive = microsoftClientId
+    ? lazyOneDriveFields(async () => {
+        const [{ createMicrosoftLoopbackBridge }, { createNativeOneDriveServices }] =
+          await Promise.all([
+            import('./microsoft-loopback.ts'),
+            import('@flash/platform-web/onedrive'),
+          ]);
+        // Each provider's legacy store touches only its own SQLite row, so this never affects
+        // a Google token that had to stay in SQLite (and vice versa).
+        const msTokens = await resolveRefreshTokenStore({
+          secure: createSecureSecretBackend(),
+          legacy: createSqliteRefreshTokenStore(sqlDb, 'microsoft'),
+          account: 'microsoft-refresh-token',
+          onInsecureFallback: (reason) => {
+            console.warn(`Microsoft refresh token stays in SQLite: ${reason}`);
+            microsoftStorageWarning = INSECURE_MICROSOFT_TOKEN_STORAGE_WARNING;
+          },
+        });
+        return createNativeOneDriveServices({
+          bridge: createMicrosoftLoopbackBridge({
+            clientId: microsoftClientId,
+            ...(config.microsoftTenant ? { tenant: config.microsoftTenant } : {}),
+            tokenStore: msTokens.store,
+          }),
+          storage: native.storage,
+        });
+      })
+    : {};
+
+  const platform: PlatformServices = {
     ...composeNativePlatform(native, base),
+    ...oneDrive,
     // Phase 13 study reminders: desktop notifications while the app runs. The notification
     // plugin cannot schedule on desktop, so nothing fires after the app quits (Settings says so).
     studyReminderDelivery: 'while-app-runs',
@@ -95,4 +135,14 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
       return createDesktopReminderScheduler(createDesktopNotificationBridge());
     },
   };
+  // The OneDrive token store resolves lazily, after boot: read the warnings when Settings renders.
+  const googleWarning = oauthPlugin ? secureStorageWarning : undefined;
+  Object.defineProperty(platform, 'secureStorageWarning', {
+    enumerable: true,
+    configurable: true,
+    get: () =>
+      [googleWarning, microsoftStorageWarning].filter((w) => w !== undefined).join(' ') ||
+      undefined,
+  });
+  return platform;
 }

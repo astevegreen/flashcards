@@ -92,6 +92,8 @@ curl https://flashcards-token-helper.<subdomain>.workers.dev/health
 # Expected: {"ok":true,"stateless":true}
 ```
 
+The same Worker also serves the OneDrive storage connector's `/ms/exchange` and `/ms/refresh` routes. To turn OneDrive on, register a Microsoft Entra app and set `MS_CLIENT_ID` / `MS_CLIENT_SECRET` as described in [`setup-microsoft.md`](./setup-microsoft.md).
+
 ---
 
 ## 4. Deploy the Phase 0 Spike PWA Harness (`spikes/phase0/`) to Cloudflare Pages
@@ -120,3 +122,52 @@ _(If your deployed Pages URL differs from `https://flashcards-phase0-spike.pages
    - Run **Inspect PWA / Safe Areas** (`STANDALONE PWA` badge), **Request Storage Persist & IDB Test**, flip the hardware **Silent Switch ON**, tap **Unlock & Play 1.0×** and **Play 0.75× (Slow)**.
    - Enable **Airplane Mode**, force-quit & relaunch the Home-Screen PWA, verify offline load + offline chime playback + persisted IndexedDB sentinel.
    - Disable Airplane Mode and run **Spike 0.2 Sign In (Redirect + PKCE)** from the Home-Screen PWA to confirm whether iOS returns directly into standalone mode (or note if Safari fallback handling is needed for Phase 2).
+
+---
+
+## 6. Content Security Policy for the Production PWA Host (WASM Workers)
+
+The single source of truth is `apps/web/csp.ts`. `pnpm build` writes `PRODUCTION_CSP` into `dist/index.html` as a `<meta http-equiv="Content-Security-Policy">` tag; `apps/web/tests/csp.test.ts` checks that this section, the Tauri shell and the shared policy agree, and the `phase11-fsrs-optimizer.spec.ts` "production CSP header" e2e tests run the optimizer with these headers on every response.
+
+**Why the host matters.** A meta-tag CSP applies to the document only. A dedicated Worker (the FSRS optimizer `fsrs-optimizer.worker-<hash>.js`, the replay and handwriting workers, and the Anki `.apkg` SQLite reader) does **not** inherit it: the browser applies the CSP **header of the Worker script's own response**, and nothing if there is none. The Worker compiles WebAssembly, which a CSP only allows with `'wasm-unsafe-eval'` in `script-src`. So:
+
+- With **no CSP header** on `/assets/*.js` (a bare static host, `vite preview`), Workers are unrestricted and the optimizer works.
+- With **any CSP header** on `/assets/*.js` (for example a blanket `/*` rule), that header must contain `script-src … 'wasm-unsafe-eval'` and `connect-src 'self'` (the Worker fetches its `.wasm` from the app origin), or the optimizer fails with "Optimization failed".
+
+**What the host must send.**
+
+| Response                                 | Header                    | Value                                                                                             | Required?                                                                                                                                             |
+| ---------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.html` and the SPA fallback        | `Content-Security-Policy` | the policy below, byte-for-byte (a header and the meta tag are both enforced, so they must agree) | Optional (the meta tag already applies); recommended                                                                                                  |
+| `/assets/*.js` (Worker scripts included) | `Content-Security-Policy` | the same policy                                                                                   | Required **only if** the host sends any CSP header on these files                                                                                     |
+| `/sw.js`, `/workbox-*.js`                | `Content-Security-Policy` | the same policy, or none                                                                          | As above                                                                                                                                              |
+| `/assets/*.wasm`                         | `Content-Type`            | `application/wasm`                                                                                | Required for streaming compile (`fsrs-browser` falls back to a slower non-streaming compile otherwise); no CSP header is needed on the `.wasm` itself |
+| every response                           | `X-Content-Type-Options`  | `nosniff`                                                                                         | Recommended                                                                                                                                           |
+
+Do **not** send `Cross-Origin-Embedder-Policy` / `Cross-Origin-Opener-Policy`: the optimizer runs single-threaded and needs no cross-origin isolation, and COOP would break the Google sign-in and Picker popups.
+
+The policy (identical for the meta tag and every header):
+
+```text
+default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://apis.google.com https://www.gstatic.com https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self'; frame-src 'self' https://docs.google.com https://accounts.google.com; connect-src 'self' https: ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self'; manifest-src 'self';
+```
+
+On **Cloudflare Pages** this is a `_headers` file in `apps/web/public/` (copied to `dist/`; not committed yet, see the §16 checklist):
+
+```text
+/*
+  Content-Security-Policy: <the policy above, on one line>
+  X-Content-Type-Options: nosniff
+
+/assets/*.wasm
+  Content-Type: application/wasm
+```
+
+A header-only directive such as `frame-ancestors 'none'` may be added to the HTML header (the meta tag cannot carry it); keep every other directive identical.
+
+**Native shells.**
+
+- **Tauri (desktop):** `apps/desktop/src-tauri/tauri.conf.json` `app.security.csp` is `TAURI_CSP` from `apps/web/csp.ts` (with `'wasm-unsafe-eval'` and `worker-src 'self'`). Tauri adds it to the HTML it serves; if a Tauri version also attaches it to script responses, the Worker gets the same policy, which allows WASM.
+- **Capacitor (Android/iOS):** Capacitor has no CSP setting and sends no CSP headers; the meta tag in `index.html` governs the document and Workers run under no CSP. Nothing to configure. `'wasm-unsafe-eval'` needs Chromium 97+ / Safari 16+ WebViews; older WebViews ignore it, which only matters for WASM compiled on the main thread.
+
+**Policy notes for upcoming features.** `'wasm-unsafe-eval'` also covers the Anki `.apkg` SQLite (and any zstd) WASM, in a Worker or on the main thread. Workers must be same-origin files (`new Worker(new URL('./x.worker.ts', import.meta.url), { type: 'module' })`); `blob:` workers (Vite `?worker&inline`) are blocked by `worker-src 'self'`. Microsoft Graph calls, OneDrive download/upload URLs (`*.files.1drv.com`, `*.sharepoint.com`, `api.onedrive.com`, `*.microsoftpersonalcontent.com`) and native token requests go through `connect-src https:`. OneDrive needs no `frame-src` or `form-action` entry: the app's OneDrive picker is built on Graph, and Microsoft sign-in is a top-level navigation. The hosted OneDrive File Picker v8 (`https://onedrive.live.com/picker`, an iframe or popup opened by a form POST) is **not** allowed; adopting it later means first running its flow under this policy to find every host its frame and form POST redirect through (browsers check `frame-src` and `form-action` on redirects), then pinning those exact hosts, never a wildcard. If a deployment narrows `connect-src` below `https:`, allow the Graph, login and download hosts listed above.

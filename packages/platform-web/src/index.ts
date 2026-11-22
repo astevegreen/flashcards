@@ -1,6 +1,7 @@
 import type {
   Auth,
   DictionaryService,
+  AnkiPackageReader,
   FsrsOptimizer,
   GooglePickerAdapter,
   GoogleSourcesClient,
@@ -17,6 +18,7 @@ import type {
 import { WebDeviceSpeechPlayer } from './audio/device-speech.ts';
 import { WebAudioPlayer } from './audio/web-audio-player.ts';
 import { WebFiles } from './files/web-files.ts';
+import type { OneDriveServices } from './onedrive-services.ts';
 import type { DexiePackStorage } from './packs/dexie-pack-storage.ts';
 import { DexieStorage } from './storage/dexie-storage.ts';
 
@@ -38,6 +40,10 @@ export interface CreateWebPlatformOptions {
   googleApiKey?: string;
   /** Dropbox app key for optional App Folder sync (public PKCE client, no secret). */
   dropboxAppKey?: string;
+  /** Microsoft Entra client ID for OneDrive app-folder sync (code exchange via token helper). */
+  microsoftClientId?: string;
+  /** Entra authority tenant (default `consumers`: personal Microsoft accounts). */
+  microsoftTenant?: string;
   packCatalogUrl?: string;
   starterCatalogUrl?: string;
   isPersonalBuild?: boolean;
@@ -95,6 +101,10 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
   const tokenHelperUrl = options?.tokenHelperUrl?.trim() ?? '';
   const googleApiKey = options?.googleApiKey?.trim() ?? '';
   const dropboxAppKey = options?.dropboxAppKey?.trim() ?? '';
+  const microsoftClientId = options?.microsoftClientId?.trim() ?? '';
+  const microsoftTenant = options?.microsoftTenant?.trim() ?? '';
+  // OneDrive web sign-in always goes through the token helper (confidential client, §4.3).
+  const oneDriveConfigured = Boolean(microsoftClientId && tokenHelperUrl);
   const packCatalogUrl = options?.packCatalogUrl?.trim() || (isDevMode ? '/packs/packs.json' : '');
   const starterCatalogUrl = options?.starterCatalogUrl?.trim() ?? '';
   // The token helper is optional: without it, Google access is renewed with a GIS tap (§4.3).
@@ -161,6 +171,17 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     }
     return cachedDropboxTransport;
   };
+
+  let oneDriveServices: Promise<OneDriveServices> | null = null;
+  const loadOneDrive = () =>
+    (oneDriveServices ??= import('./onedrive-services.ts').then((m) =>
+      m.createOneDriveWebServices({
+        clientId: microsoftClientId,
+        tokenHelperUrl,
+        ...(microsoftTenant ? { tenant: microsoftTenant } : {}),
+        storage,
+      }),
+    ));
 
   const createGoogleDriveTransport = async (): Promise<SyncTransport> => {
     if (!cachedDriveTransport) {
@@ -328,6 +349,11 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     return createWebFsrsOptimizer();
   };
 
+  const getAnkiPackageReader = async (): Promise<AnkiPackageReader> => {
+    const { createWebAnkiPackageReader } = await import('./anki/web-anki-reader.ts');
+    return createWebAnkiPackageReader();
+  };
+
   const getPurchase = async (): Promise<Purchase> => {
     if (!cachedPurchase) {
       const { WebLicensePurchase } = await import('./purchase/web-license-purchase.ts');
@@ -360,6 +386,10 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     dropboxConfigured: Boolean(dropboxAppKey),
     getDropboxAuth,
     createDropboxTransport,
+    oneDriveConfigured,
+    getOneDriveAuth: async () => (await loadOneDrive()).auth,
+    createOneDriveTransport: async () => (await loadOneDrive()).transport,
+    getOneDrivePicker: async () => (await loadOneDrive()).picker,
     getGooglePicker,
     getGoogleSourcesClient,
     getLocalFolderSources,
@@ -394,5 +424,6 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     getDictionaryService,
     getPurchase,
     getFsrsOptimizer,
+    getAnkiPackageReader,
   };
 }

@@ -3,10 +3,35 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   /** Comma-separated exact origins, e.g. "http://localhost:5173,https://flashcards-spike.pages.dev" */
   ALLOWED_ORIGINS: string;
+  /** Microsoft Entra app client ID for OneDrive web sign-in (`/ms/*`, §15 Phase 12). */
+  MS_CLIENT_ID?: string;
+  /** Microsoft Entra client secret (Web platform redirect URI; confidential client). */
+  MS_CLIENT_SECRET?: string;
+  /**
+   * Entra authority tenant: `consumers` (default, personal Microsoft accounts), `common`,
+   * `organizations`, or a tenant GUID / domain.
+   */
+  MS_TENANT?: string;
 }
 
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const MAX_BODY_BYTES = 16_384;
+const DEFAULT_MS_TENANT = 'consumers';
+/** Tenant names are plain identifiers, GUIDs or domain names (never a path or URL). */
+const MS_TENANT_PATTERN = /^[A-Za-z0-9.-]{1,64}$/;
+/**
+ * The only scopes the Worker forwards to Microsoft: OneDrive app-folder sync, the optional picker
+ * read scope, refresh tokens and basic sign-in claims. Anything else is rejected.
+ */
+const MS_ALLOWED_SCOPES = new Set([
+  'Files.ReadWrite.AppFolder',
+  'Files.Read',
+  'offline_access',
+  'openid',
+  'profile',
+  'User.Read',
+]);
+const MS_DEFAULT_SCOPE = 'Files.ReadWrite.AppFolder offline_access';
 
 function parseAllowedOrigins(raw: string | undefined): Set<string> {
   const out = new Set<string>();
@@ -52,12 +77,25 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown> |
   }
 }
 
-async function forwardToGoogle(params: URLSearchParams, origin: string | null): Promise<Response> {
-  const upstream = await fetch(GOOGLE_TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
-  });
+/**
+ * Posts a token request upstream and returns only the token fields (never the client secret or
+ * any upstream extras such as ID tokens). Nothing is stored or logged.
+ */
+async function forwardTokenRequest(
+  endpoint: string,
+  params: URLSearchParams,
+  origin: string | null,
+): Promise<Response> {
+  let upstream: Response;
+  try {
+    upstream = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+  } catch {
+    return jsonResponse({ error: 'upstream_unreachable' }, 502, origin);
+  }
   const raw = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
   if (!upstream.ok) {
     return jsonResponse(
@@ -83,6 +121,121 @@ async function forwardToGoogle(params: URLSearchParams, origin: string | null): 
   );
 }
 
+function stringField(body: Record<string, unknown>, key: string): string {
+  const value = body[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/** Validates a client-requested Microsoft scope list against the allowlist (null = rejected). */
+export function sanitizeMicrosoftScope(raw: string): string | null {
+  if (!raw) return MS_DEFAULT_SCOPE;
+  const parts = raw.split(' ').filter((p) => p.length > 0);
+  if (parts.length === 0 || parts.length > MS_ALLOWED_SCOPES.size) return null;
+  return parts.every((p) => MS_ALLOWED_SCOPES.has(p)) ? parts.join(' ') : null;
+}
+
+type RouteHandler = (
+  body: Record<string, unknown>,
+  env: Env,
+  origin: string | null,
+) => Promise<Response>;
+
+interface TokenRoute {
+  /** True when this provider's client credentials are present in the Worker env. */
+  isConfigured: (env: Env) => boolean;
+  handle: RouteHandler;
+}
+
+const googleExchange: RouteHandler = async (body, env, origin) => {
+  const code = stringField(body, 'code');
+  const redirectUri = stringField(body, 'redirect_uri');
+  const codeVerifier = stringField(body, 'code_verifier');
+  if (!code || !redirectUri) {
+    return jsonResponse({ error: 'missing_code_or_redirect_uri' }, 400, origin);
+  }
+  const params = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+    client_id: env.GOOGLE_CLIENT_ID,
+    client_secret: env.GOOGLE_CLIENT_SECRET,
+  });
+  if (codeVerifier) params.set('code_verifier', codeVerifier);
+  return forwardTokenRequest(GOOGLE_TOKEN_ENDPOINT, params, origin);
+};
+
+const googleRefresh: RouteHandler = async (body, env, origin) => {
+  const refreshToken = stringField(body, 'refresh_token');
+  if (!refreshToken) return jsonResponse({ error: 'missing_refresh_token' }, 400, origin);
+  const params = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    client_id: env.GOOGLE_CLIENT_ID,
+    client_secret: env.GOOGLE_CLIENT_SECRET,
+  });
+  return forwardTokenRequest(GOOGLE_TOKEN_ENDPOINT, params, origin);
+};
+
+function microsoftTokenEndpoint(env: Env): string | null {
+  const tenant = env.MS_TENANT?.trim() || DEFAULT_MS_TENANT;
+  if (!MS_TENANT_PATTERN.test(tenant)) return null;
+  return `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`;
+}
+
+/** Shared tail of the `/ms/*` routes: scope allowlist, tenant endpoint, client credentials. */
+async function microsoftTokenRequest(
+  body: Record<string, unknown>,
+  env: Env,
+  origin: string | null,
+  grant: Record<string, string>,
+): Promise<Response> {
+  const scope = sanitizeMicrosoftScope(stringField(body, 'scope'));
+  if (!scope) return jsonResponse({ error: 'scope_not_allowed' }, 400, origin);
+  const endpoint = microsoftTokenEndpoint(env);
+  if (!endpoint) return jsonResponse({ error: 'server_misconfigured' }, 500, origin);
+  const params = new URLSearchParams({
+    ...grant,
+    scope,
+    client_id: env.MS_CLIENT_ID ?? '',
+    client_secret: env.MS_CLIENT_SECRET ?? '',
+  });
+  return forwardTokenRequest(endpoint, params, origin);
+}
+
+const microsoftExchange: RouteHandler = async (body, env, origin) => {
+  const code = stringField(body, 'code');
+  const redirectUri = stringField(body, 'redirect_uri');
+  const codeVerifier = stringField(body, 'code_verifier');
+  if (!code || !redirectUri) {
+    return jsonResponse({ error: 'missing_code_or_redirect_uri' }, 400, origin);
+  }
+  return microsoftTokenRequest(body, env, origin, {
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+    ...(codeVerifier ? { code_verifier: codeVerifier } : {}),
+  });
+};
+
+const microsoftRefresh: RouteHandler = async (body, env, origin) => {
+  const refreshToken = stringField(body, 'refresh_token');
+  if (!refreshToken) return jsonResponse({ error: 'missing_refresh_token' }, 400, origin);
+  return microsoftTokenRequest(body, env, origin, {
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+  });
+};
+
+const googleConfigured = (env: Env) => Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+const microsoftConfigured = (env: Env) => Boolean(env.MS_CLIENT_ID && env.MS_CLIENT_SECRET);
+
+const ROUTES = new Map<string, TokenRoute>([
+  ['/auth/exchange', { isConfigured: googleConfigured, handle: googleExchange }],
+  ['/auth/refresh', { isConfigured: googleConfigured, handle: googleRefresh }],
+  ['/ms/exchange', { isConfigured: microsoftConfigured, handle: microsoftExchange }],
+  ['/ms/refresh', { isConfigured: microsoftConfigured, handle: microsoftRefresh }],
+]);
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -106,7 +259,11 @@ export default {
       return jsonResponse({ error: 'method_not_allowed' }, 405, corsOrigin);
     }
 
-    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+    const route = ROUTES.get(url.pathname);
+    if (!route) {
+      return jsonResponse({ error: 'not_found' }, 404, corsOrigin);
+    }
+    if (!route.isConfigured(env)) {
       return jsonResponse({ error: 'server_misconfigured' }, 500, corsOrigin);
     }
 
@@ -114,41 +271,6 @@ export default {
     if (!body) {
       return jsonResponse({ error: 'invalid_json_body' }, 400, corsOrigin);
     }
-
-    if (url.pathname === '/auth/exchange') {
-      const code = typeof body.code === 'string' ? body.code.trim() : '';
-      const redirectUri = typeof body.redirect_uri === 'string' ? body.redirect_uri.trim() : '';
-      const codeVerifier = typeof body.code_verifier === 'string' ? body.code_verifier.trim() : '';
-      if (!code || !redirectUri) {
-        return jsonResponse({ error: 'missing_code_or_redirect_uri' }, 400, corsOrigin);
-      }
-      const params = new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: redirectUri,
-        client_id: env.GOOGLE_CLIENT_ID,
-        client_secret: env.GOOGLE_CLIENT_SECRET,
-      });
-      if (codeVerifier) {
-        params.set('code_verifier', codeVerifier);
-      }
-      return forwardToGoogle(params, corsOrigin);
-    }
-
-    if (url.pathname === '/auth/refresh') {
-      const refreshToken = typeof body.refresh_token === 'string' ? body.refresh_token.trim() : '';
-      if (!refreshToken) {
-        return jsonResponse({ error: 'missing_refresh_token' }, 400, corsOrigin);
-      }
-      const params = new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        client_id: env.GOOGLE_CLIENT_ID,
-        client_secret: env.GOOGLE_CLIENT_SECRET,
-      });
-      return forwardToGoogle(params, corsOrigin);
-    }
-
-    return jsonResponse({ error: 'not_found' }, 404, corsOrigin);
+    return route.handle(body, env, corsOrigin);
   },
 };

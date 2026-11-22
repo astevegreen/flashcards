@@ -9,6 +9,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./onedrive": {
+      "types": "./src/onedrive-services.ts",
+      "default": "./src/onedrive-services.ts"
+    },
     "./sync-drive": {
       "types": "./src/sync/google-drive-transport.ts",
       "default": "./src/sync/google-drive-transport.ts"
@@ -71,6 +75,8 @@
     "@flash/platform": "workspace:*",
     "dexie": "^4.4.7",
     "fsrs-browser": "6.6.0",
-    "read-excel-file": "^9.3.20"
+    "fzstd": "^0.1.1",
+    "read-excel-file": "^9.3.20",
+    "sql.js": "^1.17.0"
   }
 }

@@ -2,6 +2,7 @@ import type { PlatformServices } from '@flash/platform';
 import {
   composeNativePlatform,
   LazyHandwritingRecognizer,
+  lazyOneDriveFields,
 } from '@flash/platform-web/native-support';
 import { Capacitor } from '@capacitor/core';
 import { createCapacitorPlatform } from '../index.ts';
@@ -27,6 +28,9 @@ export interface CapacitorBootConfig {
   isPersonalBuild: boolean;
   packCatalogUrl?: string;
   starterCatalogUrl?: string;
+  /** Entra client ID for OneDrive (public client, `flashcards://oauth/microsoft` redirect). */
+  microsoftClientId?: string;
+  microsoftTenant?: string;
 }
 
 /**
@@ -74,8 +78,27 @@ export async function bootCapacitorPlatform(
     ...(config.starterCatalogUrl ? { starterCatalogUrl: config.starterCatalogUrl } : {}),
   });
 
+  const microsoftClientId = config.microsoftClientId;
+  const oneDrive = microsoftClientId
+    ? lazyOneDriveFields(async () => {
+        const [{ createMicrosoftSocialLoginBridge }, { createNativeOneDriveServices }] =
+          await Promise.all([
+            import('./microsoft-social-login.ts'),
+            import('@flash/platform-web/onedrive'),
+          ]);
+        return createNativeOneDriveServices({
+          bridge: await createMicrosoftSocialLoginBridge({
+            clientId: microsoftClientId,
+            ...(config.microsoftTenant ? { tenant: config.microsoftTenant } : {}),
+          }),
+          storage: native.storage,
+        });
+      })
+    : {};
+
   return {
     ...composeNativePlatform(native, base),
+    ...oneDrive,
     // Phase 13 study reminders: OS local notifications (the PWA only shows an in-app badge).
     studyReminderDelivery: 'os-scheduled',
     getStudyReminderScheduler: async () => {

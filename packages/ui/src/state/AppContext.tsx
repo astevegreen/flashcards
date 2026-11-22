@@ -10,6 +10,7 @@ import {
   getActiveFsrsParamsVersion,
   getEnabledLayoutsForDeck,
   getTotalAppliedEventCount,
+  planLeechBackfill,
   planLeechTag,
   planLeechTagUndo,
   resolveDeckFsrsConfig,
@@ -48,6 +49,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useAudioController, type AudioController } from './useAudioController.ts';
+import { isLeechBackfillReady } from './leechBackfillGate.ts';
 import { useSyncController, type SyncUiState } from './useSyncController.ts';
 
 export type { AudioController } from './useAudioController.ts';
@@ -81,6 +83,7 @@ export interface AppContextValue {
   flushPendingSync: () => void;
   connectGoogleDrive: () => Promise<void>;
   connectDropbox: () => Promise<void>;
+  connectOneDrive: () => Promise<void>;
   connectLocalFolder: () => Promise<boolean>;
   reconnectLocalFolder: () => Promise<boolean>;
   connectICloud: () => Promise<void>;
@@ -340,6 +343,28 @@ export function AppProvider({
 
   const getEventFactory = useCallback(() => factoryRef.current ?? eventFactory, [eventFactory]);
 
+  // Leech backfill, once per app launch: cards that reached the leech threshold before leech
+  // tagging existed (or on an older build, or through an imported history) get the `leech` tag as
+  // set-union events, which converge when several devices backfill concurrently. With a sync
+  // provider it waits for a sync that completed during THIS launch (not the stale `synced` status
+  // a stored cursor shows at boot), so the plan sees the merged log (an earlier add, or a removal
+  // of the tag elsewhere, both skip the note). Leeches that arrive later are picked up at the next
+  // launch. Idempotent.
+  const [launchedAtMs] = useState(() => Date.now());
+  const backfillReady = isLeechBackfillReady(syncController.syncState, launchedAtMs);
+  const backfillDoneRef = useRef(false);
+  const emitEventsRef = useRef(emitEvents);
+  emitEventsRef.current = emitEvents;
+  useEffect(() => {
+    if (!backfillReady || backfillDoneRef.current) return;
+    backfillDoneRef.current = true;
+    const plan = planLeechBackfill(stateRef.current ?? collectionState);
+    if (plan.length === 0) return;
+    const factory = factoryRef.current ?? eventFactory;
+    const nowMs = Date.now();
+    emitEventsRef.current(plan.map((payload) => factory.create('NoteTagsAdded', payload, nowMs)));
+  }, [backfillReady, collectionState, eventFactory]);
+
   // Non-blocking post-first-paint source check (§3.1 modifiedTime check & §3.2 local folder rescan).
   // Strictly lazy-loads sourceRunner ONLY if linked sources exist so initial bundle stays lean (§8).
   useEffect(() => {
@@ -421,7 +446,7 @@ export function AppProvider({
       }
       // Reaching the leech threshold tags the note `leech` (always, independent of auto-suspend).
       const leechTag = planLeechTag(st, card, card.schedule.lapses, next.lapses);
-      if (leechTag) events.push(factory.create('NoteUpserted', leechTag, nowMs));
+      if (leechTag) events.push(factory.create('NoteTagsAdded', leechTag, nowMs));
       setUndoStack((prev) => [
         ...prev.slice(-49),
         {
@@ -828,6 +853,7 @@ export function AppProvider({
     if (
       (syncController.syncState.provider === 'google_drive' ||
         syncController.syncState.provider === 'dropbox' ||
+        syncController.syncState.provider === 'onedrive' ||
         syncController.syncState.provider === 'local_folder' ||
         syncController.syncState.provider === 'icloud') &&
       syncController.syncState.status !== 'reconnect_required'
@@ -881,6 +907,7 @@ export function AppProvider({
     flushPendingSync: syncController.flushPendingSync,
     connectGoogleDrive: syncController.connectGoogleDrive,
     connectDropbox: syncController.connectDropbox,
+    connectOneDrive: syncController.connectOneDrive,
     connectLocalFolder: syncController.connectLocalFolder,
     reconnectLocalFolder: syncController.reconnectLocalFolder,
     connectICloud: syncController.connectICloud,

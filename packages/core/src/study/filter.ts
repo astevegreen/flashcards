@@ -1,8 +1,10 @@
 import { default_w } from 'ts-fsrs';
 import { isCardSuspended, resolveDeckFsrsConfig, type CollectionState } from '../events/replay.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
-import type { NoteUpsertedPayload } from '../events/types.ts';
+import { hasTagAddRegister } from '../events/tag-adds.ts';
+import type { NoteTagsAddedPayload, NoteUpsertedPayload } from '../events/types.ts';
 import type { Card, Note } from '../model/types.ts';
+import { compareCodeUnits } from './queue.ts';
 
 /**
  * Phase 9 shared filter model (blueprint §15 Phase 9): one plain, JSON-safe description of a
@@ -264,27 +266,45 @@ function hasLeechTag(note: Note): boolean {
 /**
  * Leech tag (Phase 9): the review that takes a card's lapses from below
  * {@link LEECH_LAPSE_THRESHOLD} to the threshold or above also tags its note `leech`, as one
- * tag-only `NoteUpserted` appended next to the `ReviewRecorded` by the reviewing device (so every
- * build replays the same tag). `undefined` when the review doesn't cross the threshold or the note
- * is already tagged. Other tags are kept exactly as stored.
+ * set-union `NoteTagsAdded` appended next to the `ReviewRecorded` by the reviewing device (so every
+ * device replays the same tag, and a concurrent tag edit elsewhere is never overwritten).
+ * `undefined` when the review doesn't cross the threshold or the note is already tagged.
  */
 export function planLeechTag(
   state: CollectionState,
   card: Card,
   lapsesBefore: number,
   lapsesAfter: number,
-): NoteUpsertedPayload | undefined {
+): NoteTagsAddedPayload | undefined {
   if (lapsesBefore >= LEECH_LAPSE_THRESHOLD || lapsesAfter < LEECH_LAPSE_THRESHOLD)
     return undefined;
   const note = state.notes.get(card.note_id);
   if (!note || hasLeechTag(note)) return undefined;
-  return {
-    note_id: note.id,
-    deck_id: note.deck_id,
-    source_key: note.source_key,
-    fields: {},
-    tags: [...note.tags, LEECH_CATEGORY],
-  };
+  return { note_id: note.id, tags: [LEECH_CATEGORY], reason: 'leech' };
+}
+
+/**
+ * Leech backfill: notes with a card that already has {@link LEECH_LAPSE_THRESHOLD}+ lapses (from
+ * before leech tagging existed, an older build, or an imported review history) but no `leech`
+ * tag. One set-union `NoteTagsAdded { reason: 'leech-backfill' }` per note, in note id order.
+ *
+ * Converges and is idempotent: replay merges adds as a set (`events/tag-adds.ts`), so two devices
+ * backfilling the same note concurrently end with one `leech` tag, and once the tag (or any
+ * earlier `leech` add, e.g. one the user has since removed by editing the tags) is in the log the
+ * note is skipped, so a removed tag never comes back.
+ */
+export function planLeechBackfill(state: CollectionState): NoteTagsAddedPayload[] {
+  const noteIds = new Set<string>();
+  for (const card of state.cards.values()) {
+    if (isLeechCard(card)) noteIds.add(card.note_id);
+  }
+  const out: NoteTagsAddedPayload[] = [];
+  for (const noteId of [...noteIds].sort(compareCodeUnits)) {
+    const note = state.notes.get(noteId);
+    if (!note || hasLeechTag(note) || hasTagAddRegister(state, noteId, LEECH_CATEGORY)) continue;
+    out.push({ note_id: noteId, tags: [LEECH_CATEGORY], reason: 'leech-backfill' });
+  }
+  return out;
 }
 
 /**

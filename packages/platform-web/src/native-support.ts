@@ -1,5 +1,7 @@
 import type {
+  Auth,
   GoogleSourcesClient,
+  OneDriveFilePicker,
   HandwritingCandidate,
   HandwritingRecognizeOptions,
   HandwritingRecognizer,
@@ -31,7 +33,8 @@ type OptionalServiceKey =
   | 'getStrokeDataProvider'
   | 'getHandwritingRecognizer'
   | 'getDictionaryService'
-  | 'getFsrsOptimizer';
+  | 'getFsrsOptimizer'
+  | 'getAnkiPackageReader';
 
 const BORROWED_KEYS: readonly OptionalServiceKey[] = [
   'audioPlayer',
@@ -47,6 +50,7 @@ const BORROWED_KEYS: readonly OptionalServiceKey[] = [
   'getHandwritingRecognizer',
   'getDictionaryService',
   'getFsrsOptimizer',
+  'getAnkiPackageReader',
 ];
 
 /**
@@ -95,6 +99,34 @@ export function composeNativePlatform(
       }
       return packageFetcher;
     },
+  };
+}
+
+/** The OneDrive members of `PlatformServices`, all backed by one lazily created bundle. */
+export type OneDrivePlatformFields = Pick<
+  PlatformServices,
+  'oneDriveConfigured' | 'getOneDriveAuth' | 'createOneDriveTransport' | 'getOneDrivePicker'
+>;
+
+/**
+ * Wires the OneDrive storage connector into a native shell (§15 Phase 12). `load` runs on first
+ * use only (when the user opens Settings > Sync or the picker), so neither the OneDrive code nor
+ * the sign-in plugin initialization touches app start.
+ */
+export function lazyOneDriveFields(
+  load: () => Promise<{ auth: Auth; transport: SyncTransport; picker: OneDriveFilePicker }>,
+): OneDrivePlatformFields {
+  let pending: ReturnType<typeof load> | null = null;
+  const get = () =>
+    (pending ??= load().catch((err: unknown) => {
+      pending = null;
+      throw err;
+    }));
+  return {
+    oneDriveConfigured: true,
+    getOneDriveAuth: async () => (await get()).auth,
+    createOneDriveTransport: async () => (await get()).transport,
+    getOneDrivePicker: async () => (await get()).picker,
   };
 }
 

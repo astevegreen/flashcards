@@ -7,10 +7,13 @@ export interface RefreshTokenStore {
   delete(): Promise<void>;
 }
 
-/** The pre-keychain SQLite table, kept as the fallback when no OS keychain is available. */
+/**
+ * The pre-keychain SQLite table, kept as the fallback when no OS keychain is available. One table
+ * holds a row per provider (Google, Microsoft), so each store only ever touches its own row.
+ */
 export interface LegacyRefreshTokenStore extends RefreshTokenStore {
-  /** Removes the legacy storage entirely once its token has moved to the keychain. */
-  drop(): Promise<void>;
+  /** Drops the table once no provider has a row left in it (keychain systems never keep it). */
+  dropIfEmpty(): Promise<void>;
 }
 
 /** OS keychain accessors exposed by the desktop shell (`apps/desktop/src-tauri/src/secure_store.rs`). */
@@ -60,8 +63,12 @@ export function createSqliteRefreshTokenStore(
       if (!(await tableExists())) return;
       await db.execute(`DELETE FROM ${LEGACY_TABLE} WHERE provider = $1`, [provider]);
     },
-    drop: async () => {
-      await db.execute(`DROP TABLE IF EXISTS ${LEGACY_TABLE}`);
+    dropIfEmpty: async () => {
+      if (!(await tableExists())) return;
+      const rows = await db.select<{ provider: string }>(
+        `SELECT provider FROM ${LEGACY_TABLE} LIMIT 1`,
+      );
+      if (rows.length === 0) await db.execute(`DROP TABLE IF EXISTS ${LEGACY_TABLE}`);
     },
   };
 }
@@ -99,7 +106,9 @@ export async function resolveRefreshTokenStore(opts: {
   try {
     const legacyToken = await legacy.get();
     if (legacyToken) await secure.set(account, legacyToken);
-    await legacy.drop();
+    // Only this provider's row: another provider may still live in SQLite after its own fallback.
+    await legacy.delete();
+    await legacy.dropIfEmpty();
   } catch (err) {
     return fallback(
       `Could not move the sign-in token to the OS keychain: ${err instanceof Error ? err.message : String(err)}`,

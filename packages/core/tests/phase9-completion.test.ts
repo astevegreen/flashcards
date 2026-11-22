@@ -268,21 +268,16 @@ describe('Phase 9 completion — leech tag', () => {
     if (!card) throw new Error('missing card');
     expect(card.schedule.lapses).toBe(LEECH_LAPSE_THRESHOLD - 1);
     const payload = planLeechTag(st, card, 7, 8);
-    expect(payload).toEqual({
-      note_id: koNote(1),
-      deck_id: KO_DECK,
-      source_key: 'ko-1',
-      fields: {},
-      tags: ['topik-1', 'hanja', 'daily', 'leech'],
-    });
+    // A set-union add (`NoteTagsAdded`), so a concurrent tag edit elsewhere is never overwritten.
+    expect(payload).toEqual({ note_id: koNote(1), tags: ['leech'], reason: 'leech' });
     // Only the review that crosses the threshold tags.
     expect(planLeechTag(st, card, 6, 7)).toBeUndefined();
     expect(planLeechTag(st, card, 8, 9)).toBeUndefined();
 
     if (!payload) throw new Error('no payload');
-    fx.events.push(fx.factory.create('NoteUpserted', payload, NOW));
+    fx.events.push(fx.factory.create('NoteTagsAdded', payload, NOW));
     const tagged = fx.state();
-    expect(tagged.notes.get(koNote(1))?.tags).toContain('leech');
+    expect(tagged.notes.get(koNote(1))?.tags).toEqual(['topik-1', 'hanja', 'daily', 'leech']);
     // Already tagged (any spelling): nothing more to do.
     expect(planLeechTag(tagged, card, 7, 8)).toBeUndefined();
     // The category is a real note tag now: every card of the note matches `leech`.
@@ -302,9 +297,14 @@ describe('Phase 9 completion — leech tag', () => {
     if (!card) throw new Error('missing card');
     const tag = planLeechTag(st, card, 7, 8);
     if (!tag) throw new Error('no tag');
-    fx.events.push(fx.factory.create('NoteUpserted', tag, NOW));
+    fx.events.push(fx.factory.create('NoteTagsAdded', tag, NOW));
     const tagged = fx.state();
-    expect(planLeechTagUndo(tagged, card)?.tags).toEqual(['topik-1', 'hanja', 'daily']);
+    const untag = planLeechTagUndo(tagged, card);
+    expect(untag?.tags).toEqual(['topik-1', 'hanja', 'daily']);
+    // The undo rewrites the tag list after the add, so the tag really goes away on replay.
+    if (!untag) throw new Error('no untag');
+    fx.events.push(fx.factory.create('NoteUpserted', untag, NOW + MIN));
+    expect(fx.state().notes.get(koNote(1))?.tags).toEqual(['topik-1', 'hanja', 'daily']);
 
     // Another card of the note (a production card) is a leech too: the tag stays.
     const sibling = { ...card, id: koCard(1, PROD), layout_id: PROD };
