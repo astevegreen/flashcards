@@ -16,7 +16,7 @@ function productionCspPlugin(): Plugin {
       const csp =
         [
           "default-src 'self'",
-          "script-src 'self' https://apis.google.com https://www.gstatic.com",
+          "script-src 'self' https://apis.google.com https://www.gstatic.com https://accounts.google.com/gsi/client",
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' blob: data:",
           "media-src 'self' blob:",

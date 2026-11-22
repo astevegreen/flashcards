@@ -7,6 +7,8 @@ export const GOOGLE_OAUTH_SCOPES =
 const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const OAUTH_PKCE_KV_KEY = 'oauth_pkce';
 const OAUTH_TOKENS_KV_KEY = 'oauth_tokens';
+const OAUTH_HELPER_DOWN_KV_KEY = 'oauth_token_helper_unavailable';
+const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
 const REFRESH_MARGIN_MS = 5 * 60 * 1000; // Silently refresh 5 minutes before expiry
 
 interface StoredPkce {
@@ -56,6 +58,64 @@ export interface GoogleOAuthWebOptions {
   nowMs?: () => number;
 }
 
+interface GisTokenResponse {
+  access_token?: string;
+  expires_in?: number | string;
+  scope?: string;
+  error?: string;
+  error_description?: string;
+}
+
+interface GisTokenClient {
+  requestAccessToken(overrides?: { prompt?: string }): void;
+}
+
+interface GisGlobal {
+  accounts?: {
+    oauth2?: {
+      initTokenClient(config: {
+        client_id: string;
+        scope: string;
+        callback: (resp: GisTokenResponse) => void;
+        error_callback?: (err: { type?: string; message?: string }) => void;
+      }): GisTokenClient;
+    };
+  };
+}
+
+let gisScriptPromise: Promise<GisGlobal> | null = null;
+
+/** Lazily loads Google Identity Services (only ever needed for the Worker-less fallback). */
+function loadGis(): Promise<GisGlobal> {
+  const existing = (globalThis as { google?: GisGlobal }).google;
+  if (existing?.accounts?.oauth2) return Promise.resolve(existing);
+  if (gisScriptPromise) return gisScriptPromise;
+  gisScriptPromise = new Promise<GisGlobal>((resolve, reject) => {
+    if (typeof document === 'undefined') {
+      reject(new SyncTransportError('UNKNOWN', 'Google Identity Services needs a browser.'));
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = GIS_SCRIPT_URL;
+    script.async = true;
+    script.onload = () => {
+      const g = (globalThis as { google?: GisGlobal }).google;
+      if (g?.accounts?.oauth2) resolve(g);
+      else reject(new SyncTransportError('UNKNOWN', 'Google Identity Services failed to load.'));
+    };
+    script.onerror = () => {
+      gisScriptPromise = null;
+      reject(new SyncTransportError('NETWORK', 'Unable to load Google Identity Services.'));
+    };
+    document.head.appendChild(script);
+  });
+  return gisScriptPromise;
+}
+
+function isProbablyOnline(): boolean {
+  return (globalThis as { navigator?: { onLine?: boolean } }).navigator?.onLine !== false;
+}
+
 function base64UrlEncode(bytes: Uint8Array): string {
   let str = '';
   for (let i = 0; i < bytes.length; i++) {
@@ -91,7 +151,75 @@ export class GoogleOAuthWebAuth implements Auth {
   }
 
   isConfigured(): boolean {
-    return Boolean(this.clientId && this.tokenHelperUrl);
+    // The Worker is optional: without it access is renewed with a GIS tap (section 4.3 / 12.3).
+    return Boolean(this.clientId);
+  }
+
+  async needsInteractiveRenew(): Promise<boolean> {
+    if (!this.clientId) return false;
+    const needed =
+      !this.tokenHelperUrl ||
+      Boolean(await this.storage.getKv<{ since: number }>(OAUTH_HELPER_DOWN_KV_KEY));
+    // Warm the GIS script so the popup can open straight from the user's tap.
+    if (needed) void loadGis().catch(() => {});
+    return needed;
+  }
+
+  /**
+   * Google Identity Services tap-to-renew: gets a fresh access token in a popup with no
+   * Worker involved. Must be called from a user gesture. Keeps any stored refresh token so the
+   * normal silent path resumes automatically once the Worker is back.
+   */
+  async renewInteractively(opts?: { intent?: OAuthSignInIntent }): Promise<AuthSession> {
+    if (!this.clientId) {
+      throw new SyncTransportError('AUTH_REQUIRED', 'Google Drive sync is not configured.');
+    }
+    const gis = await loadGis();
+    const oauth2 = gis.accounts?.oauth2;
+    if (!oauth2) {
+      throw new SyncTransportError('UNKNOWN', 'Google Identity Services is unavailable.');
+    }
+    const resp = await new Promise<GisTokenResponse>((resolve, reject) => {
+      const client = oauth2.initTokenClient({
+        client_id: this.clientId,
+        scope: GOOGLE_OAUTH_SCOPES,
+        callback: resolve,
+        error_callback: (err) =>
+          reject(
+            new SyncTransportError(
+              'AUTH_REQUIRED',
+              `Google sign-in was cancelled or blocked: ${err.message ?? err.type ?? 'unknown'}`,
+            ),
+          ),
+      });
+      client.requestAccessToken({ prompt: '' });
+    });
+    if (resp.error || !resp.access_token) {
+      throw new SyncTransportError(
+        'AUTH_REQUIRED',
+        `Google sign-in failed: ${resp.error_description ?? resp.error ?? 'no access token'}`,
+      );
+    }
+    const expiresInSec = Number(resp.expires_in) > 0 ? Number(resp.expires_in) : 3600;
+    const existing = await this.storage.getKv<StoredOAuthTokens>(OAUTH_TOKENS_KV_KEY);
+    const expiresAt = this.nowMs() + expiresInSec * 1000;
+    const scope = resp.scope ?? existing?.scope;
+    const stored: StoredOAuthTokens = {
+      accessToken: resp.access_token,
+      // A refresh token that was revoked stays useless; drop it so we don't retry it forever.
+      refreshToken: existing && !existing.reconnectRequired ? existing.refreshToken : null,
+      expiresAt,
+      reconnectRequired: false,
+      ...(scope !== undefined ? { scope } : {}),
+    };
+    await this.storage.setKv(OAUTH_TOKENS_KV_KEY, stored);
+    return {
+      provider: 'google',
+      accessToken: resp.access_token,
+      expiresAt,
+      ...(scope !== undefined ? { scope } : {}),
+      ...(opts?.intent !== undefined ? { intent: opts.intent } : {}),
+    };
   }
 
   private getWindow(): GoogleOAuthWindowLike {
@@ -140,8 +268,11 @@ export class GoogleOAuthWebAuth implements Auth {
     if (!this.isConfigured()) {
       throw new SyncTransportError(
         'AUTH_REQUIRED',
-        'Google Drive sync is not configured (missing client ID or token helper URL).',
+        'Google Drive sync is not configured (missing client ID).',
       );
+    }
+    if (await this.needsInteractiveRenew()) {
+      return this.renewInteractively(opts);
     }
 
     const win = this.getWindow();
@@ -229,7 +360,7 @@ export class GoogleOAuthWebAuth implements Auth {
       );
     }
 
-    if (!this.isConfigured()) {
+    if (!this.clientId || !this.tokenHelperUrl) {
       await this.storage.deleteKv(OAUTH_PKCE_KV_KEY);
       throw new SyncTransportError('AUTH_REQUIRED', 'Missing token helper configuration.');
     }
@@ -324,23 +455,28 @@ export class GoogleOAuthWebAuth implements Auth {
       return tokens.accessToken;
     }
 
-    if (!tokens.refreshToken) {
+    if (!tokens.refreshToken || !this.tokenHelperUrl) {
+      if (tokens.accessToken && tokens.expiresAt > this.nowMs() && !opts?.forceRefresh) {
+        return tokens.accessToken;
+      }
       throw new SyncTransportError(
         'AUTH_REQUIRED',
-        'Google Drive access token expired and no refresh token is stored. Please reconnect.',
+        'Google Drive access expired. Tap Reconnect to renew it.',
       );
     }
 
     // Deduplicate concurrent refresh calls
     if (!this.inFlightRefresh) {
-      this.inFlightRefresh = this.performRefresh(tokens).finally(() => {
-        this.inFlightRefresh = null;
-      });
+      this.inFlightRefresh = this.performRefresh(tokens, Boolean(opts?.forceRefresh)).finally(
+        () => {
+          this.inFlightRefresh = null;
+        },
+      );
     }
     return this.inFlightRefresh;
   }
 
-  private async performRefresh(tokens: StoredOAuthTokens): Promise<string> {
+  private async performRefresh(tokens: StoredOAuthTokens, forced = false): Promise<string> {
     if (!this.tokenHelperUrl) {
       throw new SyncTransportError('AUTH_REQUIRED', 'Missing token helper URL.');
     }
@@ -353,24 +489,30 @@ export class GoogleOAuthWebAuth implements Auth {
         body: JSON.stringify({ refresh_token: tokens.refreshToken }),
       });
     } catch (err) {
-      // Offline or Worker unreachable: preserve stored refresh_token untouched for automatic retry on reconnect
-      throw new SyncTransportError(
-        'NETWORK',
-        `Token refresh failed (offline or unreachable): ${err instanceof Error ? err.message : String(err)}`,
-      );
+      if (!isProbablyOnline()) {
+        // Offline: preserve stored refresh_token untouched for automatic retry on reconnect
+        throw new SyncTransportError(
+          'NETWORK',
+          `Token refresh failed (offline): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return this.onTokenHelperUnavailable(tokens, 'unreachable', forced);
     }
 
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 
     if (!res.ok) {
       const errCode = typeof data['error'] === 'string' ? data['error'] : '';
-      if (res.status >= 500 || res.status === 429) {
-        // Transient server/Worker issue: keep refresh_token intact
+      if (res.status === 429) {
         throw new SyncTransportError(
-          res.status === 429 ? 'RATE_LIMITED' : 'NETWORK',
+          'RATE_LIMITED',
           `Token refresh temporarily unavailable (HTTP ${res.status}).`,
           res.status,
         );
+      }
+      if (res.status >= 500 || res.status === 404) {
+        // Worker down or gone: keep refresh_token intact and offer GIS tap-to-renew
+        return this.onTokenHelperUnavailable(tokens, `HTTP ${res.status}`, forced);
       }
 
       if (res.status === 400 || res.status === 401 || errCode === 'invalid_grant') {
@@ -417,12 +559,42 @@ export class GoogleOAuthWebAuth implements Auth {
           : {}),
     };
     await this.storage.setKv(OAUTH_TOKENS_KV_KEY, updated);
+    await this.storage.deleteKv(OAUTH_HELPER_DOWN_KV_KEY);
     return accessToken;
+  }
+
+  /**
+   * The token helper can't refresh (unreachable while online, 5xx or 404). Use the current
+   * access token while it lasts; after that, ask for a GIS tap instead of a full re-login.
+   */
+  private async onTokenHelperUnavailable(
+    tokens: StoredOAuthTokens,
+    reason: string,
+    forced: boolean,
+  ): Promise<string> {
+    await this.storage.setKv(OAUTH_HELPER_DOWN_KV_KEY, { since: this.nowMs(), reason });
+    void loadGis().catch(() => {});
+    const stillValid = Boolean(tokens.accessToken) && tokens.expiresAt > this.nowMs();
+    if (stillValid && !forced) {
+      return tokens.accessToken;
+    }
+    if (stillValid) {
+      // A forced refresh means the server rejected this token; retry the helper later.
+      throw new SyncTransportError(
+        'NETWORK',
+        `Token refresh failed: token helper unavailable (${reason}).`,
+      );
+    }
+    throw new SyncTransportError(
+      'AUTH_REQUIRED',
+      `Google token helper is unavailable (${reason}). Tap Reconnect to renew access with Google directly.`,
+    );
   }
 
   async signOut(): Promise<void> {
     this.inFlightRefresh = null;
     await this.storage.deleteKv(OAUTH_TOKENS_KV_KEY);
     await this.storage.deleteKv(OAUTH_PKCE_KV_KEY);
+    await this.storage.deleteKv(OAUTH_HELPER_DOWN_KV_KEY);
   }
 }

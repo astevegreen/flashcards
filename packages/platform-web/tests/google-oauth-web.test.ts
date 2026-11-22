@@ -245,3 +245,59 @@ describe('GoogleOAuthWebAuth unit tests', () => {
     storage.close();
   });
 });
+
+describe('GIS tap-to-renew fallback when the token helper is unavailable (§4.3)', () => {
+  it('keeps using a still-valid token, then asks for a tap once it expires, and clears on recovery', async () => {
+    const storage = createStorage('gis');
+    let now = 1_750_000_000_000;
+    await storage.setKv('oauth_tokens', {
+      accessToken: 'acc-still-valid',
+      refreshToken: 'ref-valid',
+      expiresAt: now + 2 * 60 * 1000, // inside the 5-minute refresh margin
+      reconnectRequired: false,
+    } satisfies StoredOAuthTokens);
+
+    let workerUp = false;
+    const auth = new GoogleOAuthWebAuth({
+      clientId: 'cid',
+      tokenHelperUrl: 'https://th.example.com',
+      storage,
+      fetchImpl: vi.fn(async () =>
+        workerUp
+          ? new Response(JSON.stringify({ access_token: 'acc-new', expires_in: 3600 }), {
+              status: 200,
+            })
+          : new Response('gone', { status: 503 }),
+      ),
+      nowMs: () => now,
+    });
+
+    expect(await auth.needsInteractiveRenew()).toBe(false);
+    // Worker 503 while the token still works: keep going silently, but remember the outage
+    expect(await auth.getValidAccessToken()).toBe('acc-still-valid');
+    expect(await auth.needsInteractiveRenew()).toBe(true);
+
+    // Token expires with the Worker still down: AUTH_REQUIRED (Settings shows Reconnect)
+    now += 10 * 60 * 1000;
+    await expect(auth.getValidAccessToken()).rejects.toSatisfy(
+      (err: unknown) => isSyncTransportError(err) && err.code === 'AUTH_REQUIRED',
+    );
+    const stored = await storage.getKv<StoredOAuthTokens>('oauth_tokens');
+    expect(stored?.refreshToken).toBe('ref-valid');
+    expect(stored?.reconnectRequired).toBe(false);
+
+    // Worker back: silent refresh works again and the outage flag clears
+    workerUp = true;
+    expect(await auth.getValidAccessToken()).toBe('acc-new');
+    expect(await auth.needsInteractiveRenew()).toBe(false);
+    storage.close();
+  });
+
+  it('treats a build with no token helper URL as configured and tap-to-renew only', async () => {
+    const storage = createStorage('nohelper');
+    const auth = new GoogleOAuthWebAuth({ clientId: 'cid', tokenHelperUrl: '', storage });
+    expect(auth.isConfigured()).toBe(true);
+    expect(await auth.needsInteractiveRenew()).toBe(true);
+    storage.close();
+  });
+});

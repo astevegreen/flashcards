@@ -43,6 +43,7 @@ export interface SyncController {
   syncNow: (opts?: { silent?: boolean }) => Promise<void>;
   flushPendingSync: () => void;
   connectGoogleDrive: () => Promise<void>;
+  connectDropbox: () => Promise<void>;
   connectLocalFolder: () => Promise<boolean>;
   reconnectLocalFolder: () => Promise<boolean>;
   disconnectSync: () => Promise<void>;
@@ -70,7 +71,7 @@ export const IDLE_PUSH_DEBOUNCE_MS = 8_000;
 export const FOREGROUND_PULL_COOLDOWN_MS = 15_000;
 
 export function isNetworkSyncProvider(provider: SyncProviderKind): boolean {
-  return provider === 'google_drive' || provider === 'dev_channel';
+  return provider === 'google_drive' || provider === 'dropbox' || provider === 'dev_channel';
 }
 
 export function shouldFlushPendingSync(params: {
@@ -286,7 +287,7 @@ export function useSyncController({
   // Trigger 1: App open (after first paint) for connected cloud / local-folder providers
   useEffect(() => {
     const provider = configRef.current.provider;
-    if (provider === 'google_drive' || provider === 'local_folder') {
+    if (provider === 'google_drive' || provider === 'dropbox' || provider === 'local_folder') {
       const timer = window.setTimeout(() => {
         void executeSync();
       }, 0);
@@ -434,7 +435,21 @@ export function useSyncController({
 
   const connectGoogleDrive = useCallback(async (): Promise<void> => {
     const auth = await platform.getGoogleAuth();
-    await auth.signIn();
+    // Normally a redirect (returns null). With the token helper down or unconfigured, GIS
+    // renews access in a popup and returns a session right here (§4.3 tap-to-renew).
+    const session = await auth.signIn({ intent: 'sync' });
+    if (!session) return;
+    const { activateCloudProvider } = await import('./syncRunner.ts');
+    await activateCloudProvider(makeRunnerCtx(), 'google_drive', clearCollectionBinding);
+    await executeSync();
+  }, [clearCollectionBinding, executeSync, makeRunnerCtx, platform]);
+
+  const connectDropbox = useCallback(async (): Promise<void> => {
+    if (!platform.getDropboxAuth) {
+      throw new Error('Dropbox sync is not available in this build.');
+    }
+    const auth = await platform.getDropboxAuth();
+    await auth.signIn({ intent: 'sync' });
   }, [platform]);
 
   const connectLocalFolder = useCallback(async (): Promise<boolean> => {
@@ -491,6 +506,7 @@ export function useSyncController({
     syncNow,
     flushPendingSync,
     connectGoogleDrive,
+    connectDropbox,
     connectLocalFolder,
     reconnectLocalFolder,
     disconnectSync,

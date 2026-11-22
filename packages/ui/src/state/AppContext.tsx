@@ -72,6 +72,7 @@ export interface AppContextValue {
   syncNow: () => Promise<void>;
   flushPendingSync: () => void;
   connectGoogleDrive: () => Promise<void>;
+  connectDropbox: () => Promise<void>;
   connectLocalFolder: () => Promise<boolean>;
   reconnectLocalFolder: () => Promise<boolean>;
   disconnectSync: () => Promise<void>;
@@ -790,6 +791,7 @@ export function AppProvider({
     // Auto-hide weekly backup reminder once cloud or local-folder sync is connected and active (§4.4)
     if (
       (syncController.syncState.provider === 'google_drive' ||
+        syncController.syncState.provider === 'dropbox' ||
         syncController.syncState.provider === 'local_folder') &&
       syncController.syncState.status !== 'reconnect_required'
     ) {
@@ -841,6 +843,7 @@ export function AppProvider({
     syncNow: syncController.syncNow,
     flushPendingSync: syncController.flushPendingSync,
     connectGoogleDrive: syncController.connectGoogleDrive,
+    connectDropbox: syncController.connectDropbox,
     connectLocalFolder: syncController.connectLocalFolder,
     reconnectLocalFolder: syncController.reconnectLocalFolder,
     disconnectSync: syncController.disconnectSync,

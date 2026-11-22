@@ -37,6 +37,8 @@ export interface CreateWebPlatformOptions {
   googleClientId?: string;
   tokenHelperUrl?: string;
   googleApiKey?: string;
+  /** Dropbox app key for optional App Folder sync (public PKCE client, no secret). */
+  dropboxAppKey?: string;
   packCatalogUrl?: string;
   starterCatalogUrl?: string;
   isPersonalBuild?: boolean;
@@ -75,9 +77,11 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
   const googleClientId = options?.googleClientId?.trim() ?? '';
   const tokenHelperUrl = options?.tokenHelperUrl?.trim() ?? '';
   const googleApiKey = options?.googleApiKey?.trim() ?? '';
+  const dropboxAppKey = options?.dropboxAppKey?.trim() ?? '';
   const packCatalogUrl = options?.packCatalogUrl?.trim() || (isDevMode ? '/packs/packs.json' : '');
   const starterCatalogUrl = options?.starterCatalogUrl?.trim() ?? '';
-  const googleOAuthConfigured = Boolean(googleClientId && tokenHelperUrl);
+  // The token helper is optional: without it, Google access is renewed with a GIS tap (§4.3).
+  const googleOAuthConfigured = Boolean(googleClientId);
   const googlePickerConfigured = Boolean(googleOAuthConfigured && googleApiKey);
   const supportsLocalFolderSync =
     typeof window !== 'undefined' &&
@@ -86,6 +90,8 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
 
   let cachedGoogleAuth: Auth | null = null;
   let cachedDriveTransport: SyncTransport | null = null;
+  let cachedDropboxAuth: Auth | null = null;
+  let cachedDropboxTransport: SyncTransport | null = null;
   let cachedGooglePicker: GooglePickerAdapter | null = null;
   let cachedGoogleSources: GoogleSourcesClient | null = null;
   let cachedLocalFolderSources: LocalFolderSourcesAdapter | null = null;
@@ -116,6 +122,27 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
       });
     }
     return cachedGoogleAuth;
+  };
+
+  const getDropboxAuth = async (): Promise<Auth> => {
+    if (!cachedDropboxAuth) {
+      const { DropboxOAuthWebAuth } = await import('./auth/dropbox-oauth-web.ts');
+      cachedDropboxAuth = new DropboxOAuthWebAuth({ appKey: dropboxAppKey, storage });
+    }
+    return cachedDropboxAuth;
+  };
+
+  const createDropboxTransport = async (): Promise<SyncTransport> => {
+    if (!cachedDropboxTransport) {
+      const [auth, { DropboxAppFolderTransport }] = await Promise.all([
+        getDropboxAuth(),
+        import('./sync/dropbox-transport.ts'),
+      ]);
+      cachedDropboxTransport = new DropboxAppFolderTransport({
+        getAccessToken: () => auth.getValidAccessToken(),
+      });
+    }
+    return cachedDropboxTransport;
   };
 
   const createGoogleDriveTransport = async (): Promise<SyncTransport> => {
@@ -308,6 +335,9 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     ...(starterCatalogUrl ? { starterCatalogUrl } : {}),
     getGoogleAuth,
     createGoogleDriveTransport,
+    dropboxConfigured: Boolean(dropboxAppKey),
+    getDropboxAuth,
+    createDropboxTransport,
     getGooglePicker,
     getGoogleSourcesClient,
     getLocalFolderSources,

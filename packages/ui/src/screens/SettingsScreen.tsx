@@ -70,6 +70,7 @@ export function SettingsScreen() {
     syncState,
     syncNow,
     connectGoogleDrive,
+    connectDropbox,
     connectLocalFolder,
     reconnectLocalFolder,
     disconnectSync,
@@ -224,11 +225,13 @@ export function SettingsScreen() {
   const providerLabel =
     syncState.provider === 'google_drive'
       ? 'Google Drive (App Data)'
-      : syncState.provider === 'local_folder'
-        ? `Local Folder (${syncState.localFolderName ?? 'Selected folder'})`
-        : syncState.provider === 'dev_channel'
-          ? 'Dev Channel (Local Tabs)'
-          : 'Not Connected';
+      : syncState.provider === 'dropbox'
+        ? 'Dropbox (App Folder)'
+        : syncState.provider === 'local_folder'
+          ? `Local Folder (${syncState.localFolderName ?? 'Selected folder'})`
+          : syncState.provider === 'dev_channel'
+            ? 'Dev Channel (Local Tabs)'
+            : 'Not Connected';
 
   const handleSyncNow = async () => {
     const syncGate = canUseCloudSync(entitlement);
@@ -256,6 +259,20 @@ export function SettingsScreen() {
     setError(null);
     try {
       await connectGoogleDrive();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleConnectDropbox = async () => {
+    const syncGate = canUseCloudSync(entitlement);
+    if (!syncGate.allowed) {
+      setError(syncGate.reason ?? 'Cloud sync requires the one-time Unlock upgrade.');
+      return;
+    }
+    setError(null);
+    try {
+      await connectDropbox();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -477,7 +494,7 @@ export function SettingsScreen() {
               title={
                 platform.googleOAuthConfigured
                   ? 'Sync privately via your Google Drive App Data folder'
-                  : 'Configure VITE_GOOGLE_CLIENT_ID and VITE_TOKEN_HELPER_URL to enable Google Drive sync'
+                  : 'Configure VITE_GOOGLE_CLIENT_ID to enable Google Drive sync'
               }
               className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
             >
@@ -493,6 +510,30 @@ export function SettingsScreen() {
               className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300"
             >
               Reconnect Google Drive
+            </button>
+          )}
+
+          {platform.dropboxConfigured && syncState.provider !== 'dropbox' && (
+            <button
+              type="button"
+              data-testid="connect-dropbox-btn"
+              disabled={syncBusy}
+              onClick={() => void handleConnectDropbox()}
+              title="Sync privately via your Dropbox App Folder"
+              className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
+            >
+              Connect Dropbox
+            </button>
+          )}
+
+          {syncState.provider === 'dropbox' && syncState.status === 'reconnect_required' && (
+            <button
+              type="button"
+              disabled={syncBusy}
+              onClick={() => void handleConnectDropbox()}
+              className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300"
+            >
+              Reconnect Dropbox
             </button>
           )}
 

@@ -66,7 +66,7 @@ export interface MediaBlob {
   bytes: Uint8Array;
 }
 
-export type SyncProviderKind = 'none' | 'dev_channel' | 'google_drive' | 'local_folder';
+export type SyncProviderKind = 'none' | 'dev_channel' | 'google_drive' | 'local_folder' | 'dropbox';
 
 export interface SyncConfig {
   provider: SyncProviderKind;
@@ -170,6 +170,13 @@ export interface Auth {
   signIn(opts?: { intent?: OAuthSignInIntent }): Promise<AuthSession | null>;
   handleRedirectCallback(): Promise<AuthSession | null>;
   signOut(): Promise<void>;
+  /**
+   * True when the normal refresh path is unavailable (e.g. the token-helper Worker is down or
+   * unconfigured) and access can only be renewed with a user tap (§4.3 GIS fallback).
+   */
+  needsInteractiveRenew?(): Promise<boolean>;
+  /** Renews access from a user gesture without the Worker (Google Identity Services popup). */
+  renewInteractively?(opts?: { intent?: OAuthSignInIntent }): Promise<AuthSession>;
 }
 
 /** Non-blocking import warning surfaced per linked source. */
@@ -640,6 +647,10 @@ export interface PlatformServices {
   readonly starterCatalogUrl?: string;
   getGoogleAuth(): Promise<Auth>;
   createGoogleDriveTransport(): Promise<SyncTransport>;
+  /** True when a Dropbox app key is configured (`VITE_DROPBOX_APP_KEY`). */
+  readonly dropboxConfigured?: boolean;
+  getDropboxAuth?(): Promise<Auth>;
+  createDropboxTransport?(): Promise<SyncTransport>;
   getGooglePicker(): Promise<GooglePickerAdapter>;
   getGoogleSourcesClient(): Promise<GoogleSourcesClient>;
   getLocalFolderSources(): Promise<LocalFolderSourcesAdapter>;

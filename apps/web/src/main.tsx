@@ -41,6 +41,8 @@ async function boot(): Promise<void> {
     (import.meta.env['VITE_TOKEN_HELPER_URL'] as string | undefined)?.trim() ||
     DEFAULT_TOKEN_HELPER_URL;
   const googleApiKey = (import.meta.env['VITE_GOOGLE_API_KEY'] as string | undefined)?.trim() || '';
+  const dropboxAppKey =
+    (import.meta.env['VITE_DROPBOX_APP_KEY'] as string | undefined)?.trim() || '';
   const searchParams = new URLSearchParams(window.location.search);
   const envPackCatalogUrl =
     (import.meta.env['VITE_PACK_CATALOG_URL'] as string | undefined)?.trim() || '';
@@ -61,6 +63,7 @@ async function boot(): Promise<void> {
     googleClientId,
     tokenHelperUrl,
     googleApiKey,
+    ...(dropboxAppKey ? { dropboxAppKey } : {}),
     ...(envPackCatalogUrl ? { packCatalogUrl: envPackCatalogUrl } : {}),
     ...(starterCatalogUrl ? { starterCatalogUrl } : {}),
     isPersonalBuild: !enableLicenseGate,
@@ -89,8 +92,14 @@ async function boot(): Promise<void> {
 
   if (searchParams.has('code') || searchParams.has('error')) {
     try {
-      const auth = await platform.getGoogleAuth();
-      const session = await auth.handleRedirectCallback();
+      // Dropbox returns null unless the callback matches its own pending PKCE state.
+      const dropboxSession =
+        platform.dropboxConfigured && platform.getDropboxAuth
+          ? await (await platform.getDropboxAuth()).handleRedirectCallback()
+          : null;
+      const auth = dropboxSession ? null : await platform.getGoogleAuth();
+      const session = dropboxSession ?? (auth ? await auth.handleRedirectCallback() : null);
+      const sessionProvider = dropboxSession ? 'dropbox' : 'google_drive';
       if (session) {
         // Only switch sync provider to google_drive when sign-in was initiated for sync (or no provider was configured).
         // Signing in from Library Sources keeps an existing Local Folder Sync configuration intact.
@@ -99,8 +108,8 @@ async function boot(): Promise<void> {
           syncConfig?.provider !== undefined &&
           syncConfig.provider !== 'none';
         if (!preserveExistingSync) {
-          const switchingProvider = syncConfig?.provider !== 'google_drive';
-          syncConfig = { provider: 'google_drive', connectedAt: Date.now() };
+          const switchingProvider = syncConfig?.provider !== sessionProvider;
+          syncConfig = { provider: sessionProvider, connectedAt: Date.now() };
           await platform.storage.setSyncConfig(syncConfig);
           if (switchingProvider) {
             const { createInitialSyncCursor } = await import('@flash/core/sync');

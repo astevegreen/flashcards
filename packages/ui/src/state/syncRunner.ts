@@ -211,6 +211,9 @@ async function resolveActiveTransport(
   if (provider === 'google_drive') {
     return ctx.platform.createGoogleDriveTransport();
   }
+  if (provider === 'dropbox') {
+    return ctx.platform.createDropboxTransport ? ctx.platform.createDropboxTransport() : null;
+  }
   if (provider === 'local_folder') {
     if (ctx.localFolderTransportRef.current) {
       return ctx.localFolderTransportRef.current;
@@ -506,6 +509,37 @@ export async function connectLocalFolderSync(
   return true;
 }
 
+/**
+ * Makes a signed-in cloud provider the active sync target without a page redirect (used after a
+ * GIS tap-to-renew sign-in). A provider switch starts a fresh cursor and collection binding.
+ */
+export async function activateCloudProvider(
+  ctx: SyncRunnerContext,
+  provider: 'google_drive' | 'dropbox',
+  clearCollectionBinding: () => DeviceMeta,
+): Promise<void> {
+  if (ctx.configRef.current.provider === provider) return;
+  const nextConfig: SyncConfig = { provider, connectedAt: Date.now() };
+  ctx.configRef.current = nextConfig;
+  const freshCursor = createInitialSyncCursor();
+  ctx.cursorRef.current = freshCursor;
+  const clearedMeta = clearCollectionBinding();
+  await ctx.enqueuePersist(async () => {
+    await ctx.platform.storage.setSyncConfig(nextConfig);
+    await ctx.platform.storage.setSyncCursor(freshCursor);
+    await ctx.platform.storage.setDeviceMeta(clearedMeta);
+  });
+  ctx.setSyncState((prev) => ({
+    provider,
+    status: 'idle',
+    isOnline: prev.isOnline,
+    readOnly: false,
+    pendingCount: Math.max(0, ctx.metaRef.current.seq - freshCursor.lastPushedSeq),
+    lastPulledCount: 0,
+    lastPushedCount: 0,
+  }));
+}
+
 export async function disconnectActiveSync(
   ctx: SyncRunnerContext,
   clearCollectionBinding: () => DeviceMeta,
@@ -513,6 +547,9 @@ export async function disconnectActiveSync(
   const prevProvider = ctx.configRef.current.provider;
   if (prevProvider === 'google_drive') {
     const auth = await ctx.platform.getGoogleAuth();
+    await auth.signOut();
+  } else if (prevProvider === 'dropbox' && ctx.platform.getDropboxAuth) {
+    const auth = await ctx.platform.getDropboxAuth();
     await auth.signOut();
   } else if (prevProvider === 'local_folder') {
     ctx.localFolderTransportRef.current = null;
