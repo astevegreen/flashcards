@@ -11,6 +11,16 @@ export interface StudyQueueOptions {
   dayStartHour?: number;
 }
 
+/**
+ * Effective study-day rollover hour for a deck. A deck override of `undefined` or a negative
+ * value (the UI's "collection default", since LWW settings can't be unset) falls back to global.
+ */
+export function resolveDayStartHour(deckOverride: number | undefined, globalHour: number): number {
+  return deckOverride !== undefined && deckOverride >= 0 && deckOverride <= 23
+    ? deckOverride
+    : globalHour;
+}
+
 export interface StudyCounts {
   new: number;
   learning: number;
@@ -61,7 +71,7 @@ export function buildStudyQueue(
   for (const card of state.cards.values()) {
     const deck = state.decks.get(card.deck_id);
     if (!deck || deck.archived) continue;
-    const dayStart = deck.settings.day_start_hour ?? globalDayStart;
+    const dayStart = resolveDayStartHour(deck.settings.day_start_hour, globalDayStart);
     const todayIndex = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
 
     const reviews = state.reviewsByCard.get(card.id);
@@ -112,7 +122,7 @@ export function buildStudyQueue(
     const note = state.notes.get(card.note_id);
     if (!note || note.archived) continue;
 
-    const dayStart = deck.settings.day_start_hour ?? globalDayStart;
+    const dayStart = resolveDayStartHour(deck.settings.day_start_hour, globalDayStart);
     const endOfTodayMs = getNextStudyDayRolloverMs(nowMs, tzOffsetMinutes, dayStart);
 
     const s = card.schedule;
@@ -201,7 +211,7 @@ export function buildStudyQueue(
   for (const dId of deckIdsSorted) {
     const deck = state.decks.get(dId);
     if (!deck) continue;
-    const dayStart = deck.settings.day_start_hour ?? globalDayStart;
+    const dayStart = resolveDayStartHour(deck.settings.day_start_hour, globalDayStart);
     const todayIndex = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
     const alreadyStarted = newCardsStartedTodayByDeck.get(dId) ?? 0;
     const remainingNewQuota = Math.max(0, deck.settings.new_cards_per_day - alreadyStarted);

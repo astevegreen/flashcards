@@ -12,6 +12,8 @@ import { useApp } from '../state/AppContext.tsx';
 export interface CoursesPanelProps {
   onOpenPage: (pageId: string) => void;
   onStudyDeck: (deckId: string) => void;
+  /** Exports one course (with its decks and pages) as a `.flashpkg`. */
+  onExportCourse?: (course: Course) => void;
 }
 
 interface DraftCourseItem {
@@ -442,7 +444,7 @@ function CourseEditorForm({
   );
 }
 
-export function CoursesPanel({ onOpenPage, onStudyDeck }: CoursesPanelProps) {
+export function CoursesPanel({ onOpenPage, onStudyDeck, onExportCourse }: CoursesPanelProps) {
   const { state, stateVersion, upsertCourse } = useApp();
   const [editorMode, setEditorMode] = useState<CourseEditorMode>(null);
 
@@ -481,6 +483,7 @@ export function CoursesPanel({ onOpenPage, onStudyDeck }: CoursesPanelProps) {
   const evaluatedCourses = useMemo(
     () =>
       [...state.courses.values()]
+        .filter((c) => !c.archived)
         .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
         .map((course) => evaluateCourseProgress(state, course, { nowMs, tzOffsetMinutes })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -568,6 +571,39 @@ export function CoursesPanel({ onOpenPage, onStudyDeck }: CoursesPanelProps) {
                     >
                       {isEditing ? 'Close' : 'Edit'}
                     </button>
+                    {onExportCourse && rawCourse && (
+                      <button
+                        type="button"
+                        data-testid={`course-export-btn-${course.courseId}`}
+                        onClick={() => onExportCourse(rawCourse)}
+                        className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
+                      >
+                        Export
+                      </button>
+                    )}
+                    {rawCourse && (
+                      <button
+                        type="button"
+                        data-testid={`course-delete-btn-${course.courseId}`}
+                        onClick={() => {
+                          if (
+                            typeof window !== 'undefined' &&
+                            !window.confirm(
+                              `Delete the course "${rawCourse.name}"? Its decks and pages are kept.`,
+                            )
+                          ) {
+                            return;
+                          }
+                          if (editorMode?.kind === 'edit' && editorMode.courseId === rawCourse.id) {
+                            setEditorMode(null);
+                          }
+                          upsertCourse({ ...rawCourse, archived: true });
+                        }}
+                        className="rounded-lg border border-red-500/40 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-500/10 dark:text-red-400"
+                      >
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
 

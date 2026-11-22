@@ -8,6 +8,7 @@ import {
 import { canCreateOrImportDeck, canUseCloudSync } from '@flash/core/license';
 import type { InstalledPackInfo, TtsProviderKind } from '@flash/platform';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { describeImportError } from '../components/describeImportError.ts';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 
 const LazyPackManagerPanel = lazy(() =>
@@ -368,7 +369,7 @@ export function SettingsScreen() {
       );
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeImportError(err));
     }
   };
 
@@ -392,7 +393,7 @@ export function SettingsScreen() {
       {error && (
         <div
           role="alert"
-          className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-700 dark:text-rose-300"
+          className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 whitespace-pre-line text-sm text-rose-700 dark:text-rose-300"
         >
           {error}
         </div>

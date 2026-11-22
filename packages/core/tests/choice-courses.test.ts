@@ -258,6 +258,55 @@ describe('Course progress & unlock evaluation (§2.3)', () => {
     expect(after.items[1]?.unlocked).toBe(true);
   });
 
+  it('exports a single course with only its own decks and pages, and a single page alone', () => {
+    const t0 = Date.UTC(2026, 4, 1, 9, 0, 0);
+    const srcFactory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const srcState = replayAllEvents(buildSampleDeckEvents(srcFactory, t0));
+    const course = [...srcState.courses.values()][0];
+    const page = [...srcState.pages.values()][0];
+    expect(course && page).toBeTruthy();
+    if (!course || !page) return;
+
+    const courseBytes = exportFlashpkg(srcState, { courseId: course.id });
+    const courseDst = createEmptyState();
+    const f1 = createEventFactory('dev-b', 0, createHlcState('dev-b', t0 + 1000));
+    const courseImport = importFlashpkg(courseBytes, courseDst, f1, { nowMs: t0 + 1000 });
+    applyEvents(courseDst, courseImport.events);
+    expect(courseImport.manifest.name).toBe(course.name);
+    expect(courseDst.decks.size).toBe(1);
+    expect([...courseDst.decks.values()][0]?.name).toBe('Japanese Particles Cloze (JA)');
+    expect(courseDst.pages.size).toBe(1);
+    expect(courseDst.courses.size).toBe(1);
+
+    const pageBytes = exportFlashpkg(srcState, { pageId: page.id });
+    const pageDst = createEmptyState();
+    const f2 = createEventFactory('dev-c', 0, createHlcState('dev-c', t0 + 1000));
+    const pageImport = importFlashpkg(pageBytes, pageDst, f2, { nowMs: t0 + 1000 });
+    applyEvents(pageDst, pageImport.events);
+    expect(pageDst.decks.size).toBe(0);
+    expect(pageDst.courses.size).toBe(0);
+    expect([...pageDst.pages.values()][0]?.title).toBe(page.title);
+  });
+
+  it('leaves deleted (archived) courses out of a full backup', () => {
+    const t0 = Date.UTC(2026, 4, 1, 9, 0, 0);
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const state = replayAllEvents(buildSampleDeckEvents(factory, t0));
+    const course = [...state.courses.values()][0];
+    if (!course) throw new Error('sample course missing');
+    applyEvents(state, [
+      factory.create('CourseChanged', { course: { ...course, archived: true } }, t0 + 1000),
+    ]);
+    expect(state.courses.get(course.id)?.archived).toBe(true);
+
+    const dst = createEmptyState();
+    const f2 = createEventFactory('dev-b', 0, createHlcState('dev-b', t0 + 2000));
+    const imported = importFlashpkg(exportFlashpkg(state), dst, f2, { nowMs: t0 + 2000 });
+    applyEvents(dst, imported.events);
+    expect(dst.courses.size).toBe(0);
+    expect(dst.pages.size).toBe(1);
+  });
+
   it('flags missing prerequisite pages, missing pages, and archived decks explicitly', () => {
     const t0 = Date.UTC(2026, 4, 1, 9, 0, 0);
     const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));

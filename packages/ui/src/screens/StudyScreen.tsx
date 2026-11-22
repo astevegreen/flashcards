@@ -4,6 +4,7 @@ import {
   getStudyDayIndex,
   previewIntervals,
   resolveCardAudioTarget,
+  resolveDayStartHour,
   resolveDeckFsrsConfig,
   resolveLayoutSpeakTiming,
   type Note,
@@ -195,7 +196,10 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   );
 
   const studyDayIndex = useMemo(() => {
-    const dayStart = currentDeck?.settings.day_start_hour ?? state.preferences.day_start_hour;
+    const dayStart = resolveDayStartHour(
+      currentDeck?.settings.day_start_hour,
+      state.preferences.day_start_hour,
+    );
     return getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
   }, [
     currentDeck?.settings.day_start_hour,

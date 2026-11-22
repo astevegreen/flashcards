@@ -15,6 +15,7 @@ import {
 import { canCreateOrImportDeck } from '@flash/core/license';
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { CoursesPanel } from '../components/CoursesPanel.tsx';
+import { describeImportError } from '../components/describeImportError.ts';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
 
@@ -39,7 +40,8 @@ function DeckOptionsPanel({
   onArchiveDeck: (deck: Deck) => void;
   onAddLayout: (layout: Layout, deckId: string) => void;
 }) {
-  const { platform, state, stateVersion } = useApp();
+  const { platform, state, stateVersion, rescheduleDeck } = useApp();
+  const [rescheduleStatus, setRescheduleStatus] = useState<string | null>(null);
   const [newPerDayDraft, setNewPerDayDraft] = useState(String(deck.settings.new_cards_per_day));
   const [maxRevDraft, setMaxRevDraft] = useState(String(deck.settings.max_reviews_per_day));
   const [retentionDraft, setRetentionDraft] = useState(String(deck.settings.target_retention));
@@ -330,6 +332,65 @@ function DeckOptionsPanel({
             <option value="random">Random (daily)</option>
           </select>
         </label>
+
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="text-[var(--muted)]">New study day starts at</span>
+          <select
+            aria-label="Deck day start hour"
+            data-testid={`deck-day-start-${deck.id}`}
+            value={
+              deck.settings.day_start_hour !== undefined &&
+              deck.settings.day_start_hour >= 0 &&
+              deck.settings.day_start_hour <= 23
+                ? String(deck.settings.day_start_hour)
+                : 'default'
+            }
+            onChange={(e) =>
+              onUpdateSettings(deck.id, {
+                settings: {
+                  // LWW settings can't be unset, so -1 means "use the collection default".
+                  day_start_hour: e.target.value === 'default' ? -1 : Number(e.target.value),
+                },
+              })
+            }
+            className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+          >
+            <option value="default">
+              Collection default ({String(state.preferences.day_start_hour).padStart(2, '0')}:00)
+            </option>
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={String(h)}>
+                {String(h).padStart(2, '0')}:00
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <button
+          type="button"
+          data-testid={`reschedule-deck-${deck.id}`}
+          onClick={() => {
+            if (
+              typeof window !== 'undefined' &&
+              !window.confirm(
+                `Reschedule every card in "${deck.name}" using the current target retention (${deck.settings.target_retention})? Past review history is kept; only due dates are recalculated.`,
+              )
+            ) {
+              return;
+            }
+            rescheduleDeck(deck.id);
+            setRescheduleStatus('Existing cards rescheduled with the current weights.');
+          }}
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 font-medium hover:bg-[var(--surface-2)]"
+        >
+          Reschedule existing cards with new weights
+        </button>
+        <span className="text-[var(--muted)]">
+          {rescheduleStatus ??
+            'Retention changes apply to future reviews only unless you reschedule.'}
+        </span>
       </div>
 
       {/* Add Answer Mode Layout (§5.2) */}
@@ -732,7 +793,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       );
       setErrorMessage(null);
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : String(err));
+      setErrorMessage(describeImportError(err));
     }
   };
 
@@ -749,6 +810,27 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       await platform.files.downloadFile(`${slug}.flashpkg`, bytes, 'application/zip');
       await markBackupCompleted();
       setStatusMessage(`Exported "${deck.name}" as ${slug}.flashpkg.`);
+      setErrorMessage(null);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleExportScoped = async (
+    scope: { pageId: string } | { courseId: string },
+    label: string,
+  ) => {
+    try {
+      const { exportFlashpkg } = await import('@flash/core/flashpkg');
+      const mediaBlobs = await collectMediaBlobs();
+      const bytes = exportFlashpkg(state, { ...scope, name: label, mediaBlobs });
+      const slug =
+        label
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') || ('pageId' in scope ? 'page' : 'course');
+      await platform.files.downloadFile(`${slug}.flashpkg`, bytes, 'application/zip');
+      setStatusMessage(`Exported "${label}" as ${slug}.flashpkg.`);
       setErrorMessage(null);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -870,7 +952,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       {errorMessage && (
         <div
           role="alert"
-          className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-700 dark:text-rose-300"
+          className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 whitespace-pre-line text-sm text-rose-700 dark:text-rose-300"
         >
           {errorMessage}
         </div>
@@ -1045,6 +1127,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
           }
         }}
         onStudyDeck={onStudyDeck}
+        onExportCourse={(course) => void handleExportScoped({ courseId: course.id }, course.name)}
       />
 
       {/* Phase 4 Lesson Pages (§2.3) */}
@@ -1110,6 +1193,14 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
                     className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
                   >
                     Edit
+                  </button>
+                  <button
+                    type="button"
+                    data-testid={`export-page-${page.slug}`}
+                    onClick={() => void handleExportScoped({ pageId: page.id }, page.title)}
+                    className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
+                  >
+                    Export
                   </button>
                 </div>
               </div>

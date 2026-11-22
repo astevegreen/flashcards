@@ -287,17 +287,21 @@ export function resolveDeckFsrsConfig(
 
   const initialRetention = deck?.initial_retention ?? DEFAULT_FSRS_CONFIG.request_retention;
 
-  // Versions are kept sorted ascending by params_version
-  const latest = versions[versions.length - 1];
-  if (
-    latest &&
-    'reschedule_existing' in latest &&
-    (latest as DeckFSRSParamsVersion & { reschedule_existing?: boolean }).reschedule_existing
-  ) {
-    return {
-      ...DEFAULT_FSRS_CONFIG,
-      ...latest.params,
-    };
+  // Versions are kept sorted ascending by params_version.
+  // The most recent version flagged `reschedule_existing` re-weights every review whose own
+  // version is older than it; later non-rescheduling changes never undo that.
+  let rescheduler: DeckFSRSParamsVersion | undefined;
+  for (const v of versions) {
+    if (v.reschedule_existing) rescheduler = v;
+  }
+  if (rescheduler) {
+    const ownVersion = resolveOwnParamsVersion(versions, reviewedAtMs, recordedVersion);
+    if (ownVersion < rescheduler.params_version) {
+      return {
+        ...DEFAULT_FSRS_CONFIG,
+        ...rescheduler.params,
+      };
+    }
   }
 
   if (recordedVersion !== undefined) {
@@ -333,6 +337,24 @@ export function resolveDeckFsrsConfig(
     ...DEFAULT_FSRS_CONFIG,
     request_retention: initialRetention,
   };
+}
+
+/** The params version a review was (or would have been) recorded under; 0 = deck baseline. */
+function resolveOwnParamsVersion(
+  versions: readonly DeckFSRSParamsVersion[],
+  reviewedAtMs: number,
+  recordedVersion: number | undefined,
+): number {
+  if (recordedVersion !== undefined) {
+    if (recordedVersion === 0 || versions.some((v) => v.params_version === recordedVersion)) {
+      return recordedVersion;
+    }
+  }
+  let own = 0;
+  for (const v of versions) {
+    if (v.effective_from <= reviewedAtMs) own = v.params_version;
+  }
+  return own;
 }
 
 /** Returns the active FSRS params version number for a deck at `nowMs`. */

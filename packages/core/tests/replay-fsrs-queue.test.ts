@@ -211,7 +211,25 @@ describe('FSRS deterministic replay, parameter versioning, and lossless undo', (
       tChange + 5000,
     );
     const stateRescheduled = replayAllEvents([...baseEvents, v2NoReschedule, v3Reschedule]);
-    expect(stateRescheduled.cards.get(cardId)?.schedule.due).toBeLessThan(dueBefore);
+    const dueRescheduled = stateRescheduled.cards.get(cardId)?.schedule.due ?? 0;
+    expect(dueRescheduled).toBeLessThan(dueBefore);
+
+    // A later non-rescheduling change must not silently undo the earlier reschedule
+    const v4Plain = factory.create(
+      'DeckFSRSParamsChanged',
+      {
+        deck_id: deckId,
+        params_version: 4,
+        effective_from: tChange + 9000,
+        params: { request_retention: 0.8, enable_fuzz: false },
+      },
+      tChange + 9000,
+    );
+    const stateAfterV4 = replayAllEvents([...baseEvents, v2NoReschedule, v3Reschedule, v4Plain]);
+    expect(stateAfterV4.cards.get(cardId)?.schedule.due).toBe(dueRescheduled);
+    expect(resolveDeckFsrsConfig(stateAfterV4, deckId, tChange + 10_000).request_retention).toBe(
+      0.8,
+    );
   });
 
   it('preserves version-0 historical due dates when DeckSettingsChanged + DeckFSRSParamsChanged update target_retention', () => {

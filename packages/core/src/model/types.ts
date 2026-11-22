@@ -167,6 +167,8 @@ export interface Course {
     ref_id: string;
     unlocks_after_page_id?: string;
   }>;
+  /** Soft-deleted from the course list; kept so a later sync or undo can restore it. */
+  archived?: boolean;
 }
 
 export interface MediaEntry {

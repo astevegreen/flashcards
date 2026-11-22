@@ -113,6 +113,8 @@ export interface AppContextValue {
     patch: { name?: string; archived?: boolean; settings?: Partial<DeckSettings> },
   ) => void;
   toggleDeckLayout: (deckId: string, layoutId: string) => void;
+  /** Re-applies the deck's current FSRS params to every past review (§4.1 explicit reschedule). */
+  rescheduleDeck: (deckId: string) => void;
   updatePreferences: (patch: Partial<CollectionPreferences>) => void;
   loadSampleDecks: () => void;
   markBackupCompleted: () => Promise<void>;
@@ -692,6 +694,30 @@ export function AppProvider({
     [collectionState, updateDeckSettings],
   );
 
+  const rescheduleDeck = useCallback(
+    (deckId: string) => {
+      const factory = factoryRef.current ?? eventFactory;
+      const st = stateRef.current ?? collectionState;
+      const deck = st.decks.get(deckId);
+      if (!deck) return;
+      const nowMs = Date.now();
+      const current = resolveDeckFsrsConfig(st, deckId, nowMs);
+      const ev = factory.create(
+        'DeckFSRSParamsChanged',
+        {
+          deck_id: deckId,
+          params_version: getActiveFsrsParamsVersion(st, deckId) + 1,
+          effective_from: nowMs,
+          params: { ...current, request_retention: deck.settings.target_retention },
+          reschedule_existing: true,
+        },
+        nowMs,
+      );
+      emitEvents([ev]);
+    },
+    [collectionState, emitEvents, eventFactory],
+  );
+
   const updatePreferences = useCallback(
     (patch: Partial<CollectionPreferences>) => {
       const factory = factoryRef.current ?? eventFactory;
@@ -833,6 +859,7 @@ export function AppProvider({
     createDeck,
     updateDeckSettings,
     toggleDeckLayout,
+    rescheduleDeck,
     updatePreferences,
     loadSampleDecks,
     markBackupCompleted,

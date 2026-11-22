@@ -16,7 +16,7 @@ import { Unzip, UnzipInflate, UnzipPassThrough, zipSync } from 'fflate';
 import type { CollectionState, EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { decodeUtf8, deriveNoteId, encodeUtf8, uuidv5, FLASH_NAMESPACE_UUID } from '../ids.ts';
-import type { Note, SourceRef } from '../model/types.ts';
+import type { Deck, Note, SourceRef } from '../model/types.ts';
 import { computeNoteContentHash, sha256Hex } from '../sources/hash.ts';
 import {
   normalizeMarkdownPage,
@@ -39,6 +39,10 @@ export interface FlashpkgExportOptions {
   license?: string;
   /** Optional single deckId to export; omits to export entire collection. */
   deckId?: string;
+  /** Optional single page to export (no decks). Mutually exclusive with `deckId`/`courseId`. */
+  pageId?: string;
+  /** Optional single course to export, with every deck and page it references. */
+  courseId?: string;
   /** Optional local media blobs keyed by SHA-256 hex to pack under `media/<sha256>.<ext>`. */
   mediaBlobs?: ReadonlyMap<string, Uint8Array>;
 }
@@ -104,15 +108,82 @@ function safeSlug(name: string, fallback: string): string {
   return slug || fallback;
 }
 
+interface ExportScope {
+  /** True for a full-collection export (everything, including all media). */
+  full: boolean;
+  /** `null` = all non-archived decks. */
+  deckIds: Set<string> | null;
+  /** `null` = all pages. */
+  pageIds: Set<string> | null;
+  /** `null` = all non-archived courses. */
+  courseIds: Set<string> | null;
+  defaultPackageId: (decks: readonly Deck[]) => string;
+  defaultName: (decks: readonly Deck[]) => string;
+}
+
+function resolveExportScope(state: CollectionState, options: FlashpkgExportOptions): ExportScope {
+  if (options.courseId !== undefined) {
+    const course = state.courses.get(options.courseId);
+    const deckIds = new Set<string>();
+    const pageIds = new Set<string>();
+    for (const item of course?.items ?? []) {
+      if (item.kind === 'deck') deckIds.add(item.ref_id);
+      else pageIds.add(item.ref_id);
+      if (item.unlocks_after_page_id !== undefined) pageIds.add(item.unlocks_after_page_id);
+    }
+    return {
+      full: false,
+      deckIds,
+      pageIds,
+      courseIds: new Set(course ? [course.id] : []),
+      defaultPackageId: () => `pkg:course-${options.courseId}`,
+      defaultName: () => course?.name ?? 'Course',
+    };
+  }
+  if (options.pageId !== undefined) {
+    const page = state.pages.get(options.pageId);
+    return {
+      full: false,
+      deckIds: new Set(),
+      pageIds: new Set(page ? [page.id] : []),
+      courseIds: new Set(),
+      defaultPackageId: () => `pkg:page-${options.pageId}`,
+      defaultName: () => page?.title ?? 'Page',
+    };
+  }
+  if (options.deckId !== undefined) {
+    const deckId = options.deckId;
+    return {
+      full: false,
+      deckIds: new Set([deckId]),
+      pageIds: new Set(),
+      courseIds: new Set(),
+      defaultPackageId: () => `pkg:${deckId}`,
+      defaultName: (decks) => decks[0]?.name ?? 'Flashcards Backup',
+    };
+  }
+  return {
+    full: true,
+    deckIds: null,
+    pageIds: null,
+    courseIds: null,
+    defaultPackageId: (decks) =>
+      `pkg:collection-${uuidv5(FLASH_NAMESPACE_UUID, decks.map((d) => d.id).join(','))}`,
+    defaultName: () => 'Flashcards Backup',
+  };
+}
+
 /**
- * Exports a single deck or the full collection into a `.flashpkg` zip archive.
+ * Exports a single deck, page, course (with its decks and pages), or the full collection
+ * into a `.flashpkg` zip archive.
  */
 export function exportFlashpkg(
   state: CollectionState,
   options: FlashpkgExportOptions = {},
 ): Uint8Array {
+  const scope = resolveExportScope(state, options);
   const targetDecks = [...state.decks.values()].filter(
-    (d) => !d.archived && (options.deckId === undefined || d.id === options.deckId),
+    (d) => !d.archived && (scope.deckIds === null || scope.deckIds.has(d.id)),
   );
   targetDecks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
@@ -193,14 +264,8 @@ export function exportFlashpkg(
   }
 
   const manifest: PackageManifest = {
-    package_id:
-      options.packageId ??
-      (options.deckId
-        ? `pkg:${options.deckId}`
-        : `pkg:collection-${uuidv5(FLASH_NAMESPACE_UUID, targetDecks.map((d) => d.id).join(','))}`),
-    name:
-      options.name ??
-      (options.deckId && targetDecks[0] ? targetDecks[0].name : 'Flashcards Backup'),
+    package_id: options.packageId ?? scope.defaultPackageId(targetDecks),
+    name: options.name ?? scope.defaultName(targetDecks),
     version: options.version ?? '1.0.0',
     format_version: 1,
     ...(options.author !== undefined ? { author: options.author } : {}),
@@ -213,8 +278,11 @@ export function exportFlashpkg(
   files['note_types.json'] = encodeUtf8(JSON.stringify(noteTypes, null, 2));
   files['layouts.json'] = encodeUtf8(JSON.stringify(layouts, null, 2));
 
-  if (options.deckId === undefined && state.courses.size > 0) {
-    const courses: CourseDef[] = [...state.courses.values()].map((c) => ({
+  const exportedCourses = [...state.courses.values()]
+    .filter((c) => !c.archived && (scope.courseIds === null || scope.courseIds.has(c.id)))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  if (exportedCourses.length > 0) {
+    const courses: CourseDef[] = exportedCourses.map((c) => ({
       id: c.id,
       name: c.name,
       ...(c.description !== undefined ? { description: c.description } : {}),
@@ -230,10 +298,9 @@ export function exportFlashpkg(
   }
 
   // Pack Markdown Pages (`pages/<slug>.md`) on full collection backup
-  const exportedPages =
-    options.deckId === undefined
-      ? [...state.pages.values()].sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
-      : [];
+  const exportedPages = [...state.pages.values()]
+    .filter((p) => scope.pageIds === null || scope.pageIds.has(p.id))
+    .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   const usedSlugs = new Set<string>();
   for (const page of exportedPages) {
     let slug = safeSlug(page.slug || page.title, 'page');
@@ -261,24 +328,25 @@ export function exportFlashpkg(
   // Pack media/<sha256>.<ext> blobs when provided
   if (options.mediaBlobs && options.mediaBlobs.size > 0) {
     const referencedHashes = new Set<string>();
-    if (options.deckId !== undefined) {
+    if (!scope.full) {
       const mediaRe = /media:([0-9a-f]{64})/gi;
-      for (const deck of targetDecks) {
-        for (const note of state.notes.values()) {
-          if (note.deck_id !== deck.id || note.archived) continue;
-          for (const val of Object.values(note.fields)) {
-            let m: RegExpExecArray | null;
-            while ((m = mediaRe.exec(val)) !== null) {
-              if (m[1]) referencedHashes.add(m[1].toLowerCase());
-            }
-          }
+      const collect = (val: string) => {
+        let m: RegExpExecArray | null;
+        while ((m = mediaRe.exec(val)) !== null) {
+          if (m[1]) referencedHashes.add(m[1].toLowerCase());
         }
+      };
+      const deckIdSet = new Set(targetDecks.map((d) => d.id));
+      for (const note of state.notes.values()) {
+        if (!deckIdSet.has(note.deck_id) || note.archived) continue;
+        for (const val of Object.values(note.fields)) collect(val);
       }
+      for (const page of exportedPages) collect(page.markdown);
     }
 
     for (const [hash, entry] of state.media.entries()) {
       const normHash = hash.toLowerCase();
-      if (options.deckId !== undefined && !referencedHashes.has(normHash)) continue;
+      if (!scope.full && !referencedHashes.has(normHash)) continue;
       const blob = options.mediaBlobs.get(normHash) ?? options.mediaBlobs.get(hash);
       if (!blob) continue;
       const ext = entry.ext.toLowerCase().replace(/^\./, '');
