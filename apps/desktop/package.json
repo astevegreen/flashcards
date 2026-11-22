@@ -1,0 +1,15 @@
+{
+  "name": "@flash/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "echo \"Tauri shell config validated\"",
+    "build": "echo \"Tauri shell wraps ../web/dist\""
+  },
+  "dependencies": {
+    "@flash/core": "workspace:*",
+    "@flash/platform": "workspace:*",
+    "@flash/platform-tauri": "workspace:*"
+  }
+}

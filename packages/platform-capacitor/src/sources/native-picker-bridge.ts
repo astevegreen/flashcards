@@ -1,0 +1,75 @@
+import type { GooglePickedFile, NativePickerBridge } from '@flash/platform';
+
+export interface SystemBrowserLauncher {
+  openAndAwaitDeepLink(opts: { url: string; callbackScheme: string }): Promise<string>;
+}
+
+/**
+ * Native Picker deep-link bridge (§11):
+ * Google Picker is web-only, so native Capacitor/Tauri shells open the static `picker.html`
+ * page on the app's HTTPS domain in the system browser and receive selected file IDs via
+ * `flashcards://picker-callback?files=...`.
+ */
+export class CapacitorNativePickerBridge implements NativePickerBridge {
+  private readonly launcher?: SystemBrowserLauncher;
+
+  constructor(launcher?: SystemBrowserLauncher) {
+    if (launcher) this.launcher = launcher;
+  }
+
+  async openSystemBrowserPicker(opts: {
+    pickerPageUrl: string;
+    accessToken: string;
+    appId: string;
+    apiKey: string;
+    callbackScheme?: string;
+  }): Promise<GooglePickedFile[]> {
+    if (!this.launcher) {
+      throw new Error('Native system browser launcher is unavailable.');
+    }
+    const callbackScheme = opts.callbackScheme ?? 'flashcards';
+    const url = new URL(opts.pickerPageUrl);
+    // Pass short-lived token & Picker config via URL fragment (never logged in server access logs)
+    const frag = new URLSearchParams({
+      access_token: opts.accessToken,
+      app_id: opts.appId,
+      api_key: opts.apiKey,
+      callback: `${callbackScheme}://picker-callback`,
+    });
+    url.hash = frag.toString();
+
+    const callbackUrl = await this.launcher.openAndAwaitDeepLink({
+      url: url.toString(),
+      callbackScheme,
+    });
+    return this.parseDeepLinkCallback(callbackUrl);
+  }
+
+  parseDeepLinkCallback(callbackUrl: string): GooglePickedFile[] {
+    const parsed = new URL(callbackUrl);
+    const err = parsed.searchParams.get('error');
+    if (err) {
+      throw new Error(`Picker bridge returned error: ${err}`);
+    }
+    const rawFiles = parsed.searchParams.get('files');
+    if (!rawFiles) return [];
+    const list = JSON.parse(rawFiles) as unknown;
+    if (!Array.isArray(list)) return [];
+    const out: GooglePickedFile[] = [];
+    for (const item of list) {
+      if (!item || typeof item !== 'object') continue;
+      const obj = item as Record<string, unknown>;
+      if (typeof obj['id'] !== 'string' || typeof obj['name'] !== 'string') continue;
+      out.push({
+        id: obj['id'],
+        name: obj['name'],
+        mimeType:
+          typeof obj['mimeType'] === 'string'
+            ? obj['mimeType']
+            : 'application/vnd.google-apps.spreadsheet',
+        ...(typeof obj['url'] === 'string' ? { url: obj['url'] } : {}),
+      });
+    }
+    return out;
+  }
+}

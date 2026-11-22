@@ -4,8 +4,6 @@ import {
   createEmptyState,
   createEventFactory,
   createHlcState,
-  deserializeCollectionState,
-  serializeCollectionState,
   uuidv7,
   type Card,
   type CollectionState,
@@ -43,12 +41,30 @@ async function boot(): Promise<void> {
     (import.meta.env['VITE_TOKEN_HELPER_URL'] as string | undefined)?.trim() ||
     DEFAULT_TOKEN_HELPER_URL;
   const googleApiKey = (import.meta.env['VITE_GOOGLE_API_KEY'] as string | undefined)?.trim() || '';
+  const searchParams = new URLSearchParams(window.location.search);
+  const envPackCatalogUrl =
+    (import.meta.env['VITE_PACK_CATALOG_URL'] as string | undefined)?.trim() || '';
+  const envStarterCatalogUrl =
+    (import.meta.env['VITE_STARTER_CATALOG_URL'] as string | undefined)?.trim() || '';
+  const devStarterOverride = isDevMode ? (searchParams.get('starterCatalog')?.trim() ?? '') : '';
+  const starterCatalogUrl = devStarterOverride || envStarterCatalogUrl;
+  const enableLicenseGate =
+    (import.meta.env['VITE_ENABLE_LICENSE_GATE'] as string | undefined)?.trim() === 'true' ||
+    (isDevMode && searchParams.get('licenseGate') === '1');
+  const licensePublicKeyHex =
+    (isDevMode ? searchParams.get('licensePubKey')?.trim() : '') ||
+    (import.meta.env['VITE_LICENSE_PUBLIC_KEY'] as string | undefined)?.trim() ||
+    '';
 
   const platform = createWebPlatform({
     isDevMode,
     googleClientId,
     tokenHelperUrl,
     googleApiKey,
+    ...(envPackCatalogUrl ? { packCatalogUrl: envPackCatalogUrl } : {}),
+    ...(starterCatalogUrl ? { starterCatalogUrl } : {}),
+    isPersonalBuild: !enableLicenseGate,
+    ...(licensePublicKeyHex ? { licensePublicKeyHex } : {}),
   });
 
   // Zero-overhead OAuth redirect callback check (only lazy-loads GoogleAuth if `?code=` / `?error=` is present)
@@ -71,7 +87,6 @@ async function boot(): Promise<void> {
     await platform.storage.setDeviceMeta(meta);
   }
 
-  const searchParams = new URLSearchParams(window.location.search);
   if (searchParams.has('code') || searchParams.has('error')) {
     try {
       const auth = await platform.getGoogleAuth();
@@ -110,6 +125,7 @@ async function boot(): Promise<void> {
   const localSnapshot = await platform.storage.getLocalSnapshot();
 
   if (localSnapshot) {
+    const { deserializeCollectionState } = await import('@flash/core/snapshot');
     initialState = deserializeCollectionState(localSnapshot.snapshot);
     const delta = await platform.storage.getEventsAfterLocalSeq(localSnapshot.localSeq);
     if (delta.events.length > 0) {
@@ -155,7 +171,10 @@ async function boot(): Promise<void> {
       void platform.storage.saveMaterializedCards(rows);
       if (events.length >= 200) {
         // Capture maxLocalSeq synchronously before rendering so post-render mutations cannot race ahead
-        const maxLocalSeq = await platform.storage.getMaxLocalSeq();
+        const [maxLocalSeq, { serializeCollectionState }] = await Promise.all([
+          platform.storage.getMaxLocalSeq(),
+          import('@flash/core/snapshot'),
+        ]);
         const snapPayload = serializeCollectionState(initialState, {
           [meta.deviceId]: meta.seq,
           ...(syncCursor?.remoteWatermarks ?? {}),

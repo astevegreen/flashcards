@@ -1157,6 +1157,20 @@ function applyKnownEvent(
           }
         }
       }
+      if (pref.drawing_modes !== undefined) {
+        for (const [langKey, modeVal] of Object.entries(pref.drawing_modes)) {
+          if (
+            (modeVal === 'graded' || modeVal === 'lookup' || modeVal === 'off') &&
+            shouldApplyLww(state, `prefs:drawing_modes:${langKey}`, hlc, collector)
+          ) {
+            state.preferences.drawing_modes = {
+              ...(state.preferences.drawing_modes ?? {}),
+              [langKey]: modeVal,
+            };
+            changed = true;
+          }
+        }
+      }
       if (changed && collector) {
         collector.preferencesChanged = true;
       }

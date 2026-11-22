@@ -48,6 +48,14 @@
     "./audio-tts": {
       "types": "./src/audio/tts-providers.ts",
       "default": "./src/audio/tts-providers.ts"
+    },
+    "./purchase-license": {
+      "types": "./src/purchase/web-license-purchase.ts",
+      "default": "./src/purchase/web-license-purchase.ts"
+    },
+    "./sync-dropbox": {
+      "types": "./src/sync/dropbox-transport.ts",
+      "default": "./src/sync/dropbox-transport.ts"
     }
   },
   "scripts": {

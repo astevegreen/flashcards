@@ -6,6 +6,7 @@ export default defineConfig({
       'packages/**/src/**/*.test.ts',
       'packages/**/tests/**/*.test.ts',
       'apps/**/tests/**/*.test.ts',
+      'tools/**/tests/**/*.test.ts',
     ],
     environment: 'node',
     globals: false,

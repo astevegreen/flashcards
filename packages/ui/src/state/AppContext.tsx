@@ -10,7 +10,6 @@ import {
   getEnabledLayoutsForDeck,
   getTotalAppliedEventCount,
   resolveDeckFsrsConfig,
-  serializeCollectionState,
   uuidv5,
   uuidv7,
   type Card,
@@ -28,6 +27,7 @@ import {
 } from '@flash/core';
 import type {
   DeviceMeta,
+  EntitlementState,
   MaterializedCardRow,
   PlatformServices,
   SourcesRegistry,
@@ -61,6 +61,8 @@ export interface AppContextValue {
   stateVersion: number;
   ready: boolean;
   meta: DeviceMeta | null;
+  entitlement: EntitlementState;
+  refreshEntitlement: () => Promise<EntitlementState>;
   undoStack: readonly UndoEntry[];
   activeDeckId: string | undefined;
   setActiveDeckId: (deckId: string | undefined) => void;
@@ -83,6 +85,7 @@ export interface AppContextValue {
   ) => void;
   undoLastReview: () => boolean;
   updateNote: (note: Note, fields: Record<string, string>, tags: string[]) => void;
+  setNoteArchived: (noteId: string, archived: boolean) => void;
   markNoteReviewed: (note: Note) => void;
   addMedia: (media: {
     hash: string;
@@ -107,7 +110,7 @@ export interface AppContextValue {
   createDeck: (name: string, noteTypeId: string, language: string) => string;
   updateDeckSettings: (
     deckId: string,
-    patch: { name?: string; settings?: Partial<DeckSettings> },
+    patch: { name?: string; archived?: boolean; settings?: Partial<DeckSettings> },
   ) => void;
   toggleDeckLayout: (deckId: string, layoutId: string) => void;
   updatePreferences: (patch: Partial<CollectionPreferences>) => void;
@@ -121,6 +124,13 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const LOCAL_SNAPSHOT_INTERVAL = 200;
+
+const DEFAULT_PERSONAL_ENTITLEMENT: EntitlementState = {
+  unlocked: true,
+  source: 'personal_build',
+  personalBuild: true,
+  productId: 'unlock_full',
+};
 
 function cardToRow(card: Card): MaterializedCardRow {
   return {
@@ -169,11 +179,34 @@ export function AppProvider({
   const [stateVersion, setStateVersion] = useState(0);
   const metaRef = useRef<DeviceMeta>(initialMeta);
   const [meta, setMeta] = useState<DeviceMeta>(initialMeta);
+  const [entitlement, setEntitlement] = useState<EntitlementState>(DEFAULT_PERSONAL_ENTITLEMENT);
+  const entitlementRef = useRef<EntitlementState>(DEFAULT_PERSONAL_ENTITLEMENT);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [activeDeckId, setActiveDeckId] = useState<string | undefined>(undefined);
   const persistChainRef = useRef<Promise<void>>(Promise.resolve());
   const persistPendingRef = useRef(0);
   const lastLocalSnapEventsRef = useRef<number>(getTotalAppliedEventCount(collectionState));
+
+  const refreshEntitlement = useCallback(async (): Promise<EntitlementState> => {
+    if (!platform.getPurchase) {
+      entitlementRef.current = DEFAULT_PERSONAL_ENTITLEMENT;
+      setEntitlement(DEFAULT_PERSONAL_ENTITLEMENT);
+      return DEFAULT_PERSONAL_ENTITLEMENT;
+    }
+    try {
+      const purchase = await platform.getPurchase();
+      const ent = await purchase.getEntitlement();
+      entitlementRef.current = ent;
+      setEntitlement(ent);
+      return ent;
+    } catch {
+      return entitlementRef.current;
+    }
+  }, [platform]);
+
+  useEffect(() => {
+    void refreshEntitlement();
+  }, [refreshEntitlement]);
 
   // Request persistent storage on first launch (§4.4)
   useEffect(() => {
@@ -262,9 +295,7 @@ export function AppProvider({
 
       const totalNow = getTotalAppliedEventCount(st);
       const shouldSnapshot = totalNow - lastLocalSnapEventsRef.current >= LOCAL_SNAPSHOT_INTERVAL;
-      const snapshotPayload = shouldSnapshot
-        ? serializeCollectionState(st, syncController.getCurrentWatermarks())
-        : null;
+      const watermarksForSnap = shouldSnapshot ? syncController.getCurrentWatermarks() : null;
       if (shouldSnapshot) {
         lastLocalSnapEventsRef.current = totalNow;
       }
@@ -278,8 +309,12 @@ export function AppProvider({
           await platform.storage.deleteMaterializedCards(removedIds);
         }
         await platform.storage.setDeviceMeta(nextMeta);
-        if (snapshotPayload) {
-          const maxLocalSeq = await platform.storage.getMaxLocalSeq();
+        if (watermarksForSnap) {
+          const [{ serializeCollectionState }, maxLocalSeq] = await Promise.all([
+            import('@flash/core/snapshot'),
+            platform.storage.getMaxLocalSeq(),
+          ]);
+          const snapshotPayload = serializeCollectionState(st, watermarksForSnap);
           await platform.storage.setLocalSnapshot({
             snapshot: snapshotPayload,
             localSeq: maxLocalSeq,
@@ -389,6 +424,18 @@ export function AppProvider({
         },
         Date.now(),
       );
+      emitEvents([ev]);
+    },
+    [emitEvents, eventFactory],
+  );
+
+  const setNoteArchived = useCallback(
+    (noteId: string, archived: boolean) => {
+      const factory = factoryRef.current ?? eventFactory;
+      const nowMs = Date.now();
+      const ev = archived
+        ? factory.create('NoteArchived', { note_id: noteId }, nowMs)
+        : factory.create('NoteRestored', { note_id: noteId }, nowMs);
       emitEvents([ev]);
     },
     [emitEvents, eventFactory],
@@ -575,7 +622,10 @@ export function AppProvider({
   );
 
   const updateDeckSettings = useCallback(
-    (deckId: string, patch: { name?: string; settings?: Partial<DeckSettings> }) => {
+    (
+      deckId: string,
+      patch: { name?: string; archived?: boolean; settings?: Partial<DeckSettings> },
+    ) => {
       const factory = factoryRef.current ?? eventFactory;
       const st = stateRef.current ?? collectionState;
       const existingDeck = st.decks.get(deckId);
@@ -587,6 +637,7 @@ export function AppProvider({
           {
             deck_id: deckId,
             ...(patch.name !== undefined ? { name: patch.name } : {}),
+            ...(patch.archived !== undefined ? { archived: patch.archived } : {}),
             ...(patch.settings !== undefined ? { settings: patch.settings } : {}),
           },
           nowMs,
@@ -613,6 +664,9 @@ export function AppProvider({
             nowMs,
           ),
         );
+      }
+      if (patch.archived === true) {
+        setActiveDeckId((prev) => (prev === deckId ? undefined : prev));
       }
       emitEvents(events);
     },
@@ -703,7 +757,8 @@ export function AppProvider({
       await platform.storage.clearAll();
       await platform.storage.setDeviceMeta(freshMeta);
     });
-  }, [audio, enqueuePersist, platform, syncController]);
+    await refreshEntitlement();
+  }, [audio, enqueuePersist, platform, refreshEntitlement, syncController]);
 
   const showBackupBanner = useMemo(() => {
     // Auto-hide weekly backup reminder once cloud or local-folder sync is connected and active (§4.4)
@@ -749,6 +804,8 @@ export function AppProvider({
     stateVersion,
     ready: true,
     meta,
+    entitlement,
+    refreshEntitlement,
     undoStack,
     activeDeckId,
     setActiveDeckId,
@@ -766,6 +823,7 @@ export function AppProvider({
     rateCard,
     undoLastReview,
     updateNote,
+    setNoteArchived,
     markNoteReviewed,
     addMedia,
     upsertLayout,

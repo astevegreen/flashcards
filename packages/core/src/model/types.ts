@@ -182,6 +182,8 @@ export interface MediaEntry {
 
 export type RatingButtonMode = '2' | '3' | '4';
 
+export type DrawingMode = 'graded' | 'lookup' | 'off';
+
 export interface CollectionPreferences {
   rating_button_mode: RatingButtonMode;
   day_start_hour: number; // default 4 (04:00 local)
@@ -194,6 +196,8 @@ export interface CollectionPreferences {
   auto_play_audio?: boolean;
   /** Optional synced per-language cloud TTS voice overrides (e.g. { ja: 'ja-JP-Neural2-C' }). */
   tts_voices?: Record<string, string>;
+  /** Optional synced per-language drawing mode overrides (§6.4: graded | lookup | off). */
+  drawing_modes?: Record<string, DrawingMode>;
 }
 
 export const DEFAULT_DECK_SETTINGS: DeckSettings = {

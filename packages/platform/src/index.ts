@@ -6,6 +6,40 @@ import type {
   SerializedCollectionState,
   SyncCursorState,
 } from '@flash/core';
+import type {
+  DictionaryEntry,
+  DictionaryPackId,
+  PackCatalog,
+  PackCatalogEntry,
+  PackId,
+  PackKind,
+} from '@flash/core/dictionary';
+import type {
+  HandwritingCandidate,
+  HandwritingRecognizeOptions,
+  HanziStrokeData,
+  InkPoint,
+  InkStroke,
+  StrokeScript,
+} from '@flash/core/drawing';
+import type { EntitlementState, LicenseVerifyResult } from '@flash/core/license';
+
+export type {
+  DictionaryEntry,
+  DictionaryPackId,
+  EntitlementState,
+  HandwritingCandidate,
+  HandwritingRecognizeOptions,
+  HanziStrokeData,
+  InkPoint,
+  InkStroke,
+  LicenseVerifyResult,
+  PackCatalog,
+  PackCatalogEntry,
+  PackId,
+  PackKind,
+  StrokeScript,
+};
 
 export interface DeviceMeta {
   deviceId: string;
@@ -452,8 +486,139 @@ export interface DeviceSpeechPlayer {
 }
 
 export interface Purchase {
+  readonly isPersonalBuild: boolean;
   isUnlocked(): Promise<boolean>;
   restore(): Promise<boolean>;
+  getEntitlement(): Promise<EntitlementState>;
+  purchaseUnlock(): Promise<EntitlementState>;
+  restorePurchases(): Promise<EntitlementState>;
+  activateLicenseKey(
+    rawKey: string,
+  ): Promise<LicenseVerifyResult & { entitlement: EntitlementState }>;
+  clearLicenseKey(): Promise<EntitlementState>;
+}
+
+/**
+ * Native shell bridge for Google Picker (§11): opens static `picker.html` on the app's
+ * domain in the system browser and receives selected Drive file IDs via custom URL scheme.
+ */
+export interface NativePickerBridge {
+  openSystemBrowserPicker(opts: {
+    pickerPageUrl: string;
+    accessToken: string;
+    appId: string;
+    apiKey: string;
+    callbackScheme?: string;
+  }): Promise<GooglePickedFile[]>;
+  parseDeepLinkCallback(callbackUrl: string): GooglePickedFile[];
+}
+
+/**
+ * Pluggable handwriting recognizer interface (§6.4).
+ * Web uses custom MIT stroke-matching over Make Me a Hanzi / KanjiVG medians;
+ * Phase 8 Capacitor swaps in Google ML Kit Digital Ink Recognition with zero UI changes.
+ */
+export interface HandwritingRecognizer {
+  readonly id: string;
+  readonly isNative: boolean;
+  isReady(lang?: string): Promise<boolean>;
+  recognize(
+    strokes: readonly InkStroke[],
+    options?: HandwritingRecognizeOptions,
+  ): Promise<HandwritingCandidate[]>;
+}
+
+export interface StrokeCacheProgress {
+  completed: number;
+  total: number;
+  cached: number;
+  failed: number;
+  currentChar?: string;
+}
+
+export interface StrokeDataProvider {
+  getCharacterData(
+    script: StrokeScript,
+    char: string,
+    opts?: { allowNetwork?: boolean },
+  ): Promise<HanziStrokeData | null>;
+  hasCachedCharacter(script: StrokeScript, char: string): Promise<boolean>;
+  getCacheCoverage(
+    script: StrokeScript,
+    chars: readonly string[],
+  ): Promise<{ cached: number; total: number; missing: string[] }>;
+  precacheCharacters(
+    script: StrokeScript,
+    chars: readonly string[],
+    opts?: {
+      onProgress?: (progress: StrokeCacheProgress) => void;
+      signal?: AbortSignalLike;
+    },
+  ): Promise<{ cached: number; failed: string[] }>;
+}
+
+export interface InstalledPackInfo {
+  id: PackId;
+  kind: PackKind;
+  name: string;
+  version: string;
+  language: string;
+  script?: StrokeScript;
+  entryCount: number;
+  byteSize: number;
+  installedAt: number;
+  licenseName: string;
+  licenseUrl: string;
+  attribution: string;
+  sourceUrl: string;
+  sourceCatalogUrl?: string;
+}
+
+export interface PackInstallProgress {
+  phase: 'downloading' | 'verifying' | 'indexing' | 'done';
+  loadedBytes?: number;
+  totalBytes?: number;
+  indexedEntries?: number;
+  totalEntries?: number;
+}
+
+export interface PackManager {
+  getCatalogUrl(): string | undefined;
+  setCustomCatalogUrl(url: string | undefined): Promise<void>;
+  fetchCatalog(catalogUrl?: string): Promise<PackCatalog>;
+  listInstalledPacks(): Promise<InstalledPackInfo[]>;
+  installPackFromCatalog(
+    entry: PackCatalogEntry,
+    onProgress?: (progress: PackInstallProgress) => void,
+  ): Promise<InstalledPackInfo>;
+  installPackFromUrl(
+    url: string,
+    opts?: { expectedSha256?: string; onProgress?: (progress: PackInstallProgress) => void },
+  ): Promise<InstalledPackInfo>;
+  installPackFromBytes(
+    bytes: Uint8Array,
+    opts?: {
+      expectedSha256?: string;
+      sourceCatalogUrl?: string;
+      onProgress?: (progress: PackInstallProgress) => void;
+    },
+  ): Promise<InstalledPackInfo>;
+  removePack(packId: PackId): Promise<void>;
+  getStorageUsageBytes(): Promise<number>;
+}
+
+export interface DictionarySearchOptions {
+  packIds?: readonly DictionaryPackId[];
+  limit?: number;
+}
+
+export interface DictionaryService {
+  listInstalledDictionaryPacks(): Promise<InstalledPackInfo[]>;
+  lookupCharacter(
+    char: string,
+    opts?: { packIds?: readonly DictionaryPackId[] },
+  ): Promise<DictionaryEntry[]>;
+  search(query: string, opts?: DictionarySearchOptions): Promise<DictionaryEntry[]>;
 }
 
 export interface PlatformServices {
@@ -469,6 +634,10 @@ export interface PlatformServices {
   readonly googleOAuthConfigured: boolean;
   readonly googlePickerConfigured: boolean;
   readonly supportsLocalFolderSync: boolean;
+  /** Optional static pack catalog URL (`VITE_PACK_CATALOG_URL` -> `packs.json`, §6.3). */
+  readonly packCatalogUrl?: string;
+  /** Optional built-in Starter Decks catalog URL (`VITE_STARTER_CATALOG_URL` -> `index.json`, §3.4). */
+  readonly starterCatalogUrl?: string;
   getGoogleAuth(): Promise<Auth>;
   createGoogleDriveTransport(): Promise<SyncTransport>;
   getGooglePicker(): Promise<GooglePickerAdapter>;
@@ -491,4 +660,10 @@ export interface PlatformServices {
   createTtsProvider?: (config: TtsProviderConfig) => Promise<TtsProvider | null>;
   processAudio?: (bytes: Uint8Array, mime: string) => Promise<ProcessedAudio>;
   fetchAndCacheHttpsAudio?: (url: string) => Promise<ProcessedAudio>;
+  getPackManager?: () => Promise<PackManager>;
+  getStrokeDataProvider?: () => Promise<StrokeDataProvider>;
+  getHandwritingRecognizer?: () => Promise<HandwritingRecognizer>;
+  getDictionaryService?: () => Promise<DictionaryService>;
+  getPurchase?: () => Promise<Purchase>;
+  getNativePickerBridge?: () => Promise<NativePickerBridge>;
 }

@@ -23,12 +23,17 @@ Run from repository root using `pnpm`:
 
 ## Monorepo Boundaries
 
-- `packages/content-schema` (`@flash/content-schema`) — Zod schemas & JSON Schema exports for `.flashpkg`.
-- `packages/core` (`@flash/core`) — **100% pure TypeScript**: events, deterministic replay, `ts-fsrs` wrapper, Note Types, Layouts, Card derivation, Ruby/Pinyin parsers, CSV/TSV & `.flashpkg` import/export, sample data.
-- `packages/platform` (`@flash/platform`) — pure TypeScript interfaces (`Storage`, `Files`, `SyncTransport`, `Auth`, `TtsProvider`, `AudioPlayer`, `Purchase`).
-- `packages/platform-web` (`@flash/platform-web`) — Dexie IndexedDB `Storage`, browser `Files`, in-memory/BroadcastChannel `SyncTransport`.
-- `packages/ui` (`@flash/ui`) — lean React UI components & screens consuming `@flash/core` and `@flash/platform`.
-- `apps/web` — static Vite + React + Tailwind v4 + `vite-plugin-pwa` shell.
+- `packages/content-schema` (`@flash/content-schema`) — Zod schemas & JSON Schema exports for `.flashpkg`, `index.json`, and `packs.json`.
+- `packages/core` (`@flash/core`) — **100% pure TypeScript**: events, deterministic replay, `ts-fsrs` wrapper, Note Types, Layouts, Card derivation, Ruby/Pinyin/Cloze parsers, answer matching, courses, audio resolution, drawing/stroke grading & recognition, offline dictionary search & pack codec, offline Ed25519 licensing, CSV/TSV & `.flashpkg` import/export, sync engine, sample data.
+- `packages/platform` (`@flash/platform`) — pure TypeScript interfaces (`Storage`, `Files`, `SyncTransport`, `Auth`, `TtsProvider`, `AudioPlayer`, `Purchase`, `PackManager`, `StrokeDataProvider`, `HandwritingRecognizer`, `DictionaryService`, `NativePickerBridge`).
+- `packages/platform-web` (`@flash/platform-web`) — Dexie IndexedDB `Storage`, browser `Files`, Google Drive / Local Folder / Dropbox / BroadcastChannel `SyncTransport`, Google OAuth + Picker + Sheets/Docs, Web Audio preloader + BYO Cloud TTS + `speechSynthesis`, offline pack/dictionary/stroke adapters, WebCrypto Ed25519 license purchase.
+- `packages/platform-capacitor` (`@flash/platform-capacitor`) — Capacitor Android/iOS SQLite `Storage`, native Google Sign-In, `picker.html` deep-link bridge, Google ML Kit Digital Ink recognizer, StoreKit 2 / Play Billing IAP, iCloud Drive transport.
+- `packages/platform-tauri` (`@flash/platform-tauri`) — Tauri desktop SQLite `Storage`, native folder & `Inbox/` watcher, loopback Google OAuth, offline Ed25519 license verifier.
+- `packages/ui` (`@flash/ui`) — lean React UI components & screens consuming `@flash/core` and `@flash/platform` with strict lazy-loading of secondary screens and heavy answer modes.
+- `apps/web` (`@flash/web`) — static Vite + React + Tailwind v4 + `vite-plugin-pwa` shell.
+- `apps/token-helper` (`@flash/token-helper`) — stateless Cloudflare Worker for Web/PWA Google OAuth code exchange and token refresh.
+- `apps/mobile` (`@flash/mobile`) & `apps/desktop` (`@flash/desktop`) — Capacitor and Tauri shell configurations wrapping `apps/web/dist`.
+- `tools/cli` (`@flash/cli`) — Node CLI (`validate`, `build`, `audio`, `inbox`) and local JSON-RPC 2.0 MCP server (`mcp`).
 
 ## Hard Architectural Rules
 

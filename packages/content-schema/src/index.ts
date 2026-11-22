@@ -188,6 +188,74 @@ export const FamilyCatalogSchema = z.object({
 });
 export type FamilyCatalog = z.infer<typeof FamilyCatalogSchema>;
 
+/** Safe same-origin relative path for static dev/test fixtures (`/packs/...`, zero `..`, zero protocol-relative `//`). */
+export function isSafeRelativePackPath(raw: string): boolean {
+  if (!raw || hasWhitespaceOrControlChar(raw)) return false;
+  if (!raw.startsWith('/') || raw.startsWith('//')) return false;
+  if (raw.includes('\\') || raw.includes('..') || raw.includes(':')) return false;
+  return true;
+}
+
+export function isSafePackUrl(raw: string, allowRelative = false): boolean {
+  if (isStrictHttpsUrl(raw)) return true;
+  if (allowRelative && isSafeRelativePackPath(raw)) return true;
+  return false;
+}
+
+export const PackKindSchema = z.enum(['dictionary', 'strokes']);
+export type PackKindDef = z.infer<typeof PackKindSchema>;
+
+export const PackIdSchema = z.enum([
+  'dict-hanja-unihan',
+  'dict-kanjidic2',
+  'dict-cc-cedict',
+  'dict-jmdict',
+  'strokes-ja-kanjivg',
+  'strokes-zh-mmah',
+]);
+export type PackIdDef = z.infer<typeof PackIdSchema>;
+
+export const PackUrlSchema = z
+  .string()
+  .min(1)
+  .refine((v) => isSafePackUrl(v, true), {
+    message: 'Pack URL must be a valid https:// URL or safe relative /packs/... path.',
+  });
+
+export const PackCatalogEntrySchema = z.object({
+  id: PackIdSchema,
+  kind: PackKindSchema,
+  name: z.string().min(1),
+  description: z.string().min(1),
+  version: z.string().min(1),
+  language: z.string().min(1),
+  script: z.enum(['ja', 'zh-Hans']).optional(),
+  url: PackUrlSchema,
+  compressed_bytes: z.number().int().nonnegative(),
+  uncompressed_bytes: z.number().int().nonnegative().optional(),
+  entry_count: z.number().int().nonnegative(),
+  sha256: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/i, 'sha256 must be a 64-character hex string')
+    .optional(),
+  license_name: z.string().min(1),
+  license_url: HttpsUrlSchema,
+  attribution: z.string().min(1),
+  source_url: HttpsUrlSchema,
+  optional: z.boolean().optional(),
+  /** Optional per-character static URL template on the same host (e.g. `https://.../strokes/ja/{hex5}.json` or `{char}.json`). */
+  char_url_template: PackUrlSchema.optional(),
+});
+export type PackCatalogEntryDef = z.infer<typeof PackCatalogEntrySchema>;
+
+export const PackCatalogSchema = z.object({
+  format_version: z.literal(1),
+  name: z.string().min(1),
+  updated_at: z.string().optional(),
+  packs: z.array(PackCatalogEntrySchema),
+});
+export type PackCatalogDef = z.infer<typeof PackCatalogSchema>;
+
 export interface SchemaValidationError {
   path: string;
   code: string;
@@ -253,6 +321,14 @@ export function validateFamilyCatalog(input: unknown): ValidationResult<FamilyCa
   return { ok: false, errors: formatZodIssues(result.error.issues) };
 }
 
+export function validatePackCatalog(input: unknown): ValidationResult<PackCatalogDef> {
+  const result = PackCatalogSchema.safeParse(input);
+  if (result.success) {
+    return { ok: true, data: result.data };
+  }
+  return { ok: false, errors: formatZodIssues(result.error.issues) };
+}
+
 export function getPackageJsonSchemas(): Record<string, unknown> {
   return {
     manifest: z.toJSONSchema(PackageManifestSchema),
@@ -262,5 +338,6 @@ export function getPackageJsonSchemas(): Record<string, unknown> {
     page_frontmatter: z.toJSONSchema(PageFrontmatterSchema),
     course: z.toJSONSchema(CourseDefSchema),
     family_catalog: z.toJSONSchema(FamilyCatalogSchema),
+    pack_catalog: z.toJSONSchema(PackCatalogSchema),
   };
 }

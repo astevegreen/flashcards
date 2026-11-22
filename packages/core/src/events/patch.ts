@@ -260,6 +260,9 @@ export function computeStatePatch(
             ...(state.preferences.tts_voices !== undefined
               ? { tts_voices: { ...state.preferences.tts_voices } }
               : {}),
+            ...(state.preferences.drawing_modes !== undefined
+              ? { drawing_modes: { ...state.preferences.drawing_modes } }
+              : {}),
           },
         }
       : {}),
@@ -403,6 +406,9 @@ export function mergeStatePatch(
       ...patch.preferences,
       ...(patch.preferences.tts_voices !== undefined
         ? { tts_voices: { ...patch.preferences.tts_voices } }
+        : {}),
+      ...(patch.preferences.drawing_modes !== undefined
+        ? { drawing_modes: { ...patch.preferences.drawing_modes } }
         : {}),
     };
   }

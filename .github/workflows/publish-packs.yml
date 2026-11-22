@@ -1,0 +1,132 @@
+name: Publish Static Packs & Starter Decks
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Pack build mode (starter or full)'
+        required: false
+        default: 'starter'
+        type: choice
+        options:
+          - starter
+          - full
+      base_url:
+        description: 'Public HTTPS base URL for packs/ and index.json (e.g. https://packs.example.pages.dev)'
+        required: false
+        default: 'https://flashcards-packs.pages.dev'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/build-packs.mjs'
+      - 'packages/core/src/samples/**'
+      - 'tools/cli/**'
+      - '.github/workflows/publish-packs.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build static dictionary & stroke packs
+        env:
+          PACK_MODE: ${{ inputs.mode || 'starter' }}
+          PACK_BASE_URL: ${{ inputs.base_url || 'https://flashcards-packs.pages.dev' }}
+        run: |
+          mkdir -p dist-static/packs dist-static/decks
+          if [ "$PACK_MODE" = "full" ] && [ -d "./upstream-open-data" ]; then
+            node scripts/build-packs.mjs --full --input ./upstream-open-data --out dist-static/packs --base-url "$PACK_BASE_URL/packs"
+          else
+            node scripts/build-packs.mjs --starter --out dist-static/packs --base-url "$PACK_BASE_URL/packs"
+          fi
+
+      - name: Build starter .flashpkg & Family Library index.json
+        env:
+          PACK_BASE_URL: ${{ inputs.base_url || 'https://flashcards-packs.pages.dev' }}
+        run: |
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            import { applyEvents, createEmptyState, createEventFactory, createHlcState } from "./packages/core/src/events/replay.ts";
+            import { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } from "./packages/core/src/samples/decks.ts";
+            import { exportFlashpkg } from "./packages/core/src/import/flashpkg.ts";
+            import { buildFamilyCatalogJson } from "./tools/cli/src/commands/build.ts";
+
+            const st = createEmptyState();
+            const factory = createEventFactory("ci-publisher", 0, createHlcState("ci-publisher", SAMPLE_SEED_EPOCH_MS));
+            applyEvents(st, buildSampleDeckEvents(factory, SAMPLE_SEED_EPOCH_MS));
+            const bytes = exportFlashpkg(st, {
+              packageId: "pkg:starter-bundle",
+              name: "Starter Languages Bundle",
+              version: "1.0.0",
+              author: "Flashcards Static Publisher",
+              license: "CC0-1.0",
+            });
+            writeFileSync("dist-static/decks/starter-bundle.flashpkg", bytes);
+            const baseUrl = process.env.PACK_BASE_URL.replace(/\/+$/, "");
+            writeFileSync("dist-static/index.json", buildFamilyCatalogJson({
+              name: "Official Starter Decks",
+              description: "One-tap offline starter decks published via GitHub Actions.",
+              updatedAt: new Date().toISOString(),
+              packages: [{
+                package_id: "pkg:starter-bundle",
+                title: "Starter Languages Bundle (JA / ZH / KO+Hanja / EN)",
+                description: "Starter decks with sample notes, readings, and study pages.",
+                url: `${baseUrl}/decks/starter-bundle.flashpkg`,
+                version: "1.0.0",
+                languages: ["ja", "zh-Hans", "ko", "en"],
+              }],
+            }));
+          '
+          cat > dist-static/_headers << 'EOF'
+          /*
+            Access-Control-Allow-Origin: *
+            Access-Control-Allow-Methods: GET, HEAD, OPTIONS
+            Cache-Control: public, max-age=3600
+          EOF
+
+      - name: Validate built manifests & packages with flash-cli
+        run: |
+          node tools/cli/bin/flash-cli.mjs validate dist-static/packs/packs.json --allow-relative
+          node tools/cli/bin/flash-cli.mjs validate dist-static/index.json
+          node tools/cli/bin/flash-cli.mjs validate dist-static/decks/starter-bundle.flashpkg
+
+      - name: Upload static pack artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-packs-and-starter-decks
+          path: dist-static/
+
+  deploy-cloudflare-pages:
+    needs: build-and-validate
+    if: github.ref == 'refs/heads/main' && vars.CLOUDFLARE_PAGES_PROJECT != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built static packs
+        uses: actions/download-artifact@v4
+        with:
+          name: static-packs-and-starter-decks
+          path: dist-static/
+
+      - name: Publish to Cloudflare Pages (CORS-enabled)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist-static --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT }}

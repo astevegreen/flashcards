@@ -29,13 +29,33 @@
       "types": "./src/study/answer-match.ts",
       "default": "./src/study/answer-match.ts"
     },
+    "./choice": {
+      "types": "./src/study/choice.ts",
+      "default": "./src/study/choice.ts"
+    },
     "./audio": {
       "types": "./src/audio/tts.ts",
       "default": "./src/audio/tts.ts"
     },
+    "./drawing": {
+      "types": "./src/drawing/index.ts",
+      "default": "./src/drawing/index.ts"
+    },
+    "./dictionary": {
+      "types": "./src/dictionary/index.ts",
+      "default": "./src/dictionary/index.ts"
+    },
     "./samples": {
       "types": "./src/samples/decks.ts",
       "default": "./src/samples/decks.ts"
+    },
+    "./snapshot": {
+      "types": "./src/events/snapshot.ts",
+      "default": "./src/events/snapshot.ts"
+    },
+    "./license": {
+      "types": "./src/license/index.ts",
+      "default": "./src/license/index.ts"
     }
   },
   "scripts": {

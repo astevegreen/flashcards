@@ -1,4 +1,4 @@
-import { generateChoiceOptions } from '@flash/core';
+import { generateChoiceOptions } from '@flash/core/choice';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RichText } from '../../components/RichText.tsx';
 import { useApp } from '../../state/AppContext.tsx';

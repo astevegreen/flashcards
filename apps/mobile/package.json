@@ -1,0 +1,15 @@
+{
+  "name": "@flash/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@flash/core": "workspace:*",
+    "@flash/platform": "workspace:*",
+    "@flash/platform-capacitor": "workspace:*"
+  }
+}

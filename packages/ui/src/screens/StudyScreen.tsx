@@ -46,6 +46,7 @@ function isInteractiveControl(target: EventTarget | null): boolean {
 
 export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps) {
   const {
+    platform,
     state,
     stateVersion,
     activeDeckId,
@@ -132,6 +133,54 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     preloadAudioCards(queueResult.queue.slice(0, 4));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preloadAudioCards, lookaheadSignature, stateVersion, ttsConfig]);
+
+  // Background lookahead stroke pre-caching for upcoming `draw` cards (strictly lazy; 0 KB on Flip decks)
+  useEffect(() => {
+    if (!platform.getStrokeDataProvider) return;
+    const upcomingDrawCards = queueResult.queue.slice(0, 3).filter((c) => {
+      const lay = state.layouts.get(c.layout_id);
+      return lay?.answer_mode === 'draw';
+    });
+    if (upcomingDrawCards.length === 0) return;
+
+    let cancelled = false;
+    void Promise.all([import('@flash/core/drawing'), platform.getStrokeDataProvider()])
+      .then(async ([drawing, strokeProvider]) => {
+        if (cancelled) return;
+        const byScript: Record<'ja' | 'zh-Hans', Set<string>> = {
+          ja: new Set(),
+          'zh-Hans': new Set(),
+        };
+        for (const c of upcomingDrawCards) {
+          const n = state.notes.get(c.note_id);
+          const d = state.decks.get(c.deck_id);
+          const l = state.layouts.get(c.layout_id);
+          if (!n || !d || !l) continue;
+          const nt = state.noteTypes.get(d.note_type_id);
+          const key = l.answer_field ?? l.reveal_steps[0]?.[0] ?? 'word';
+          const lang = nt?.fields.find((f) => f.key === key)?.lang ?? d.language;
+          if (drawing.resolveDrawingMode(state.preferences, lang) !== 'graded') continue;
+          const script = drawing.resolveStrokeScriptForLang(lang);
+          for (const ch of drawing.extractDrawableCharacters(n.fields[key] ?? '', lang)) {
+            byScript[script].add(ch);
+          }
+        }
+        if (byScript.ja.size > 0 && !cancelled) {
+          await strokeProvider.precacheCharacters('ja', [...byScript.ja]);
+        }
+        if (byScript['zh-Hans'].size > 0 && !cancelled) {
+          await strokeProvider.precacheCharacters('zh-Hans', [...byScript['zh-Hans']]);
+        }
+      })
+      .catch(() => {
+        // Non-blocking background lookahead
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lookaheadSignature, platform, stateVersion]);
 
   // Stop any playing audio on unmount (depend only on stable `stopAudio`, never the `audio` state wrapper)
   useEffect(() => {
@@ -553,10 +602,24 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           </p>
         </div>
         <div className="flex flex-wrap justify-center gap-3">
+          {platform.starterCatalogUrl && (
+            <button
+              type="button"
+              data-testid="empty-browse-starter-decks-btn"
+              onClick={onOpenLibrary}
+              className="rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+            >
+              Browse Starter Decks
+            </button>
+          )}
           <button
             type="button"
             onClick={loadSampleDecks}
-            className="rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+            className={
+              platform.starterCatalogUrl
+                ? 'rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-2.5 text-sm font-semibold hover:bg-[var(--surface-2)]'
+                : 'rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90'
+            }
           >
             Load Sample Decks
           </button>
@@ -915,16 +978,23 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
                   <button
                     type="button"
                     data-testid="rate-good"
-                    data-suggested={suggestedRating === 3 ? 'true' : undefined}
+                    data-suggested={
+                      suggestedRating === 3 || (suggestedRating === 4 && ratingMode === '2')
+                        ? 'true'
+                        : undefined
+                    }
                     onClick={() => handleRate(3)}
                     className={`flex flex-col items-center rounded-2xl border py-3 text-emerald-600 transition-colors hover:bg-emerald-500/20 active:scale-[0.98] dark:text-emerald-400 ${
-                      suggestedRating === 3
+                      suggestedRating === 3 || (suggestedRating === 4 && ratingMode === '2')
                         ? 'border-emerald-500 bg-emerald-500/20 ring-2 ring-emerald-500/50'
                         : 'border-emerald-500/30 bg-emerald-500/10'
                     }`}
                   >
                     <span className="text-sm font-bold">
-                      Good{suggestedRating === 3 ? ' ★' : ''}
+                      Good
+                      {suggestedRating === 3 || (suggestedRating === 4 && ratingMode === '2')
+                        ? ' ★'
+                        : ''}
                     </span>
                     <span className="text-xs opacity-80">{intervals?.[3].label ?? ''} · 2</span>
                   </button>
@@ -933,10 +1003,17 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
                     <button
                       type="button"
                       data-testid="rate-easy"
+                      data-suggested={suggestedRating === 4 ? 'true' : undefined}
                       onClick={() => handleRate(4)}
-                      className="flex flex-col items-center rounded-2xl border border-sky-500/30 bg-sky-500/10 py-3 text-sky-600 transition-colors hover:bg-sky-500/20 active:scale-[0.98] dark:text-sky-400"
+                      className={`flex flex-col items-center rounded-2xl border py-3 text-sky-600 transition-colors hover:bg-sky-500/20 active:scale-[0.98] dark:text-sky-400 ${
+                        suggestedRating === 4
+                          ? 'border-sky-500 bg-sky-500/20 ring-2 ring-sky-500/50'
+                          : 'border-sky-500/30 bg-sky-500/10'
+                      }`}
                     >
-                      <span className="text-sm font-bold">Easy</span>
+                      <span className="text-sm font-bold">
+                        Easy{suggestedRating === 4 ? ' ★' : ''}
+                      </span>
                       <span className="text-xs opacity-80">{intervals?.[4].label ?? ''} · 3</span>
                     </button>
                   )}

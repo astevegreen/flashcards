@@ -12,6 +12,7 @@ import {
   type Page,
   type SpeakTiming,
 } from '@flash/core';
+import { canCreateOrImportDeck } from '@flash/core/license';
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { CoursesPanel } from '../components/CoursesPanel.tsx';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
@@ -25,17 +26,113 @@ function DeckOptionsPanel({
   noteType,
   onUpdateSettings,
   onExportDeck,
+  onArchiveDeck,
   onAddLayout,
 }: {
   deck: Deck;
   noteType: NoteType | undefined;
-  onUpdateSettings: (deckId: string, patch: { settings: Partial<DeckSettings> }) => void;
+  onUpdateSettings: (
+    deckId: string,
+    patch: { name?: string; archived?: boolean; settings?: Partial<DeckSettings> },
+  ) => void;
   onExportDeck: (deck: Deck) => void;
+  onArchiveDeck: (deck: Deck) => void;
   onAddLayout: (layout: Layout, deckId: string) => void;
 }) {
+  const { platform, state, stateVersion } = useApp();
   const [newPerDayDraft, setNewPerDayDraft] = useState(String(deck.settings.new_cards_per_day));
   const [maxRevDraft, setMaxRevDraft] = useState(String(deck.settings.max_reviews_per_day));
   const [retentionDraft, setRetentionDraft] = useState(String(deck.settings.target_retention));
+
+  // Offline stroke pre-cache status for `draw`-capable decks (§6.4)
+  const [strokeCoverage, setStrokeCoverage] = useState<{
+    script: 'ja' | 'zh-Hans';
+    cached: number;
+    total: number;
+  } | null>(null);
+  const [precachingStrokes, setPrecachingStrokes] = useState(false);
+  const [precacheStatus, setPrecacheStatus] = useState<string | null>(null);
+
+  const deckHasDraw = useMemo(() => {
+    const enabled = getEnabledLayoutsForDeck(state, deck);
+    if (enabled.some((l) => l.answer_mode === 'draw')) return true;
+    const norm = deck.language.toLowerCase();
+    return norm === 'ja' || norm.startsWith('ja-') || norm === 'zh' || norm.startsWith('zh-');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deck, state, stateVersion]);
+
+  useEffect(() => {
+    if (!deckHasDraw || !platform.getStrokeDataProvider) return;
+    let cancelled = false;
+    void Promise.all([import('@flash/core/drawing'), platform.getStrokeDataProvider()])
+      .then(async ([drawing, provider]) => {
+        if (cancelled) return;
+        const script = drawing.resolveStrokeScriptForLang(deck.language);
+        const chars = new Set<string>();
+        const targetField =
+          noteType?.fields.find((f) => f.key === 'word' || f.key === 'character')?.key ??
+          noteType?.fields[0]?.key ??
+          'word';
+        for (const note of state.notes.values()) {
+          if (note.archived || note.deck_id !== deck.id) continue;
+          const raw = note.fields[targetField] ?? '';
+          for (const ch of drawing.extractDrawableCharacters(raw, deck.language)) {
+            chars.add(ch);
+          }
+        }
+        const cov = await provider.getCacheCoverage(script, [...chars]);
+        if (!cancelled) {
+          setStrokeCoverage({ script, cached: cov.cached, total: cov.total });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deck.id, deck.language, deckHasDraw, noteType, platform, stateVersion]);
+
+  const handlePrecacheDeckStrokes = async () => {
+    if (!platform.getStrokeDataProvider) return;
+    setPrecachingStrokes(true);
+    setPrecacheStatus(null);
+    try {
+      const [drawing, provider] = await Promise.all([
+        import('@flash/core/drawing'),
+        platform.getStrokeDataProvider(),
+      ]);
+      const script = drawing.resolveStrokeScriptForLang(deck.language);
+      const chars = new Set<string>();
+      const targetField =
+        noteType?.fields.find((f) => f.key === 'word' || f.key === 'character')?.key ??
+        noteType?.fields[0]?.key ??
+        'word';
+      for (const note of state.notes.values()) {
+        if (note.archived || note.deck_id !== deck.id) continue;
+        const raw = note.fields[targetField] ?? '';
+        for (const ch of drawing.extractDrawableCharacters(raw, deck.language)) {
+          chars.add(ch);
+        }
+      }
+      const list = [...chars];
+      const res = await provider.precacheCharacters(script, list, {
+        onProgress: (p) => {
+          setStrokeCoverage({ script, cached: p.cached, total: p.total });
+          setPrecacheStatus(`Pre-caching ${p.completed}/${p.total}…`);
+        },
+      });
+      setStrokeCoverage({ script, cached: res.cached, total: list.length });
+      setPrecacheStatus(
+        res.failed.length === 0
+          ? `Cached ${res.cached}/${list.length} characters for offline drawing.`
+          : `Cached ${res.cached}/${list.length} (${res.failed.length} unavailable in pack host).`,
+      );
+    } catch (err) {
+      setPrecacheStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPrecachingStrokes(false);
+    }
+  };
 
   // New Answer Mode Layout form
   const textFields = useMemo(
@@ -133,7 +230,9 @@ function DeckOptionsPanel({
             ? 'Cloze'
             : layoutMode === 'listen'
               ? 'Listen'
-              : 'Flip');
+              : layoutMode === 'draw'
+                ? 'Draw'
+                : 'Flip');
 
     const newLayout: Layout = {
       id: `layout:custom:${deck.note_type_id}:${layoutMode}:${uuidv7().slice(0, 8)}`,
@@ -144,9 +243,9 @@ function DeckOptionsPanel({
       answer_mode: layoutMode,
       speak_field: speakFieldKey || effectiveFront,
       speak_on: layoutMode === 'listen' ? 'front' : speakOn,
-      hide_furigana_on_front: layoutMode !== 'typed',
+      hide_furigana_on_front: layoutMode !== 'typed' && layoutMode !== 'draw',
       enabled: false,
-      ...(layoutMode === 'typed' || layoutMode === 'choice'
+      ...(layoutMode === 'typed' || layoutMode === 'choice' || layoutMode === 'draw'
         ? { answer_field: effectiveAnswer }
         : {}),
       ...(layoutMode === 'cloze' && clozeTyped ? { cloze_typed: true } : {}),
@@ -245,13 +344,26 @@ function DeckOptionsPanel({
           <select
             aria-label="Answer mode"
             value={layoutMode}
-            onChange={(e) => setLayoutMode(e.target.value as AnswerMode)}
+            onChange={(e) => {
+              const next = e.target.value as AnswerMode;
+              setLayoutMode(next);
+              if (next === 'draw') {
+                const meaningKey = textFields.find((f) => f.key === 'meaning')?.key;
+                const targetKey = textFields.find(
+                  (f) => f.key === 'word' || f.key === 'character',
+                )?.key;
+                if (meaningKey) setFrontFieldKey(meaningKey);
+                if (targetKey) setAnswerFieldKey(targetKey);
+                setSpeakOn('reveal');
+              }
+            }}
             className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
           >
             <option value="typed">Typed Answer</option>
             <option value="choice">Multiple Choice (4)</option>
             <option value="cloze">Cloze Deletion</option>
             <option value="listen">Listen (Audio Prompt)</option>
+            <option value="draw">Draw (Stroke Practice)</option>
             <option value="flip">Flip</option>
           </select>
         </label>
@@ -286,7 +398,7 @@ function DeckOptionsPanel({
               </select>
             </label>
 
-            {(layoutMode === 'typed' || layoutMode === 'choice') && (
+            {(layoutMode === 'typed' || layoutMode === 'choice' || layoutMode === 'draw') && (
               <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
                 <span>Answer field</span>
                 <select
@@ -358,6 +470,34 @@ function DeckOptionsPanel({
         </button>
       </form>
 
+      {/* Per-Deck Offline Stroke Cache (§6.4) */}
+      {deckHasDraw && strokeCoverage && strokeCoverage.total > 0 && (
+        <div
+          data-testid={`deck-stroke-cache-${deck.id}`}
+          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs"
+        >
+          <div className="flex flex-col gap-0.5">
+            <span className="font-semibold text-[var(--fg)]">
+              Offline Drawing Strokes (
+              {strokeCoverage.script === 'ja' ? 'JA · KanjiVG' : 'ZH · Make Me a Hanzi'})
+            </span>
+            <span data-testid="deck-stroke-coverage" className="text-[11px] text-[var(--muted)]">
+              {strokeCoverage.cached} / {strokeCoverage.total} unique characters cached offline
+              {precacheStatus ? ` · ${precacheStatus}` : ''}
+            </span>
+          </div>
+          <button
+            type="button"
+            data-testid="precache-deck-strokes-btn"
+            disabled={precachingStrokes}
+            onClick={() => void handlePrecacheDeckStrokes()}
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-40"
+          >
+            {precachingStrokes ? 'Pre-caching…' : 'Pre-cache Strokes'}
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -377,6 +517,14 @@ function DeckOptionsPanel({
               Open Source Sheet ↗
             </a>
           )}
+        <button
+          type="button"
+          data-testid={`archive-deck-btn-${deck.id}`}
+          onClick={() => onArchiveDeck(deck)}
+          className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-500/20 dark:text-rose-400"
+        >
+          Archive Deck
+        </button>
       </div>
     </div>
   );
@@ -391,6 +539,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     platform,
     state,
     stateVersion,
+    entitlement,
     emitEvents,
     getEventFactory,
     createDeck,
@@ -402,6 +551,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   } = useApp();
 
   const [expandedDeckId, setExpandedDeckId] = useState<string | null>(null);
+  const [showArchivedDecks, setShowArchivedDecks] = useState(false);
   const [newDeckName, setNewDeckName] = useState('');
   const [newDeckNoteTypeId, setNewDeckNoteTypeId] = useState('preset:vocab-ko');
   const [newDeckLang, setNewDeckLang] = useState('ko');
@@ -418,6 +568,15 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     () =>
       [...state.decks.values()]
         .filter((d) => !d.archived)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, stateVersion],
+  );
+
+  const archivedDecks = useMemo(
+    () =>
+      [...state.decks.values()]
+        .filter((d) => d.archived)
         .sort((a, b) => a.name.localeCompare(b.name)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
@@ -456,10 +615,34 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const handleCreateDeck = (e: FormEvent) => {
     e.preventDefault();
     if (!newDeckName.trim()) return;
+    const gate = canCreateOrImportDeck(decks.length, entitlement);
+    if (!gate.allowed) {
+      setErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
+      return;
+    }
     const id = createDeck(newDeckName, newDeckNoteTypeId, newDeckLang);
     setNewDeckName('');
     setCsvTargetDeckId(id);
     setStatusMessage(`Created deck "${newDeckName.trim()}".`);
+    setErrorMessage(null);
+  };
+
+  const handleArchiveDeck = (deck: Deck) => {
+    updateDeckSettings(deck.id, { archived: true });
+    if (expandedDeckId === deck.id) setExpandedDeckId(null);
+    if (csvTargetDeckId === deck.id) setCsvTargetDeckId('');
+    setStatusMessage(`Archived deck "${deck.name}". Reviews remain safely preserved.`);
+    setErrorMessage(null);
+  };
+
+  const handleRestoreDeck = (deck: Deck) => {
+    const gate = canCreateOrImportDeck(decks.length, entitlement);
+    if (!gate.allowed) {
+      setErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
+      return;
+    }
+    updateDeckSettings(deck.id, { archived: false });
+    setStatusMessage(`Restored deck "${deck.name}" with full review history.`);
     setErrorMessage(null);
   };
 
@@ -495,6 +678,11 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       const text = decodeUtf8(picked.bytes);
       let targetDeckId = effectiveCsvDeckId;
       if (!targetDeckId) {
+        const gate = canCreateOrImportDeck(decks.length, entitlement);
+        if (!gate.allowed) {
+          setErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
+          return;
+        }
         const baseName = picked.name.replace(/\.(csv|tsv|txt)$/i, '');
         targetDeckId = createDeck(baseName || 'Imported Deck', newDeckNoteTypeId, newDeckLang);
       }
@@ -521,6 +709,14 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       if (!picked) return;
       const { importFlashpkg } = await import('@flash/core/flashpkg');
       const result = importFlashpkg(picked.bytes, state, getEventFactory());
+      const netNewDecks = Math.max(0, result.decksImported - result.upgradedDecks);
+      if (netNewDecks > 0) {
+        const gate = canCreateOrImportDeck(decks.length + netNewDecks - 1, entitlement);
+        if (!gate.allowed) {
+          setErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
+          return;
+        }
+      }
       for (const media of result.extractedMedia) {
         await platform.storage.putMedia({
           hash: media.hash,
@@ -785,6 +981,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
                   noteType={state.noteTypes.get(deck.note_type_id)}
                   onUpdateSettings={updateDeckSettings}
                   onExportDeck={(d) => void handleExportDeck(d)}
+                  onArchiveDeck={handleArchiveDeck}
                   onAddLayout={(layout, dId) => {
                     upsertLayout(layout, dId);
                     setStatusMessage(`Added "${layout.name}" (${layout.answer_mode}) layout.`);
@@ -794,6 +991,50 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
             </div>
           );
         })}
+
+        {archivedDecks.length > 0 && (
+          <div
+            data-testid="archived-decks-panel"
+            className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"
+          >
+            <button
+              type="button"
+              data-testid="toggle-archived-decks-btn"
+              aria-expanded={showArchivedDecks}
+              onClick={() => setShowArchivedDecks((prev) => !prev)}
+              className="flex w-full items-center justify-between text-left text-xs font-semibold text-[var(--muted)] hover:text-[var(--fg)]"
+            >
+              <span>Archived Decks ({archivedDecks.length})</span>
+              <span>{showArchivedDecks ? 'Hide' : 'Show'}</span>
+            </button>
+            {showArchivedDecks && (
+              <div className="mt-2.5 flex flex-col gap-2">
+                {archivedDecks.map((deck) => (
+                  <div
+                    key={deck.id}
+                    data-testid={`archived-deck-row-${deck.id}`}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[var(--fg)]">{deck.name}</span>
+                      <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
+                        {deck.language}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      data-testid={`restore-deck-btn-${deck.id}`}
+                      onClick={() => handleRestoreDeck(deck)}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 font-semibold text-[var(--fg)] hover:bg-[var(--surface-2)]"
+                    >
+                      Restore Deck
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Phase 4 Courses (§2.3) */}

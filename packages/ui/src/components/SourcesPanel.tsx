@@ -1,3 +1,4 @@
+import { canCreateOrImportDeck } from '@flash/core/license';
 import type {
   CatalogPackageInfo,
   LinkedGoogleSource,
@@ -80,7 +81,13 @@ export interface SourcesPanelProps {
 }
 
 export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelProps) {
-  const { platform, state, stateVersion, emitEvents, getEventFactory } = useApp();
+  const { platform, state, stateVersion, entitlement, emitEvents, getEventFactory } = useApp();
+
+  const activeDeckCount = useMemo(
+    () => [...state.decks.values()].filter((d) => !d.archived).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, stateVersion],
+  );
 
   const [registry, setRegistry] = useState<SourcesRegistry>({
     googleSources: [],
@@ -105,6 +112,75 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   const [reconcileChoices, setReconcileChoices] = useState<Record<string, Record<string, string>>>(
     {},
   );
+
+  // Built-in Starter Decks catalog (VITE_STARTER_CATALOG_URL -> FamilyCatalog index.json, §3.4)
+  const [starterCatalog, setStarterCatalog] = useState<{
+    name: string;
+    description?: string;
+    packages: CatalogPackageInfo[];
+  } | null>(null);
+  const [starterCatalogLoading, setStarterCatalogLoading] = useState(false);
+  const [starterCatalogError, setStarterCatalogError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const starterUrl = platform.starterCatalogUrl?.trim();
+    if (!starterUrl) return undefined;
+    let cancelled = false;
+    setStarterCatalogLoading(true);
+    setStarterCatalogError(null);
+
+    void (async () => {
+      const cacheKey = `starter_catalog_cache_v1:${starterUrl}`;
+      const cached = await platform.storage.getKv<{
+        etag?: string;
+        name: string;
+        description?: string;
+        packages: CatalogPackageInfo[];
+      }>(cacheKey);
+      if (cached && !cancelled) {
+        setStarterCatalog({
+          name: cached.name,
+          ...(cached.description ? { description: cached.description } : {}),
+          packages: cached.packages,
+        });
+      }
+      try {
+        const [fetcher, { parseAndValidateFamilyCatalog }] = await Promise.all([
+          platform.getPackageFetcher(),
+          import('@flash/core/sources'),
+        ]);
+        const res = await fetcher.fetchCatalog(
+          starterUrl,
+          cached?.etag ? { etag: cached.etag } : undefined,
+        );
+        if (!res.notModified) {
+          const parsed = parseAndValidateFamilyCatalog(res.rawJson);
+          const nextCatalog = {
+            name: parsed.name,
+            ...(parsed.description ? { description: parsed.description } : {}),
+            packages: parsed.packages as CatalogPackageInfo[],
+          };
+          await platform.storage.setKv(cacheKey, {
+            ...nextCatalog,
+            ...(res.etag ? { etag: res.etag } : {}),
+          });
+          if (!cancelled) {
+            setStarterCatalog(nextCatalog);
+          }
+        }
+      } catch (err) {
+        if (!cancelled && !cached) {
+          setStarterCatalogError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) setStarterCatalogLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [platform]);
 
   const noteTypes = useMemo(
     () => [...state.noteTypes.values()],
@@ -170,6 +246,11 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   };
 
   const handleLinkGooglePicker = async () => {
+    const gate = canCreateOrImportDeck(activeDeckCount, entitlement);
+    if (!gate.allowed) {
+      onErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
+      return;
+    }
     setBusy(true);
     onErrorMessage(null);
     try {
@@ -199,6 +280,11 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   const handleCreateTemplate = async (e: FormEvent) => {
     e.preventDefault();
     if (!templateTitle.trim()) return;
+    const gate = canCreateOrImportDeck(activeDeckCount, entitlement);
+    if (!gate.allowed) {
+      onErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
+      return;
+    }
     setBusy(true);
     onErrorMessage(null);
     try {
@@ -223,6 +309,11 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   };
 
   const handleLinkLocalFolder = async () => {
+    const gate = canCreateOrImportDeck(activeDeckCount, entitlement);
+    if (!gate.allowed) {
+      onErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
+      return;
+    }
     setBusy(true);
     onErrorMessage(null);
     try {
@@ -268,6 +359,11 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
           `Added Family Library "${res.catalog.name}" (${res.catalog.packages.length} package(s)).`,
         );
       } else {
+        const gate = canCreateOrImportDeck(activeDeckCount, entitlement);
+        if (!gate.allowed) {
+          onErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
+          return;
+        }
         const { subscribeToPackageUrl } = await import('../sources/sourceRunner.ts');
         const res = await subscribeToPackageUrl(trimmed, makeRunnerCtx());
         setRegistry(res.registry);
@@ -285,6 +381,16 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   };
 
   const handleSubscribeCatalogEntry = async (catalogUrl: string, pkg: CatalogPackageInfo) => {
+    const isExistingSub = registry.packageSubscriptions.some(
+      (s) => s.url === pkg.url || s.packageId === pkg.package_id,
+    );
+    if (!isExistingSub) {
+      const gate = canCreateOrImportDeck(activeDeckCount, entitlement);
+      if (!gate.allowed) {
+        onErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
+        return;
+      }
+    }
     setBusy(true);
     onErrorMessage(null);
     try {
@@ -504,6 +610,92 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         </button>
       </div>
 
+      {/* Built-in 1-tap Starter Decks Catalog (VITE_STARTER_CATALOG_URL -> FamilyCatalog index.json, §3.4) */}
+      {platform.starterCatalogUrl && (
+        <div
+          data-testid="starter-decks-section"
+          className="flex flex-col gap-2 rounded-xl border border-[var(--accent)]/30 bg-[var(--accent-soft)]/40 p-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">
+                  Starter Decks
+                </span>
+                <span className="text-xs font-semibold text-[var(--fg)]">
+                  {starterCatalog?.name ?? 'Curated Starter Decks'}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+                {starterCatalog?.description ??
+                  'Install vetted starter decks in one tap—no Google Drive or account needed.'}
+              </p>
+            </div>
+            {starterCatalogLoading && (
+              <span className="text-[11px] text-[var(--muted)]">Checking catalog…</span>
+            )}
+          </div>
+
+          {starterCatalogError && (
+            <div className="text-[11px] text-rose-600 dark:text-rose-400">
+              Could not load starter catalog: {starterCatalogError}
+            </div>
+          )}
+
+          {starterCatalog && starterCatalog.packages.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {starterCatalog.packages.map((pkg) => {
+                const sub = registry.packageSubscriptions.find(
+                  (s) => s.url === pkg.url || s.packageId === pkg.package_id,
+                );
+                return (
+                  <div
+                    key={pkg.package_id}
+                    data-testid={`starter-pkg-${pkg.package_id}`}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs font-semibold">{pkg.title}</span>
+                        <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--muted)]">
+                          v{pkg.version}
+                        </span>
+                        {pkg.languages.map((lang) => (
+                          <span
+                            key={lang}
+                            className="rounded bg-[var(--surface-2)] px-1 py-0.5 text-[10px] text-[var(--muted)]"
+                          >
+                            {lang}
+                          </span>
+                        ))}
+                      </div>
+                      {pkg.description && (
+                        <div className="text-[11px] text-[var(--muted)]">{pkg.description}</div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      data-testid={`starter-install-${pkg.package_id}`}
+                      disabled={busy}
+                      onClick={() =>
+                        void handleSubscribeCatalogEntry(platform.starterCatalogUrl ?? '', pkg)
+                      }
+                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                        sub
+                          ? 'border border-[var(--border)] text-[var(--muted)] hover:bg-[var(--surface-2)]'
+                          : 'bg-[var(--accent)] text-white hover:opacity-90'
+                      }`}
+                    >
+                      {sub ? `Update (v${sub.version ?? pkg.version})` : 'Install'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-2">
         {platform.googleOAuthConfigured && !googleConnected ? (
@@ -625,7 +817,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
           <input
             type="url"
             data-testid="subscribe-url-input"
-            placeholder="https://raw.githubusercontent.com/.../deck.flashpkg or index.json"
+            placeholder="https://your-host.pages.dev/deck.flashpkg or index.json"
             value={subscribeUrl}
             onChange={(e) => setSubscribeUrl(e.target.value)}
             className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs"

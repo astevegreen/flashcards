@@ -97,6 +97,8 @@ export default tseslint.config(
       'packages/ui/src/**/*.{ts,tsx}',
       'apps/web/src/**/*.{ts,tsx}',
       'packages/platform-web/src/**/*.ts',
+      'packages/platform-capacitor/src/**/*.ts',
+      'packages/platform-tauri/src/**/*.ts',
     ],
     languageOptions: {
       globals: {
@@ -116,6 +118,7 @@ export default tseslint.config(
     files: [
       'scripts/**/*.{js,mjs}',
       'spikes/phase0/scripts/**/*.{js,mjs}',
+      'tools/cli/**/*.{ts,js,mjs}',
       '*.config.{js,ts}',
       'tests/**/*.ts',
       'apps/token-helper/**/*.ts',

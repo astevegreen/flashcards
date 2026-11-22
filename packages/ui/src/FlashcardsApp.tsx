@@ -47,7 +47,9 @@ function ScreenRouter() {
               }}
             />
           )}
-          {activeTab === 'browse' && <BrowseScreen />}
+          {activeTab === 'browse' && (
+            <BrowseScreen onOpenSettings={() => handleSelectTab('settings')} />
+          )}
           {activeTab === 'settings' && <SettingsScreen />}
         </Suspense>
       )}

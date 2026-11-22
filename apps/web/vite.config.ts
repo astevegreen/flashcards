@@ -3,19 +3,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-const DEFAULT_TOKEN_HELPER_URL = 'https://flashcards-token-helper.yodc.workers.dev';
-
-function resolveTokenHelperOrigin(): string {
-  const raw = process.env['VITE_TOKEN_HELPER_URL']?.trim() || DEFAULT_TOKEN_HELPER_URL;
-  try {
-    return new URL(raw).origin;
-  } catch {
-    return new URL(DEFAULT_TOKEN_HELPER_URL).origin;
-  }
-}
-
 function productionCspPlugin(): Plugin {
-  resolveTokenHelperOrigin();
   return {
     name: 'production-csp',
     apply: 'build',
@@ -77,8 +65,12 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        globIgnores: ['packs/**', 'picker.html'],
         ignoreURLParametersMatching: [
           /^device$/,
+          /^starterCatalog$/,
+          /^licenseGate$/,
+          /^licensePubKey$/,
           /^code$/,
           /^state$/,
           /^scope$/,
@@ -95,5 +87,35 @@ export default defineConfig({
   build: {
     target: 'es2023',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const norm = id.replace(/\\/g, '/');
+          // Consolidate initial study-screen core & shared runtime modules into a single
+          // core-runtime chunk to avoid 13 fragmented micro-chunks and improve gzip density (§8).
+          if (
+            norm.includes('/node_modules/ts-fsrs/') ||
+            norm.includes('/packages/core/src/ids.ts') ||
+            norm.includes('/packages/core/src/hlc.ts') ||
+            norm.includes('/packages/core/src/model/') ||
+            norm.includes('/packages/core/src/events/types.ts') ||
+            norm.includes('/packages/core/src/events/replay.ts') ||
+            norm.includes('/packages/core/src/fsrs/') ||
+            norm.includes('/packages/core/src/study/queue.ts') ||
+            norm.includes('/packages/core/src/parsers/') ||
+            norm.includes('/packages/core/src/audio/tts.ts') ||
+            norm.includes('/packages/core/src/sources/hash.ts') ||
+            norm.includes('/packages/core/src/sync/types.ts') ||
+            norm.includes('/packages/ui/src/components/RichText.tsx') ||
+            norm.includes('/packages/ui/src/state/AppContext.tsx') ||
+            norm.includes('/packages/ui/src/state/useAudioController.ts') ||
+            norm.includes('/packages/ui/src/state/useSyncController.ts')
+          ) {
+            return 'core-runtime';
+          }
+          return undefined;
+        },
+      },
+    },
   },
 });

@@ -25,7 +25,7 @@ export function NoteEditDialog({
   onSave,
   onClose,
 }: NoteEditDialogProps) {
-  const { platform, addMedia } = useApp();
+  const { platform, addMedia, setNoteArchived } = useApp();
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const titleId = useId();
   const closedByCodeRef = useRef(false);
@@ -359,20 +359,37 @@ export function NoteEditDialog({
           </label>
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={() => closeDialog('cancel')}
-            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)]"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
-          >
-            Save
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+          <div>
+            {note && (
+              <button
+                type="button"
+                data-testid="archive-note-btn"
+                onClick={() => {
+                  setNoteArchived(note.id, !note.archived);
+                  closeDialog(note.archived ? 'restore' : 'archive');
+                }}
+                className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-500/20 dark:text-rose-400"
+              >
+                {note.archived ? 'Restore Note' : 'Archive Note'}
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => closeDialog('cancel')}
+              className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+            >
+              Save
+            </button>
+          </div>
         </div>
       </form>
     </dialog>

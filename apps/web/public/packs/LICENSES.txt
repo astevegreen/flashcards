@@ -1,0 +1,20 @@
+Flashcards Offline Data Packs — Upstream Licenses & Attributions
+================================================================
+
+1. dict-hanja-unihan: Unicode License v3 (https://www.unicode.org/license.txt)
+   Source: Unicode Character Database (Unihan) — https://www.unicode.org/charts/unihan.html
+
+2. dict-kanjidic2: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+   Source: EDRDG KANJIDIC2 — https://www.edrdg.org/wiki/index.php/KANJIDIC_Project
+
+3. dict-cc-cedict: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+   Source: MDBG CC-CEDICT — https://www.mdbg.net/chinese/dictionary?page=cc-cedict
+
+4. dict-jmdict: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+   Source: EDRDG JMdict — https://www.edrdg.org/jmdict/j_jmdict.html
+
+5. strokes-ja-kanjivg: CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+   Source: KanjiVG (Ulrich Apel & contributors) — https://kanjivg.tagaini.net/
+
+6. strokes-zh-mmah: Arphic Public License (1999) (https://ftp.gnu.org/gnu/non-gnu/chinese-fonts-truetype/LICENSE)
+   Source: Make Me a Hanzi — https://github.com/skishore/makemeahanzi

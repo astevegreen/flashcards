@@ -1,9 +1,15 @@
 import { parseMediaHashUri } from '@flash/core';
-import { MediaAudioPlayer } from '../../components/MediaAudioPlayer.tsx';
-import { MediaImage } from '../../components/MediaImage.tsx';
+import { lazy, Suspense } from 'react';
 import { RichText } from '../../components/RichText.tsx';
 import { useApp } from '../../state/AppContext.tsx';
 import type { FieldMeta } from './types.ts';
+
+const LazyMediaAudioPlayer = lazy(() =>
+  import('../../components/MediaAudioPlayer.tsx').then((m) => ({ default: m.MediaAudioPlayer })),
+);
+const LazyMediaImage = lazy(() =>
+  import('../../components/MediaImage.tsx').then((m) => ({ default: m.MediaImage })),
+);
 
 export interface CardFieldValueProps {
   fieldKey: string;
@@ -29,14 +35,18 @@ export function CardFieldValue({
   if (meta?.kind === 'audio' || fieldKey === 'audio' || isAudioBlob) {
     return (
       <div className="flex justify-center">
-        <MediaAudioPlayer src={value} label={meta?.label ?? 'Audio clip'} />
+        <Suspense fallback={null}>
+          <LazyMediaAudioPlayer src={value} label={meta?.label ?? 'Audio clip'} />
+        </Suspense>
       </div>
     );
   }
   if (meta?.kind === 'image' || mediaHash !== null) {
     return (
       <div className="flex justify-center">
-        <MediaImage src={value} alt={meta?.label ?? 'Card image'} />
+        <Suspense fallback={null}>
+          <LazyMediaImage src={value} alt={meta?.label ?? 'Card image'} />
+        </Suspense>
       </div>
     );
   }

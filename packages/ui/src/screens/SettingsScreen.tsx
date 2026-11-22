@@ -2,11 +2,23 @@ import {
   DEFAULT_AZURE_VOICES,
   DEFAULT_GOOGLE_VOICES,
   getTotalAppliedEventCount,
+  type DrawingMode,
   type RatingButtonMode,
 } from '@flash/core';
-import type { TtsProviderKind } from '@flash/platform';
-import { useEffect, useMemo, useState } from 'react';
+import { canCreateOrImportDeck, canUseCloudSync } from '@flash/core/license';
+import type { InstalledPackInfo, TtsProviderKind } from '@flash/platform';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
+
+const LazyPackManagerPanel = lazy(() =>
+  import('../packs/PackManagerPanel.tsx').then((m) => ({ default: m.PackManagerPanel })),
+);
+const LazyAboutLicensesCard = lazy(() =>
+  import('../packs/AboutLicensesCard.tsx').then((m) => ({ default: m.AboutLicensesCard })),
+);
+const LazyUnlockAndSunsetCard = lazy(() =>
+  import('../packs/UnlockAndSunsetCard.tsx').then((m) => ({ default: m.UnlockAndSunsetCard })),
+);
 
 function formatSyncStatusLabel(status: SyncUiStatus): string {
   switch (status) {
@@ -52,6 +64,7 @@ export function SettingsScreen() {
     state,
     stateVersion,
     meta,
+    entitlement,
     audio,
     syncState,
     syncNow,
@@ -70,6 +83,7 @@ export function SettingsScreen() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
+  const [installedPacks, setInstalledPacks] = useState<InstalledPackInfo[]>([]);
 
   // Audio & BYO Cloud TTS form state (API key stays strictly device-local)
   const [ttsProviderDraft, setTtsProviderDraft] = useState<TtsProviderKind>(
@@ -216,6 +230,11 @@ export function SettingsScreen() {
           : 'Not Connected';
 
   const handleSyncNow = async () => {
+    const syncGate = canUseCloudSync(entitlement);
+    if (!syncGate.allowed) {
+      setError(syncGate.reason ?? 'Cloud sync requires the one-time Unlock upgrade.');
+      return;
+    }
     setSyncBusy(true);
     setError(null);
     try {
@@ -228,6 +247,11 @@ export function SettingsScreen() {
   };
 
   const handleConnectGoogleDrive = async () => {
+    const syncGate = canUseCloudSync(entitlement);
+    if (!syncGate.allowed) {
+      setError(syncGate.reason ?? 'Cloud sync requires the one-time Unlock upgrade.');
+      return;
+    }
     setError(null);
     try {
       await connectGoogleDrive();
@@ -237,6 +261,11 @@ export function SettingsScreen() {
   };
 
   const handleConnectLocalFolder = async () => {
+    const syncGate = canUseCloudSync(entitlement);
+    if (!syncGate.allowed) {
+      setError(syncGate.reason ?? 'Cloud sync requires the one-time Unlock upgrade.');
+      return;
+    }
     setSyncBusy(true);
     setError(null);
     try {
@@ -252,6 +281,11 @@ export function SettingsScreen() {
   };
 
   const handleReconnectLocalFolder = async () => {
+    const syncGate = canUseCloudSync(entitlement);
+    if (!syncGate.allowed) {
+      setError(syncGate.reason ?? 'Cloud sync requires the one-time Unlock upgrade.');
+      return;
+    }
     setSyncBusy(true);
     setError(null);
     try {
@@ -310,6 +344,15 @@ export function SettingsScreen() {
       if (!picked) return;
       const { importFlashpkg } = await import('@flash/core/flashpkg');
       const result = importFlashpkg(picked.bytes, state, getEventFactory());
+      const activeDeckCount = [...state.decks.values()].filter((d) => !d.archived).length;
+      const netNewDecks = Math.max(0, result.decksImported - result.upgradedDecks);
+      if (netNewDecks > 0) {
+        const deckGate = canCreateOrImportDeck(activeDeckCount + netNewDecks - 1, entitlement);
+        if (!deckGate.allowed) {
+          setError(deckGate.reason ?? 'Free tier deck limit reached.');
+          return;
+        }
+      }
       for (const media of result.extractedMedia) {
         await platform.storage.putMedia({
           hash: media.hash,
@@ -796,6 +839,64 @@ export function SettingsScreen() {
           )}
         </div>
       </div>
+
+      {/* Drawing & Handwriting Modes (Phase 6, §6.4) */}
+      <div
+        data-testid="drawing-settings-card"
+        className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+      >
+        <div>
+          <h2 className="text-sm font-semibold">Drawing &amp; Handwriting</h2>
+          <p className="text-xs text-[var(--muted)]">
+            Choose per-language behavior for Draw layouts: <strong>Graded</strong> (stroke-order
+            quiz via Hanzi Writer), <strong>Lookup</strong> (freehand draw-to-lookup, Hanja
+            default), or <strong>Off</strong>.
+          </p>
+        </div>
+
+        {(
+          [
+            { key: 'ja', label: 'Japanese (ja)', defaultMode: 'graded' as DrawingMode },
+            { key: 'zh-Hans', label: 'Mandarin (zh-Hans)', defaultMode: 'graded' as DrawingMode },
+            { key: 'ko', label: 'Korean / Hanja (ko)', defaultMode: 'lookup' as DrawingMode },
+          ] as const
+        ).map(({ key, label, defaultMode }) => {
+          const currentMode = state.preferences.drawing_modes?.[key] ?? defaultMode;
+          return (
+            <label key={key} className="flex items-center justify-between gap-4 text-sm">
+              <span className="font-medium">{label}</span>
+              <select
+                aria-label={`Drawing mode for ${label}`}
+                data-testid={`drawing-mode-select-${key}`}
+                value={currentMode}
+                onChange={(e) =>
+                  updatePreferences({
+                    drawing_modes: { [key]: e.target.value as DrawingMode },
+                  })
+                }
+                className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm"
+              >
+                <option value="graded">Graded (Stroke Quiz)</option>
+                <option value="lookup">Lookup (Handwriting Match)</option>
+                <option value="off">Off</option>
+              </select>
+            </label>
+          );
+        })}
+      </div>
+
+      {/* Offline Dictionaries & Stroke Packs (Phase 6, §6.3) */}
+      <Suspense
+        fallback={
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-xs text-[var(--muted)]">
+            Loading pack manager…
+          </div>
+        }
+      >
+        <LazyPackManagerPanel onInstalledPacksChanged={setInstalledPacks} />
+        <LazyUnlockAndSunsetCard />
+        <LazyAboutLicensesCard installedPacks={installedPacks} />
+      </Suspense>
 
       {/* Local Backup & Restore */}
       <div className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">

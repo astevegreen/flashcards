@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="origin" />
+    <title>Select Google Sheets or Docs — Flashcards</title>
+    <style>
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background: #0f172a;
+        color: #f8fafc;
+        margin: 0;
+        padding: 2rem 1rem;
+        display: flex;
+        min-height: 100vh;
+        align-items: center;
+        justify-content: center;
+      }
+      .card {
+        max-width: 28rem;
+        width: 100%;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 1rem;
+        padding: 1.5rem;
+        text-align: center;
+      }
+      button {
+        background: #2563eb;
+        color: #fff;
+        border: none;
+        border-radius: 0.75rem;
+        padding: 0.65rem 1.2rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .muted {
+        color: #94a3b8;
+        font-size: 0.875rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Select Google Sheets or Docs</h1>
+      <p id="status" class="muted">Loading Google Picker for Flashcards…</p>
+      <button id="open-btn" type="button" hidden>Open Picker</button>
+    </main>
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script>
+      (function () {
+        var statusEl = document.getElementById('status');
+        var openBtn = document.getElementById('open-btn');
+        var params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        var token = params.get('access_token') || '';
+        var appId = params.get('app_id') || '';
+        var apiKey = params.get('api_key') || '';
+        var callback = params.get('callback') || 'flashcards://picker-callback';
+
+        if (!/^flashcards:\/\/picker-callback$/i.test(callback)) {
+          statusEl.textContent = 'Invalid deep-link callback target.';
+          return;
+        }
+        if (!token || !appId || !apiKey) {
+          statusEl.textContent = 'Missing required Picker authorization parameters.';
+          return;
+        }
+
+        function redirectWith(queryObj) {
+          var q = new URLSearchParams(queryObj);
+          window.location.href = callback + '?' + q.toString();
+        }
+
+        function launchPicker() {
+          gapi.load('picker', function () {
+            var docsView = new google.picker.DocsView(google.picker.ViewId.DOCS)
+              .setIncludeFolders(false)
+              .setMimeTypes(
+                'application/vnd.google-apps.spreadsheet,application/vnd.google-apps.document',
+              );
+
+            var builder = new google.picker.PickerBuilder()
+              .setAppId(appId)
+              .setOrigin(window.location.origin)
+              .setOAuthToken(token)
+              .setDeveloperKey(apiKey)
+              .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+              .addView(docsView)
+              .setCallback(function (data) {
+                if (data.action === google.picker.Action.PICKED) {
+                  var picked = (data.docs || []).map(function (d) {
+                    return { id: d.id, name: d.name, mimeType: d.mimeType, url: d.url };
+                  });
+                  statusEl.textContent = 'Returning selected files to Flashcards…';
+                  redirectWith({ files: JSON.stringify(picked) });
+                } else if (data.action === google.picker.Action.CANCEL) {
+                  redirectWith({ files: '[]' });
+                }
+              });
+
+            builder.build().setVisible(true);
+            statusEl.textContent = 'Choose one or more Sheets or Docs to link.';
+          });
+        }
+
+        openBtn.hidden = false;
+        openBtn.addEventListener('click', launchPicker);
+        launchPicker();
+      })();
+    </script>
+  </body>
+</html>

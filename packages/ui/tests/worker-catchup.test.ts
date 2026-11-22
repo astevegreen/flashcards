@@ -15,7 +15,7 @@ import {
 } from '@flash/core';
 import type { ReplayWorkerClient } from '@flash/platform';
 import { describe, expect, it } from 'vitest';
-import { applyEventsViaWorkerWithConcurrentCatchup } from '../src/state/useSyncController.ts';
+import { applyEventsViaWorkerWithConcurrentCatchup } from '../src/state/syncRunner.ts';
 
 describe('applyEventsViaWorkerWithConcurrentCatchup (concurrent main-thread mutations)', () => {
   it('preserves local reviews and note edits emitted during both worker.hydrate() and worker.apply() on the exact same card and note', async () => {

@@ -1,16 +1,22 @@
 import type {
   Auth,
+  DictionaryService,
   GooglePickerAdapter,
   GoogleSourcesClient,
+  HandwritingRecognizer,
   LocalFolderSourcesAdapter,
   PackageSubscriptionFetcher,
+  PackManager,
   PlatformServices,
+  Purchase,
   ReplayWorkerClient,
+  StrokeDataProvider,
   SyncTransport,
 } from '@flash/platform';
 import { WebDeviceSpeechPlayer } from './audio/device-speech.ts';
 import { WebAudioPlayer } from './audio/web-audio-player.ts';
 import { WebFiles } from './files/web-files.ts';
+import type { DexiePackStorage } from './packs/dexie-pack-storage.ts';
 import { DexieStorage } from './storage/dexie-storage.ts';
 import { DevChannelSyncTransport, InMemorySyncTransport } from './sync/in-memory-transport.ts';
 
@@ -31,6 +37,10 @@ export interface CreateWebPlatformOptions {
   googleClientId?: string;
   tokenHelperUrl?: string;
   googleApiKey?: string;
+  packCatalogUrl?: string;
+  starterCatalogUrl?: string;
+  isPersonalBuild?: boolean;
+  licensePublicKeyHex?: string;
 }
 
 /**
@@ -65,6 +75,8 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
   const googleClientId = options?.googleClientId?.trim() ?? '';
   const tokenHelperUrl = options?.tokenHelperUrl?.trim() ?? '';
   const googleApiKey = options?.googleApiKey?.trim() ?? '';
+  const packCatalogUrl = options?.packCatalogUrl?.trim() || (isDevMode ? '/packs/packs.json' : '');
+  const starterCatalogUrl = options?.starterCatalogUrl?.trim() ?? '';
   const googleOAuthConfigured = Boolean(googleClientId && tokenHelperUrl);
   const googlePickerConfigured = Boolean(googleOAuthConfigured && googleApiKey);
   const supportsLocalFolderSync =
@@ -78,6 +90,21 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
   let cachedGoogleSources: GoogleSourcesClient | null = null;
   let cachedLocalFolderSources: LocalFolderSourcesAdapter | null = null;
   let cachedPackageFetcher: PackageSubscriptionFetcher | null = null;
+  let cachedPackStoragePromise: Promise<DexiePackStorage> | null = null;
+  let cachedPackManager: PackManager | null = null;
+  let cachedStrokeProvider: StrokeDataProvider | null = null;
+  let cachedHandwritingRecognizer: HandwritingRecognizer | null = null;
+  let cachedDictionaryService: DictionaryService | null = null;
+  let cachedPurchase: Purchase | null = null;
+
+  const getPackStorage = async () => {
+    if (!cachedPackStoragePromise) {
+      cachedPackStoragePromise = import('./packs/dexie-pack-storage.ts').then(
+        ({ DexiePackStorage }) => new DexiePackStorage(resolved.slug),
+      );
+    }
+    return cachedPackStoragePromise;
+  };
 
   const getGoogleAuth = async (): Promise<Auth> => {
     if (!cachedGoogleAuth) {
@@ -199,6 +226,71 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     return fetchAndProcessHttpsAudio(url);
   };
 
+  const getPackManager = async (): Promise<PackManager> => {
+    if (!cachedPackManager) {
+      const [packStorage, { WebPackManager }] = await Promise.all([
+        getPackStorage(),
+        import('./packs/web-pack-manager.ts'),
+      ]);
+      cachedPackManager = new WebPackManager({
+        packStorage,
+        ...(packCatalogUrl ? { defaultCatalogUrl: packCatalogUrl } : {}),
+        allowRelativeUrls: isDevMode || packCatalogUrl.startsWith('/'),
+      });
+    }
+    return cachedPackManager;
+  };
+
+  const getStrokeDataProvider = async (): Promise<StrokeDataProvider> => {
+    if (!cachedStrokeProvider) {
+      const [packStorage, packManager, { WebStrokeDataProvider }] = await Promise.all([
+        getPackStorage(),
+        getPackManager(),
+        import('./drawing/web-stroke-provider.ts'),
+      ]);
+      cachedStrokeProvider = new WebStrokeDataProvider({
+        packStorage,
+        packManager,
+        allowRelativeUrls: isDevMode || packCatalogUrl.startsWith('/'),
+      });
+    }
+    return cachedStrokeProvider;
+  };
+
+  const getHandwritingRecognizer = async (): Promise<HandwritingRecognizer> => {
+    if (!cachedHandwritingRecognizer) {
+      const [packStorage, { WebStrokeRecognizer }] = await Promise.all([
+        getPackStorage(),
+        import('./drawing/web-stroke-recognizer.ts'),
+      ]);
+      cachedHandwritingRecognizer = new WebStrokeRecognizer(packStorage);
+    }
+    return cachedHandwritingRecognizer;
+  };
+
+  const getDictionaryService = async (): Promise<DictionaryService> => {
+    if (!cachedDictionaryService) {
+      const [packStorage, { WebDictionaryService }] = await Promise.all([
+        getPackStorage(),
+        import('./dictionary/web-dictionary-service.ts'),
+      ]);
+      cachedDictionaryService = new WebDictionaryService(packStorage);
+    }
+    return cachedDictionaryService;
+  };
+
+  const getPurchase = async (): Promise<Purchase> => {
+    if (!cachedPurchase) {
+      const { WebLicensePurchase } = await import('./purchase/web-license-purchase.ts');
+      cachedPurchase = new WebLicensePurchase({
+        storage,
+        isPersonalBuild: options?.isPersonalBuild ?? true,
+        ...(options?.licensePublicKeyHex ? { publicKeyHex: options.licensePublicKeyHex } : {}),
+      });
+    }
+    return cachedPurchase;
+  };
+
   return {
     deviceId: resolved.deviceId,
     deviceLabel: resolved.label,
@@ -212,6 +304,8 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     googleOAuthConfigured,
     googlePickerConfigured,
     supportsLocalFolderSync,
+    ...(packCatalogUrl ? { packCatalogUrl } : {}),
+    ...(starterCatalogUrl ? { starterCatalogUrl } : {}),
     getGoogleAuth,
     createGoogleDriveTransport,
     getGooglePicker,
@@ -233,5 +327,10 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     createTtsProvider,
     processAudio,
     fetchAndCacheHttpsAudio,
+    getPackManager,
+    getStrokeDataProvider,
+    getHandwritingRecognizer,
+    getDictionaryService,
+    getPurchase,
   };
 }

@@ -236,6 +236,14 @@ export function serializeCollectionState(
       )
     : undefined;
 
+  const sortedDrawingModes = state.preferences.drawing_modes
+    ? Object.fromEntries(
+        Object.keys(state.preferences.drawing_modes)
+          .sort(cmpStr)
+          .map((k) => [k, state.preferences.drawing_modes?.[k] ?? 'off']),
+      )
+    : undefined;
+
   return {
     formatVersion: SERIALIZED_STATE_FORMAT_VERSION,
     totalEvents: getTotalAppliedEventCount(state),
@@ -256,6 +264,7 @@ export function serializeCollectionState(
     preferences: {
       ...state.preferences,
       ...(sortedTtsVoices !== undefined ? { tts_voices: sortedTtsVoices } : {}),
+      ...(sortedDrawingModes !== undefined ? { drawing_modes: sortedDrawingModes } : {}),
     },
     unknownEvents: state.unknownEvents.map((ev) => cloneJsonValue(ev)),
     fieldHlcs,
@@ -435,6 +444,9 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
       ...serialized.preferences,
       ...(serialized.preferences.tts_voices !== undefined
         ? { tts_voices: { ...serialized.preferences.tts_voices } }
+        : {}),
+      ...(serialized.preferences.drawing_modes !== undefined
+        ? { drawing_modes: { ...serialized.preferences.drawing_modes } }
         : {}),
     },
     unknownEvents: serialized.unknownEvents.map((ev) => cloneJsonValue(ev)),

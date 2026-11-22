@@ -313,14 +313,17 @@ Registered in a pluggable answer-mode registry; layouts pick one by name:
 
 ### 6.3 Offline Dictionary Packs (Phase 6)
 
-Downloadable on web (cached locally once) and bundled in native builds:
+Decks and dictionaries have distinct roles:
+- **Decks** are user-managed study subsets tailored to what the learner wants to review with FSRS.
+- **Dictionaries** are comprehensive, standalone downloadable offline reference packs (cached locally once on web, bundled in native builds) supporting **bidirectional lookup** (native English ↔ target language, readings, and handwriting) across the entire language—including terms not present in any installed deck. Any dictionary result offers a quick, 1–2 tap **"Add to Deck"** action (remembering the last-used deck per language, auto-mapping headword/reading/meaning fields, flagging existing duplicates, and emitting a standard `NoteUpserted` event so the new card syncs to all devices).
 
 | Pack | Source | License |
 |---|---|---|
 | Hanja (readings + English meanings) | Unicode Unihan (`kHangul`, `kDefinition`) + basic education Hanja list | Unicode License v3 |
 | Kanji | KANJIDIC2 | CC BY-SA 4.0 (EDRDG) |
 | Japanese words (optional, large) | JMdict | CC BY-SA 4.0 (EDRDG) |
-| Chinese words | CC-CEDICT | CC BY-SA |
+| Chinese words | CC-CEDICT | CC BY-SA 4.0 |
+| Korean words *(planned follow-up)* | NIKL KRDict / Kaikki Wiktionary Korean-English extract | CC BY-SA 4.0 |
 
 Attribution shown in About screen (share-alike applies to dictionary data, not app code).
 
@@ -535,15 +538,15 @@ If development ever stops:
 ### Phase 6 — Drawing & Offline Dictionaries
 - Graded drawing (`ja`/`zh-Hans`), draw-to-lookup (Hanja first), downloadable offline dictionary & stroke packs (`Unihan`, `KANJIDIC2`, `JMdict`, `CC-CEDICT`, `KanjiVG`, `Make Me a Hanzi`) via a unified static pack catalog (`VITE_PACK_CATALOG_URL` → `packs.json`, with offline dev/test fixtures), plus optional built-in Starter Decks catalog wiring (`VITE_STARTER_CATALOG_URL` → existing `FamilyCatalog` `index.json`).
 
-### Phase 7 — AI Tooling Extras (R5)
-- `tools/cli` (`validate`, `build`, `audio`, `inbox`), GitHub Actions publishing workflow for the free static content repo (building `.flashpkg`, dictionary/stroke packs, `index.json`, and `packs.json` to Cloudflare Pages / GitHub Pages), and optional local MCP server for Claude Code / Antigravity.
+### Phase 7 — AI Tooling Extras (R5) — *Implemented*
+- `tools/cli` (`validate`, `build`, `audio`, `inbox`), GitHub Actions publishing workflow (`.github/workflows/publish-packs.yml` building `.flashpkg`, dictionary/stroke packs, `index.json`, and `packs.json` with CORS `_headers`), and local JSON-RPC 2.0 MCP server (`list_decks`, `get_weak_cards`, `get_stats`, `propose_package`).
 
-### Phase 8 — Native Shells & Stores (R6)
-- Capacitor (Android/iOS) and Tauri (PC) shells, SQLite adapter, native Google Sign-In (no Worker), static Picker deep-link page, ML Kit Digital Ink, StoreKit 2 / Play Billing + Ed25519 desktop license keys, optional Dropbox/iCloud transports, store listings with sunset promise.
+### Phase 8 — Native Shells & Stores (R6) — *Implemented*
+- `@flash/core/license` (free-tier boundary `FREE_TIER_MAX_DECKS = 2`, personal-build compile flag, offline Ed25519 key verification), `packages/platform-capacitor` (SQLite adapter, native Google Sign-In with zero Worker dependency, `picker.html` deep-link bridge `flashcards://picker-callback`, Google ML Kit Digital Ink recognizer, StoreKit 2 / Play Billing `unlock_full` IAP, optional iCloud Drive transport), `packages/platform-tauri` (SQLite adapter, native folder/`Inbox/` watcher, loopback Google OAuth, Ed25519 license verifier), optional `DropboxAppFolderTransport`, `apps/mobile` + `apps/desktop` shell configs, Settings License & Sunset Promise UI, and `docs/store-listing-and-sunset.md`.
 
 ---
 
-## 16. Remaining Decisions (Pre-Launch)
+## 16. Pre-Launch Configuration Checklist
 
-1. **App name & domain:** Choose before creating the GCP OAuth project and Cloudflare Pages site.
-2. **Free-tier limits for Store Unlock IAP:** Decide exact boundary (e.g., 2 decks local-only free; one-time Unlock for unlimited decks + cloud sync) before Phase 8.
+1. **App domain & GCP OAuth clients:** Choose production domain before finalizing GCP Android/iOS/Desktop OAuth Client IDs and Cloudflare Pages site.
+2. **Free-tier policy (`packages/core/src/license`):** Commercial builds (`VITE_ENABLE_LICENSE_GATE=true`) allow 2 local-only decks free and one-time `unlock_full` (IAP or Ed25519 key) for unlimited decks + cloud sync; personal/family builds keep `VITE_ENABLE_LICENSE_GATE=false`.

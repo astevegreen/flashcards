@@ -1,0 +1,23 @@
+{
+  "name": "@flash/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "flash-cli": "./bin/flash-cli.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@flash/content-schema": "workspace:*",
+    "@flash/core": "workspace:*"
+  }
+}
