@@ -88,6 +88,8 @@ export interface AnkiCard {
   /** Home deck while the card sits in a filtered deck (`'0'` otherwise). */
   originalDeckId: string;
   ord: number;
+  /** Suspended in Anki (`cards.queue = -1`). Buried cards (`-2`, `-3`) are not suspended. */
+  suspended: boolean;
 }
 
 export interface AnkiRevlogEntry {

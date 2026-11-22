@@ -20,12 +20,19 @@ import { describeImportError } from '../components/describeImportError.ts';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { ANKI_IMPORT_PANEL_HEIGHT } from '../import/anki-import-layout.ts';
+import { BRING_MY_CARDS_PANEL_HEIGHT } from '../import/bring-my-cards-layout.ts';
+import {
+  importCsvIntoDeck,
+  importFlashpkgBytes,
+  type LibraryImportContext,
+} from '../import/libraryImports.ts';
 
 const LazyPageViewer = lazy(() => import('../pages/PageViewer.tsx'));
 const LazyPageEditor = lazy(() => import('../pages/PageEditor.tsx'));
 const LazyCategoryExportPanel = lazy(() => import('../library/CategoryExportPanel.tsx'));
 const LazyFsrsOptimizerPanel = lazy(() => import('../fsrs/FsrsOptimizerPanel.tsx'));
 const LazyAnkiImportPanel = lazy(() => import('../import/AnkiImportPanel.tsx'));
+const LazyBringMyCardsPanel = lazy(() => import('../import/BringMyCardsPanel.tsx'));
 
 function DeckOptionsPanel({
   deck,
@@ -631,6 +638,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showAnkiImport, setShowAnkiImport] = useState(false);
+  const [showBringMyCards, setShowBringMyCards] = useState(false);
 
   // Lazy Lesson Page Viewer / Editor modal-like view state
   const [viewingPageId, setViewingPageId] = useState<string | null>(null);
@@ -721,30 +729,19 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     setErrorMessage(null);
   };
 
+  const importContext = (): LibraryImportContext => ({
+    platform,
+    state,
+    entitlement,
+    getEventFactory,
+    emitEvents,
+  });
+
   const runCsvImport = async (csvText: string, deckId: string) => {
-    const deck = state.decks.get(deckId);
-    if (!deck) {
-      setErrorMessage('Select or create a deck before importing CSV/TSV.');
-      return;
-    }
-    const noteType = state.noteTypes.get(deck.note_type_id);
-    if (!noteType) {
-      setErrorMessage('Deck note type not found.');
-      return;
-    }
-    const { buildEventsFromCsv } = await import('@flash/core/csv');
-    const result = buildEventsFromCsv(csvText, {
-      deckId: deck.id,
-      noteType,
-      eventFactory: getEventFactory(),
+    const outcome = await importCsvIntoDeck(importContext(), csvText, deckId, {
       ankiRuby: csvAnkiRuby,
-      existingNotes: state.notes.values(),
     });
-    if (result.events.length > 0) {
-      emitEvents(result.events);
-    }
-    const warnSuffix = result.warnings.length > 0 ? ` (${result.warnings.length} warning(s))` : '';
-    setStatusMessage(`Imported ${result.importedCount} note(s) into "${deck.name}"${warnSuffix}.`);
+    setStatusMessage(outcome.message);
     setErrorMessage(null);
   };
 
@@ -784,29 +781,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     try {
       const picked = await platform.files.pickFile({ accept: '.flashpkg,.zip' });
       if (!picked) return;
-      const { importFlashpkg } = await import('@flash/core/flashpkg');
-      const result = importFlashpkg(picked.bytes, state, getEventFactory());
-      const netNewDecks = Math.max(0, result.decksImported - result.upgradedDecks);
-      if (netNewDecks > 0) {
-        const gate = canCreateOrImportDeck(decks.length + netNewDecks - 1, entitlement);
-        if (!gate.allowed) {
-          setErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
-          return;
-        }
-      }
-      for (const media of result.extractedMedia) {
-        await platform.storage.putMedia({
-          hash: media.hash,
-          mime: media.mime,
-          bytes: media.bytes,
-        });
-      }
-      if (result.events.length > 0) {
-        emitEvents(result.events);
-      }
-      setStatusMessage(
-        `Imported "${result.manifest.name}" (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.pagesImported} page(s), ${result.upgradedDecks} upgraded).`,
-      );
+      setStatusMessage(await importFlashpkgBytes(importContext(), picked.bytes));
       setErrorMessage(null);
     } catch (err) {
       setErrorMessage(describeImportError(err));
@@ -930,6 +905,16 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
+            data-testid="bring-my-cards-btn"
+            aria-expanded={showBringMyCards}
+            aria-controls="bring-my-cards-region"
+            onClick={() => setShowBringMyCards((prev) => !prev)}
+            className="rounded-xl bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
+          >
+            Bring my cards
+          </button>
+          <button
+            type="button"
             data-testid="import-csv-btn"
             onClick={() => void handleImportCsvFile()}
             className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)]"
@@ -993,6 +978,25 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
           className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 whitespace-pre-line text-sm text-rose-700 dark:text-rose-300"
         >
           {errorMessage}
+        </div>
+      )}
+
+      {/* Phase 14 "Bring my cards": opened from the header, below every header control. The panel
+          and this fallback share one fixed height (BRING_MY_CARDS_PANEL_HEIGHT). */}
+      {showBringMyCards && (
+        <div id="bring-my-cards-region">
+          <Suspense
+            fallback={
+              <div
+                data-testid="bring-my-cards-loading"
+                className={`rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-xs text-[var(--muted)] ${BRING_MY_CARDS_PANEL_HEIGHT}`}
+              >
+                Loading Bring my cards…
+              </div>
+            }
+          >
+            <LazyBringMyCardsPanel />
+          </Suspense>
         </div>
       )}
 

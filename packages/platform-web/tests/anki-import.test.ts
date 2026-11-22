@@ -10,6 +10,7 @@ import {
   createHlcState,
   deriveCardId,
   deriveNoteId,
+  isCardSuspended,
   parseRuby,
   sha256Hex,
   type CollectionState,
@@ -18,6 +19,7 @@ import {
 } from '@flash/core';
 import {
   ankiDeckId,
+  ankiFieldLanguageEvents,
   ankiReviewId,
   AnkiImportError,
   importAnkiPackage,
@@ -493,6 +495,158 @@ describe('Anki .apkg import: review history (default OFF)', () => {
       'NoteRestored',
       'NoteUpserted',
     ]);
+  });
+});
+
+describe('Anki .apkg import: Phase 14 follow-ups', () => {
+  it('kana: fields keep the readings only and kanji: fields the bases only, as Anki shows them', async () => {
+    const { state, result } = await importFixture('kana.apkg');
+    expect(activeNotes(state).map((n) => n.fields)).toEqual([
+      {
+        expression: '日本語を話す',
+        reading: 'わたしはにほんごをはなします',
+        meaning: 'I speak Japanese',
+      },
+      { expression: '食べる', reading: 'たべる', meaning: 'to eat' },
+    ]);
+    expect(state.layouts.get('anki:layout:1600000000006:0')).toMatchObject({
+      front_fields: ['reading'],
+      reveal_steps: [['meaning']],
+      hide_furigana_on_front: false,
+    });
+    expect(state.layouts.get('anki:layout:1600000000006:1')).toMatchObject({
+      front_fields: ['expression'],
+      reveal_steps: [['meaning']],
+      hide_furigana_on_front: true,
+    });
+    const langs = state.noteTypes.get('anki:nt:1600000000006')?.fields.map((f) => f.lang);
+    expect(langs).toEqual(['ja', 'ja', 'en']);
+    expect(result.warnings).toContain(
+      '1 media file(s) referenced by notes are not in the package.',
+    );
+  });
+
+  it('suspended cards (queue -1) import as CardSuspended; buried cards import as normal', async () => {
+    const { state, result } = await importFixture('suspended.apkg');
+    const deckId = ankiDeckId('1600000000700', '1600000000001');
+    const card = (guid: string, ord: number) =>
+      deriveCardId(deriveNoteId(deckId, `anki:${guid}`), `anki:layout:1600000000001:${ord}`, 0);
+    expect(result.summary.suspended).toBe(2);
+    expect(eventsOfType(result.events, 'CardSuspended').map((e) => e.payload)).toEqual([
+      { card_id: card('guidSusp17', 0), reason: 'manual' },
+      { card_id: card('guidSusp19', 1), reason: 'manual' },
+    ]);
+    expect(isCardSuspended(state, card('guidSusp17', 0))).toBe(true);
+    expect(isCardSuspended(state, card('guidSusp17', 1))).toBe(false);
+    expect(isCardSuspended(state, card('guidSusp18', 0))).toBe(false);
+    expect(isCardSuspended(state, card('guidSusp18', 1))).toBe(false);
+    expect(isCardSuspended(state, card('guidSusp19', 1))).toBe(true);
+    expect(state.cards.size).toBe(6);
+  });
+
+  it('a re-import never suspends again a card that was unsuspended here', async () => {
+    const raw = await read('suspended.apkg');
+    const state = createEmptyState();
+    const first = importInto(state, raw);
+    const cardId = eventsOfType(first.events, 'CardSuspended')[0]?.payload.card_id ?? '';
+    const factory = createEventFactory('device-a', 100, createHlcState('device-a', NOW + 1000));
+    applyEvents(state, [factory.create('CardUnsuspended', { card_id: cardId }, NOW + 1000)]);
+    const again = importInto(state, raw, {}, 'device-a');
+    expect(again.events).toEqual([]);
+    expect(again.summary.suspended).toBe(0);
+    expect(isCardSuspended(state, cardId)).toBe(false);
+  });
+
+  it('keeps every image and sound of a field (duplicates once, missing files skipped)', async () => {
+    const raw = await read('multi-media.apkg');
+    const state = createEmptyState();
+    const result = importInto(state, raw);
+    const media = (name: string) => {
+      const bytes = raw.media.find((m) => m.name === name)?.bytes ?? new Uint8Array();
+      return `media:${sha256Hex(bytes)}`;
+    };
+    expect(result.extractedMedia).toHaveLength(4);
+    const [apple, pear] = activeNotes(state);
+    expect(apple?.fields).toEqual({
+      front: '사과',
+      front_image: media('apple.png'),
+      front_image_2: media('apple-2.png'),
+      back: 'apple',
+      back_audio: media('apple.mp3'),
+      back_audio_2: media('apple-slow.mp3'),
+    });
+    expect(pear?.fields).toEqual({ front: '배', front_image: media('apple-2.png'), back: 'pear' });
+    const noteType = state.noteTypes.get('anki:nt:1600000000004');
+    expect(noteType?.fields.map((f) => [f.key, f.label, f.kind])).toEqual([
+      ['front', 'Front', 'text'],
+      ['front_image', 'Front (image)', 'image'],
+      ['front_image_2', 'Front (image 2)', 'image'],
+      ['back', 'Back', 'text'],
+      ['back_audio', 'Back (audio)', 'audio'],
+      ['back_audio_2', 'Back (audio 2)', 'audio'],
+    ]);
+    expect(state.layouts.get('anki:layout:1600000000004:0')).toMatchObject({
+      front_fields: ['front', 'front_image', 'front_image_2'],
+      reveal_steps: [['back', 'back_audio', 'back_audio_2']],
+    });
+    expect(result.warnings).toEqual([
+      '1 media file(s) referenced by notes are not in the package.',
+    ]);
+  });
+
+  it('reports each field with its detected language, and a change becomes events', async () => {
+    const { state, result } = await importFixture('basic-reversed.apkg');
+    const deckId = ankiDeckId('1600000000100', '1600000000001');
+    expect(result.noteTypes).toEqual([
+      {
+        noteTypeId: 'anki:nt:1600000000001',
+        name: 'Basic (and reversed card)',
+        deckIds: [deckId],
+        languageFieldKey: 'front',
+        fields: [
+          { key: 'front', name: 'Front', lang: 'zh-Hans', mediaKeys: [] },
+          { key: 'back', name: 'Back', lang: 'en', mediaKeys: [] },
+        ],
+      },
+    ]);
+    const imported = result.noteTypes[0];
+    if (!imported) throw new Error('no note type');
+    const factory = createEventFactory('device-a', 100, createHlcState('device-a', NOW + 1000));
+    const events = ankiFieldLanguageEvents(state, imported, 'front', 'ja', factory, NOW + 1000);
+    expect(events.map((e) => e.type)).toEqual(['NoteTypeChanged', 'DeckSettingsChanged']);
+    applyEvents(state, events);
+    expect(state.noteTypes.get(imported.noteTypeId)?.fields[0]?.lang).toBe('ja');
+    expect(state.decks.get(deckId)?.language).toBe('ja');
+    // Same language again: nothing to do. Another field: only the note type changes.
+    expect(ankiFieldLanguageEvents(state, imported, 'front', 'ja', factory)).toEqual([]);
+    const back = ankiFieldLanguageEvents(state, imported, 'back', 'ko', factory);
+    expect(back.map((e) => e.type)).toEqual(['NoteTypeChanged']);
+    // Untrusted input is ignored.
+    expect(ankiFieldLanguageEvents(state, imported, 'front', '<b>', factory)).toEqual([]);
+    expect(ankiFieldLanguageEvents(state, imported, 'nope', 'ko', factory)).toEqual([]);
+    // A re-import keeps the corrected languages (existing note types keep the user's edits).
+    applyEvents(state, back);
+    importInto(state, await read('basic-reversed.apkg'), {}, 'device-a');
+    expect(state.noteTypes.get(imported.noteTypeId)?.fields.map((f) => f.lang)).toEqual([
+      'ja',
+      'ko',
+    ]);
+  });
+
+  it('companion media fields follow their text field when its language changes', async () => {
+    const { state, result } = await importFixture('multi-media.apkg');
+    const imported = result.noteTypes[0];
+    if (!imported) throw new Error('no note type');
+    const factory = createEventFactory('device-a', 100, createHlcState('device-a', NOW + 1000));
+    applyEvents(state, ankiFieldLanguageEvents(state, imported, 'front', 'ja', factory));
+    const fields = state.noteTypes.get(imported.noteTypeId)?.fields ?? [];
+    const langs = new Map(fields.map((f) => [f.key, f.lang]));
+    expect([langs.get('front'), langs.get('front_image'), langs.get('front_image_2')]).toEqual([
+      'ja',
+      'ja',
+      'ja',
+    ]);
+    expect(langs.get('back')).toBe('en');
   });
 });
 

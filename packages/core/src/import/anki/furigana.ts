@@ -2,7 +2,8 @@ import { isHanCodePoint } from '../../parsers/ruby.ts';
 
 /**
  * Anki furigana (`{{furigana:Field}}`, `{{kana:…}}`, `{{kanji:…}}`) to this app's ruby syntax
- * (§6.2). Anki's rule: a ruby base runs from the previous space (or the start of the text, the
+ * (§6.2), or, for fields Anki only ever shows through `kana:` / `kanji:`, to the reading or the
+ * base alone (what Anki displays: `{{kana:F}}` turns `漢字[かんじ]` into `かんじ`). Anki's rule: a ruby base runs from the previous space (or the start of the text, the
  * end of an HTML tag, or the previous ruby) up to `[`; the reading runs to the next `]`, and
  * one space in front of the base is markup that is not displayed. Readings starting with
  * `sound:` are audio tags, not furigana. Implemented as a scanner (no backtracking regex).
@@ -43,8 +44,18 @@ function findBaseStart(run: string, floor: number, open: number): number {
   return k;
 }
 
+/** `ruby` keeps both parts as ruby syntax; `kana` keeps the reading, `kanji` the base. */
+export type AnkiFuriganaOutput = 'ruby' | 'kana' | 'kanji';
+
 /** Formats one converted ruby. `before` is the text already emitted in front of it. */
-function formatRuby(base: string, reading: string, before: string): string {
+function formatRuby(
+  base: string,
+  reading: string,
+  before: string,
+  output: AnkiFuriganaOutput,
+): string {
+  if (output === 'kana') return reading;
+  if (output === 'kanji') return base;
   // Strict `漢字[かんじ]` only when the preceding text cannot extend the Han base.
   if (isAllHan(base) && !endsWithHan(before)) return `${base}[${reading}]`;
   return `{${base}|${reading}}`;
@@ -64,7 +75,7 @@ function isConvertible(base: string, reading: string): boolean {
  * Converts Anki furigana in one run of plain text (no HTML tags inside). Linear: the closing
  * `]` is looked up once per bracket pair, and a base never reaches back past the previous pair.
  */
-export function convertAnkiFuriganaRun(run: string): string {
+export function convertAnkiFuriganaRun(run: string, output: AnkiFuriganaOutput = 'ruby'): string {
   if (!run.includes('[')) return run;
   let out = '';
   let emitted = 0;
@@ -86,7 +97,7 @@ export function convertAnkiFuriganaRun(run: string): string {
       let before = run.slice(emitted, baseStart);
       if (before.endsWith(' ')) before = before.slice(0, -1);
       out += before;
-      out += formatRuby(base, reading, out);
+      out += formatRuby(base, reading, out, output);
       emitted = close + 1;
     }
     floor = close + 1;
