@@ -3,6 +3,9 @@ import type { EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import type { NoteType } from '../model/types.ts';
 import { convertAnkiRuby } from '../parsers/ruby.ts';
+import { normalizeTagList } from '../tags/index.ts';
+
+export * from './csv-export.ts';
 
 export interface CsvParseOptions {
   delimiter?: ',' | '\t';
@@ -132,7 +135,7 @@ export interface CsvImportResult {
  * Maps parsed CSV/TSV rows into NoteUpserted events for a target deck & note type.
  * Matches headers by Note Type field key/label (case-insensitive), plus:
  * - `Card ID` / `card_id` / `id` / `source_key` -> note `source_key`
- * - `Tags` / `Category 1..N` (Flashcards Deluxe) -> note `tags`
+ * - `Tags` / `Category 1..N` (Flashcards Deluxe) -> note `tags` (NFC, deduped; see `exportCsv`)
  * - `Text 1..N` (Flashcards Deluxe) -> positional Note Type fields
  */
 export function buildEventsFromCsv(
@@ -229,7 +232,7 @@ export function buildEventsFromCsv(
     const row = parsed.rows[rowIdx];
     if (!row) continue;
     const fields: Record<string, string> = {};
-    const tagSet = new Set<string>();
+    const rawTags: string[] = [];
     let rawSourceKey = '';
 
     for (let colIdx = 0; colIdx < columnRoles.length; colIdx++) {
@@ -241,10 +244,7 @@ export function buildEventsFromCsv(
       if (role.kind === 'field') {
         fields[role.fieldKey] = options.ankiRuby ? convertAnkiRuby(value) : value;
       } else if (role.kind === 'tags') {
-        for (const part of value.split(/[;,]/)) {
-          const t = part.trim();
-          if (t) tagSet.add(t);
-        }
+        rawTags.push(...value.split(/[;,]/));
       } else if (role.kind === 'card_id') {
         rawSourceKey = value;
       }
@@ -282,7 +282,8 @@ export function buildEventsFromCsv(
           deck_id: deckId,
           source_key: sourceKey,
           fields,
-          tags: [...tagSet],
+          // NFC so Hangul from macOS (NFD) and Windows (NFC) land in one category.
+          tags: normalizeTagList(rawTags),
           provenance: { source: 'import', reviewed: true },
           created_order: rowIdx,
         },
