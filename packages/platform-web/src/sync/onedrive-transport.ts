@@ -80,6 +80,9 @@ async function toTransportError(
 }
 
 /** First `start` offset of Graph's `nextExpectedRanges` (e.g. `["327680-"]`). */
+/** Consecutive 202/416 responses that do not move the upload forward before giving up. */
+const MAX_UPLOAD_STALLS = 3;
+
 function nextExpectedOffset(body: unknown): number | null {
   const ranges = (body as { nextExpectedRanges?: unknown } | null)?.nextExpectedRanges;
   if (!Array.isArray(ranges) || typeof ranges[0] !== 'string') return null;
@@ -240,6 +243,11 @@ export class OneDriveAppFolderTransport implements SyncTransport {
     }
   }
 
+  /**
+   * PUTs the fragments of an upload session. Only a 200/201 means the file was committed: a
+   * session that runs past the last byte without one, cannot say where to resume, or stops
+   * advancing throws, so the sync engine never writes a head pointing at a missing file.
+   */
   private async uploadFragments(
     uploadUrl: string,
     path: string,
@@ -248,6 +256,7 @@ export class OneDriveAppFolderTransport implements SyncTransport {
   ): Promise<void> {
     const total = data.byteLength;
     let offset = 0;
+    let stalls = 0;
     while (offset < total) {
       const end = Math.min(offset + this.chunkBytes, total);
       const res = await this.client.sendUnauthenticated(uploadUrl, {
@@ -256,22 +265,57 @@ export class OneDriveAppFolderTransport implements SyncTransport {
         body: toArrayBuffer(data.subarray(offset, end)),
       });
       if (res.status === 200 || res.status === 201) return;
-      if (res.status === 202) {
-        offset = nextExpectedOffset(await res.json().catch(() => null)) ?? end;
-        continue;
+      const next = await this.nextFragmentOffset(res, uploadUrl, end, path, opts);
+      stalls = next > offset ? 0 : stalls + 1;
+      if (stalls > MAX_UPLOAD_STALLS) {
+        throw new SyncTransportError(
+          'UNKNOWN',
+          `OneDrive upload session for "${path}" stopped advancing at byte ${offset}.`,
+        );
       }
-      if (res.status === 416) {
-        // The fragment already landed (e.g. a retried PUT): ask the session where to resume.
-        offset = await this.resumeOffset(uploadUrl, end);
-        continue;
-      }
-      throw await toTransportError(res, `upload "${path}"`, opts);
+      offset = next;
     }
+    throw new SyncTransportError(
+      'UNKNOWN',
+      `OneDrive upload session for "${path}" ended without completing.`,
+    );
   }
 
-  private async resumeOffset(uploadUrl: string, fallback: number): Promise<number> {
+  /** Where the next fragment starts after a non-final response (202 / 416), or throws. */
+  private async nextFragmentOffset(
+    res: Response,
+    uploadUrl: string,
+    end: number,
+    path: string,
+    opts?: { ifAbsent?: boolean },
+  ): Promise<number> {
+    if (res.status === 202) {
+      return nextExpectedOffset(await res.json().catch(() => null)) ?? end;
+    }
+    if (res.status === 416) {
+      // The fragment may already have landed (e.g. a retried PUT): ask the session where to resume.
+      return this.resumeOffset(uploadUrl, path);
+    }
+    throw await toTransportError(res, `upload "${path}"`, opts);
+  }
+
+  private async resumeOffset(uploadUrl: string, path: string): Promise<number> {
     const res = await this.client.sendUnauthenticated(uploadUrl);
-    if (!res.ok) return fallback;
-    return nextExpectedOffset(await res.json().catch(() => null)) ?? fallback;
+    if (!res.ok) {
+      // An expired or lost session (404) or a server failure: the upload cannot be resumed.
+      throw new SyncTransportError(
+        res.status >= 500 ? 'NETWORK' : 'UNKNOWN',
+        `OneDrive upload session for "${path}" could not be resumed (HTTP ${res.status}).`,
+        res.status,
+      );
+    }
+    const next = nextExpectedOffset(await res.json().catch(() => null));
+    if (next === null) {
+      throw new SyncTransportError(
+        'UNKNOWN',
+        `OneDrive upload session for "${path}" did not report where to resume.`,
+      );
+    }
+    return next;
   }
 }

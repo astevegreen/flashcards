@@ -121,6 +121,49 @@ describe('OneDriveAppFolderTransport specifics (§4.3, §15 Phase 12)', () => {
     expect(await transport.read('media/ab/resume.bin')).toEqual(big);
   });
 
+  it('fails the write when an upload session cannot be resumed or never commits', async () => {
+    const isFragment = (url: string) => url.startsWith('https://fake-onedrive-upload.test');
+    const big = patterned(10 * 1024 * 1024 + 10); // 4 fragments
+    // A 416 whose session status GET fails (expired session): no skipping ahead, no success.
+    {
+      const { graph, transport } = setup();
+      const puts = () => graph.log.filter((r) => r.method === 'PUT' && isFragment(r.url)).length;
+      graph.inject({
+        match: (req) => req.method === 'PUT' && isFragment(req.url) && puts() === 2,
+        status: 416,
+      });
+      graph.inject({ match: (req) => req.method === 'GET' && isFragment(req.url), status: 404 });
+      const err = await errorOf(transport.write('media/ab/expired.bin', big));
+      expect(isSyncTransportError(err) && err.code).toBe('UNKNOWN');
+      expect(puts()).toBe(2);
+      expect(isSyncTransportError(await errorOf(transport.read('media/ab/expired.bin')))).toBe(
+        true,
+      );
+    }
+    // The last fragment is answered 202 instead of 200/201: the file was never committed.
+    {
+      const { graph, transport } = setup();
+      const puts = () => graph.log.filter((r) => r.method === 'PUT' && isFragment(r.url)).length;
+      graph.inject({
+        match: (req) => req.method === 'PUT' && isFragment(req.url) && puts() === 4,
+        status: 202,
+      });
+      const err = await errorOf(transport.write('media/ab/uncommitted.bin', big));
+      expect(isSyncTransportError(err) && err.message).toMatch(/ended without completing/);
+    }
+    // A session that keeps answering 416 at the same offset stops instead of looping.
+    {
+      const { graph, transport } = setup();
+      graph.inject({
+        match: (req) => req.method === 'PUT' && isFragment(req.url),
+        status: 416,
+        times: 100,
+      });
+      const err = await errorOf(transport.write('media/ab/stalled.bin', big));
+      expect(isSyncTransportError(err) && err.message).toMatch(/stopped advancing/);
+    }
+  });
+
   it('honors Retry-After on 429 and backs off with jitter on 503', async () => {
     const { graph, sleep, transport } = setup();
     graph.inject({

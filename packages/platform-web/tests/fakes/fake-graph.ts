@@ -13,6 +13,9 @@
  * - Bearer-token checks (401 for unknown tokens), and fault injection for 429 / 503 / 401.
  */
 
+// Relative path: the Playwright e2e imports this fake too, outside the workspace resolver.
+import { compareCodeUnits } from '../../../core/src/study/queue.ts';
+
 export const FAKE_GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 export const FAKE_DOWNLOAD_ORIGIN = 'https://fake-onedrive-download.test';
 export const FAKE_UPLOAD_ORIGIN = 'https://fake-onedrive-upload.test';
@@ -112,12 +115,8 @@ class FakeTree {
       folder: { childCount: count },
       lastModifiedDateTime: new Date(0).toISOString(),
     }));
-    const byName = (a: Record<string, unknown>, b: Record<string, unknown>) => {
-      const an = String(a['name']);
-      const bn = String(b['name']);
-      if (an < bn) return -1;
-      return an > bn ? 1 : 0;
-    };
+    const byName = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+      compareCodeUnits(String(a['name']), String(b['name']));
     return [...folderItems.sort(byName), ...files.sort(byName)];
   }
 
