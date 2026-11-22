@@ -9,7 +9,7 @@ import {
   type EventFactory,
 } from '../src/events/replay.ts';
 import type { KnownEvent } from '../src/events/types.ts';
-import { createHlcState } from '../src/hlc.ts';
+import { compareHlc, createHlcState } from '../src/hlc.ts';
 import {
   decodeUtf8,
   deriveCardId,
@@ -181,7 +181,11 @@ describe('Phase 9 completion — Study Sets follow category rename / merge / del
     const op: TagOperation = { kind: 'rename', from: 'hanja', to: '한자' };
     const payloads = planStudySetTagRewrites(before, op);
     expect(payloads).toEqual([
-      { set_id: 'set-hanja', filter: { categories: { mode: 'any', tags: ['한자'] } } },
+      {
+        set_id: 'set-hanja',
+        filter: { categories: { mode: 'any', tags: ['한자'] } },
+        tag_rewrite: true,
+      },
     ]);
     // Refused (target inside the source subtree) and normalize plan nothing.
     expect(
@@ -216,6 +220,42 @@ describe('Phase 9 completion — Study Sets follow category rename / merge / del
         mode: 'schedule',
       });
     }
+  });
+});
+
+describe('Phase 9 completion — category rewrite vs concurrent Study Set delete', () => {
+  it('a set deleted on another device stays deleted after a later category rename', () => {
+    const fx = makeFixture();
+    saveSet(fx, 'set-1', normalizeCardFilter({ categories: { mode: 'any', tags: ['grammar'] } }));
+    // Device B deletes the set; device A has not synced and renames #grammar a moment later.
+    const other = createEventFactory('dev-b', 0, createHlcState('dev-b', NOW));
+    const deleted = other.create('StudySetDeleted', { set_id: 'set-1' }, NOW + 10);
+    runTagOperation(fx, { kind: 'rename', from: 'grammar', to: '문법' }, NOW + 11);
+    const rewrite = fx.events.at(-1);
+    expect(rewrite?.type).toBe('StudySetSaved');
+    expect(compareHlc(rewrite?.hlc ?? '', deleted.hlc)).toBeGreaterThan(0);
+    for (const order of [
+      [...fx.events, deleted],
+      [deleted, ...[...fx.events].reverse()],
+    ]) {
+      expect(listStudySets(replayAllEvents(order))).toEqual([]);
+    }
+  });
+
+  it('a user save after the delete brings the set back with the rewritten filter', () => {
+    const fx = makeFixture();
+    saveSet(fx, 'set-1', normalizeCardFilter({ categories: { mode: 'any', tags: ['grammar'] } }));
+    const other = createEventFactory('dev-b', 0, createHlcState('dev-b', NOW));
+    const deleted = other.create('StudySetDeleted', { set_id: 'set-1' }, NOW + 10);
+    runTagOperation(fx, { kind: 'rename', from: 'grammar', to: '문법' }, NOW + 11);
+    const restore = other.create('StudySetSaved', { set_id: 'set-1', name: 'Grammar' }, NOW + 20);
+    const [set] = listStudySets(replayAllEvents([...fx.events, deleted, restore]));
+    expect(set).toEqual({
+      id: 'set-1',
+      name: 'Grammar',
+      filter: { categories: { mode: 'any', tags: ['문법'] } },
+      mode: 'schedule',
+    });
   });
 });
 
@@ -275,15 +315,20 @@ describe('Phase 9 completion — leech tag', () => {
 });
 
 describe('Phase 9 completion — hardest N is ranked after the due check', () => {
-  /** ko-1: 5 lapses, just reviewed (not due). ko-2: 2 lapses, due. ko-3: 1 lapse, due. */
-  function hardestFixture(): CollectionState {
+  /**
+   * ko-1: 5 lapses, reviewed yesterday (due in 3 days). ko-2: 2 lapses, due. ko-3: 1 lapse, due.
+   * Nothing is reviewed today yet.
+   */
+  function hardestFixtureEvents(): Fixture {
     const fx = makeFixture();
     lapseCard(fx, koCard(1), 5, NOW - 40 * DAY);
-    fx.review(koCard(1), 4, NOW - 30 * MIN);
+    fx.review(koCard(1), 4, NOW - DAY);
+    fx.review(koCard(1), 4, NOW - DAY + 10 * MIN);
     lapseCard(fx, koCard(2), 2, NOW - 40 * DAY);
     lapseCard(fx, koCard(3), 1, NOW - 40 * DAY);
-    return fx.state();
+    return fx;
   }
+  const hardestFixture = () => hardestFixtureEvents().state();
   const scope = { nowMs: NOW, tzOffsetMinutes: KST };
 
   it('splits the cap off the filter', () => {
@@ -324,9 +369,38 @@ describe('Phase 9 completion — hardest N is ranked after the due check', () =>
 
   it('review ahead ranks the cards inside its window', () => {
     const st = hardestFixture();
+    expect((st.cards.get(koCard(1))?.schedule.due ?? 0) - NOW).toBeGreaterThan(2 * DAY);
     const filter = normalizeCardFilter({ deckIds: [KO_DECK], performance: { hardest: 1 } });
     const ahead = buildReviewAheadQueue(st, { ...scope, days: 1, filter });
     expect(ahead.queue.map((c) => c.id)).toEqual([koCard(2)]);
+  });
+
+  it('answering a card does not free a slot for the next hardest due card', () => {
+    const filter = normalizeCardFilter({ deckIds: [KO_DECK], performance: { hardest: 1 } });
+    const fx = hardestFixtureEvents();
+    fx.review(koCard(2), 3, NOW);
+    const later = { ...scope, nowMs: NOW + MIN };
+    // ko-2 used today's one slot; ko-3 (still due) is not promoted.
+    expect(buildStudyQueue(fx.state(), { ...later, filter }).queue).toEqual([]);
+    expect(buildReviewAheadQueue(fx.state(), { ...later, days: 1, filter }).queue).toEqual([]);
+    // With two slots, ko-3 takes the second one.
+    const two = { ...filter, performance: { hardest: 2 } };
+    expect(buildStudyQueue(fx.state(), { ...later, filter: two }).queue.map((c) => c.id)).toEqual([
+      koCard(3),
+    ]);
+    // The cap resets on the next study day.
+    const tomorrow = buildStudyQueue(fx.state(), { ...scope, nowMs: NOW + DAY, filter });
+    expect(tomorrow.queue.map((c) => c.id)).toEqual([koCard(3)]);
+  });
+
+  it('a card failed in the session stays queued in its slot', () => {
+    const filter = normalizeCardFilter({ deckIds: [KO_DECK], performance: { hardest: 1 } });
+    const fx = hardestFixtureEvents();
+    fx.review(koCard(2), 1, NOW);
+    const st = fx.state();
+    const relearnDue = st.cards.get(koCard(2))?.schedule.due ?? 0;
+    const q = buildStudyQueue(st, { ...scope, nowMs: relearnDue + MIN, filter });
+    expect(q.queue.map((c) => c.id)).toEqual([koCard(2)]);
   });
 });
 
@@ -374,8 +448,10 @@ describe('Phase 9 completion — Stats filter and category export', () => {
       package_id: string;
       name: string;
       decks: Array<{ id: string }>;
+      subset?: boolean;
     };
     expect(manifest.package_id.startsWith('pkg:notes-')).toBe(true);
+    expect(manifest.subset).toBe(true);
     expect(manifest.name).toBe('#daily');
     expect(manifest.decks.map((d) => d.id)).toEqual([KO_DECK]);
     expect(Object.keys(files).some((f) => f.startsWith('pages/'))).toBe(false);
@@ -395,5 +471,31 @@ describe('Phase 9 completion — Stats filter and category export', () => {
     expect(
       (JSON.parse(decodeUtf8(empty['manifest.json'] ?? new Uint8Array())) as { decks: [] }).decks,
     ).toEqual([]);
+  });
+
+  it('re-importing a category package into its own deck never archives the other notes', () => {
+    const st = reviewedState();
+    const noteIds = filterNoteIds(
+      st,
+      { categories: { mode: 'any', tags: ['daily'] } },
+      { nowMs: NOW, tzOffsetMinutes: KST },
+    );
+    const bytes = exportFlashpkg(st, { noteIds, name: '#daily' });
+    const before = st.decks.get(KO_DECK);
+    const activeBefore = [...st.notes.values()].filter((n) => !n.archived).length;
+    const f = createEventFactory('dev-z', 0, createHlcState('dev-z', NOW));
+    // As a watched folder or package URL re-imports it.
+    const imported = importFlashpkg(bytes, st, f, { nowMs: NOW, archiveRemovedOnUpgrade: true });
+    expect(imported.events.filter((e) => e.type === 'NoteArchived')).toEqual([]);
+    expect(imported.events.filter((e) => e.type === 'SourceLinked')).toEqual([]);
+    applyEvents(st, imported.events);
+    expect([...st.notes.values()].filter((n) => !n.archived)).toHaveLength(activeBefore);
+    expect(st.decks.get(KO_DECK)?.name).toBe(before?.name);
+    expect(st.decks.get(KO_DECK)?.source).toEqual(before?.source);
+
+    // A full deck export still archives notes missing from a newer version.
+    const full = exportFlashpkg(st, { deckId: KO_DECK });
+    const manifest = JSON.parse(decodeUtf8(unzipSync(full)['manifest.json'] ?? new Uint8Array()));
+    expect((manifest as { subset?: boolean }).subset).toBeUndefined();
   });
 });

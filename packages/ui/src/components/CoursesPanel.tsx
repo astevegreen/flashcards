@@ -1,4 +1,5 @@
 import {
+  compareCodeUnits,
   evaluateCourseProgress,
   findCoursePrerequisiteCycle,
   uuidv7,
@@ -454,7 +455,7 @@ export function CoursesPanel({ onOpenPage, onStudyDeck, onExportCourse }: Course
   const pages = useMemo(
     () =>
       [...state.pages.values()].sort(
-        (a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id),
+        (a, b) => compareCodeUnits(a.title, b.title) || compareCodeUnits(a.id, b.id),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
@@ -464,7 +465,7 @@ export function CoursesPanel({ onOpenPage, onStudyDeck, onExportCourse }: Course
     () =>
       [...state.decks.values()]
         .filter((d) => !d.archived)
-        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+        .sort((a, b) => compareCodeUnits(a.name, b.name) || compareCodeUnits(a.id, b.id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
@@ -484,7 +485,7 @@ export function CoursesPanel({ onOpenPage, onStudyDeck, onExportCourse }: Course
     () =>
       [...state.courses.values()]
         .filter((c) => !c.archived)
-        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+        .sort((a, b) => compareCodeUnits(a.name, b.name) || compareCodeUnits(a.id, b.id))
         .map((course) => evaluateCourseProgress(state, course, { nowMs, tzOffsetMinutes })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],

@@ -16,9 +16,11 @@ import { normalizeCardFilter, type CardFilter, type CategoryCriterion } from './
  * `#문법` keeps studying the same notes.
  *
  * The rewrite is expressed as ordinary events: one filter-only `StudySetSaved` per changed set,
- * appended in the same batch as the tag-only `NoteUpserted` events. Each field of a Study Set is
- * its own HLC last-writer-wins register (see `listStudySets`), so the result is the same under any
- * delivery order and on every build, and a concurrent rename of the set's name or mode survives.
+ * marked `tag_rewrite`, appended in the same batch as the tag-only `NoteUpserted` events. Each
+ * field of a Study Set is its own HLC last-writer-wins register (see `listStudySets`), so the
+ * result is the same under any delivery order, and a concurrent rename of the set's name or mode
+ * survives. The marker keeps the rewrite from counting as a save for liveness, so a set another
+ * device deleted concurrently stays deleted instead of coming back.
  *
  * Category matching follows the filter model: `a` also covers `a::b`, and so does a rename or
  * delete of `a`. A delete only drops a category when that can't make the set match more cards:
@@ -67,7 +69,7 @@ export function planStudySetTagRewrites(
   const out: StudySetSavedPayload[] = [];
   for (const set of listStudySets(state)) {
     const filter = rewriteStudySetFilter(set.filter, resolved);
-    if (filter) out.push({ set_id: set.id, filter });
+    if (filter) out.push({ set_id: set.id, filter, tag_rewrite: true });
   }
   return out;
 }

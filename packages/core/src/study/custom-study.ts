@@ -13,8 +13,8 @@ import {
   filterCardIds,
   filterCards,
   isCardFilterEmpty,
+  keepHardestDueToday,
   normalizeCardFilter,
-  rankHardestCards,
   splitHardestCriterion,
   type CardFilter,
   type CardFilterContext,
@@ -166,7 +166,8 @@ function applyStudySetSave(r: StudySetRegisters, ev: UnknownEvent, p: Record<str
     touched = true;
     if (newer(r.mode?.ev, ev)) r.mode = { ev, value: mode };
   }
-  if (touched && newer(r.lastSave, ev)) r.lastSave = ev;
+  // A background category rewrite never makes a set live (see `tag_rewrite`).
+  if (touched && p['tag_rewrite'] !== true && newer(r.lastSave, ev)) r.lastSave = ev;
 }
 
 function applyStudySetEvent(regs: Map<string, StudySetRegisters>, ev: UnknownEvent): void {
@@ -199,7 +200,8 @@ function liveStudySet(id: string, r: StudySetRegisters): StudySet | undefined {
 
 /**
  * Every live Study Set, sorted by name (code-point order) then id. Per-field LWW by HLC; a set is
- * deleted while its newest `StudySetDeleted` is newer than its newest `StudySetSaved`.
+ * deleted while its newest `StudySetDeleted` is newer than its newest user `StudySetSaved` (one
+ * without `tag_rewrite`).
  */
 export function listStudySets(state: CollectionState): StudySet[] {
   const regs = new Map<string, StudySetRegisters>();
@@ -450,7 +452,13 @@ export function buildReviewAheadQueue(
     const window = { nowMs: options.nowMs, endOfToday, aheadUntil: endOfToday + days * MS_PER_DAY };
     placeAheadCard(sort, card, reviewedToday.get(card.note_id), window);
   }
-  if (hardest !== undefined) keepHardestAhead(sort, hardest);
+  if (hardest !== undefined) {
+    keepHardestAhead(
+      sort,
+      hardest,
+      aheadSelectionReviewedToday(state, reviewedToday, options, allowed),
+    );
+  }
   const byDue = (a: Card, b: Card) => a.schedule.due - b.schedule.due || cmpStr(a.id, b.id);
   sort.learning.sort(byDue);
   sort.reviews.sort(byDue);
@@ -494,10 +502,36 @@ function aheadAllowedCardIds(
   return { allowed, hardest };
 }
 
-/** Keeps the `hardest` hardest of the cards inside the review-ahead window. */
-function keepHardestAhead(sort: AheadSort, hardest: number): void {
-  const keep = new Set(
-    rankHardestCards([...sort.learning, ...sort.reviews], hardest).map((c) => c.id),
+/** The selection's cards (scope and filter without `hardest`) with an active review today. */
+function aheadSelectionReviewedToday(
+  state: CollectionState,
+  reviewedToday: ReadonlyMap<string, ReadonlySet<string>>,
+  options: ReviewAheadOptions,
+  allowed: ReadonlySet<string> | undefined,
+): Set<string> {
+  const out = new Set<string>();
+  for (const cardIds of reviewedToday.values()) {
+    for (const cardId of cardIds) {
+      const card = state.cards.get(cardId);
+      if (card && isAheadCandidate(state, card, options.deckId, allowed)) out.add(cardId);
+    }
+  }
+  return out;
+}
+
+/**
+ * Keeps the `hardest` hardest of the cards inside the review-ahead window, with the selection's
+ * cards reviewed today holding their slots, so answering one never frees a slot for the next.
+ */
+function keepHardestAhead(
+  sort: AheadSort,
+  hardest: number,
+  selectionReviewedToday: ReadonlySet<string>,
+): void {
+  const keep = keepHardestDueToday(
+    [...sort.learning, ...sort.reviews],
+    hardest,
+    selectionReviewedToday,
   );
   sort.learning = sort.learning.filter((c) => keep.has(c.id));
   sort.reviews = sort.reviews.filter((c) => keep.has(c.id));

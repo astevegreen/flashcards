@@ -4,7 +4,7 @@ import type { Card, Deck } from '../model/types.ts';
 import {
   filterCardIds,
   isCardFilterEmpty,
-  rankHardestCards,
+  keepHardestDueToday,
   splitHardestCriterion,
   type CardFilter,
 } from './filter.ts';
@@ -104,22 +104,46 @@ function resolveAllowedCardIds(
 
 /**
  * A filter's "hardest N" on the schedule: rank only the cards that passed the due check (learning
- * due now, reviews due today) and keep the N hardest. New cards never rank (like `hardest` in
- * `filterCards`, which skips unreviewed cards).
+ * due now, reviews due today), with the selection's cards already reviewed today holding their
+ * slots (see {@link keepHardestDueToday}), so the session stays at N cards a day. New cards never
+ * rank (like `hardest` in `filterCards`, which skips unreviewed cards).
  */
-function keepHardestDue(eligible: EligibleCards, hardest: number): void {
-  const keep = new Set(
-    rankHardestCards([...eligible.learningCards, ...eligible.dueCards], hardest).map((c) => c.id),
+function keepHardestDue(
+  eligible: EligibleCards,
+  hardest: number,
+  selectionReviewedToday: ReadonlySet<string>,
+): void {
+  const keep = keepHardestDueToday(
+    [...eligible.learningCards, ...eligible.dueCards],
+    hardest,
+    selectionReviewedToday,
   );
   eligible.learningCards = eligible.learningCards.filter((c) => keep.has(c.id));
   eligible.dueCards = eligible.dueCards.filter((c) => keep.has(c.id));
   eligible.newCardsByDeck.clear();
 }
 
+/** The cards reviewed today that the queue's scope and filter (without `hardest`) select. */
+function selectionReviewedToday(
+  ctx: QueueContext,
+  activity: TodayActivity,
+  deckId: string | undefined,
+  allowedCardIds: Set<string> | undefined,
+): Set<string> {
+  const out = new Set<string>();
+  for (const cardId of activity.reviewedCardIdsToday) {
+    const card = ctx.state.cards.get(cardId);
+    if (card && eligibleDeckOf(ctx, card, deckId, allowedCardIds)) out.add(cardId);
+  }
+  return out;
+}
+
 /** What today's active (not undone) reviews of a deck's cards have already consumed. */
 interface TodayActivity {
   /** Notes with a card reviewed today: their siblings are buried. */
   reviewedNoteIdsToday: Set<string>;
+  /** Cards with an active review today (the per-day `hardest` cap counts these). */
+  reviewedCardIdsToday: Set<string>;
   reviewsTodayByDeck: Map<string, number>;
   newCardsStartedTodayByDeck: Map<string, number>;
   /** New cards first studied today with their first active review time (extra-new-card pools). */
@@ -155,6 +179,7 @@ function collectTodayActivity(ctx: QueueContext): TodayActivity {
   const { state } = ctx;
   const activity: TodayActivity = {
     reviewedNoteIdsToday: new Set(),
+    reviewedCardIdsToday: new Set(),
     reviewsTodayByDeck: new Map(),
     newCardsStartedTodayByDeck: new Map(),
     startedToday: [],
@@ -173,6 +198,7 @@ function collectTodayActivity(ctx: QueueContext): TodayActivity {
     );
     if (activeCountToday === 0) continue;
     activity.reviewedNoteIdsToday.add(card.note_id);
+    activity.reviewedCardIdsToday.add(card.id);
     incrementCount(activity.reviewsTodayByDeck, card.deck_id, activeCountToday);
     if (startedToday) {
       incrementCount(activity.newCardsStartedTodayByDeck, card.deck_id, 1);
@@ -502,7 +528,8 @@ function takeNewCards(
  *   sibling cards of the same note are buried until the next study day.
  * - Suspended cards (`CardSuspended`) are never queued.
  * - Optional Phase 9 `filter`: restricts which cards are eligible. Its `hardest` cap ranks the
- *   cards that are due (after the due check and burying), not the whole selection.
+ *   cards that are due (after the due check and burying), not the whole selection, and counts
+ *   the selection's cards reviewed today, so it caps the day's session at N cards.
  */
 export function buildStudyQueue(
   state: CollectionState,
@@ -527,7 +554,13 @@ export function buildStudyQueue(
     allowedCardIds,
     activity.reviewedNoteIdsToday,
   );
-  if (hardest !== undefined) keepHardestDue(eligible, hardest);
+  if (hardest !== undefined) {
+    keepHardestDue(
+      eligible,
+      hardest,
+      selectionReviewedToday(ctx, activity, options.deckId, allowedCardIds),
+    );
+  }
   eligible.learningCards.sort(compareByDue);
   eligible.dueCards.sort(compareByDue);
 

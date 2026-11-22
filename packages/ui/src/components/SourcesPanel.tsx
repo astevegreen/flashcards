@@ -1,3 +1,4 @@
+import { compareCodeUnits } from '@flash/core';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import type {
   CatalogPackageInfo,
@@ -189,7 +190,10 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   );
 
   const importedPages = useMemo(
-    () => [...state.pages.values()].sort((a, b) => a.title.localeCompare(b.title)),
+    () =>
+      [...state.pages.values()].sort(
+        (a, b) => compareCodeUnits(a.title, b.title) || compareCodeUnits(a.id, b.id),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );

@@ -647,7 +647,10 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   );
 
   const pages = useMemo(
-    () => [...state.pages.values()].sort((a, b) => a.title.localeCompare(b.title)),
+    () =>
+      [...state.pages.values()].sort(
+        (a, b) => compareCodeUnits(a.title, b.title) || compareCodeUnits(a.id, b.id),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );

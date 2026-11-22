@@ -124,6 +124,12 @@ const actionArb = fc.oneof(
     dt: fc.integer({ min: -5_000, max: 60_000 }),
   }),
   fc.record({
+    kind: fc.constant('deleteSet' as const),
+    device: deviceArb,
+    set: fc.integer({ min: 0, max: 2 }),
+    dt: fc.nat(60_000),
+  }),
+  fc.record({
     kind: fc.constant('tags' as const),
     device: deviceArb,
     op: tagOpArb,
@@ -172,6 +178,8 @@ function buildLog(actions: readonly Action[]): FlashEvent[] {
       if (act.criterion) payload.filter = normalizeCardFilter({ categories: act.criterion });
       if (act.name !== undefined || !act.criterion) payload.name = act.name ?? 'Trouble';
       created.push(f.create('StudySetSaved', payload, clock));
+    } else if (act.kind === 'deleteSet') {
+      created.push(f.create('StudySetDeleted', { set_id: `set-${act.set}` }, clock));
     } else {
       const st = replayChunked([...(view?.values() ?? [])], 1_000);
       const plan = planTagOperation(st, act.op);
@@ -189,6 +197,11 @@ function buildLog(actions: readonly Action[]): FlashEvent[] {
   }
   return all;
 }
+
+const isTagRewrite = (payload: unknown) =>
+  typeof payload === 'object' &&
+  payload !== null &&
+  (payload as { tag_rewrite?: unknown }).tag_rewrite === true;
 
 const matched = (st: CollectionState, filter: CardFilter) =>
   [...filterNoteIds(st, filter, { nowMs: Date.UTC(2026, 5, 1), tzOffsetMinutes: KST })].sort(
@@ -234,6 +247,21 @@ describe('Study Sets follow category rename / merge / delete (fast-check)', () =
         },
       ),
       { numRuns: 80 },
+    );
+  });
+
+  it('a background category rewrite never creates or brings back a deleted set', () => {
+    fc.assert(
+      fc.property(fc.array(actionArb, { minLength: 2, maxLength: 30 }), (actions) => {
+        const events = buildLog(actions);
+        const withoutRewrites = events.filter(
+          (e) => !(e.type === 'StudySetSaved' && isTagRewrite(e.payload)),
+        );
+        const ids = (list: readonly FlashEvent[]) =>
+          listStudySets(replayChunked(list, list.length)).map((s) => s.id);
+        expect(ids(events)).toEqual(ids(withoutRewrites));
+      }),
+      { numRuns: 120 },
     );
   });
 

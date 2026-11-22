@@ -153,6 +153,12 @@ export interface StudySetSavedPayload {
   /** Normalized `CardFilter` (see `normalizeCardFilter`). */
   filter?: unknown;
   mode?: StudySetMode;
+  /**
+   * Set on the filter-only saves a category rename / merge / delete writes in the background
+   * (`planStudySetTagRewrites`). Such a save updates its field registers but never creates a set
+   * or brings back one that another device deleted: only a user's own save does that.
+   */
+  tag_rewrite?: true;
 }
 
 /** Deletes a Study Set: it stays deleted unless a later (higher-HLC) `StudySetSaved` edits it. */

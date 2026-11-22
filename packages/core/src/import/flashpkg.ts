@@ -316,6 +316,7 @@ export function exportFlashpkg(
     ...(options.license !== undefined ? { license: options.license } : {}),
     languages: [...languages].sort(),
     decks: deckEntries,
+    ...(noteSubset === undefined ? {} : { subset: true }),
   };
 
   files['manifest.json'] = encodeUtf8(JSON.stringify(manifest, null, 2));
@@ -554,6 +555,43 @@ const SAFE_MEDIA_MIME_BY_EXT: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Events for re-importing into a deck that already exists. A full package renames, unarchives and
+ * links the deck to itself. A subset package (`manifest.subset`, e.g. one exported category)
+ * only unarchives it: the deck keeps its own name and source, since the package holds just part
+ * of its notes.
+ */
+function upgradeExistingDeckEvents(
+  eventFactory: EventFactory,
+  input: {
+    deckId: string;
+    entry: PackageDeckEntry;
+    source: SourceRef;
+    subset: boolean;
+    nowMs: number;
+  },
+): KnownEvent[] {
+  const { deckId, entry, source, nowMs } = input;
+  if (input.subset) {
+    return [
+      eventFactory.create('DeckSettingsChanged', { deck_id: deckId, archived: false }, nowMs),
+    ];
+  }
+  return [
+    eventFactory.create(
+      'DeckSettingsChanged',
+      {
+        deck_id: deckId,
+        name: entry.name,
+        ...(entry.language === undefined ? {} : { language: entry.language }),
+        archived: false,
+      },
+      nowMs,
+    ),
+    eventFactory.create('SourceLinked', { target_kind: 'deck', target_id: deckId, source }, nowMs),
+  ];
+}
+
+/**
  * Safely unpacks, validates, and converts a `.flashpkg` archive into events.
  * - Security (§13): blocks path traversal, file-count bombs, and uncompressed size bombs (including spoofed headers).
  * - Upgrades (§3.4): matches existing decks by `(source.package_id, packageDeckId)` and
@@ -579,6 +617,7 @@ export function importFlashpkg(
     throw new FlashpkgValidationError('Invalid manifest.json', manifestValidation.errors);
   }
   const manifest = manifestValidation.data;
+  const subset = manifest.subset === true;
   const baseSource: SourceRef = {
     kind: options?.sourceOverride?.kind ?? 'package',
     ...(options?.sourceOverride?.uri !== undefined ? { uri: options.sourceOverride.uri } : {}),
@@ -707,27 +746,13 @@ export function importFlashpkg(
     if (existingDeck) {
       upgradedDecks += 1;
       events.push(
-        eventFactory.create(
-          'DeckSettingsChanged',
-          {
-            deck_id: targetDeckId,
-            name: deckEntry.name,
-            ...(deckEntry.language !== undefined ? { language: deckEntry.language } : {}),
-            archived: false,
-          },
+        ...upgradeExistingDeckEvents(eventFactory, {
+          deckId: targetDeckId,
+          entry: deckEntry,
+          source: baseSource,
+          subset,
           nowMs,
-        ),
-      );
-      events.push(
-        eventFactory.create(
-          'SourceLinked',
-          {
-            target_kind: 'deck',
-            target_id: targetDeckId,
-            source: baseSource,
-          },
-          nowMs,
-        ),
+        }),
       );
     } else {
       events.push(
@@ -836,7 +861,8 @@ export function importFlashpkg(
     }
 
     // Soft-archive notes removed in an upgraded package version when requested (preserves reviews)
-    if (existingDeck && options?.archiveRemovedOnUpgrade) {
+    // A subset package (one category) never archives the deck's other notes.
+    if (existingDeck && options?.archiveRemovedOnUpgrade && !subset) {
       for (const existing of existingDeckNotes) {
         if (!existing.archived && !seenNoteIds.has(existing.id)) {
           events.push(eventFactory.create('NoteArchived', { note_id: existing.id }, nowMs));

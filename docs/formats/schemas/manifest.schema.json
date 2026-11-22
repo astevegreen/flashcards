@@ -24,7 +24,8 @@
         "required": ["id", "name", "file", "note_type_id"],
         "additionalProperties": false
       }
-    }
+    },
+    "subset": { "type": "boolean" }
   },
   "required": ["package_id", "name", "version", "format_version", "languages", "decks"],
   "additionalProperties": false

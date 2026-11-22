@@ -402,6 +402,32 @@ export function rankHardestCards(cards: readonly Card[], n: number): Card[] {
 }
 
 /**
+ * The "hardest N" cap of a due-only queue, bounded per study day. Each card of the selection
+ * already reviewed today holds one of the N slots (and stays queued while it is due again, e.g.
+ * in a learning step); the slots left go to the hardest due cards not reviewed yet today.
+ * Answering a card therefore never frees a slot for the (N+1)th hardest one: the session stops
+ * after N cards and the cap resets at the next study day. Deterministic from `ReviewRecorded`.
+ *
+ * `reviewedToday` holds the ids of the selection's cards (the filter without `hardest`) with an
+ * active review today. Returns the ids of `due` to keep.
+ */
+export function keepHardestDueToday(
+  due: readonly Card[],
+  hardest: number,
+  reviewedToday: ReadonlySet<string>,
+): Set<string> {
+  const keep = new Set<string>();
+  const fresh: Card[] = [];
+  for (const card of due) {
+    if (reviewedToday.has(card.id)) keep.add(card.id);
+    else fresh.push(card);
+  }
+  const slots = Math.max(0, hardest - reviewedToday.size);
+  for (const card of rankHardestCards(fresh, slots)) keep.add(card.id);
+  return keep;
+}
+
+/**
  * Splits a filter into its `performance.hardest` cap and everything else. Queues that only take
  * due cards (on-schedule Study Sets, review ahead) apply the other criteria, then the due check,
  * and rank the hardest N last, so "the 50 hardest" means the 50 hardest cards that are due rather
