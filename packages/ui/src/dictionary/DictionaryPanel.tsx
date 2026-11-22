@@ -117,6 +117,32 @@ function defaultDeckSpecForPack(packId: DictionaryPackId): {
  * - Supports bidirectional native (English) ↔ target language lookup independent of installed decks.
  * - Quick 1–2 tap "+ Add to Deck" with per-language last-deck memory and duplicate detection.
  */
+const LAST_DECK_STORAGE_KEY = 'flash:dictionary:lastDeckByLang';
+
+function readRememberedDecks(): Record<string, string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(LAST_DECK_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === 'string') out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeRememberedDecks(value: Record<string, string>): void {
+  try {
+    globalThis.localStorage?.setItem(LAST_DECK_STORAGE_KEY, JSON.stringify(value));
+  } catch {
+    // Storage blocked (private mode, quota): remembering is a convenience only.
+  }
+}
+
 export function DictionaryPanel({
   initialQuery = '',
   initialDrawOpen = false,
@@ -137,7 +163,18 @@ export function DictionaryPanel({
 
   // Quick "+ Add to Deck" state
   const [addingEntryId, setAddingEntryId] = useState<string | null>(null);
-  const [lastDeckByLang, setLastDeckByLang] = useState<Record<string, string>>({});
+  const [lastDeckByLang, setLastDeckByLangState] =
+    useState<Record<string, string>>(readRememberedDecks);
+  // Remembered per device across reloads (§6.3 "remembering the last-used deck per language").
+  const setLastDeckByLang = (
+    update: (prev: Record<string, string>) => Record<string, string>,
+  ): void => {
+    setLastDeckByLangState((prev) => {
+      const next = update(prev);
+      writeRememberedDecks(next);
+      return next;
+    });
+  };
   const [addedBanner, setAddedBanner] = useState<string | null>(null);
 
   const decks = useMemo(

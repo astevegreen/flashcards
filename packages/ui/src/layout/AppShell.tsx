@@ -115,7 +115,15 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
   };
 
   return (
-    <div className="flex min-h-dvh w-full bg-[var(--bg)] text-[var(--fg)]">
+    <div
+      className="flex min-h-dvh w-full bg-[var(--bg)] text-[var(--fg)]"
+      style={{
+        // viewport-fit=cover: keep content clear of notches / rounded corners on every edge
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingLeft: 'env(safe-area-inset-left)',
+        paddingRight: 'env(safe-area-inset-right)',
+      }}
+    >
       {/* Desktop collapsible left rail */}
       <aside
         aria-label="Primary navigation"
@@ -219,7 +227,7 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchCancel}
-          className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-3 pb-20 pt-3 focus:outline-none sm:px-6 md:pb-6 md:pt-5"
+          className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-3 pb-[calc(5rem+env(safe-area-inset-bottom))] pt-3 focus:outline-none sm:px-6 md:pb-6 md:pt-5"
         >
           {children}
         </main>
@@ -229,7 +237,11 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
       <nav
         aria-label="Mobile navigation"
         className="fixed inset-x-0 bottom-0 z-20 flex border-t border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur md:hidden"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        style={{
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          paddingLeft: 'env(safe-area-inset-left)',
+          paddingRight: 'env(safe-area-inset-right)',
+        }}
       >
         {NAV_ITEMS.map((item) => {
           const active = activeTab === item.id;
