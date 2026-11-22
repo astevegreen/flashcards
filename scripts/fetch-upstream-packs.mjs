@@ -79,6 +79,11 @@ async function main() {
       url: 'https://www.unicode.org/Public/UCD/latest/ucd/Unihan.zip',
     },
     {
+      key: 'unicode_license',
+      file: 'unicode-license.txt',
+      url: 'https://www.unicode.org/license.txt',
+    },
+    {
       key: 'kanjidic2',
       file: 'kanjidic2.xml.gz',
       url: 'https://www.edrdg.org/kanjidic/kanjidic2.xml.gz',

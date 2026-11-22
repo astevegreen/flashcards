@@ -1,20 +1,39 @@
 Flashcards Offline Data Packs — Upstream Licenses & Attributions
 ================================================================
 
+These data packs are adapted from the open-data sources below. CC BY-SA packs are distributed under
+the same licence (share-alike); the app code that reads them is licensed separately.
+
 1. dict-hanja-unihan: Unicode License v3 (https://www.unicode.org/license.txt)
    Source: Unicode Character Database (Unihan) — https://www.unicode.org/charts/unihan.html
+   Copyright © 1991–2026 Unicode, Inc. Fields kHangul, kDefinition, kTotalStrokes, kRSUnicode and variant
+   mappings were converted to JSON. The full Unicode License v3 text is reproduced in UNICODE-LICENSE.txt
+   (full builds) and at the URL above.
 
-2. dict-kanjidic2: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+2. dict-kanjidic2: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/) — share-alike
    Source: EDRDG KANJIDIC2 — https://www.edrdg.org/wiki/index.php/KANJIDIC_Project
+   KANJIDIC2 is the property of the Electronic Dictionary Research and Development Group and is used in
+   conformance with the Group's licence (https://www.edrdg.org/edrdg/licence.html). Changes: on/kun/nanori
+   readings, English meanings, grade, JLPT, frequency, stroke count and classical radical extracted to JSON.
 
-3. dict-cc-cedict: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+3. dict-cc-cedict: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/) — share-alike
    Source: MDBG CC-CEDICT — https://www.mdbg.net/chinese/dictionary?page=cc-cedict
+   Based on CEDICT © 1997, 1998 Paul Andrew Denisowski. Changes: converted to JSON; pinyin "u:" written as "v".
 
-4. dict-jmdict: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
-   Source: EDRDG JMdict — https://www.edrdg.org/jmdict/j_jmdict.html
+4. dict-jmdict: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/) — share-alike
+   Source: EDRDG JMdict (English) — https://www.edrdg.org/jmdict/j_jmdict.html
+   JMdict is the property of the Electronic Dictionary Research and Development Group and is used in
+   conformance with the Group's licence (https://www.edrdg.org/edrdg/licence.html). Changes: headwords,
+   readings, English glosses (one string per sense) and priority/frequency bands extracted to JSON.
 
-5. strokes-ja-kanjivg: CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+5. strokes-ja-kanjivg: CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/) — share-alike
    Source: KanjiVG (Ulrich Apel & contributors) — https://kanjivg.tagaini.net/
+   Changes: stroke centerlines resampled and converted from 109×109 SVG to Hanzi Writer 1024×1024 JSON
+   (medians + ribbon outlines).
 
 6. strokes-zh-mmah: Arphic Public License (1999) (https://ftp.gnu.org/gnu/non-gnu/chinese-fonts-truetype/LICENSE)
-   Source: Make Me a Hanzi — https://github.com/skishore/makemeahanzi
+   Source: Make Me a Hanzi graphics.txt — https://github.com/skishore/makemeahanzi
+   graphics.txt is derived from the Arphic PL KaitiM GB and Arphic PL UKai fonts © 1994–1999 Arphic
+   Technology Co., Ltd. and is redistributed (re-encoded as JSON, medians rounded) under the Arphic Public
+   License, whose full text is reproduced in ARPHIC-PL.txt (full builds). Make Me a Hanzi's dictionary.txt
+   (LGPL) is NOT used.
