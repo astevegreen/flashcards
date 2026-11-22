@@ -41,15 +41,10 @@ describe.each([
     expect(policy.get('object-src')).toEqual(["'none'"]);
   });
 
-  it('pins the picker frames (Google, OneDrive personal) without wildcards', () => {
+  it('pins the Google Picker frames without wildcards, and posts forms only to itself', () => {
     const frames = effective(policy, 'frame-src');
-    expect(frames).toEqual([
-      "'self'",
-      'https://docs.google.com',
-      'https://accounts.google.com',
-      'https://onedrive.live.com',
-    ]);
-    expect(policy.get('form-action')).toEqual(["'self'", 'https://onedrive.live.com']);
+    expect(frames).toEqual(["'self'", 'https://docs.google.com', 'https://accounts.google.com']);
+    expect(policy.get('form-action')).toEqual(["'self'"]);
   });
 });
 

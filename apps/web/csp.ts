@@ -12,20 +12,18 @@
  * - `worker-src 'self'`: Workers load from same-origin files only (Vite emits
  *   `new Worker(new URL('./x.worker.ts', import.meta.url))` as `/assets/x.worker-<hash>.js`).
  *   `blob:` workers (e.g. Vite `?worker&inline`) are deliberately not allowed.
- * - `frame-src` / `form-action` `https://onedrive.live.com`: the OneDrive File Picker v8 for
- *   personal accounts is a page at `https://onedrive.live.com/picker`, opened in an iframe or a
- *   popup by POSTing a form from a blank window that inherits this policy. Work/school tenants
- *   (`https://<tenant>-my.sharepoint.com`) are not allowed: that needs a wildcard host.
+ * - OneDrive (Phase 12) needs no `frame-src`, `form-action` or `script-src` entry: its file
+ *   picker is built into the app on Microsoft Graph (`connect-src https:`), and sign-in is a
+ *   top-level navigation. The hosted OneDrive File Picker v8 (`https://onedrive.live.com/picker`,
+ *   an iframe or popup fed by a form POST) is NOT allowed; adopting it means first verifying,
+ *   under this policy, every host its frame and form POST redirect through (Chrome checks
+ *   `frame-src` / `form-action` on redirects too), then pinning those exact hosts, no wildcards.
  */
 
 export type CspDirectives = ReadonlyArray<readonly [name: string, sources: readonly string[]]>;
 
 const GOOGLE_SCRIPT_SOURCES = ['https://apis.google.com', 'https://www.gstatic.com'] as const;
-const PICKER_FRAME_SOURCES = [
-  'https://docs.google.com',
-  'https://accounts.google.com',
-  'https://onedrive.live.com',
-] as const;
+const PICKER_FRAME_SOURCES = ['https://docs.google.com', 'https://accounts.google.com'] as const;
 
 /** The PWA policy: the `index.html` meta tag, and the header a host may send for every file. */
 export const PRODUCTION_CSP_DIRECTIVES: CspDirectives = [
@@ -47,7 +45,7 @@ export const PRODUCTION_CSP_DIRECTIVES: CspDirectives = [
   ['connect-src', ["'self'", 'https:', 'ipc:', 'http://ipc.localhost']],
   ['object-src', ["'none'"]],
   ['base-uri', ["'self'"]],
-  ['form-action', ["'self'", 'https://onedrive.live.com']],
+  ['form-action', ["'self'"]],
   ['worker-src', ["'self'"]],
   ['manifest-src', ["'self'"]],
 ];
@@ -68,7 +66,7 @@ export const TAURI_CSP_DIRECTIVES: CspDirectives = [
   ['connect-src', ["'self'", 'https:', 'ipc:', 'http://ipc.localhost']],
   ['object-src', ["'none'"]],
   ['base-uri', ["'self'"]],
-  ['form-action', ["'self'", 'https://onedrive.live.com']],
+  ['form-action', ["'self'"]],
   ['worker-src', ["'self'"]],
 ];
 

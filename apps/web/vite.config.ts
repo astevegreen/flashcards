@@ -11,7 +11,7 @@ function productionCspPlugin(): Plugin {
     transformIndexHtml(html) {
       // The §13 policy lives in ./csp.ts (shared with the Tauri shell, the hosting docs and the
       // CSP tests): script-src pinned to 'self' + 'wasm-unsafe-eval' (WASM only, never eval) +
-      // Google Picker / Identity loaders, frame-src pinned to the Google and OneDrive pickers,
+      // Google Picker / Identity loaders, frame-src pinned to the Google Picker origins,
       // connect-src 'self' + https:, worker-src 'self', img-src 'self' blob: data:.
       const csp = PRODUCTION_CSP;
       return html.replace(

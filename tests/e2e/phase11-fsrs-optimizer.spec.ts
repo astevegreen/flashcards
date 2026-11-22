@@ -342,8 +342,9 @@ async function serveWithCspHeader(
 ): Promise<void> {
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url());
-    if (url.hostname !== '127.0.0.1') {
-      await route.continue();
+    if (url.hostname !== '127.0.0.1' && url.hostname !== 'localhost') {
+      // Never reach the real network from these specs.
+      await route.abort('blockedbyclient');
       return;
     }
     const response = await route.fetch();
