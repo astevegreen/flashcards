@@ -8,9 +8,11 @@ import {
   saveReminderConfig,
   type StudyReminderConfig,
 } from './reminderConfig.ts';
-
-const PERMISSION_DENIED_MESSAGE =
-  'Notifications are turned off for Flashcards. Allow them in your device settings, then turn reminders on again.';
+import {
+  PERMISSION_DENIED_MESSAGE,
+  reminderSettingDescription,
+  toggleStudyReminders,
+} from './reminderScheduling.ts';
 
 /**
  * Settings › Study Preferences: daily study reminder (Phase 13, default off). Native shells ask
@@ -22,7 +24,6 @@ export function StudyRemindersSetting() {
   const [config, setConfig] = useState<StudyReminderConfig>(DEFAULT_REMINDER_CONFIG);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const isNative = platform.getStudyReminderScheduler !== undefined;
 
   useEffect(() => {
     let active = true;
@@ -39,22 +40,12 @@ export function StudyRemindersSetting() {
     await saveReminderConfig(platform.storage, next);
   };
 
-  /** Asks for permission (native only); false when the OS refused. */
-  const ensurePermission = async (): Promise<boolean> => {
-    if (!platform.getStudyReminderScheduler) return true;
-    const scheduler = await platform.getStudyReminderScheduler();
-    return (await scheduler.requestPermission()) === 'granted';
-  };
-
   const handleToggle = async (enabled: boolean) => {
     setMessage(null);
-    if (!enabled) {
-      await save({ ...config, enabled: false });
-      return;
-    }
     setBusy(true);
     try {
-      if (await ensurePermission()) await save({ ...config, enabled: true });
+      const outcome = await toggleStudyReminders(platform, config, enabled);
+      if (outcome.kind === 'saved') await save(outcome.config);
       else setMessage(PERMISSION_DENIED_MESSAGE);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
@@ -74,9 +65,7 @@ export function StudyRemindersSetting() {
         <label htmlFor="study-reminder-toggle">
           <span className="block font-medium">Daily study reminder</span>
           <span className="block text-xs text-[var(--muted)]">
-            {isNative
-              ? 'A notification at this time with the number of cards due.'
-              : 'After this time, the Study tab shows how many cards are due. Notifications need the mobile or desktop app.'}
+            {reminderSettingDescription(platform)}
           </span>
         </label>
         <input

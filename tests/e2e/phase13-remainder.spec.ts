@@ -158,8 +158,8 @@ test.describe('Phase 13 layout fixes', () => {
   test.describe('pull to refresh', () => {
     test.use({ viewport: { width: 390, height: 640 }, isMobile: true, hasTouch: true });
 
-    /** Starts a downward pull on the first Browse row, returns whether the sync hint shows. */
-    async function pullOnFirstRow(page: Page): Promise<boolean> {
+    /** Starts (and holds) a downward pull on the first Browse row. */
+    async function startPullOnFirstRow(page: Page): Promise<void> {
       await page.getByTestId('browse-list').evaluate((list) => {
         const target = list.querySelector('[data-testid^="browse-row-"] button') ?? list;
         const touch = (y: number) => new Touch({ identifier: 1, target, clientX: 120, clientY: y });
@@ -177,17 +177,25 @@ test.describe('Phase 13 layout fixes', () => {
         fire('touchmove', 240);
         fire('touchmove', 300);
       });
-      const hint = page.getByRole('status').filter({ hasText: /sync…?$/ });
-      const shown = await hint
-        .first()
-        .waitFor({ state: 'visible', timeout: 1_000 })
-        .then(() => true)
-        .catch(() => false);
+    }
+
+    async function cancelPull(page: Page): Promise<void> {
       await page.getByTestId('browse-list').evaluate((list) => {
         list.dispatchEvent(new TouchEvent('touchcancel', { bubbles: true }));
       });
-      return shown;
     }
+
+    /** Resolves after two rendered frames, so any state update from the pull has committed. */
+    async function afterRenderedFrames(page: Page): Promise<void> {
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+    }
+
+    const pullHint = (page: Page) => page.getByRole('status').filter({ hasText: /sync…?$/ });
 
     test('a pull inside a scrolled list scrolls instead of syncing', async ({ page }) => {
       await page.goto('/?device=pullrefresh');
@@ -197,8 +205,10 @@ test.describe('Phase 13 layout fixes', () => {
       await expect(list.locator('[data-testid^="browse-row-"]').first()).toBeVisible();
 
       // At the top of the list (and the page) a pull is a refresh gesture.
-      expect(await pullOnFirstRow(page)).toBe(true);
-      await expect(page.getByText('Release to sync…')).toHaveCount(0);
+      await startPullOnFirstRow(page);
+      await expect(pullHint(page).first()).toBeVisible();
+      await cancelPull(page);
+      await expect(pullHint(page)).toHaveCount(0);
 
       // Scrolled inside the list (the window stays at the top): a pull is a scroll.
       const scrollable = await list.evaluate((el) => el.scrollHeight > el.clientHeight);
@@ -208,7 +218,10 @@ test.describe('Phase 13 layout fixes', () => {
       });
       await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
       expect(await page.evaluate(() => window.scrollY)).toBe(0);
-      expect(await pullOnFirstRow(page)).toBe(false);
+      await startPullOnFirstRow(page);
+      await afterRenderedFrames(page);
+      await expect(pullHint(page)).toHaveCount(0);
+      await cancelPull(page);
     });
   });
 });

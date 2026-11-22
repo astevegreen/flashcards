@@ -87,7 +87,9 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
 
   return {
     ...composeNativePlatform(native, base),
-    // Phase 13 study reminders: desktop notifications while the app runs.
+    // Phase 13 study reminders: desktop notifications while the app runs. The notification
+    // plugin cannot schedule on desktop, so nothing fires after the app quits (Settings says so).
+    studyReminderDelivery: 'while-app-runs',
     getStudyReminderScheduler: async () => {
       const { createDesktopReminderScheduler } = await import('../reminders/desktop-reminders.ts');
       return createDesktopReminderScheduler(createDesktopNotificationBridge());

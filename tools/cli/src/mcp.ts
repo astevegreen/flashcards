@@ -710,7 +710,8 @@ function dispatchMcpMethod(req: JsonRpcRequest, ctx: McpServerContext): McpMetho
 }
 
 /**
- * Handles a single JSON-RPC 2.0 MCP request (returns `null` for notifications).
+ * Handles a single JSON-RPC 2.0 MCP request (returns `null` for notifications: any message
+ * without an `id`).
  *
  * Serves both protocol eras (see `mcp-protocol.ts`): a request whose `params._meta` names a
  * protocol version is answered in the modern stateless form, anything else keeps the legacy
@@ -720,8 +721,11 @@ export function handleMcpRequest(
   req: JsonRpcRequest,
   ctx: McpServerContext,
 ): JsonRpcResponse | null {
-  if (typeof req.method === 'string' && req.method.startsWith('notifications/')) return null;
-  const id = req.id ?? null;
+  // JSON-RPC 2.0: a message without an `id` is a notification and never gets a reply. Every
+  // method served here is a request, so a notification (`notifications/*` or a request method
+  // sent without an id) is ignored rather than run.
+  if (req.id === undefined) return null;
+  const id = req.id;
   const era = readRequestEra(req.params);
   if (era.era === 'error') return { jsonrpc: '2.0', id, error: era.error };
 

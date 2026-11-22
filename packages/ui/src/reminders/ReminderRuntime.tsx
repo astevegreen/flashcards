@@ -1,19 +1,12 @@
-import {
-  buildStudyQueue,
-  nextReminderOccurrences,
-  planStudyReminders,
-  REMINDER_PLAN_DAYS,
-  type CollectionState,
-} from '@flash/core';
-import type { PlatformServices } from '@flash/platform';
+import { buildStudyQueue, type CollectionState } from '@flash/core';
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import {
   loadReminderConfig,
   onReminderConfigChange,
-  reminderNotificationText,
   type StudyReminderConfig,
 } from './reminderConfig.ts';
+import { rescheduleNativeReminders } from './reminderScheduling.ts';
 
 /** Quiet period after the last change before native reminders are rescheduled. */
 const RESCHEDULE_DEBOUNCE_MS = 10_000;
@@ -21,31 +14,6 @@ const RESCHEDULE_DEBOUNCE_MS = 10_000;
 const BADGE_REFRESH_MS = 60_000;
 
 const localTzOffsetAt = (ms: number) => -new Date(ms).getTimezoneOffset();
-
-/** Replaces the native schedule with the next days' reminders (days with nothing due are skipped). */
-async function rescheduleNative(
-  platform: PlatformServices,
-  config: StudyReminderConfig,
-  state: CollectionState,
-): Promise<void> {
-  if (!platform.getStudyReminderScheduler) return;
-  const scheduler = await platform.getStudyReminderScheduler();
-  // Never prompt here: permission is only requested when the user turns reminders on.
-  if (!config.enabled || (await scheduler.checkPermission()) !== 'granted') {
-    await scheduler.cancelAll();
-    return;
-  }
-  const occurrences = nextReminderOccurrences(
-    Date.now(),
-    config,
-    REMINDER_PLAN_DAYS,
-    localTzOffsetAt,
-  );
-  const reminders = planStudyReminders(state, occurrences)
-    .filter((p) => p.dueCount > 0)
-    .map((p) => ({ atMs: p.atMs, ...reminderNotificationText(p.dueCount) }));
-  await scheduler.replaceAll(reminders);
-}
 
 /** Web badge: the due count once today's reminder time has passed (0 before it, or when off). */
 function webBadgeCount(config: StudyReminderConfig, state: CollectionState, nowMs: number): number {
@@ -93,7 +61,7 @@ export function ReminderRuntime({ onBadgeChange }: ReminderRuntimeProps) {
     if (!isNative || !config) return undefined;
     const run = () => {
       chainRef.current = chainRef.current
-        .then(() => rescheduleNative(platform, config, stateRef.current))
+        .then(() => rescheduleNativeReminders(platform, config, stateRef.current))
         .catch((err: unknown) => console.warn('Study reminders could not be scheduled:', err));
     };
     run();
@@ -108,7 +76,7 @@ export function ReminderRuntime({ onBadgeChange }: ReminderRuntimeProps) {
     if (!isNative || !config?.enabled || stateVersion === 0) return undefined;
     const timer = window.setTimeout(() => {
       chainRef.current = chainRef.current
-        .then(() => rescheduleNative(platform, config, stateRef.current))
+        .then(() => rescheduleNativeReminders(platform, config, stateRef.current))
         .catch((err: unknown) => console.warn('Study reminders could not be scheduled:', err));
     }, RESCHEDULE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);

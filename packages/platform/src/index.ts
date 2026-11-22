@@ -641,6 +641,15 @@ export interface ScheduledStudyReminder {
 }
 
 /**
+ * How a native shell delivers study reminders:
+ * - `os-scheduled`: the OS holds the schedule, so reminders show even when the app is closed
+ *   (Capacitor local notifications on Android / iOS).
+ * - `while-app-runs`: the app fires them itself, so reminders show only while it is running,
+ *   minimized included (Tauri desktop: tauri-plugin-notification cannot schedule on desktop).
+ */
+export type StudyReminderDelivery = 'os-scheduled' | 'while-app-runs';
+
+/**
  * Native local notifications for study reminders (Capacitor Android / iOS, Tauri desktop).
  * The PWA has no scheduler: it shows an in-app badge instead.
  */
@@ -713,4 +722,9 @@ export interface PlatformServices {
   getNativePickerBridge?: () => Promise<NativePickerBridge>;
   /** Native shells only: local-notification study reminders (lazy, never in the PWA). */
   getStudyReminderScheduler?: () => Promise<StudyReminderScheduler>;
+  /**
+   * Set together with `getStudyReminderScheduler`: how its reminders reach the user (known
+   * up front so Settings can say so without loading the scheduler).
+   */
+  readonly studyReminderDelivery?: StudyReminderDelivery;
 }

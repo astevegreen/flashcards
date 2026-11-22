@@ -298,5 +298,19 @@ describe('Phase 13 MCP: protocol versions', () => {
     const note: JsonRpcRequest = { jsonrpc: '2.0', method: 'notifications/initialized' };
     expect(handleMcpRequest(note, ctx)).toBeNull();
     expect(handleMcpRequest({ jsonrpc: '2.0', method: 'notifications/cancelled' }, ctx)).toBeNull();
+    // A request method sent without an id is a notification too: no reply, and nothing runs.
+    const noId: JsonRpcRequest = {
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'list_decks', arguments: {} },
+    };
+    expect(handleMcpRequest(noId, ctx)).toBeNull();
+    expect(handleMcpRequest({ jsonrpc: '2.0', method: 'ping' }, ctx)).toBeNull();
+    // An explicit `id: null` is still answered (with `id: null`).
+    expect(handleMcpRequest({ jsonrpc: '2.0', id: null, method: 'ping' }, ctx)).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      result: {},
+    });
   });
 });

@@ -77,6 +77,7 @@ export async function bootCapacitorPlatform(
   return {
     ...composeNativePlatform(native, base),
     // Phase 13 study reminders: OS local notifications (the PWA only shows an in-app badge).
+    studyReminderDelivery: 'os-scheduled',
     getStudyReminderScheduler: async () => {
       const { createLocalNotificationReminderScheduler } =
         await import('../reminders/local-notification-reminders.ts');

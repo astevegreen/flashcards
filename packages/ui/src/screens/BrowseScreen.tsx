@@ -4,11 +4,10 @@ import {
   isLeechCard,
   LEECH_CATEGORY,
   listCategories,
-  matchesCategoryCriterion,
   normalizeCardFilter,
   normalizeTagList,
+  noteMatchesSearchText,
   stripCloze,
-  stripRuby,
   type CardStateKind,
   type CategoryCriterion,
   type KnownEvent,
@@ -31,33 +30,8 @@ const STATE_FILTER_OPTIONS: ReadonlyArray<{ value: CardStateKind; label: string 
   { value: 'leech', label: 'Leech' },
 ];
 
-const lower = (t: string) => t.normalize('NFC').toLowerCase();
-
 const isUnreviewedAiNote = (note: Note) =>
   note.provenance.source === 'ai' && !note.provenance.reviewed;
-
-/** Field text match, also against the ruby / cloze-stripped text of marked-up fields. */
-function fieldMatchesQuery(val: string, q: string): boolean {
-  if (val.toLowerCase().includes(q)) return true;
-  if (val.includes('[') || val.includes('{')) {
-    return stripRuby(stripCloze(val)).toLowerCase().includes(q);
-  }
-  return false;
-}
-
-/** Search box match for a non-empty, lowercased query. */
-function noteMatchesQuery(note: Note, q: string): boolean {
-  if (q.startsWith('#')) {
-    // `#tag` shortcut: same category matching as the picker (exact tag or `tag::child`).
-    const tagNeedle = q.slice(1);
-    const tagCriterion: CategoryCriterion = { mode: 'any', tags: [tagNeedle] };
-    return tagNeedle !== '' && matchesCategoryCriterion(note.tags.map(lower), tagCriterion);
-  }
-  return (
-    Object.values(note.fields).some((val) => fieldMatchesQuery(val, q)) ||
-    note.tags.some((t) => lower(t).includes(q))
-  );
-}
 
 const LazyDictionaryPanel = lazy(() =>
   import('../dictionary/DictionaryPanel.tsx').then((m) => ({ default: m.DictionaryPanel })),
@@ -181,7 +155,6 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   }, [state, stateVersion, deckFilter]);
 
   const filteredNotes = useMemo(() => {
-    const q = query.normalize('NFC').trim().toLowerCase();
     const nowMs = Date.now();
     // "Due today" leaves suspended cards out, like Study (Phase 9).
     const matchingNoteIds = filterBrowseNoteIds(
@@ -194,7 +167,8 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
     for (const note of state.notes.values()) {
       if (!matchingNoteIds.has(note.id)) continue;
       if (needsReviewOnly && !isUnreviewedAiNote(note)) continue;
-      if (q && !noteMatchesQuery(note, q)) continue;
+      // One search rule with MCP `search_notes` (core `noteMatchesSearchText`).
+      if (!noteMatchesSearchText(note, query)) continue;
       list.push(note);
     }
     list.sort((a, b) => a.created_order - b.created_order || (a.id < b.id ? -1 : 1));
