@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useApp, type SyncUiState } from '../state/AppContext.tsx';
+import { applyCardTextSize, readCardTextSize } from '../study/cardTextSize.ts';
+
+/** Applies the device-local card text size before the first paint (idempotent DOM attribute). */
+function initCardTextSize(): boolean {
+  applyCardTextSize(readCardTextSize());
+  return true;
+}
 
 export type NavTab = 'study' | 'library' | 'browse' | 'stats' | 'settings';
 
@@ -50,6 +57,7 @@ function getSidebarBadge(syncState: SyncUiState): { label: string; tone: string 
 
 export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
   const { platform, showBackupBanner, dismissBackupBanner, syncState, syncNow } = useApp();
+  useState(initCardTextSize);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
   const mainRef = useRef<HTMLElement | null>(null);
@@ -119,9 +127,17 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
     }
   };
 
+  const isStudy = activeTab === 'study';
+  // Large monitors (>= 1440 px): wider content for Library and Browse / Dictionary (§15 Phase 13).
+  const isWideTab = activeTab === 'library' || activeTab === 'browse';
+
   return (
     <div
-      className="flex min-h-dvh w-full bg-[var(--bg)] text-[var(--fg)]"
+      data-tab={activeTab}
+      className={`flex w-full bg-[var(--bg)] text-[var(--fg)] ${
+        // Study always fits the viewport: the shell is exactly one screen tall and never scrolls.
+        isStudy ? 'h-dvh overflow-hidden' : 'min-h-dvh'
+      }`}
       style={{
         // viewport-fit=cover: keep content clear of notches / rounded corners on every edge
         paddingTop: 'env(safe-area-inset-top)',
@@ -129,14 +145,14 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
         paddingRight: 'env(safe-area-inset-right)',
       }}
     >
-      {/* Desktop collapsible left rail */}
+      {/* Desktop collapsible left rail; in short landscape windows a slim icon rail replaces the bottom tabs */}
       <aside
         aria-label="Primary navigation"
-        className={`hidden shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)] transition-[width] duration-150 md:flex ${
+        className={`touch-scope hidden shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)] transition-[width] duration-150 md:flex short:flex short:w-16 ${
           railCollapsed ? 'w-16' : 'w-56'
         }`}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-3.5">
+        <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-3.5 short:hidden">
           {!railCollapsed && (
             <span className="truncate text-base font-bold tracking-tight">Flashcards</span>
           )}
@@ -150,7 +166,7 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
           </button>
         </div>
 
-        <nav className="flex flex-1 flex-col gap-1 p-2">
+        <nav className="flex flex-1 flex-col gap-1 p-2 short:justify-center">
           {NAV_ITEMS.map((item) => {
             const active = activeTab === item.id;
             return (
@@ -158,8 +174,9 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
                 key={item.id}
                 type="button"
                 aria-current={active ? 'page' : undefined}
+                title={railCollapsed ? item.label : undefined}
                 onClick={() => onSelectTab(item.id)}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors short:justify-center short:px-0 ${
                   active
                     ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
                     : 'text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg)]'
@@ -168,14 +185,15 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
                 <span aria-hidden="true" className="w-5 text-center text-base">
                   {item.icon}
                 </span>
-                {!railCollapsed && <span>{item.label}</span>}
+                {/* Icon-only rail keeps the label for assistive tech */}
+                <span className={railCollapsed ? 'sr-only' : 'short:sr-only'}>{item.label}</span>
               </button>
             );
           })}
         </nav>
 
         {!railCollapsed && (
-          <div className="border-t border-[var(--border)] px-3 py-3 text-xs text-[var(--muted)]">
+          <div className="border-t border-[var(--border)] px-3 py-3 text-xs text-[var(--muted)] short:hidden">
             <div className="flex items-center justify-between gap-1">
               <span className="truncate font-medium">{platform.deviceLabel}</span>
               <button
@@ -193,7 +211,7 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
       </aside>
 
       {/* Main viewport */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {showBackupBanner && (
           <div
             role="status"
@@ -228,20 +246,28 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
         <main
           ref={mainRef}
           tabIndex={-1}
+          data-tab={activeTab}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchCancel}
-          className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-3 pb-[calc(5rem+env(safe-area-inset-bottom))] pt-3 focus:outline-none sm:px-6 md:pb-6 md:pt-5"
+          className={`mx-auto flex w-full max-w-4xl flex-1 flex-col px-3 pb-[calc(var(--tabbar-h)+env(safe-area-inset-bottom)+0.75rem)] pt-3 focus:outline-none tiny:px-2 sm:px-6 md:pb-6 md:pt-5 short:pb-2 short:pt-2 ${
+            isStudy
+              ? // Fits the viewport; only an open inline panel (e.g. a filter) can scroll, inside main.
+                'touch-scope min-h-0 overflow-y-auto'
+              : isWideTab
+                ? 'min-[1440px]:max-w-6xl'
+                : ''
+          }`}
         >
           {children}
         </main>
       </div>
 
-      {/* Mobile bottom tab bar with safe-area inset */}
+      {/* Mobile bottom tab bar with safe-area inset (icon-only below 360 px; replaced by the rail in short windows) */}
       <nav
         aria-label="Mobile navigation"
-        className="fixed inset-x-0 bottom-0 z-20 flex border-t border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur md:hidden"
+        className="touch-scope fixed inset-x-0 bottom-0 z-20 flex border-t border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur md:hidden short:hidden"
         style={{
           paddingBottom: 'env(safe-area-inset-bottom)',
           paddingLeft: 'env(safe-area-inset-left)',
@@ -256,14 +282,14 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
               type="button"
               aria-current={active ? 'page' : undefined}
               onClick={() => onSelectTab(item.id)}
-              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-xs font-medium ${
+              className={`flex h-[var(--tabbar-h)] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium ${
                 active ? 'text-[var(--accent)]' : 'text-[var(--muted)]'
               }`}
             >
-              <span aria-hidden="true" className="text-base leading-none">
+              <span aria-hidden="true" className="text-base leading-none tiny:text-xl">
                 {item.icon}
               </span>
-              <span>{item.label}</span>
+              <span className="tiny:sr-only">{item.label}</span>
             </button>
           );
         })}

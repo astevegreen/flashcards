@@ -11,7 +11,6 @@ import {
   type ReviewRating,
 } from '@flash/core';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { SpeakerButton } from '../components/SpeakerButton.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
@@ -21,6 +20,8 @@ import {
   setStudyFilter,
   useStudyFilter,
 } from '../study/filterStore.ts';
+import { RatingBar } from '../study/RatingBar.tsx';
+import { StudyCard } from '../study/StudyCard.tsx';
 
 const LazyNoteEditDialog = lazy(() =>
   import('../components/NoteEditDialog.tsx').then((m) => ({ default: m.NoteEditDialog })),
@@ -687,7 +688,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   }
 
   return (
-    <section className="flex flex-1 flex-col gap-4">
+    <section className="flex min-h-0 flex-1 flex-col gap-3 sm:gap-4 short:gap-2">
       {/* Top study header: Deck selector + Due counts + Quick actions */}
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
@@ -906,85 +907,34 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           </div>
         </div>
       ) : (
-        <div className="flex flex-1 flex-col justify-between gap-4">
-          {/* Swipeable / tappable card */}
-          <div
-            data-testid="study-card"
-            data-answer-mode={currentLayout.answer_mode}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 short:flex-row">
+          <StudyCard
+            answerMode={currentLayout.answer_mode}
+            deckName={currentDeck.name}
+            layoutLabel={`${currentLayout.name}${currentCard.variant > 0 ? ` · c${currentCard.variant}` : ''}`}
+            isRevealed={isRevealed}
+            capturesFront={activeModePlugin.capturesFrontInteraction}
+            hint={
+              !isFullyRevealed && (!activeModePlugin.capturesFrontInteraction || isRevealed)
+                ? isRevealed
+                  ? 'Tap or press Space for more'
+                  : 'Tap card or press Space to reveal'
+                : null
+            }
+            swipe={swipe}
+            swipeIntent={swipeIntent}
+            showSpeaker={Boolean(
+              currentAudioTarget &&
+              (currentAudioTarget.attachedMediaHash || currentAudioTarget.normalizedText),
+            )}
+            onSpeak={handleSpeak}
+            needsAiReview={needsAiReview}
+            onMarkReviewed={() => markNoteReviewed(currentNote)}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerCancel}
-            style={{
-              touchAction: 'pan-y',
-              transform:
-                swipe.active && isRevealed
-                  ? `translate3d(${Math.max(-90, Math.min(90, swipe.dx * 0.45))}px, ${Math.max(-50, Math.min(20, swipe.dy * 0.35))}px, 0)`
-                  : undefined,
-            }}
-            className={`relative flex min-h-[20rem] flex-1 select-none flex-col items-center justify-center gap-6 rounded-3xl border bg-[var(--surface)] p-6 text-center shadow-sm transition-transform duration-100 sm:p-10 ${
-              !isRevealed && activeModePlugin.capturesFrontInteraction ? '' : 'cursor-pointer'
-            } ${
-              swipeIntent === 'again'
-                ? 'border-rose-500 ring-2 ring-rose-500/30'
-                : swipeIntent === 'good'
-                  ? 'border-emerald-500 ring-2 ring-emerald-500/30'
-                  : swipeIntent === 'easy'
-                    ? 'border-sky-500 ring-2 ring-sky-500/30'
-                    : 'border-[var(--border)]'
-            }`}
           >
-            {/* Subtle deck & layout pill */}
-            <div className="absolute left-4 top-4 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
-              <span className="truncate font-medium">{currentDeck.name}</span>
-              <span>·</span>
-              <span className="rounded-md bg-[var(--surface-2)] px-1.5 py-0.5">
-                {currentLayout.name}
-                {currentCard.variant > 0 ? ` · c${currentCard.variant}` : ''}
-              </span>
-            </div>
-
-            {/* Top-right card controls: SpeakerButton + AI Provenance "Needs review" badge (§7.2, §10.3) */}
-            {!swipeIntent && (
-              <div
-                className="absolute right-4 top-4 flex flex-wrap items-center justify-end gap-1.5"
-                onPointerDown={(e) => e.stopPropagation()}
-                onPointerUp={(e) => e.stopPropagation()}
-              >
-                {currentAudioTarget &&
-                  (currentAudioTarget.attachedMediaHash || currentAudioTarget.normalizedText) && (
-                    <SpeakerButton onPlay={handleSpeak} testIdPrefix="study-audio" size="sm" />
-                  )}
-                {needsAiReview && (
-                  <>
-                    <span
-                      data-testid="needs-review-badge"
-                      className="rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300"
-                    >
-                      Needs review
-                    </span>
-                    <button
-                      type="button"
-                      data-testid="mark-reviewed-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        markNoteReviewed(currentNote);
-                      }}
-                      className="rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-300"
-                    >
-                      Mark reviewed
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-
-            {swipeIntent && (
-              <div className="pointer-events-none absolute right-4 top-4 rounded-full bg-[var(--surface-2)] px-3 py-1 text-xs font-bold uppercase tracking-wider">
-                {swipeIntent}
-              </div>
-            )}
-
             {/* Pluggable Answer Mode renderer (§5.2) */}
             {activeModePlugin.render({
               state,
@@ -1006,121 +956,19 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               onEvaluateAndReveal: handleEvaluateAndReveal,
               onSpeak: handleSpeak,
             })}
+          </StudyCard>
 
-            {!isFullyRevealed && (!activeModePlugin.capturesFrontInteraction || isRevealed) && (
-              <p className="mt-2 text-xs text-[var(--muted)]">
-                {isRevealed ? 'Tap or press Space for more' : 'Tap card or press Space to reveal'}
-              </p>
-            )}
-          </div>
-
-          {/* Bottom action bar */}
-          <div className="flex flex-col gap-2">
-            {!isRevealed ? (
-              <button
-                type="button"
-                data-testid="reveal-button"
-                onClick={handleRevealNext}
-                className="w-full rounded-2xl bg-[var(--accent)] py-3.5 text-base font-semibold text-white shadow-sm hover:opacity-90 active:scale-[0.99]"
-              >
-                Show Answer <span className="ml-1 text-xs opacity-80">(Space)</span>
-              </button>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {!isFullyRevealed && (
-                  <button
-                    type="button"
-                    onClick={handleRevealNext}
-                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] py-2 text-xs font-medium text-[var(--muted)] hover:bg-[var(--surface-2)]"
-                  >
-                    Reveal more ({revealStep}/{totalRevealSteps}) · Space
-                  </button>
-                )}
-
-                <div
-                  className={`grid gap-2 ${
-                    ratingMode === '2'
-                      ? 'grid-cols-2'
-                      : ratingMode === '4'
-                        ? 'grid-cols-4'
-                        : 'grid-cols-3'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    data-testid="rate-again"
-                    data-suggested={suggestedRating === 1 ? 'true' : undefined}
-                    onClick={() => handleRate(1)}
-                    className={`flex flex-col items-center rounded-2xl border py-3 text-rose-600 transition-colors hover:bg-rose-500/20 active:scale-[0.98] dark:text-rose-400 ${
-                      suggestedRating === 1
-                        ? 'border-rose-500 bg-rose-500/20 ring-2 ring-rose-500/50'
-                        : 'border-rose-500/30 bg-rose-500/10'
-                    }`}
-                  >
-                    <span className="text-sm font-bold">
-                      Again{suggestedRating === 1 ? ' ★' : ''}
-                    </span>
-                    <span className="text-xs opacity-80">{intervals?.[1].label ?? ''} · 1</span>
-                  </button>
-
-                  {ratingMode === '4' && (
-                    <button
-                      type="button"
-                      data-testid="rate-hard"
-                      onClick={() => handleRate(2)}
-                      className="flex flex-col items-center rounded-2xl border border-amber-500/30 bg-amber-500/10 py-3 text-amber-600 transition-colors hover:bg-amber-500/20 active:scale-[0.98] dark:text-amber-400"
-                    >
-                      <span className="text-sm font-bold">Hard</span>
-                      <span className="text-xs opacity-80">{intervals?.[2].label ?? ''} · 4</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    data-testid="rate-good"
-                    data-suggested={
-                      suggestedRating === 3 || (suggestedRating === 4 && ratingMode === '2')
-                        ? 'true'
-                        : undefined
-                    }
-                    onClick={() => handleRate(3)}
-                    className={`flex flex-col items-center rounded-2xl border py-3 text-emerald-600 transition-colors hover:bg-emerald-500/20 active:scale-[0.98] dark:text-emerald-400 ${
-                      suggestedRating === 3 || (suggestedRating === 4 && ratingMode === '2')
-                        ? 'border-emerald-500 bg-emerald-500/20 ring-2 ring-emerald-500/50'
-                        : 'border-emerald-500/30 bg-emerald-500/10'
-                    }`}
-                  >
-                    <span className="text-sm font-bold">
-                      Good
-                      {suggestedRating === 3 || (suggestedRating === 4 && ratingMode === '2')
-                        ? ' ★'
-                        : ''}
-                    </span>
-                    <span className="text-xs opacity-80">{intervals?.[3].label ?? ''} · 2</span>
-                  </button>
-
-                  {ratingMode !== '2' && (
-                    <button
-                      type="button"
-                      data-testid="rate-easy"
-                      data-suggested={suggestedRating === 4 ? 'true' : undefined}
-                      onClick={() => handleRate(4)}
-                      className={`flex flex-col items-center rounded-2xl border py-3 text-sky-600 transition-colors hover:bg-sky-500/20 active:scale-[0.98] dark:text-sky-400 ${
-                        suggestedRating === 4
-                          ? 'border-sky-500 bg-sky-500/20 ring-2 ring-sky-500/50'
-                          : 'border-sky-500/30 bg-sky-500/10'
-                      }`}
-                    >
-                      <span className="text-sm font-bold">
-                        Easy{suggestedRating === 4 ? ' ★' : ''}
-                      </span>
-                      <span className="text-xs opacity-80">{intervals?.[4].label ?? ''} · 3</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          <RatingBar
+            isRevealed={isRevealed}
+            isFullyRevealed={isFullyRevealed}
+            revealStep={revealStep}
+            totalRevealSteps={totalRevealSteps}
+            ratingMode={ratingMode}
+            suggestedRating={suggestedRating}
+            intervals={intervals}
+            onRevealNext={handleRevealNext}
+            onRate={handleRate}
+          />
         </div>
       )}
 

@@ -2,6 +2,7 @@ import { parseMediaHashUri } from '@flash/core';
 import { lazy, Suspense } from 'react';
 import { RichText } from '../../components/RichText.tsx';
 import { useApp } from '../../state/AppContext.tsx';
+import { cardTextFitClass } from '../fitText.ts';
 import type { FieldMeta } from './types.ts';
 
 const LazyMediaAudioPlayer = lazy(() =>
@@ -101,8 +102,8 @@ export function RevealedBackSteps({
                 data-testid={`back-front-field-${fieldKey}`}
                 className={
                   idx === 0
-                    ? 'whitespace-pre-wrap text-2xl font-semibold sm:text-4xl'
-                    : 'whitespace-pre-wrap text-base text-[var(--muted)] sm:text-lg'
+                    ? `whitespace-pre-wrap font-semibold ${cardTextFitClass(value, 'answer')}`
+                    : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail')}`
                 }
               >
                 <CardFieldValue
@@ -137,10 +138,10 @@ export function RevealedBackSteps({
                 data-testid={`back-field-${fieldKey}`}
                 className={
                   isPrimaryBack
-                    ? 'whitespace-pre-wrap text-xl font-medium sm:text-2xl'
+                    ? `whitespace-pre-wrap font-medium ${cardTextFitClass(value, 'answer')}`
                     : fieldKey === 'reading' || fieldKey === 'hanja' || fieldKey === 'eumhun'
-                      ? 'whitespace-pre-wrap text-lg text-[var(--accent)] sm:text-xl'
-                      : 'whitespace-pre-wrap text-sm text-[var(--muted)] sm:text-base'
+                      ? `whitespace-pre-wrap text-[var(--accent)] ${cardTextFitClass(value, 'answer')}`
+                      : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail')}`
                 }
               >
                 <CardFieldValue

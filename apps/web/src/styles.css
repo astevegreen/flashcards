@@ -1,6 +1,12 @@
 @import 'tailwindcss';
 @source "../../../packages/ui/src";
 
+/* Phase 13 adaptive layout variants.
+   `short:`  landscape phones and short windows: rating buttons beside the card, icon rail instead of bottom tabs.
+   `tiny:`   small phones and foldable cover screens (< 360 px): compact type, icon-only tabs. */
+@custom-variant short (@media (max-height: 500px) and (orientation: landscape));
+@custom-variant tiny (@media (max-width: 359px));
+
 :root {
   --bg-light: #f8fafc;
   --bg-dark: #0b1120;
@@ -129,6 +135,145 @@ rt {
   }
   .pinyin-tone-4 {
     color: #60a5fa;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Phase 13 adaptive layout (§15). Layout lives here, not in JS (§8 initial-JS budget).
+   --------------------------------------------------------------------------------------------- */
+
+:root {
+  /* Mobile bottom tab bar height (excluding the safe-area inset). */
+  --tabbar-h: 3.5rem;
+  /* In-app card text size (Settings → Display), set as <html data-card-text>. */
+  --card-text-scale: 1;
+}
+:root[data-card-text='s'] {
+  --card-text-scale: 0.85;
+}
+:root[data-card-text='l'] {
+  --card-text-scale: 1.2;
+}
+:root[data-card-text='xl'] {
+  --card-text-scale: 1.45;
+}
+
+/* Study card body: a size container, so card text scales with the space the card actually has,
+   and long content scrolls inside the card instead of the page. */
+.card-scroll {
+  container-type: size;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+/* Auto-fit card text tiers (chosen from visible text length in packages/ui/src/study/fitText.ts).
+   Sizes are rem-clamped so the OS / browser text size still scales them. */
+.card-fit {
+  font-size: calc(var(--fit) * var(--card-text-scale) * var(--fit-shrink, 1));
+  line-height: var(--fit-lh, 1.3);
+  overflow-wrap: anywhere;
+}
+.card-fit-p1 {
+  --fit: clamp(3.5rem, 40cqmin, 12rem);
+  --fit-lh: 1.1;
+}
+.card-fit-p2 {
+  --fit: clamp(2.25rem, 17cqmin, 6rem);
+  --fit-lh: 1.15;
+}
+.card-fit-p3 {
+  --fit: clamp(1.75rem, 10cqmin, 3.75rem);
+  --fit-lh: 1.25;
+}
+.card-fit-p4 {
+  --fit: clamp(1.375rem, 6.5cqmin, 2.5rem);
+  --fit-lh: 1.35;
+}
+.card-fit-p5 {
+  --fit: clamp(1.0625rem, 3.6cqmin, 1.5rem);
+  --fit-lh: 1.6;
+}
+.card-fit-a1 {
+  --fit: clamp(1.5rem, 9cqmin, 3.25rem);
+  --fit-lh: 1.25;
+}
+.card-fit-a2 {
+  --fit: clamp(1.125rem, 5cqmin, 1.75rem);
+  --fit-lh: 1.4;
+}
+.card-fit-a3 {
+  --fit: clamp(1rem, 3.4cqmin, 1.25rem);
+  --fit-lh: 1.6;
+}
+.card-fit-d {
+  --fit: clamp(0.9375rem, 3.4cqmin, 1.25rem);
+  --fit-lh: 1.5;
+}
+/* Paragraphs (grammar explanations): start-aligned, capped line length, still centered in the card. */
+.card-fit-long {
+  width: 100%;
+  max-width: 65ch;
+  text-align: start;
+}
+/* Once the answer shows, a huge prompt steps aside so the answer fits beside it. */
+.card-scroll[data-revealed='true'] :is(.card-fit-p1, .card-fit-p2, .card-fit-p3) {
+  --fit-shrink: 0.6;
+}
+
+/* Small phones / foldable cover screens: compact type scale for display-size card text
+   (paragraph tiers keep their readable minimum). */
+@media (max-width: 359px) {
+  :is(.card-fit-p1, .card-fit-p2, .card-fit-p3, .card-fit-a1) {
+    --fit-shrink: 0.9;
+  }
+}
+
+/* Narrow phones: let the study header's deck / filter / count group wrap instead of overflowing
+   (CSS-only so the StudyScreen header markup stays untouched). */
+@media (max-width: 479px) {
+  main[data-tab='study'] > section > header > div {
+    flex-wrap: wrap;
+  }
+}
+
+/* Touch targets >= 44 px on small screens and touch devices (study screen, navigation, dictionary). */
+@media (max-width: 359px), (pointer: coarse) {
+  .touch-scope :is(button, select, input:not([type='checkbox'], [type='radio'])) {
+    min-height: 44px;
+  }
+  .touch-scope button {
+    min-width: 44px;
+  }
+}
+
+/* Keyboard / D-pad: a visible focus ring on every interactive control (unlayered, so it wins over
+   utility `focus:outline-none`). Programmatic focus targets (tabindex=-1) stay ring-free. */
+:is(
+  a[href],
+  button,
+  select,
+  input,
+  textarea,
+  summary,
+  [tabindex]:not([tabindex='-1'])
+):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* No card drag / flip motion; the swipe still rates and the border still shows the intent. */
+  .study-card {
+    transform: none !important;
   }
 }
 
