@@ -38,6 +38,10 @@ export interface TauriBootConfig {
 export const INSECURE_TOKEN_STORAGE_WARNING =
   'Your Google sign-in is saved in the app database, not in a secure store, because no OS keychain was found. Install and unlock a keyring (for example GNOME Keyring or KWallet), then restart the app to move it there.';
 
+/** Shown in Settings when the Microsoft (OneDrive) refresh token has to stay in SQLite. */
+export const INSECURE_MICROSOFT_TOKEN_STORAGE_WARNING =
+  'Your OneDrive sign-in is saved in the app database, not in a secure store, because the OS keychain could not be used. Install and unlock a keyring (for example GNOME Keyring or KWallet), then restart the app to move it there.';
+
 /**
  * Boots `PlatformServices` for the Tauri desktop shell with real Tauri v2 plugins.
  * Called by `apps/web/src/main.tsx` only when the Tauri runtime is detected.
@@ -89,6 +93,8 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
   });
 
   const microsoftClientId = config.microsoftClientId;
+  // Set when OneDrive first loads (lazily) and its token has to stay in SQLite.
+  let microsoftStorageWarning: string | undefined;
   const oneDrive = microsoftClientId
     ? lazyOneDriveFields(async () => {
         const [{ createMicrosoftLoopbackBridge }, { createNativeOneDriveServices }] =
@@ -96,13 +102,15 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
             import('./microsoft-loopback.ts'),
             import('@flash/platform-web/onedrive'),
           ]);
-        // Runs after the Google store above, so its one-time SQLite -> keychain move is done.
+        // Each provider's legacy store touches only its own SQLite row, so this never affects
+        // a Google token that had to stay in SQLite (and vice versa).
         const msTokens = await resolveRefreshTokenStore({
           secure: createSecureSecretBackend(),
           legacy: createSqliteRefreshTokenStore(sqlDb, 'microsoft'),
           account: 'microsoft-refresh-token',
           onInsecureFallback: (reason) => {
             console.warn(`Microsoft refresh token stays in SQLite: ${reason}`);
+            microsoftStorageWarning = INSECURE_MICROSOFT_TOKEN_STORAGE_WARNING;
           },
         });
         return createNativeOneDriveServices({
@@ -116,7 +124,7 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
       })
     : {};
 
-  return {
+  const platform: PlatformServices = {
     ...composeNativePlatform(native, base),
     ...oneDrive,
     // Phase 13 study reminders: desktop notifications while the app runs. The notification
@@ -127,4 +135,14 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
       return createDesktopReminderScheduler(createDesktopNotificationBridge());
     },
   };
+  // The OneDrive token store resolves lazily, after boot: read the warnings when Settings renders.
+  const googleWarning = oauthPlugin ? secureStorageWarning : undefined;
+  Object.defineProperty(platform, 'secureStorageWarning', {
+    enumerable: true,
+    configurable: true,
+    get: () =>
+      [googleWarning, microsoftStorageWarning].filter((w) => w !== undefined).join(' ') ||
+      undefined,
+  });
+  return platform;
 }
