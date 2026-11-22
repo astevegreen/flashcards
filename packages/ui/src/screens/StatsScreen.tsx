@@ -381,11 +381,11 @@ function HardestCards({
   state,
   stateVersion,
   filter,
-}: {
+}: Readonly<{
   state: CollectionState;
   stateVersion: number;
   filter: CardFilter;
-}) {
+}>) {
   const cards = useMemo(() => {
     const nowMs = Date.now();
     return computeHardestCards(
