@@ -16,6 +16,8 @@ export default tseslint.config(
       'apps/mobile/ios/**',
       'apps/desktop/src-tauri/target/**',
       'apps/desktop/src-tauri/gen/**',
+      '.cache/**',
+      'dist-packs/**',
     ],
   },
   js.configs.recommended,

@@ -7,14 +7,18 @@
  * plus a unified `packs.json` manifest and Cloudflare Pages CORS `_headers`.
  *
  * Usage:
- *   node scripts/build-packs.mjs --starter   # Build tiny attributed dev/CI fixtures in apps/web/public/packs/
- *   node scripts/build-packs.mjs --full --input <upstream-dir> --out <dist-packs-dir>
+ *   node scripts/build-packs.mjs --starter [--out <dir>] [--base-url <https-url>]
+ *       Tiny attributed dev/CI fixtures (default out: apps/web/public/packs/). Never needs network.
+ *   node scripts/fetch-upstream-packs.mjs && node scripts/build-packs.mjs --full
+ *       [--input <upstream-dir>] [--out <dir>] [--base-url <https-url>] [--skip-jmdict] [--no-char-files]
+ *       Real packs from upstream open data (default input: .cache/upstream-open-data/, default out:
+ *       dist-packs/, both gitignored). Each pack must stay <= 25 MiB gzipped (Cloudflare Pages limit).
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { gzipSync } from 'node:zlib';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { gunzipSync, gzipSync } from 'node:zlib';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -968,6 +972,121 @@ function buildStarterDictionaries() {
   return { hanjaEntries, kanjidicEntries, cedictEntries, jmdictEntries };
 }
 
+/* ------------------------------------------------------------------------------------------ */
+/* Shared pack metadata, writers & catalog emission (starter + full)                           */
+/* ------------------------------------------------------------------------------------------ */
+
+/** Cloudflare Pages hard per-file limit (25 MiB). Packs above this must move to R2 (see docs §3.4). */
+const MAX_STATIC_FILE_BYTES = 25 * 1024 * 1024;
+/** Mirrors `PACK_SECURITY_LIMITS` in packages/core/src/dictionary/pack-codec.ts — the runtime rejects packs above these. */
+const RUNTIME_LIMITS = {
+  maxCompressedBytes: 50 * 1024 * 1024,
+  maxUncompressedBytes: 150 * 1024 * 1024,
+  maxEntries: 400_000,
+};
+
+const CC_BY_SA_4 = {
+  license_name: 'CC BY-SA 4.0',
+  license_url: 'https://creativecommons.org/licenses/by-sa/4.0/',
+};
+
+/** Per-pack manifest metadata shared by starter and full builds. */
+const PACK_META = {
+  'dict-hanja-unihan': {
+    filename: 'dict-hanja-unihan.json.gz',
+    kind: 'dictionary',
+    name: 'Hanja Dictionary (Unihan + Education Hanja)',
+    language: 'ko',
+    description:
+      'Korean Hanja readings (음훈), English definitions, radicals, and stroke counts derived from Unicode Unihan.',
+    license_name: 'Unicode License v3',
+    license_url: 'https://www.unicode.org/license.txt',
+    attribution:
+      'Copyright © 1991–2026 Unicode, Inc. Derived from the Unicode Character Database (Unihan).',
+    source_url: 'https://www.unicode.org/charts/unihan.html',
+  },
+  'dict-kanjidic2': {
+    filename: 'dict-kanjidic2.json.gz',
+    kind: 'dictionary',
+    name: 'KANJIDIC2 (Japanese Kanji)',
+    language: 'ja',
+    description: 'Japanese Kanji readings (on/kun), English meanings, grade, and strokes.',
+    ...CC_BY_SA_4,
+    attribution:
+      'KANJIDIC2 is the property of the Electronic Dictionary Research and Development Group (EDRDG).',
+    source_url: 'https://www.edrdg.org/wiki/index.php/KANJIDIC_Project',
+  },
+  'dict-cc-cedict': {
+    filename: 'dict-cc-cedict.json.gz',
+    kind: 'dictionary',
+    name: 'CC-CEDICT (Mandarin Chinese)',
+    language: 'zh-Hans',
+    description: 'Simplified & Traditional Mandarin words, Pinyin, and English definitions.',
+    ...CC_BY_SA_4,
+    attribution: 'CC-CEDICT community dictionary maintained by MDBG.',
+    source_url: 'https://www.mdbg.net/chinese/dictionary?page=cc-cedict',
+  },
+  'dict-jmdict': {
+    filename: 'dict-jmdict.json.gz',
+    kind: 'dictionary',
+    name: 'JMdict (Japanese Words — Optional, Large)',
+    language: 'ja',
+    description: 'Comprehensive Japanese-English word dictionary (optional large pack).',
+    ...CC_BY_SA_4,
+    attribution:
+      'JMdict is the property of the Electronic Dictionary Research and Development Group (EDRDG).',
+    source_url: 'https://www.edrdg.org/jmdict/j_jmdict.html',
+    optional: true,
+  },
+  'strokes-ja-kanjivg': {
+    filename: 'strokes-ja-kanjivg.json.gz',
+    kind: 'strokes',
+    name: 'Japanese Stroke Data (KanjiVG)',
+    language: 'ja',
+    script: 'ja',
+    description:
+      'Japanese Kanji stroke order vectors and medians for graded drawing & lookup (kept separate from Chinese).',
+    license_name: 'CC BY-SA 3.0',
+    license_url: 'https://creativecommons.org/licenses/by-sa/3.0/',
+    attribution: 'KanjiVG is copyright © 2009–2026 Ulrich Apel and contributors.',
+    source_url: 'https://kanjivg.tagaini.net/',
+  },
+  'strokes-zh-mmah': {
+    filename: 'strokes-zh-mmah.json.gz',
+    kind: 'strokes',
+    name: 'Chinese & Hanja Stroke Data (Make Me a Hanzi)',
+    language: 'zh-Hans',
+    script: 'zh-Hans',
+    description:
+      'Simplified Chinese & Traditional Hanja stroke data for graded drawing & draw-to-lookup (kept separate from Japanese).',
+    license_name: 'Arphic Public License (1999)',
+    license_url: 'https://ftp.gnu.org/gnu/non-gnu/chinese-fonts-truetype/LICENSE',
+    attribution:
+      'Derived from Make Me a Hanzi (Shaunak Kishore) and Arphic PL fonts (Arphic Technology Co., Ltd.).',
+    source_url: 'https://github.com/skishore/makemeahanzi',
+  },
+};
+
+function makeManifest(id, version, extra = {}) {
+  const m = PACK_META[id];
+  // Key order matches the historical starter fixtures so their sha256 stays stable.
+  return {
+    format_version: 1,
+    id,
+    kind: m.kind,
+    name: m.name,
+    version,
+    language: m.language,
+    ...(m.script ? { script: m.script } : {}),
+    description: m.description,
+    license_name: m.license_name,
+    license_url: m.license_url,
+    attribution: m.attribution,
+    source_url: m.source_url,
+    ...extra,
+  };
+}
+
 function writeGzipPack(outDir, filename, payload) {
   const jsonStr = JSON.stringify(payload);
   const rawBuf = Buffer.from(jsonStr, 'utf8');
@@ -982,164 +1101,114 @@ function writeGzipPack(outDir, filename, payload) {
   };
 }
 
-function buildStarterPacks() {
-  const outDir = join(REPO_ROOT, 'apps', 'web', 'public', 'packs');
-  const jaCharDir = join(outDir, 'strokes', 'ja');
-  const zhCharDir = join(outDir, 'strokes', 'zh-Hans');
-  mkdirSync(jaCharDir, { recursive: true });
-  mkdirSync(zhCharDir, { recursive: true });
-
-  const version = '2026.11.0-starter';
-  const { jaCharacters, zhCharacters } = buildStarterStrokeSets();
-  const { hanjaEntries, kanjidicEntries, cedictEntries, jmdictEntries } =
-    buildStarterDictionaries();
-
-  // Write individual per-character static stroke files (for per-deck pre-caching on same host)
-  for (const [ch, data] of Object.entries(jaCharacters)) {
-    writeFileSync(join(jaCharDir, `${charToHex5(ch)}.json`), JSON.stringify(data), 'utf8');
+function assertWithinLimits(filename, stats, entryCount) {
+  const problems = [];
+  if (stats.compressed_bytes > MAX_STATIC_FILE_BYTES) {
+    problems.push(
+      `${stats.compressed_bytes} B gzipped exceeds the 25 MiB Cloudflare Pages file limit — host it on R2 instead (docs/design_blueprint.md §3.4)`,
+    );
   }
-  for (const [ch, data] of Object.entries(zhCharacters)) {
-    writeFileSync(join(zhCharDir, `${charToHex5(ch)}.json`), JSON.stringify(data), 'utf8');
+  if (stats.compressed_bytes > RUNTIME_LIMITS.maxCompressedBytes) {
+    problems.push('exceeds runtime maxCompressedBytes');
   }
+  if (stats.uncompressed_bytes > RUNTIME_LIMITS.maxUncompressedBytes) {
+    problems.push(
+      `${stats.uncompressed_bytes} B uncompressed exceeds runtime maxUncompressedBytes`,
+    );
+  }
+  if (entryCount > RUNTIME_LIMITS.maxEntries) {
+    problems.push(`${entryCount} entries exceeds runtime maxEntries`);
+  }
+  if (problems.length > 0) {
+    throw new Error(`Pack ${filename}: ${problems.join('; ')}`);
+  }
+}
 
-  const packDefs = [
-    {
-      filename: 'dict-hanja-unihan.json.gz',
-      payload: {
-        manifest: {
-          format_version: 1,
-          id: 'dict-hanja-unihan',
-          kind: 'dictionary',
-          name: 'Hanja Dictionary (Unihan + Education Hanja)',
-          version,
-          language: 'ko',
-          description:
-            'Korean Hanja readings (음훈), English definitions, radicals, and stroke counts derived from Unicode Unihan.',
-          license_name: 'Unicode License v3',
-          license_url: 'https://www.unicode.org/license.txt',
-          attribution:
-            'Copyright © 1991–2026 Unicode, Inc. Derived from the Unicode Character Database (Unihan).',
-          source_url: 'https://www.unicode.org/charts/unihan.html',
-        },
-        entries: hanjaEntries,
-      },
-      entryCount: hanjaEntries.length,
-    },
-    {
-      filename: 'dict-kanjidic2.json.gz',
-      payload: {
-        manifest: {
-          format_version: 1,
-          id: 'dict-kanjidic2',
-          kind: 'dictionary',
-          name: 'KANJIDIC2 (Japanese Kanji)',
-          version,
-          language: 'ja',
-          description: 'Japanese Kanji readings (on/kun), English meanings, grade, and strokes.',
-          license_name: 'CC BY-SA 4.0',
-          license_url: 'https://creativecommons.org/licenses/by-sa/4.0/',
-          attribution:
-            'KANJIDIC2 is the property of the Electronic Dictionary Research and Development Group (EDRDG).',
-          source_url: 'https://www.edrdg.org/wiki/index.php/KANJIDIC_Project',
-        },
-        entries: kanjidicEntries,
-      },
-      entryCount: kanjidicEntries.length,
-    },
-    {
-      filename: 'dict-cc-cedict.json.gz',
-      payload: {
-        manifest: {
-          format_version: 1,
-          id: 'dict-cc-cedict',
-          kind: 'dictionary',
-          name: 'CC-CEDICT (Mandarin Chinese)',
-          version,
-          language: 'zh-Hans',
-          description: 'Simplified & Traditional Mandarin words, Pinyin, and English definitions.',
-          license_name: 'CC BY-SA 4.0',
-          license_url: 'https://creativecommons.org/licenses/by-sa/4.0/',
-          attribution: 'CC-CEDICT community dictionary maintained by MDBG.',
-          source_url: 'https://www.mdbg.net/chinese/dictionary?page=cc-cedict',
-        },
-        entries: cedictEntries,
-      },
-      entryCount: cedictEntries.length,
-    },
-    {
-      filename: 'dict-jmdict.json.gz',
-      payload: {
-        manifest: {
-          format_version: 1,
-          id: 'dict-jmdict',
-          kind: 'dictionary',
-          name: 'JMdict (Japanese Words — Optional, Large)',
-          version,
-          language: 'ja',
-          description: 'Comprehensive Japanese-English word dictionary (optional large pack).',
-          license_name: 'CC BY-SA 4.0',
-          license_url: 'https://creativecommons.org/licenses/by-sa/4.0/',
-          attribution:
-            'JMdict is the property of the Electronic Dictionary Research and Development Group (EDRDG).',
-          source_url: 'https://www.edrdg.org/jmdict/j_jmdict.html',
-        },
-        entries: jmdictEntries,
-      },
-      entryCount: jmdictEntries.length,
-      optional: true,
-    },
-    {
-      filename: 'strokes-ja-kanjivg.json.gz',
-      payload: {
-        manifest: {
-          format_version: 1,
-          id: 'strokes-ja-kanjivg',
-          kind: 'strokes',
-          name: 'Japanese Stroke Data (KanjiVG)',
-          version,
-          language: 'ja',
-          script: 'ja',
-          description:
-            'Japanese Kanji stroke order vectors and medians for graded drawing & lookup (kept separate from Chinese).',
-          license_name: 'CC BY-SA 3.0',
-          license_url: 'https://creativecommons.org/licenses/by-sa/3.0/',
-          attribution: 'KanjiVG is copyright © 2009–2026 Ulrich Apel and contributors.',
-          source_url: 'https://kanjivg.tagaini.net/',
-        },
-        characters: jaCharacters,
-      },
-      entryCount: Object.keys(jaCharacters).length,
-      char_url_template: '/packs/strokes/ja/{hex5}.json',
-    },
-    {
-      filename: 'strokes-zh-mmah.json.gz',
-      payload: {
-        manifest: {
-          format_version: 1,
-          id: 'strokes-zh-mmah',
-          kind: 'strokes',
-          name: 'Chinese & Hanja Stroke Data (Make Me a Hanzi)',
-          version,
-          language: 'zh-Hans',
-          script: 'zh-Hans',
-          description:
-            'Simplified Chinese & Traditional Hanja stroke data for graded drawing & draw-to-lookup (kept separate from Japanese).',
-          license_name: 'Arphic Public License (1999)',
-          license_url: 'https://ftp.gnu.org/gnu/non-gnu/chinese-fonts-truetype/LICENSE',
-          attribution:
-            'Derived from Make Me a Hanzi (Shaunak Kishore) and Arphic PL fonts (Arphic Technology Co., Ltd.).',
-          source_url: 'https://github.com/skishore/makemeahanzi',
-        },
-        characters: zhCharacters,
-      },
-      entryCount: Object.keys(zhCharacters).length,
-      char_url_template: '/packs/strokes/zh-Hans/{hex5}.json',
-    },
+const LICENSE_SECTIONS = [
+  [
+    'dict-hanja-unihan',
+    'Unicode License v3 (https://www.unicode.org/license.txt)',
+    'Unicode Character Database (Unihan) — https://www.unicode.org/charts/unihan.html',
+    'Copyright © 1991–2026 Unicode, Inc. Fields kHangul, kDefinition, kTotalStrokes, kRSUnicode and variant\n   mappings were converted to JSON. The full Unicode License v3 text is reproduced in UNICODE-LICENSE.txt\n   (full builds) and at the URL above.',
+  ],
+  [
+    'dict-kanjidic2',
+    'CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/) — share-alike',
+    'EDRDG KANJIDIC2 — https://www.edrdg.org/wiki/index.php/KANJIDIC_Project',
+    "KANJIDIC2 is the property of the Electronic Dictionary Research and Development Group and is used in\n   conformance with the Group's licence (https://www.edrdg.org/edrdg/licence.html). Changes: on/kun/nanori\n   readings, English meanings, grade, JLPT, frequency, stroke count and classical radical extracted to JSON.",
+  ],
+  [
+    'dict-cc-cedict',
+    'CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/) — share-alike',
+    'MDBG CC-CEDICT — https://www.mdbg.net/chinese/dictionary?page=cc-cedict',
+    'Based on CEDICT © 1997, 1998 Paul Andrew Denisowski. Changes: converted to JSON; pinyin "u:" written as "v".',
+  ],
+  [
+    'dict-jmdict',
+    'CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/) — share-alike',
+    'EDRDG JMdict (English) — https://www.edrdg.org/jmdict/j_jmdict.html',
+    "JMdict is the property of the Electronic Dictionary Research and Development Group and is used in\n   conformance with the Group's licence (https://www.edrdg.org/edrdg/licence.html). Changes: headwords,\n   readings, English glosses (one string per sense) and priority/frequency bands extracted to JSON.",
+  ],
+  [
+    'strokes-ja-kanjivg',
+    'CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/) — share-alike',
+    'KanjiVG (Ulrich Apel & contributors) — https://kanjivg.tagaini.net/',
+    'Changes: stroke centerlines resampled and converted from 109×109 SVG to Hanzi Writer 1024×1024 JSON\n   (medians + ribbon outlines).',
+  ],
+  [
+    'strokes-zh-mmah',
+    'Arphic Public License (1999) (https://ftp.gnu.org/gnu/non-gnu/chinese-fonts-truetype/LICENSE)',
+    'Make Me a Hanzi graphics.txt — https://github.com/skishore/makemeahanzi',
+    "graphics.txt is derived from the Arphic PL KaitiM GB and Arphic PL UKai fonts © 1994–1999 Arphic\n   Technology Co., Ltd. and is redistributed (re-encoded as JSON, medians rounded) under the Arphic Public\n   License, whose full text is reproduced in ARPHIC-PL.txt (full builds). Make Me a Hanzi's dictionary.txt\n   (LGPL) is NOT used.",
+  ],
+];
+
+function buildLicensesText(versions = {}) {
+  const lines = [
+    'Flashcards Offline Data Packs — Upstream Licenses & Attributions',
+    '================================================================',
+    '',
+    'These data packs are adapted from the open-data sources below. CC BY-SA packs are distributed under',
+    'the same licence (share-alike); the app code that reads them is licensed separately.',
+    '',
   ];
+  LICENSE_SECTIONS.forEach(([id, license, source, notes], i) => {
+    lines.push(`${i + 1}. ${id}: ${license}`);
+    lines.push(`   Source: ${source}`);
+    if (versions[id]) lines.push(`   Upstream version: ${versions[id]}`);
+    lines.push(`   ${notes}`);
+    lines.push('');
+  });
+  return lines.join('\n');
+}
 
-  const catalogPacks = packDefs.map((def) => {
-    const stats = writeGzipPack(outDir, def.filename, def.payload);
-    const m = def.payload.manifest;
+/**
+ * Writes every pack, optional per-character stroke files, `packs.json`, `_headers` and `LICENSES.txt`.
+ * `urlPrefix` is either a same-origin path (`/packs`) or an absolute https base URL.
+ */
+function emitPacks({ outDir, urlPrefix, packs, catalogName, updatedAt, writeCharFiles, versions }) {
+  mkdirSync(outDir, { recursive: true });
+  const prefix = urlPrefix.replace(/\/+$/, '');
+
+  const catalogPacks = packs.map(({ id, payload, entryCount, charFileNotice }) => {
+    const meta = PACK_META[id];
+    let charTemplate;
+    if (meta.kind === 'strokes' && writeCharFiles) {
+      const charDir = join(outDir, 'strokes', meta.script);
+      mkdirSync(charDir, { recursive: true });
+      for (const [ch, data] of Object.entries(payload.characters)) {
+        const body = charFileNotice ? { ...data, notice: charFileNotice } : data;
+        writeFileSync(join(charDir, `${charToHex5(ch)}.json`), JSON.stringify(body), 'utf8');
+      }
+      charTemplate = `${prefix}/strokes/${meta.script}/{hex5}.json`;
+    }
+
+    const stats = writeGzipPack(outDir, meta.filename, payload);
+    assertWithinLimits(meta.filename, stats, entryCount);
+    const m = payload.manifest;
+    console.log(
+      `  ${meta.filename.padEnd(28)} ${String(entryCount).padStart(7)} entries  ${(stats.compressed_bytes / 1048576).toFixed(2).padStart(6)} MiB gz  ${(stats.uncompressed_bytes / 1048576).toFixed(2).padStart(7)} MiB raw`,
+    );
     return {
       id: m.id,
       kind: m.kind,
@@ -1148,24 +1217,24 @@ function buildStarterPacks() {
       version: m.version,
       language: m.language,
       ...(m.script ? { script: m.script } : {}),
-      url: `/packs/${def.filename}`,
+      url: `${prefix}/${meta.filename}`,
       compressed_bytes: stats.compressed_bytes,
       uncompressed_bytes: stats.uncompressed_bytes,
-      entry_count: def.entryCount,
+      entry_count: entryCount,
       sha256: stats.sha256,
       license_name: m.license_name,
       license_url: m.license_url,
       attribution: m.attribution,
       source_url: m.source_url,
-      ...(def.optional ? { optional: true } : {}),
-      ...(def.char_url_template ? { char_url_template: def.char_url_template } : {}),
+      ...(meta.optional ? { optional: true } : {}),
+      ...(charTemplate ? { char_url_template: charTemplate } : {}),
     };
   });
 
   const catalog = {
     format_version: 1,
-    name: 'Flashcards Offline Packs (Starter / Dev Fixtures)',
-    updated_at: '2026-11-21T00:00:00Z',
+    name: catalogName,
+    updated_at: updatedAt,
     packs: catalogPacks,
   };
 
@@ -1175,43 +1244,243 @@ function buildStarterPacks() {
     '/*\n  Access-Control-Allow-Origin: *\n  Cache-Control: public, max-age=3600\n',
     'utf8',
   );
-  writeFileSync(
-    join(outDir, 'LICENSES.txt'),
-    [
-      'Flashcards Offline Data Packs — Upstream Licenses & Attributions',
-      '================================================================',
-      '',
-      '1. dict-hanja-unihan: Unicode License v3 (https://www.unicode.org/license.txt)',
-      '   Source: Unicode Character Database (Unihan) — https://www.unicode.org/charts/unihan.html',
-      '',
-      '2. dict-kanjidic2: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)',
-      '   Source: EDRDG KANJIDIC2 — https://www.edrdg.org/wiki/index.php/KANJIDIC_Project',
-      '',
-      '3. dict-cc-cedict: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)',
-      '   Source: MDBG CC-CEDICT — https://www.mdbg.net/chinese/dictionary?page=cc-cedict',
-      '',
-      '4. dict-jmdict: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)',
-      '   Source: EDRDG JMdict — https://www.edrdg.org/jmdict/j_jmdict.html',
-      '',
-      '5. strokes-ja-kanjivg: CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)',
-      '   Source: KanjiVG (Ulrich Apel & contributors) — https://kanjivg.tagaini.net/',
-      '',
-      '6. strokes-zh-mmah: Arphic Public License (1999) (https://ftp.gnu.org/gnu/non-gnu/chinese-fonts-truetype/LICENSE)',
-      '   Source: Make Me a Hanzi — https://github.com/skishore/makemeahanzi',
-      '',
-    ].join('\n'),
-    'utf8',
-  );
-
-  console.log(`Built ${catalogPacks.length} starter packs + packs.json in ${outDir}`);
+  writeFileSync(join(outDir, 'LICENSES.txt'), buildLicensesText(versions), 'utf8');
+  return catalog;
 }
 
-const args = process.argv.slice(2);
-if (args.includes('--full')) {
-  console.error(
-    'Full upstream compilation runs in Phase 7 CI content repo (place Unihan/KANJIDIC2/CC-CEDICT/JMdict/KanjiVG/MMAH raw files in --input). Use --starter for dev/CI fixtures.',
+/* ------------------------------------------------------------------------------------------ */
+/* Starter (dev/CI fixtures)                                                                   */
+/* ------------------------------------------------------------------------------------------ */
+
+function buildStarterPacks({ outDir, urlPrefix }) {
+  const version = '2026.11.0-starter';
+  const { jaCharacters, zhCharacters } = buildStarterStrokeSets();
+  const { hanjaEntries, kanjidicEntries, cedictEntries, jmdictEntries } =
+    buildStarterDictionaries();
+
+  const dict = (id, entries) => ({
+    id,
+    payload: { manifest: makeManifest(id, version), entries },
+    entryCount: entries.length,
+  });
+  const strokes = (id, characters) => ({
+    id,
+    payload: { manifest: makeManifest(id, version), characters },
+    entryCount: Object.keys(characters).length,
+  });
+
+  const catalog = emitPacks({
+    outDir,
+    urlPrefix,
+    catalogName: 'Flashcards Offline Packs (Starter / Dev Fixtures)',
+    updatedAt: '2026-11-21T00:00:00Z',
+    writeCharFiles: true,
+    packs: [
+      dict('dict-hanja-unihan', hanjaEntries),
+      dict('dict-kanjidic2', kanjidicEntries),
+      dict('dict-cc-cedict', cedictEntries),
+      dict('dict-jmdict', jmdictEntries),
+      strokes('strokes-ja-kanjivg', jaCharacters),
+      strokes('strokes-zh-mmah', zhCharacters),
+    ],
+  });
+  console.log(`Built ${catalog.packs.length} starter packs + packs.json in ${outDir}`);
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Full (real upstream open data, see scripts/fetch-upstream-packs.mjs)                        */
+/* ------------------------------------------------------------------------------------------ */
+
+function readMaybeGz(path) {
+  const buf = readFileSync(path);
+  return (buf[0] === 0x1f && buf[1] === 0x8b ? gunzipSync(buf) : buf).toString('utf8');
+}
+
+function requireInput(inputDir, rel) {
+  const p = join(inputDir, rel);
+  if (!existsSync(p)) {
+    throw new Error(
+      `Missing upstream file ${p}. Run \`node scripts/fetch-upstream-packs.mjs --dir ${inputDir}\` first.`,
+    );
+  }
+  return p;
+}
+
+async function buildFullPacks({ inputDir, outDir, urlPrefix, writeCharFiles, includeJmdict }) {
+  const parsers = await import('./packs/upstream-parsers.mjs');
+  // Reuse the runtime's own KanjiVG converter so build output matches on-device conversions.
+  const { convertKanjivgSvgToHanziWriter } = await import(
+    pathToFileURL(join(REPO_ROOT, 'packages', 'core', 'src', 'drawing', 'kanjivg.ts')).href
   );
+  const sourcesPath = join(inputDir, 'sources.json');
+  const sources = existsSync(sourcesPath) ? JSON.parse(readFileSync(sourcesPath, 'utf8')) : {};
+
+  const packs = [];
+  const versions = {};
+  const builtOn = new Date().toISOString().slice(0, 10);
+  const add = (id, version, body, entryCount, upstreamKey, notice) => {
+    versions[id] = version;
+    const src = sources[upstreamKey];
+    packs.push({
+      id,
+      payload: {
+        manifest: makeManifest(id, version, {
+          ...(src ? { upstream_sha256: src.sha256 } : {}),
+          ...(notice ? { modification_notice: notice } : {}),
+        }),
+        ...body,
+      },
+      entryCount,
+      ...(notice ? { charFileNotice: notice } : {}),
+    });
+  };
+
+  console.log('Parsing Unihan …');
+  const readings = readFileSync(requireInput(inputDir, 'unihan/Unihan_Readings.txt'), 'utf8');
+  const hanja = parsers.parseUnihanHanja({
+    readings,
+    irgSources: readFileSync(requireInput(inputDir, 'unihan/Unihan_IRGSources.txt'), 'utf8'),
+    variants: readFileSync(requireInput(inputDir, 'unihan/Unihan_Variants.txt'), 'utf8'),
+  });
+  add(
+    'dict-hanja-unihan',
+    `unihan-${parsers.unihanVersion(readings) ?? 'unknown'}`,
+    { entries: hanja },
+    hanja.length,
+    'unihan',
+  );
+
+  console.log('Parsing KANJIDIC2 …');
+  const kanjidicXml = readMaybeGz(requireInput(inputDir, 'raw/kanjidic2.xml.gz'));
+  const kanjidic = parsers.parseKanjidic2(kanjidicXml);
+  add(
+    'dict-kanjidic2',
+    `kanjidic2-${parsers.kanjidic2Version(kanjidicXml) ?? 'unknown'}`,
+    { entries: kanjidic },
+    kanjidic.length,
+    'kanjidic2',
+  );
+
+  console.log('Parsing CC-CEDICT …');
+  const cedictText = readMaybeGz(requireInput(inputDir, 'raw/cedict_1_0_ts_utf-8_mdbg.txt.gz'));
+  const cedict = parsers.parseCedict(cedictText);
+  add(
+    'dict-cc-cedict',
+    `cedict-${parsers.cedictVersion(cedictText) ?? 'unknown'}`,
+    { entries: cedict },
+    cedict.length,
+    'cedict',
+  );
+
+  if (includeJmdict) {
+    console.log('Parsing JMdict (large) …');
+    const jmdictXml = readMaybeGz(requireInput(inputDir, 'raw/JMdict_e.gz'));
+    const jmdict = parsers.parseJmdict(jmdictXml);
+    add(
+      'dict-jmdict',
+      `jmdict-${parsers.jmdictVersion(jmdictXml) ?? 'unknown'}`,
+      { entries: jmdict },
+      jmdict.length,
+      'jmdict',
+    );
+  }
+
+  console.log('Converting KanjiVG strokes …');
+  const kanjivg = parsers.parseKanjivgXml(
+    readMaybeGz(requireInput(inputDir, 'raw/kanjivg.xml.gz')),
+    convertKanjivgSvgToHanziWriter,
+  );
+  add(
+    'strokes-ja-kanjivg',
+    `kanjivg-${sources.kanjivg?.version ?? 'unknown'}`,
+    { characters: kanjivg },
+    Object.keys(kanjivg).length,
+    'kanjivg',
+  );
+
+  console.log('Parsing Make Me a Hanzi strokes …');
+  const mmah = parsers.parseMmahGraphics(
+    readFileSync(requireInput(inputDir, 'raw/mmah-graphics.txt'), 'utf8'),
+  );
+  add(
+    'strokes-zh-mmah',
+    `mmah-${(sources.mmah?.version ?? 'unknown').slice(0, 7)}`,
+    { characters: mmah },
+    Object.keys(mmah).length,
+    'mmah',
+    // Arphic PL §2(a): every modified file must state how and when it was changed.
+    `Modified ${builtOn}: re-encoded from Make Me a Hanzi graphics.txt (${(sources.mmah?.version ?? 'unknown').slice(0, 7)}) as JSON with medians rounded to integers. Arphic Public License; see ARPHIC-PL.txt.`,
+  );
+
+  // Clear previous per-character files so stale glyphs never linger between upstream versions.
+  rmSync(join(outDir, 'strokes'), { recursive: true, force: true });
+  console.log(`Writing packs to ${outDir} …`);
+  const catalog = emitPacks({
+    outDir,
+    urlPrefix,
+    catalogName: 'Flashcards Offline Packs (Full Open Data)',
+    updatedAt: new Date().toISOString(),
+    writeCharFiles,
+    packs,
+    versions,
+  });
+
+  copyFileSync(requireInput(inputDir, 'raw/ARPHICPL.TXT'), join(outDir, 'ARPHIC-PL.txt'));
+  const unicodeLicense = join(inputDir, 'raw', 'unicode-license.txt');
+  if (existsSync(unicodeLicense)) copyFileSync(unicodeLicense, join(outDir, 'UNICODE-LICENSE.txt'));
+  console.log(`Built ${catalog.packs.length} full packs + packs.json in ${outDir}`);
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* CLI                                                                                         */
+/* ------------------------------------------------------------------------------------------ */
+
+function parseCli(argv) {
+  const opts = {
+    full: false,
+    input: undefined,
+    out: undefined,
+    baseUrl: undefined,
+    charFiles: true,
+    jmdict: true,
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--full') opts.full = true;
+    else if (a === '--starter') opts.full = false;
+    else if (a === '--input') opts.input = resolve(argv[++i]);
+    else if (a === '--out') opts.out = resolve(argv[++i]);
+    else if (a === '--base-url') opts.baseUrl = argv[++i];
+    else if (a === '--no-char-files') opts.charFiles = false;
+    else if (a === '--skip-jmdict') opts.jmdict = false;
+    else throw new Error(`Unknown argument "${a}"`);
+  }
+  if (opts.baseUrl !== undefined && !/^https:\/\/[^/\s]+/.test(opts.baseUrl)) {
+    throw new Error(`--base-url must be an absolute https:// URL (got "${opts.baseUrl}")`);
+  }
+  return opts;
+}
+
+async function main() {
+  const opts = parseCli(process.argv.slice(2));
+  const urlPrefix = opts.baseUrl ?? '/packs';
+  if (opts.full) {
+    await buildFullPacks({
+      inputDir: opts.input ?? join(REPO_ROOT, '.cache', 'upstream-open-data'),
+      outDir: opts.out ?? join(REPO_ROOT, 'dist-packs'),
+      urlPrefix,
+      writeCharFiles: opts.charFiles,
+      includeJmdict: opts.jmdict,
+    });
+  } else {
+    buildStarterPacks({
+      outDir: opts.out ?? join(REPO_ROOT, 'apps', 'web', 'public', 'packs'),
+      urlPrefix,
+    });
+  }
+}
+
+main().catch((err) => {
+  console.error(err instanceof Error ? err.message : err);
   process.exit(1);
-} else {
-  buildStarterPacks();
-}
+});
