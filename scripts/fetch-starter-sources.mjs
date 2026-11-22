@@ -92,8 +92,12 @@ function extractUnihanTables(zip, dir) {
   console.log(`✓ extracted ${UNIHAN_TABLES.join(', ')}`);
 }
 
+const ESCAPED_BACKSLASH = String.raw`\\`;
+const ESCAPED_QUOTE = String.raw`\"`;
+
 function sparqlString(value) {
-  return `"${value.replaceAll('\\', String.raw`\\`).replaceAll('"', String.raw`\"`)}"@ko`;
+  const escaped = value.replaceAll('\\', ESCAPED_BACKSLASH).replaceAll('"', ESCAPED_QUOTE);
+  return `"${escaped}"@ko`;
 }
 
 /** Owner step: pins every Korean lexeme with an English gloss whose lemma is a NIKL A word. */
