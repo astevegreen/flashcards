@@ -815,8 +815,7 @@ export function DictionaryPanel({
                     key={entry.id}
                     data-testid={`dict-entry-${entry.headword}`}
                     data-selected={isSelected ? 'true' : undefined}
-                    onClick={() => setSelectedEntryId(entry.id)}
-                    className={`flex flex-col gap-2 rounded-xl border bg-[var(--bg)] p-3 @lg:cursor-pointer ${
+                    className={`flex flex-col gap-2 rounded-xl border bg-[var(--bg)] p-3 ${
                       isSelected ? SELECTED_ROW_CLASS : 'border-[var(--border)]'
                     }`}
                   >

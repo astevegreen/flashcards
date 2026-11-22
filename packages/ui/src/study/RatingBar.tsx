@@ -1,5 +1,5 @@
 import type { RatingButtonMode, ReviewRating } from '@flash/core';
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 export interface RatingBarProps {
   isRevealed: boolean;
@@ -105,6 +105,22 @@ export function RatingBar({
   // button has focus) flips or rates, the focused button unmounts. Remember when that happened.
   const keyboardActionAtRef = useRef(-Infinity);
 
+  // Native listeners: the bar itself is a layout wrapper, not an interactive element.
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const mark = () => (keyboardActionAtRef.current = performance.now());
+    // detail === 0: the click came from Enter / Space, not a pointer.
+    const onClick = (e: MouseEvent) => e.detail === 0 && mark();
+    const onKey = (e: KeyboardEvent) => /^[1-4]$/.test(e.key) && mark();
+    bar.addEventListener('click', onClick, true);
+    bar.addEventListener('keydown', onKey);
+    return () => {
+      bar.removeEventListener('click', onClick, true);
+      bar.removeEventListener('keydown', onKey);
+    };
+  }, []);
+
   useLayoutEffect(() => {
     if (performance.now() - keyboardActionAtRef.current > 1000) return;
     keyboardActionAtRef.current = -Infinity;
@@ -123,17 +139,7 @@ export function RatingBar({
       : 3;
 
   return (
-    <div
-      ref={barRef}
-      className="flex shrink-0 flex-col gap-2 short:w-44 short:justify-end"
-      onClickCapture={(e) => {
-        // detail === 0: the click came from Enter / Space, not a pointer.
-        if (e.detail === 0) keyboardActionAtRef.current = performance.now();
-      }}
-      onKeyDown={(e) => {
-        if (/^[1-4]$/.test(e.key)) keyboardActionAtRef.current = performance.now();
-      }}
-    >
+    <div ref={barRef} className="flex shrink-0 flex-col gap-2 short:w-44 short:justify-end">
       {!isRevealed ? (
         <button
           key="reveal"
@@ -161,7 +167,7 @@ export function RatingBar({
           )}
 
           <div
-            role="group"
+            role="toolbar"
             aria-label="Rate this card"
             data-testid="rating-bar"
             onKeyDown={(e) => {

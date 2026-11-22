@@ -61,7 +61,7 @@ function fieldHeaders(noteType: NoteType): string[] {
 
 function escapeCell(value: string, delimiter: string): string {
   if (value.includes('"') || value.includes(delimiter) || /[\r\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
+    return `"${value.replaceAll('"', '""')}"`;
   }
   return value;
 }

@@ -1,4 +1,4 @@
-import { stripRuby } from '@flash/core';
+import { stripCloze, stripRuby } from '@flash/core';
 
 /**
  * Auto-fit card text (Phase 13). The heavy lifting is CSS: every `card-fit-*` class in
@@ -9,11 +9,9 @@ import { stripRuby } from '@flash/core';
  */
 export type CardTextRole = 'prompt' | 'answer' | 'detail';
 
-const CLOZE_RE = /\{\{c\d+::([\s\S]*?)(?:::[\s\S]*?)?\}\}/g;
-
 /** Number of user-perceived characters once ruby readings and cloze markup are removed. */
 export function visibleTextLength(value: string): number {
-  const plain = stripRuby(value.replace(CLOZE_RE, '$1')).replace(/\s+/g, ' ').trim();
+  const plain = stripRuby(stripCloze(value)).replace(/\s+/g, ' ').trim();
   return [...plain].length;
 }
 

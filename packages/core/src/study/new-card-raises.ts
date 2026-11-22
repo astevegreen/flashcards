@@ -41,7 +41,7 @@ function canonicalKey(r: NewCardRaise): string {
     r.extra,
     r.raisedAt,
     r.tz ?? null,
-    r.deckIds ? [...r.deckIds].sort() : null,
+    r.deckIds ? [...r.deckIds].sort(cmpStr) : null,
     r.categories ?? null,
   ]);
 }

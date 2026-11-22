@@ -42,8 +42,8 @@ test.describe('Phase 13 dictionary split view', () => {
     await expect(results.getByTestId('dict-senses-한국').first()).toBeHidden();
     await expect(detail).toContainText('Korea');
 
-    // Tap a row to show it in detail.
-    await results.getByTestId('dict-entry-학교').first().click();
+    // Tap a row's Details button to show it in detail.
+    await results.getByTestId('dict-show-학교').first().click();
     await expect(detail.getByTestId('dict-detail-headword')).toHaveText('학교');
     await expect(results.getByTestId('dict-entry-학교').first()).toHaveAttribute(
       'data-selected',

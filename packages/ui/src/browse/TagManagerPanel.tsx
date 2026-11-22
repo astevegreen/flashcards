@@ -9,6 +9,9 @@ import {
 import { useMemo, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 
+/** Stable callback ref: focuses the rename input once, when it mounts. */
+const focusOnMount = (el: HTMLInputElement | null) => el?.focus();
+
 export interface TagManagerPanelProps {
   onClose: () => void;
 }
@@ -214,7 +217,7 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
                     className="flex flex-1 items-center gap-2"
                   >
                     <input
-                      autoFocus
+                      ref={focusOnMount}
                       aria-label={`New name for ${tag.label}`}
                       data-testid="tag-rename-input"
                       value={renameText}
