@@ -1,0 +1,281 @@
+import { expect, test, type Page, type Route } from '@playwright/test';
+
+const DECK_NAME = 'Korean Core + Hanja';
+
+const dbNameFor = (page: Page) => `flashcards-db-${new URL(page.url()).searchParams.get('device')}`;
+
+/** Reads all rows of an IndexedDB object store in the page. */
+async function readStore<T>(page: Page, store: string): Promise<T[]> {
+  return page.evaluate(
+    async ({ dbName, storeName }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open(dbName);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      try {
+        return await new Promise<unknown[]>((resolve, reject) => {
+          const req = db.transaction(storeName, 'readonly').objectStore(storeName).getAll();
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      } finally {
+        db.close();
+      }
+    },
+    { dbName: dbNameFor(page), storeName: store },
+  ) as Promise<T[]>;
+}
+
+interface EventRow {
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+const PASTED_NOTES = 60;
+
+/**
+ * Appends a deterministic simulated review history for every card of the Korean deck straight
+ * into the app's event log (as if synced from another device): a learner whose memory is a bit
+ * weaker than the default weights assume, reviewed on later study days. Returns the number of
+ * eligible reviews written.
+ */
+async function seedReviewHistory(page: Page, deckId: string): Promise<number> {
+  return page.evaluate(
+    async ({ dbName, deck }) => {
+      const DAY = 86_400_000;
+      const REVIEWS_PER_CARD = 9;
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open(dbName);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      const getAll = (store: string) =>
+        new Promise<unknown[]>((resolve, reject) => {
+          const req = db.transaction(store, 'readonly').objectStore(store).getAll();
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      const cards = ((await getAll('cards_cache')) as { id: string; deck_id: string }[])
+        .filter((c) => c.deck_id === deck)
+        .map((c) => c.id)
+        .sort((a, b) => (a < b ? -1 : Number(a > b)));
+      const kv = (await getAll('kv')) as { key: string; value: unknown }[];
+      const counterRow = kv.find((r) => r.key === '__local_seq_counter');
+      let localSeq = typeof counterRow?.value === 'number' ? counterRow.value : 0;
+
+      let x = 20_261_122;
+      const rand = () => {
+        x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+        return x / 2 ** 32;
+      };
+      const start = Date.now() - 520 * DAY;
+      const device = 'seed-history';
+      const rows: unknown[] = [];
+      let seq = 0;
+      let eligible = 0;
+      cards.forEach((cardId, c) => {
+        let at = start + (c % 12) * 3_600_000;
+        let interval = 2;
+        let trueStability = 1.5;
+        for (let i = 0; i < REVIEWS_PER_CARD; i++) {
+          let rating = 3;
+          if (i > 0) {
+            const recalled = rand() < 0.9 ** (interval / trueStability);
+            if (recalled) rating = rand() < 0.1 ? 4 : 3;
+            else rating = 1;
+            trueStability = recalled ? trueStability * 2.2 : Math.max(0.5, trueStability * 0.4);
+            interval = recalled ? Math.min(55, Math.round(interval * 2.5)) : 1;
+            eligible += 1;
+          }
+          seq += 1;
+          localSeq += 1;
+          const hlcCounter = (seq & 0xffff).toString(16).padStart(4, '0');
+          rows.push({
+            id: `seed-review-${seq}`,
+            device,
+            seq,
+            hlc: `${at.toString(16).padStart(12, '0')}-${hlcCounter}-${device}`,
+            type: 'ReviewRecorded',
+            v: 1,
+            card_id: cardId,
+            local_seq: localSeq,
+            payload: {
+              review_id: `seed-review-${seq}`,
+              card_id: cardId,
+              rating,
+              reviewed_at: at,
+              tz_offset: 0,
+              duration_ms: 2000,
+              answer_mode: 'flip',
+              fsrs_params_version: 0,
+              resulting_due_at: at + interval * DAY,
+            },
+          });
+          at += interval * DAY;
+        }
+      });
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(['events', 'kv'], 'readwrite');
+        const events = tx.objectStore('events');
+        for (const row of rows) events.put(row);
+        tx.objectStore('kv').put({ key: '__local_seq_counter', value: localSeq });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+      return eligible;
+    },
+    { dbName: dbNameFor(page), deck: deckId },
+  );
+}
+
+/**
+ * Pastes {@link PASTED_NOTES} notes into the Korean deck (the optimizer needs many cards, not
+ * just many reviews), waits for them to persist, seeds the review history and reloads the app.
+ */
+async function seedAndReload(page: Page): Promise<{ deckId: string; eligible: number }> {
+  await page.getByRole('button', { name: 'Library' }).first().click();
+  await page.getByLabel('Target deck for CSV paste').selectOption({ label: DECK_NAME });
+  const rows = Array.from({ length: PASTED_NOTES }, (_, i) => `단어${i},meaning ${i},optimizer`);
+  await page.getByTestId('csv-paste-input').fill(['Word,Meaning,Tags', ...rows].join('\n'));
+  await page.getByTestId('csv-paste-submit').click();
+  await expect(page.getByTestId('library-status')).toContainText(
+    `Imported ${PASTED_NOTES} note(s)`,
+  );
+
+  let deckId = '';
+  await expect
+    .poll(async () => {
+      const events = await readStore<EventRow>(page, 'events');
+      deckId = String(
+        events.find((e) => e.type === 'DeckCreated' && e.payload['name'] === DECK_NAME)?.payload[
+          'deck_id'
+        ] ?? '',
+      );
+      const cards = await readStore<{ deck_id: string }>(page, 'cards_cache');
+      return cards.filter((c) => deckId !== '' && c.deck_id === deckId).length;
+    })
+    .toBeGreaterThanOrEqual(PASTED_NOTES);
+  const eligible = await seedReviewHistory(page, deckId);
+  expect(eligible).toBeGreaterThanOrEqual(400);
+  await page.reload();
+  await expect(page.getByTestId('study-card')).toBeVisible();
+  return { deckId, eligible };
+}
+
+async function readParamsEvents(page: Page, deckId: string) {
+  const events = await readStore<EventRow>(page, 'events');
+  return events
+    .filter((e) => e.type === 'DeckFSRSParamsChanged' && e.payload['deck_id'] === deckId)
+    .map((e) => ({
+      version: e.payload['params_version'],
+      reschedule: e.payload['reschedule_existing'] ?? false,
+      w: (e.payload['params'] as { w?: number[] } | undefined)?.w?.length,
+    }));
+}
+
+async function openDeckOptions(page: Page) {
+  await page.getByRole('button', { name: 'Library' }).first().click();
+  const row = page.locator('[data-testid^="deck-row-"]', { hasText: DECK_NAME });
+  await row.getByRole('button', { name: 'Options' }).click();
+  const panel = row.getByRole('region', { name: 'FSRS optimizer' });
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
+test.describe('Phase 11 on-device FSRS optimizer', () => {
+  // The cancel step holds the optimizer's `.wasm` download, so requests must reach the network
+  // layer rather than the service worker's precache.
+  test.use({ serviceWorkers: 'block' });
+
+  test('explains the minimum, then optimizes with progress, cancel and a before/after estimate', async ({
+    page,
+    context,
+  }) => {
+    await page.goto('/?device=fsrsopt');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+
+    // A fresh sample deck has no history: the optimizer explains why it cannot run yet.
+    let panel = await openDeckOptions(page);
+    await expect(panel.getByTestId('fsrs-optimizer-count')).toHaveText('0');
+    await expect(panel.getByTestId('fsrs-optimizer-why')).toContainText(
+      'Needs at least 400 eligible reviews (400 more)',
+    );
+    const optimize = panel.getByRole('button', { name: 'Optimize weights' });
+    await expect(optimize).toBeDisabled();
+    await expect(optimize).toHaveAccessibleDescription(/Needs at least 400 eligible reviews/);
+
+    const { deckId, eligible } = await seedAndReload(page);
+
+    panel = await openDeckOptions(page);
+    await expect(panel.getByTestId('fsrs-optimizer-count')).toHaveText(String(eligible));
+    await expect(panel.getByTestId('fsrs-optimizer-why')).toHaveCount(0);
+
+    // Hold the WASM download so the run is deterministically in progress when we cancel.
+    const held: Route[] = [];
+    await context.route('**/*.wasm', (route) => {
+      held.push(route);
+    });
+    await panel.getByRole('button', { name: 'Optimize weights' }).click();
+    await expect(panel.getByRole('progressbar', { name: 'Optimizer progress' })).toBeVisible();
+    await expect(panel.getByText('Step 2 of 3: Loading the optimizer…')).toBeVisible();
+    await expect.poll(() => held.length).toBeGreaterThan(0);
+    await panel.getByRole('button', { name: 'Cancel' }).click();
+    await expect(panel.getByText('Optimization cancelled.')).toBeVisible();
+    await expect(panel.getByRole('progressbar')).toHaveCount(0);
+    for (const route of held) await route.abort().catch(() => {});
+    await context.unroute('**/*.wasm');
+
+    // Run to completion: the before/after retention estimate appears; nothing is saved yet.
+    await panel.getByRole('button', { name: 'Optimize weights' }).click();
+    const result = panel.getByTestId('fsrs-optimizer-result');
+    await expect(result).toBeVisible({ timeout: 30_000 });
+    const estimate = result.getByTestId('fsrs-optimizer-estimate');
+    await expect(estimate.getByRole('row', { name: /^Current/ })).toContainText('%');
+    await expect(estimate.getByRole('row', { name: /^Optimized/ })).toContainText('%');
+    await expect(result.getByTestId('fsrs-optimizer-measured')).toHaveText(/^\d+\.\d%$/);
+    await expect(result).toContainText('The optimized weights fit your review history better.');
+    expect(await readParamsEvents(page, deckId)).toEqual([]);
+
+    // Apply with "Reschedule existing cards" -> one DeckFSRSParamsChanged event with 21 weights.
+    await result.getByLabel('Reschedule existing cards with the new weights').check();
+    await result.getByRole('button', { name: 'Apply weights' }).click();
+    await expect(panel.getByRole('status')).toContainText(
+      'Saved optimized weights as FSRS parameters v1. Existing cards were rescheduled.',
+    );
+    await expect
+      .poll(() => readParamsEvents(page, deckId))
+      .toEqual([{ version: 1, reschedule: true, w: 21 }]);
+  });
+});
+
+test.describe('Phase 11 FSRS optimizer offline', () => {
+  test('the precached WASM optimizer runs offline and applies weights for future reviews', async ({
+    page,
+    context,
+  }) => {
+    await page.goto('/?device=fsrsoff');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await page.evaluate(async () => {
+      if ('serviceWorker' in navigator) {
+        await navigator.serviceWorker.ready;
+      }
+    });
+    const { deckId, eligible } = await seedAndReload(page);
+
+    await context.setOffline(true);
+    const panel = await openDeckOptions(page);
+    await expect(panel.getByTestId('fsrs-optimizer-count')).toHaveText(String(eligible));
+    await panel.getByRole('button', { name: 'Optimize weights' }).click();
+    const result = panel.getByTestId('fsrs-optimizer-result');
+    await expect(result).toBeVisible({ timeout: 30_000 });
+    await result.getByRole('button', { name: 'Apply weights' }).click();
+    await expect(panel.getByRole('status')).toContainText(
+      'They apply to future reviews; existing due dates are unchanged.',
+    );
+    await expect
+      .poll(() => readParamsEvents(page, deckId))
+      .toEqual([{ version: 1, reschedule: false, w: 21 }]);
+  });
+});

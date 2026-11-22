@@ -21,6 +21,7 @@ import { useApp } from '../state/AppContext.tsx';
 
 const LazyPageViewer = lazy(() => import('../pages/PageViewer.tsx'));
 const LazyPageEditor = lazy(() => import('../pages/PageEditor.tsx'));
+const LazyFsrsOptimizerPanel = lazy(() => import('../fsrs/FsrsOptimizerPanel.tsx'));
 
 function DeckOptionsPanel({
   deck,
@@ -392,6 +393,10 @@ function DeckOptionsPanel({
             'Retention changes apply to future reviews only unless you reschedule.'}
         </span>
       </div>
+
+      <Suspense fallback={null}>
+        <LazyFsrsOptimizerPanel deck={deck} />
+      </Suspense>
 
       {/* Add Answer Mode Layout (§5.2) */}
       <form

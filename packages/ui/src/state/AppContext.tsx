@@ -677,6 +677,8 @@ export function AppProvider({
         patch.settings.target_retention !== existingDeck?.settings.target_retention
       ) {
         const nextVersion = getActiveFsrsParamsVersion(st, deckId) + 1;
+        // Keep optimized weights (Phase 11) when only the target retention changes.
+        const currentW = resolveDeckFsrsConfig(st, deckId, nowMs).w;
         events.push(
           factory.create(
             'DeckFSRSParamsChanged',
@@ -688,6 +690,7 @@ export function AppProvider({
                 request_retention: patch.settings.target_retention,
                 enable_fuzz: false,
                 enable_short_term: true,
+                ...(currentW ? { w: currentW } : {}),
               },
             },
             nowMs,
