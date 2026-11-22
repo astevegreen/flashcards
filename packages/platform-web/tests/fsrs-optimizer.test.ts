@@ -47,6 +47,29 @@ function lcg(seed: number): () => number {
 }
 
 /**
+ * One simulated review. The first review (no elapsed time) fails a quarter of the time; later
+ * ones recall with the FSRS-6 power forgetting curve at the learner's true stability, which
+ * grows on recall and shrinks on a lapse. The rand() call order is fixed so the fixture's
+ * optimized weights stay stable.
+ */
+function simulateReview(
+  rand: () => number,
+  elapsedMs: number | undefined,
+  trueStability: number,
+): { rating: ReviewRating; trueStability: number } {
+  if (elapsedMs === undefined) {
+    return { rating: rand() < 0.25 ? 1 : 3, trueStability };
+  }
+  const days = elapsedMs / DAY;
+  const recall = (1 + (days / trueStability) * (0.9 ** (-1 / 0.1542) - 1)) ** -0.1542;
+  if (rand() >= recall) {
+    return { rating: 1, trueStability: Math.max(0.3, trueStability * 0.35) };
+  }
+  const rating: ReviewRating = rand() < 0.15 ? 4 : 3;
+  return { rating, trueStability: trueStability * 2.4 };
+}
+
+/**
  * Fixed synthetic review log: a simulated learner (true stability x2.4 on recall, x0.35 on a
  * lapse, FSRS-6 power forgetting curve) studies 60 cards, each reviewed when the app's own
  * default scheduler says it is due. Same seed -> same events -> same training batch.
@@ -88,16 +111,13 @@ function buildFixtureEvents(): FlashEvent[] {
     let trueStability = 0.5 + rand() * 3;
     let lastAt: number | undefined;
     for (let i = 0; i < 12; i++) {
-      let rating: ReviewRating;
-      if (lastAt === undefined) {
-        rating = rand() < 0.25 ? 1 : 3;
-      } else {
-        const days = (at - lastAt) / DAY;
-        const recall = (1 + (days / trueStability) * (0.9 ** (-1 / 0.1542) - 1)) ** -0.1542;
-        const remembered = rand() < recall;
-        trueStability = remembered ? trueStability * 2.4 : Math.max(0.3, trueStability * 0.35);
-        rating = remembered ? (rand() < 0.15 ? 4 : 3) : 1;
-      }
+      const step = simulateReview(
+        rand,
+        lastAt === undefined ? undefined : at - lastAt,
+        trueStability,
+      );
+      const rating = step.rating;
+      trueStability = step.trueStability;
       n += 1;
       events.push(
         f.create(

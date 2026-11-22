@@ -69,6 +69,19 @@ async function seedReviewHistory(page: Page, deckId: string): Promise<number> {
         x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
         return x / 2 ** 32;
       };
+      // One simulated review after the first: recall on a 0.9-at-stability curve, then grow
+      // or shrink the learner's stability and the next interval. rand() order is fixed.
+      const simulateReview = (interval: number, trueStability: number) => {
+        if (rand() >= 0.9 ** (interval / trueStability)) {
+          return { rating: 1, trueStability: Math.max(0.5, trueStability * 0.4), interval: 1 };
+        }
+        const rating = rand() < 0.1 ? 4 : 3;
+        return {
+          rating,
+          trueStability: trueStability * 2.2,
+          interval: Math.min(55, Math.round(interval * 2.5)),
+        };
+      };
       const start = Date.now() - 520 * DAY;
       const device = 'seed-history';
       const rows: unknown[] = [];
@@ -81,11 +94,10 @@ async function seedReviewHistory(page: Page, deckId: string): Promise<number> {
         for (let i = 0; i < REVIEWS_PER_CARD; i++) {
           let rating = 3;
           if (i > 0) {
-            const recalled = rand() < 0.9 ** (interval / trueStability);
-            if (recalled) rating = rand() < 0.1 ? 4 : 3;
-            else rating = 1;
-            trueStability = recalled ? trueStability * 2.2 : Math.max(0.5, trueStability * 0.4);
-            interval = recalled ? Math.min(55, Math.round(interval * 2.5)) : 1;
+            const step = simulateReview(interval, trueStability);
+            rating = step.rating;
+            trueStability = step.trueStability;
+            interval = step.interval;
             eligible += 1;
           }
           seq += 1;
@@ -175,6 +187,13 @@ async function readParamsEvents(page: Page, deckId: string) {
     }));
 }
 
+async function readWeights(page: Page, deckId: string) {
+  const events = await readStore<EventRow>(page, 'events');
+  return events
+    .filter((e) => e.type === 'DeckFSRSParamsChanged' && e.payload['deck_id'] === deckId)
+    .map((e) => (e.payload['params'] as { w?: number[] } | undefined)?.w);
+}
+
 async function openDeckOptions(page: Page) {
   await page.getByRole('button', { name: 'Library' }).first().click();
   const row = page.locator('[data-testid^="deck-row-"]', { hasText: DECK_NAME });
@@ -250,6 +269,22 @@ test.describe('Phase 11 on-device FSRS optimizer', () => {
   });
 });
 
+test.describe('Phase 11 FSRS optimizer licence notice', () => {
+  test('Settings reproduces the fsrs-browser BSD-3-Clause notice', async ({ page }) => {
+    await page.goto('/?device=fsrslic');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    const notice = page.getByTestId('third-party-notice-fsrs-browser');
+    await expect(notice).toContainText('BSD-3-Clause');
+    await notice.locator('summary').click();
+    await expect(notice).toContainText('Copyright 2023 Alex Nguyen');
+    await expect(notice).toContainText('Redistributions in binary form must reproduce');
+    const shipped = await page.request.get('/THIRD-PARTY-NOTICES.txt');
+    expect(shipped.ok()).toBe(true);
+    expect(await shipped.text()).toContain('Copyright 2023 Alex Nguyen');
+  });
+});
+
 test.describe('Phase 11 FSRS optimizer offline', () => {
   test('the precached WASM optimizer runs offline and applies weights for future reviews', async ({
     page,
@@ -277,5 +312,19 @@ test.describe('Phase 11 FSRS optimizer offline', () => {
     await expect
       .poll(() => readParamsEvents(page, deckId))
       .toEqual([{ version: 1, reschedule: false, w: 21 }]);
+
+    // A later target-retention edit writes v2 and keeps the optimized weights.
+    const row = page.locator('[data-testid^="deck-row-"]', { hasText: DECK_NAME });
+    const retention = row.getByLabel('Target retention');
+    await retention.fill('0.85');
+    await retention.blur();
+    await expect
+      .poll(() => readParamsEvents(page, deckId))
+      .toEqual([
+        { version: 1, reschedule: false, w: 21 },
+        { version: 2, reschedule: false, w: 21 },
+      ]);
+    const [v1, v2] = await readWeights(page, deckId);
+    expect(v2).toEqual(v1);
   });
 });

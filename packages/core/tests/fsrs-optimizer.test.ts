@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   applyEvents,
   createEmptyState,
+  buildRetentionParamsPayload,
   createEventFactory,
   getActiveFsrsParamsVersion,
+  resolveDeckFsrsConfig,
   type CollectionState,
   type EventFactory,
 } from '../src/events/replay.ts';
@@ -350,5 +352,53 @@ describe('buildOptimizedParamsPayload', () => {
       }
       expect(getCurrentDeckWeights(state, DECK, nowMs + 1)).toEqual(weights);
     }
+  });
+});
+
+describe('buildRetentionParamsPayload', () => {
+  const weights = (() => {
+    const w = getCurrentDeckWeights(createEmptyState(), DECK, BASE);
+    w[2] = 9.5;
+    w[3] = 20;
+    return normalizeOptimizedWeights(w) ?? [];
+  })();
+
+  it('keeps optimized weights when only the target retention changes later', () => {
+    const state = buildState([{ card: 0, at: BASE + 10 * HOUR, rating: 3 }]);
+    const optimizedAt = BASE + 5 * DAY;
+    const f = createEventFactory('dev-b', 0, createHlcState('dev-b', optimizedAt));
+    applyEvents(state, [
+      f.create(
+        'DeckFSRSParamsChanged',
+        buildOptimizedParamsPayload(state, DECK, weights, {
+          nowMs: optimizedAt,
+          rescheduleExisting: false,
+        }),
+        optimizedAt,
+      ),
+    ]);
+    const editAt = optimizedAt + DAY;
+    const payload = buildRetentionParamsPayload(state, DECK, 0.85, editAt);
+    expect(payload).toMatchObject({
+      deck_id: DECK,
+      params_version: getActiveFsrsParamsVersion(state, DECK) + 1,
+      effective_from: editAt,
+      params: { request_retention: 0.85, w: weights },
+    });
+    applyEvents(state, [f.create('DeckFSRSParamsChanged', payload, editAt)]);
+    const after = resolveDeckFsrsConfig(state, DECK, editAt + 1);
+    expect(after.request_retention).toBe(0.85);
+    expect(after.w).toEqual(weights);
+    expect(getCurrentDeckWeights(state, DECK, editAt + 1)).toEqual(weights);
+  });
+
+  it('adds no weights when the deck still uses the defaults', () => {
+    const state = buildState([]);
+    const payload = buildRetentionParamsPayload(state, DECK, 0.8, BASE);
+    expect(payload.params).toEqual({
+      request_retention: 0.8,
+      enable_fuzz: false,
+      enable_short_term: true,
+    });
   });
 });
