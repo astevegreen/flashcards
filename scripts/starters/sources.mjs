@@ -3,8 +3,9 @@
  *
  * Every source below passed the licence gate for commercial redistribution in a paid app (see the
  * licence notes per source and apps/web/public/THIRD-PARTY-NOTICES.txt). Share-alike,
- * non-commercial, no-derivatives and unclear sources (JMdict/EDICT, KANJIDIC2, CC-CEDICT,
- * KRDict, Wiktionary, the tanos JLPT lists, HSK lists) are deliberately NOT used.
+ * non-commercial, no-derivatives and unclear sources are deliberately NOT used: see the
+ * rejected-source table in content/starters/README.md (JMdict/EDICT, KANJIDIC2, CC-CEDICT,
+ * KRDict, Wiktionary, the tanos JLPT lists, HSK lists).
  *
  * `scripts/fetch-starter-sources.mjs` downloads these into the gitignored cache and checks the
  * pinned sha256; `scripts/build-starter-decks.mjs` reads only that cache (no network).
@@ -39,6 +40,7 @@ export const UNICODE_LICENSE = {
   key: 'unicode_license',
   file: 'unicode-license.txt',
   url: 'https://www.unicode.org/license.txt',
+  sha256: 'e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96',
 };
 
 /**
