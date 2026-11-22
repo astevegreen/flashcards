@@ -69,11 +69,9 @@ test.describe('Phase 13 dictionary split view', () => {
   });
 
   test('phones keep the single-column list with inline senses', async ({ page }) => {
-    // Install the pack at the default tablet size, then switch to a phone: on the Linux CI runner
-    // the Settings pack row shifts under the pointer at 390 px, and this test is about the
-    // dictionary layout, not Settings.
-    await openKoreanDictionary(page);
+    // Installs the pack at phone size too: Settings no longer reflows when the first sync lands.
     await page.setViewportSize({ width: 390, height: 844 });
+    await openKoreanDictionary(page);
     await page.getByTestId('dictionary-search-input').fill('먹었어요');
     const results = page.getByTestId('dictionary-results');
     await expect(results.getByTestId('dict-entry-먹다').first()).toBeVisible({ timeout: 5_000 });
