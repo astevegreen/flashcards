@@ -6,6 +6,7 @@ import {
   createEventFactory,
   createHlcState,
   FLASH_NAMESPACE_UUID,
+  buildRetentionParamsPayload,
   getActiveFsrsParamsVersion,
   getEnabledLayoutsForDeck,
   getTotalAppliedEventCount,
@@ -694,20 +695,11 @@ export function AppProvider({
         patch.settings?.target_retention !== undefined &&
         patch.settings.target_retention !== existingDeck?.settings.target_retention
       ) {
-        const nextVersion = getActiveFsrsParamsVersion(st, deckId) + 1;
+        // Keeps optimized weights (Phase 11) when only the target retention changes.
         events.push(
           factory.create(
             'DeckFSRSParamsChanged',
-            {
-              deck_id: deckId,
-              params_version: nextVersion,
-              effective_from: nowMs,
-              params: {
-                request_retention: patch.settings.target_retention,
-                enable_fuzz: false,
-                enable_short_term: true,
-              },
-            },
+            buildRetentionParamsPayload(st, deckId, patch.settings.target_retention, nowMs),
             nowMs,
           ),
         );
