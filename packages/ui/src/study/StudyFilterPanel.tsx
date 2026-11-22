@@ -6,13 +6,21 @@ import {
   isCardFilterEmpty,
   listCategories,
   normalizeCardFilter,
+  uuidv7,
   type CardFilter,
   type CategoryCriterion,
+  type StudySet,
 } from '@flash/core';
 import { useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { CategoryPicker } from './CategoryPicker.tsx';
+import { CustomStudySection } from './CustomStudySection.tsx';
 import { useBrowseFilter, type ActiveStudyFilter } from './filterStore.ts';
+import { createPracticeSession } from './studySessions.ts';
+import { SaveStudySetForm, saveStudySet, StudySetsSection } from './StudySetsSection.tsx';
+
+const SMALL_BTN =
+  'rounded-lg border border-[var(--border)] px-2 py-0.5 text-xs font-medium hover:bg-[var(--surface-2)]';
 
 export interface StudyFilterPanelProps {
   /** Deck chosen in the Study header (`undefined` = all decks). */
@@ -31,11 +39,21 @@ interface FilterOption {
 /**
  * "Study this filter" (Phase 9), lazily loaded so the study critical path stays in budget (§8).
  * Scope = the Study deck selection (or Browse's decks) plus categories, prefilled from Browse.
- * Presets layer performance criteria on top. Sessions run on schedule: only cards that are due
- * now are queued, with the normal FSRS state, daily limits and sibling burying.
+ * Presets layer performance criteria on top. "Study" runs on schedule: only cards that are due
+ * now are queued, with the normal FSRS state, daily limits and sibling burying. "Practice" crams
+ * every match without touching FSRS. Any filter can be saved as a synced Study Set, and the
+ * Custom study section adds review ahead and extra new cards today.
  */
 export function StudyFilterPanel({ deckId, onStart, onClose }: StudyFilterPanelProps) {
-  const { state, stateVersion } = useApp();
+  const { state, stateVersion, getEventFactory, emitEvents } = useApp();
+  const [savingOptionId, setSavingOptionId] = useState<string | null>(null);
+  const deps = { state, getEventFactory, emitEvents };
+  const startPractice = (label: string, filter: CardFilter) =>
+    onStart({ label: `${label} · practice`, filter, session: createPracticeSession(deps, filter) });
+  const studySet = (set: StudySet) =>
+    set.mode === 'practice'
+      ? startPractice(set.name, set.filter)
+      : onStart({ label: set.name, filter: set.filter });
   const browseFilter = useBrowseFilter();
   const [categories, setCategories] = useState<CategoryCriterion | undefined>(
     browseFilter.categories,
@@ -52,8 +70,13 @@ export function StudyFilterPanel({ deckId, onStart, onClose }: StudyFilterPanelP
     [state, stateVersion, deckIds],
   );
 
+  const baseFilter = useMemo(
+    () => normalizeCardFilter({ deckIds, categories }),
+    [deckIds, categories],
+  );
+
   const options = useMemo<FilterOption[]>(() => {
-    const base = normalizeCardFilter({ deckIds, categories });
+    const base = baseFilter;
     const custom = normalizeCardFilter({ ...base, states: browseFilter.states ?? [] });
     const list: FilterOption[] = [];
     if (!isCardFilterEmpty(custom)) {
@@ -73,7 +96,7 @@ export function StudyFilterPanel({ deckId, onStart, onClose }: StudyFilterPanelP
       });
     }
     return list;
-  }, [deckIds, categories, browseFilter.states]);
+  }, [baseFilter, browseFilter.states]);
 
   const counts = useMemo(() => {
     const nowMs = Date.now();
@@ -152,10 +175,53 @@ export function StudyFilterPanel({ deckId, onStart, onClose }: StudyFilterPanelP
                   {c.dueNow} due · {c.matching} cards
                 </span>
               </button>
+              <div className="mt-1 flex justify-end gap-1">
+                <button
+                  type="button"
+                  data-testid={`study-filter-practice-${opt.id}`}
+                  disabled={c.matching === 0}
+                  onClick={() => startPractice(opt.label, opt.filter)}
+                  className={`${SMALL_BTN} disabled:opacity-40`}
+                >
+                  Practice
+                </button>
+                <button
+                  type="button"
+                  data-testid={`study-filter-save-${opt.id}`}
+                  aria-expanded={savingOptionId === opt.id}
+                  onClick={() => setSavingOptionId((v) => (v === opt.id ? null : opt.id))}
+                  className={SMALL_BTN}
+                >
+                  Save as set
+                </button>
+              </div>
+              {savingOptionId === opt.id && (
+                <SaveStudySetForm
+                  defaultName={deckIds.length === 0 ? opt.label : `${opt.label} (${deckName})`}
+                  onCancel={() => setSavingOptionId(null)}
+                  onSave={(name, mode) => {
+                    if (saveStudySet(deps, { setId: uuidv7(), name, filter: opt.filter, mode })) {
+                      setSavingOptionId(null);
+                    }
+                  }}
+                />
+              )}
             </li>
           );
         })}
       </ul>
+
+      <StudySetsSection state={state} stateVersion={stateVersion} deps={deps} onStudy={studySet} />
+
+      <CustomStudySection
+        state={state}
+        stateVersion={stateVersion}
+        deps={deps}
+        deckIds={deckIds}
+        filter={baseFilter}
+        onStart={onStart}
+        onDone={onClose}
+      />
     </div>
   );
 }
