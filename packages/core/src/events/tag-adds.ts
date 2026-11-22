@@ -15,8 +15,11 @@ import type { UnknownEvent } from './types.ts';
  *
  * The visible tags are `R \ L ++ sort(L)`, where `R` is the winning `NoteUpserted` tag list and
  * `L` the added tags whose add register is newer than the tags register (all adds when the note
- * has no tags register yet). So an add survives any concurrent or older tag edit, while a tag
- * edit made after the add (the user removing `leech`, an Undo) still wins. Every input is a max
+ * has no tags register yet). So an add survives any tag edit with an OLDER HLC, while a tag edit
+ * with a newer HLC wins: the user removing `leech` or an Undo after the add, but also a concurrent
+ * edit from a device that had not seen the add yet and happens to carry the later HLC (that drops
+ * the automatic tag, and the backfill does not re-add it, since the note has an add register).
+ * Every input is a max
  * or LWW register, so any delivery order, duplicate or chunking yields the same tags in the same
  * order, and two devices adding the same tag concurrently never duplicate it.
  *
@@ -169,6 +172,19 @@ export function canonicalizeNoteTags(state: CollectionState, note: Note): boolea
 /** True when the note has any add register (cheap pre-check before {@link canonicalizeNoteTags}). */
 export function noteHasTagAdds(state: CollectionState, noteId: string): boolean {
   return (tagAddIndex(state).get(noteId)?.size ?? 0) > 0;
+}
+
+/**
+ * Re-derives `note.tags` for every note that has an add register. Hydration runs this because a
+ * snapshot written by an older build may carry the registers verbatim in `fieldHlcs` while that
+ * build rewrote `note.tags` on a later `NoteUpserted` without knowing the add (newer than the tags
+ * register, so it should still show). One pass over the add index.
+ */
+export function canonicalizeAllTagAddNotes(state: CollectionState): void {
+  for (const noteId of tagAddIndex(state).keys()) {
+    const note = state.notes.get(noteId);
+    if (note) canonicalizeNoteTags(state, note);
+  }
 }
 
 /**

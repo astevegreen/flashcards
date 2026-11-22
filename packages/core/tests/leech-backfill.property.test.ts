@@ -387,6 +387,40 @@ describe('leech backfill (NoteTagsAdded)', () => {
     expect(observe(upgraded).notes).toEqual(observe(reference).notes);
   });
 
+  it('hydrating an older build snapshot that kept the add registers but dropped the tag equals a full replay', () => {
+    const fa = createEventFactory('dev-a', 0, createHlcState('dev-a', BASE));
+    const log = legacyLog(fa, LEECHY);
+    const added = backfillOn(log, fa, BASE + 300 * DAY);
+    // A tag edit newer than the tags register but older than the add: the add still wins.
+    const offline = createEventFactory('dev-z', 0, createHlcState('dev-z', BASE));
+    const edit = offline.create(
+      'NoteUpserted',
+      {
+        note_id: noteIdFor(0),
+        deck_id: DECK,
+        source_key: NOTE_KEYS[0],
+        fields: {},
+        tags: ['topik-2'],
+      },
+      BASE + 200 * DAY,
+    );
+    const reference = replayAllEvents([...log, ...added, edit]);
+    expect(reference.notes.get(noteIdFor(0))?.tags).toEqual(['topik-2', 'leech']);
+
+    // The older build hydrated the new snapshot (registers kept verbatim in fieldHlcs), applied
+    // the edit with plain LWW and wrote a snapshot without the winning add in `note.tags`.
+    const snapshot = serializeCollectionState(reference);
+    const index = snapshot.notes.findIndex((n) => n.id === noteIdFor(0));
+    const note0 = snapshot.notes[index];
+    if (!note0) throw new Error('note 0 missing');
+    snapshot.notes[index] = { ...note0, tags: ['topik-2'] };
+
+    const hydrated = deserializeCollectionState(snapshot);
+    expect(hydrated.notes.get(noteIdFor(0))?.tags).toEqual(['topik-2', 'leech']);
+    expect(observe(hydrated).notes).toEqual(observe(reference).notes);
+    expect(observe(hydrated).fieldHlcs).toEqual(observe(reference).fieldHlcs);
+  });
+
   it('converges under any concurrent backfills, tag edits, delivery order and chunking (property)', () => {
     const tagArb = fc.constantFrom('topik-1', 'daily', 'leech', 'Leech', 'grammar::verbs');
     const actionArb: fc.Arbitrary<ScenarioAction> = fc.oneof(
