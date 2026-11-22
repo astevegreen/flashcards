@@ -67,6 +67,27 @@ async function addDeviceLinkOf(page: Page): Promise<URL> {
   return new URL(link);
 }
 
+/** Whether this device's IndexedDB still holds the add-device link (`add_device_link_v1`). */
+async function storedAddDeviceLink(page: Page, dbName: string): Promise<boolean> {
+  return page.evaluate(
+    (name) =>
+      new Promise<boolean>((resolve, reject) => {
+        const open = indexedDB.open(name);
+        open.onerror = () => reject(open.error ?? new Error('open failed'));
+        open.onsuccess = () => {
+          const db = open.result;
+          const get = db.transaction('kv', 'readonly').objectStore('kv').get('add_device_link_v1');
+          get.onerror = () => reject(get.error ?? new Error('get failed'));
+          get.onsuccess = () => {
+            db.close();
+            resolve(get.result !== undefined);
+          };
+        };
+      }),
+    dbName,
+  );
+}
+
 test.describe('Phase 14 Sync my devices', () => {
   test('a new device opened from the link gets Sync my devices with that provider, and the link leaves the address bar', async ({
     page,
@@ -183,6 +204,8 @@ test.describe('Phase 14 Sync my devices', () => {
     // Someone who means to keep this collection dismisses the notice, and it stays gone.
     await pageC.getByTestId('add-device-collection-dismiss').click();
     await expect(pageC.getByTestId('add-device-collection-check')).toHaveCount(0);
+    // The stored link is deleted asynchronously: reload only once IndexedDB no longer holds it.
+    await expect.poll(() => storedAddDeviceLink(pageC, 'flashcards-db-adc')).toBe(false);
     await pageC.reload();
     await openSettings(pageC);
     await expect(pageC.getByText('OneDrive (App Folder)')).toBeVisible();
