@@ -24,22 +24,23 @@ describe('third-party notices', () => {
     const license = read(`${pkgDir}LICENSE`).trim();
     expect(license).toBe([notice?.copyright, ...(notice?.paragraphs ?? [])].join('\n\n'));
   });
-  it.each(['sql.js', 'fzstd'])(
-    'matches the %s MIT LICENSE and version that are installed',
-    (id) => {
-      const notice = THIRD_PARTY_NOTICES.find((n) => n.id === id);
-      expect(notice).toBeDefined();
-      const pkgDir = `packages/platform-web/node_modules/${id}/`;
-      const pkg = JSON.parse(read(`${pkgDir}package.json`)) as { version: string; license: string };
-      expect(notice?.version).toBe(pkg.version);
-      expect(notice?.licenseName).toBe(pkg.license);
-      // Upstream wraps lines and uses straight quotes; compare the words.
-      const words = (text: string) => text.replaceAll(/["“”]/g, '"').split(/\s+/).filter(Boolean);
-      const license = words(read(`${pkgDir}LICENSE`)).join(' ');
-      expect(license).toContain(words(notice?.copyright ?? '').join(' '));
-      for (const paragraph of notice?.paragraphs ?? []) {
-        expect(license).toContain(words(paragraph).join(' '));
-      }
-    },
-  );
+  it.each([
+    ['sql.js', 'packages/platform-web'],
+    ['fzstd', 'packages/platform-web'],
+    ['uqr', 'packages/ui'],
+  ])('matches the %s MIT LICENSE and version that are installed', (id, workspace) => {
+    const notice = THIRD_PARTY_NOTICES.find((n) => n.id === id);
+    expect(notice).toBeDefined();
+    const pkgDir = `${workspace}/node_modules/${id}/`;
+    const pkg = JSON.parse(read(`${pkgDir}package.json`)) as { version: string; license: string };
+    expect(notice?.version).toBe(pkg.version);
+    expect(notice?.licenseName).toBe(pkg.license);
+    // Upstream wraps lines and uses straight quotes; compare the words.
+    const words = (text: string) => text.replaceAll(/["“”]/g, '"').split(/\s+/).filter(Boolean);
+    const license = words(read(`${pkgDir}LICENSE`)).join(' ');
+    expect(license).toContain(words(notice?.copyright ?? '').join(' '));
+    for (const paragraph of notice?.paragraphs ?? []) {
+      expect(license).toContain(words(paragraph).join(' '));
+    }
+  });
 });

@@ -1,8 +1,8 @@
 /**
- * The deferred sync step of first-run onboarding (Phase 14 "study first, set up later"): offered
- * once, after the first finished session on a device that went through onboarding, never before
- * the first card. It only points at the existing sync choices in Settings; it picks no provider.
- * Lazily loaded; the caller reserves its height so nothing above it moves.
+ * The deferred sync step (Phase 14 "study first, set up later"): offered once per device, after a
+ * finished session, to anyone with cards and no sync provider; never before the first card. Its
+ * "Sync my devices" button opens the Sync my devices panel (a default provider plus the
+ * alternatives). Lazily loaded; it sits below every study control, so nothing above it moves.
  */
 export function SyncPrompt({
   onOpenSync,
