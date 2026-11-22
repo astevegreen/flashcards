@@ -82,6 +82,8 @@ export function CustomStudySection({
           extra: extraNew,
           raised_at: nowMs,
           tz_offset: -new Date(nowMs).getTimezoneOffset(),
+          // One pool for the chosen decks; with categories, only matching new cards may use it.
+          ...(filter.categories ? { categories: filter.categories } : {}),
         },
         nowMs,
       ),

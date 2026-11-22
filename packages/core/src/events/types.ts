@@ -180,9 +180,11 @@ export interface PracticeUndonePayload {
 }
 
 /**
- * Custom study "extra new cards today": raises the new-card limit of `deck_ids` (empty = every
- * deck) by `extra` for the study day that contains `raised_at` (in `tz_offset`, with each deck's
- * rollover hour). Additive and deduplicated by `raise_id`, so it converges under any order.
+ * Custom study "extra new cards today": grants `extra` more new cards, shared by the whole scope
+ * (`deck_ids`, empty = every deck, and optional `categories`), for the study day that contains
+ * `raised_at` (in `tz_offset`, with each deck's rollover hour). It is one pool, not a per-deck
+ * bonus: only new cards inside the scope may use it, beyond each deck's normal daily limit.
+ * Additive and deduplicated by `raise_id`, so it converges under any order.
  */
 export interface NewCardLimitRaisedPayload {
   raise_id: string;
@@ -190,6 +192,8 @@ export interface NewCardLimitRaisedPayload {
   extra: number;
   raised_at: number; // Unix ms
   tz_offset: number;
+  /** Optional normalized `CategoryCriterion` (note tags) the extra new cards must match. */
+  categories?: unknown;
 }
 
 export interface EventPayloadMap {

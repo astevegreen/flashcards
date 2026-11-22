@@ -454,6 +454,80 @@ describe('Phase 9 custom study: extra new cards today', () => {
     // Tomorrow the normal limit is back.
     expect(buildStudyQueue(st, { ...SCOPE, nowMs: NOW + DAY, deckId: KO_DECK }).counts.new).toBe(1);
   });
+
+  it('spends a raise for several decks (or every deck) once, as one shared pool', () => {
+    for (const deckIds of [[], [KO_DECK, JA_DECK]]) {
+      const fx = limited();
+      fx.events.push(
+        fx.factory.create(
+          'DeckSettingsChanged',
+          { deck_id: JA_DECK, settings: { new_cards_per_day: 1 } },
+          NOW - 5 * DAY,
+        ),
+      );
+      const before = buildStudyQueue(fx.state(), SCOPE);
+      raise(fx, 'r-shared', 2, NOW - 2 * MIN, deckIds);
+      const all = buildStudyQueue(fx.state(), SCOPE);
+      // +2 for the whole scope, not +2 per deck.
+      expect(all.counts.new).toBe(before.counts.new + 2);
+      // Either deck alone may use the whole pool...
+      expect(buildStudyQueue(fx.state(), { ...SCOPE, deckId: KO_DECK }).counts.new).toBe(3);
+      expect(buildStudyQueue(fx.state(), { ...SCOPE, deckId: JA_DECK }).counts.new).toBe(3);
+      // ...and once Korean has used it, Japanese is back to its own limit.
+      fx.review(koCard(1), 3, NOW - MIN);
+      fx.review(koCard(2), 3, NOW - MIN + 1);
+      fx.review(koCard(3), 3, NOW - MIN + 2);
+      const st = fx.state();
+      expect(buildStudyQueue(st, { ...SCOPE, deckId: KO_DECK }).counts.new).toBe(0);
+      expect(buildStudyQueue(st, { ...SCOPE, deckId: JA_DECK }).counts.new).toBe(1);
+      expect(getExtraNewCardsToday(st, JA_DECK, NOW, KST, 4)).toBe(2);
+    }
+  });
+
+  it('with categories, only matching new cards use the raise (scheduled and filtered queue)', () => {
+    const fx = limited();
+    const hanja = { mode: 'any' as const, tags: ['hanja'] };
+    fx.events.push(
+      fx.factory.create(
+        'NewCardLimitRaised',
+        {
+          raise_id: 'r-hanja',
+          deck_ids: [KO_DECK],
+          extra: 2,
+          raised_at: NOW - 2 * MIN,
+          tz_offset: KST,
+          categories: hanja,
+        },
+        NOW - 2 * MIN,
+      ),
+    );
+    const notesOf = (q: { queue: Array<{ note_id: string }> }) => q.queue.map((c) => c.note_id);
+    // Normal limit 1 (any card, 학교 first in source order), +2 for #hanja only: 약속 never uses it.
+    const normal = buildStudyQueue(fx.state(), { ...SCOPE, deckId: KO_DECK });
+    expect(normal.counts.new).toBe(3);
+    expect(notesOf(normal)).not.toContain(koNote(3));
+    const filtered = buildStudyQueue(fx.state(), {
+      ...SCOPE,
+      deckId: KO_DECK,
+      filter: normalizeCardFilter({ deckIds: [KO_DECK], categories: hanja }),
+    });
+    expect(filtered.counts.new).toBe(3);
+    expect(notesOf(filtered)).toEqual(notesOf(normal));
+
+    // Studying the three #hanja cards spends the normal limit and the raise: nothing is left for 약속.
+    fx.review(koCard(1), 3, NOW - MIN);
+    fx.review(koCard(2), 3, NOW - MIN + 1);
+    fx.review(deriveCardId(deriveNoteId(KO_DECK, 'ko-4'), REC, 0), 3, NOW - MIN + 2);
+    expect(buildStudyQueue(fx.state(), { ...SCOPE, deckId: KO_DECK }).counts.new).toBe(0);
+
+    // Starting 약속 first uses the normal limit; the raise still covers two #hanja cards.
+    const fx2 = limited();
+    fx2.events.push(...fx.events.filter((e) => e.type === 'NewCardLimitRaised'));
+    fx2.review(koCard(3), 3, NOW - MIN);
+    const after = buildStudyQueue(fx2.state(), { ...SCOPE, deckId: KO_DECK });
+    expect(after.counts.new).toBe(2);
+    expect(notesOf(after).filter((n) => n !== koNote(3))).toEqual([koNote(1), koNote(2)]);
+  });
 });
 
 describe('Phase 9 leech auto-suspend (default off)', () => {

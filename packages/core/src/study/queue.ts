@@ -1,8 +1,13 @@
 import { isCardSuspended, type CollectionState } from '../events/replay.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
-import type { NewCardLimitRaisedPayload } from '../events/types.ts';
 import type { Card } from '../model/types.ts';
 import { filterCardIds, isCardFilterEmpty, type CardFilter } from './filter.ts';
+import {
+  isCardInRaiseScope,
+  isRaiseOnDay,
+  listNewCardRaises,
+  type NewCardRaise,
+} from './new-card-raises.ts';
 
 export interface StudyQueueOptions {
   deckId?: string;
@@ -44,10 +49,14 @@ export interface StudyQueueResult {
 }
 
 /**
- * Extra new cards custom study granted a deck for today (`NewCardLimitRaised`, kept verbatim in
- * `unknownEvents`). A raise counts on the study day containing its `raised_at` (in the raising
- * device's offset, with the deck's rollover hour). Raises add up; a repeated `raise_id` counts once
- * (its largest value), so the result is independent of delivery order and duplicates.
+ * Extra new cards custom study granted today by raises whose deck scope includes `deckId`
+ * (`NewCardLimitRaised`, kept verbatim in `unknownEvents`), whatever their category scope. A raise
+ * counts on the study day containing its `raised_at` (in the raising device's offset, with the
+ * deck's rollover hour). Raises add up; a repeated `raise_id` counts once (its largest value), so
+ * the result is independent of delivery order and duplicates.
+ *
+ * This is the gross grant: a raise shared by several decks is counted in full for each of them.
+ * {@link buildStudyQueue} spends each raise once, as one pool for its whole scope.
  */
 export function getExtraNewCardsToday(
   state: CollectionState,
@@ -57,23 +66,76 @@ export function getExtraNewCardsToday(
   dayStartHour: number,
 ): number {
   const today = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStartHour);
-  const byRaise = new Map<string, number>();
-  for (const ev of state.unknownEvents) {
-    if (ev.type !== 'NewCardLimitRaised') continue;
-    const p = (ev.payload ?? {}) as Partial<NewCardLimitRaisedPayload>;
-    const n = p.extra;
-    if (typeof p.raise_id !== 'string' || typeof n !== 'number' || !(n >= 1)) continue;
-    if (typeof p.raised_at !== 'number') continue;
-    if (Array.isArray(p.deck_ids) && p.deck_ids.length > 0 && !p.deck_ids.includes(deckId)) {
-      continue;
-    }
-    const tz = typeof p.tz_offset === 'number' ? p.tz_offset : tzOffsetMinutes;
-    if (getStudyDayIndex(p.raised_at, tz, dayStartHour) !== today) continue;
-    byRaise.set(p.raise_id, Math.max(byRaise.get(p.raise_id) ?? 0, Math.min(9999, Math.floor(n))));
-  }
   let extra = 0;
-  for (const v of byRaise.values()) extra += v;
+  for (const r of listNewCardRaises(state)) {
+    if (r.deckIds !== null && !r.deckIds.has(deckId)) continue;
+    if (!isRaiseOnDay(r, today, tzOffsetMinutes, dayStartHour)) continue;
+    extra += r.extra;
+  }
   return extra;
+}
+
+/** Remaining quota of one extra-new-cards raise while a queue is built. */
+interface RaisePool {
+  raise: NewCardRaise;
+  left: number;
+}
+
+/** A raise is at most this far from now when it is on today's study day (any offset / rollover). */
+const RAISE_WINDOW_MS = 3 * 86_400_000;
+
+/** First open pool that may take `card` today (deck, categories and study day all match). */
+function findRaisePool(
+  state: CollectionState,
+  pools: readonly RaisePool[],
+  card: Card,
+  nowMs: number,
+  tzOffsetMinutes: number,
+  globalDayStart: number,
+): RaisePool | undefined {
+  if (pools.length === 0) return undefined;
+  const dayStart = resolveDayStartHour(
+    state.decks.get(card.deck_id)?.settings.day_start_hour,
+    globalDayStart,
+  );
+  const todayIndex = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
+  return pools.find(
+    (p) =>
+      p.left > 0 &&
+      isRaiseOnDay(p.raise, todayIndex, tzOffsetMinutes, dayStart) &&
+      isCardInRaiseScope(state, p.raise, card),
+  );
+}
+
+/**
+ * Today's extra-new-card pools, each raise spent once for its whole scope. New cards first studied
+ * today beyond their deck's normal limit (in first-review order) already used the first matching
+ * pool, so the result depends only on the log, never on which deck or filter the queue is for.
+ */
+function openRaisePools(
+  state: CollectionState,
+  startedToday: ReadonlyArray<{ card: Card; at: number }>,
+  nowMs: number,
+  tzOffsetMinutes: number,
+  globalDayStart: number,
+): RaisePool[] {
+  const pools = listNewCardRaises(state)
+    .filter((r) => Math.abs(r.raisedAt - nowMs) <= RAISE_WINDOW_MS)
+    .map((raise) => ({ raise, left: raise.extra }));
+  if (pools.length === 0) return pools;
+  const ordered = [...startedToday].sort(
+    (a, b) => a.at - b.at || (a.card.id < b.card.id ? -1 : a.card.id > b.card.id ? 1 : 0),
+  );
+  const seenByDeck = new Map<string, number>();
+  for (const { card } of ordered) {
+    const limit = state.decks.get(card.deck_id)?.settings.new_cards_per_day ?? 0;
+    const seen = (seenByDeck.get(card.deck_id) ?? 0) + 1;
+    seenByDeck.set(card.deck_id, seen);
+    if (seen <= limit) continue;
+    const pool = findRaisePool(state, pools, card, nowMs, tzOffsetMinutes, globalDayStart);
+    if (pool) pool.left -= 1;
+  }
+  return pools;
 }
 
 /** Simple deterministic hash for reproducible daily random new-card ordering. */
@@ -86,11 +148,46 @@ function hashString32(input: string): number {
   return h >>> 0;
 }
 
+/** Orders one deck's new-card candidates by `new_card_order` (`random` is stable per study day). */
+function sortNewCandidates(
+  state: CollectionState,
+  candidates: Card[],
+  order: string,
+  day: { nowMs: number; tzOffsetMinutes: number; dayStart: number },
+): void {
+  if (order === 'random') {
+    const todayIndex = getStudyDayIndex(day.nowMs, day.tzOffsetMinutes, day.dayStart);
+    candidates.sort((a, b) => {
+      const ha = hashString32(`${todayIndex}:${a.id}`);
+      const hb = hashString32(`${todayIndex}:${b.id}`);
+      return ha - hb || (a.id < b.id ? -1 : 1);
+    });
+    return;
+  }
+  // Source order: by note.created_order, then layout order (Recognition before Production), then id
+  candidates.sort((a, b) => {
+    const oa = state.notes.get(a.note_id)?.created_order ?? 0;
+    const ob = state.notes.get(b.note_id)?.created_order ?? 0;
+    if (oa !== ob) return oa - ob;
+    if (a.layout_id !== b.layout_id) {
+      const aIsRec = a.layout_id.includes('recognition') ? 0 : 1;
+      const bIsRec = b.layout_id.includes('recognition') ? 0 : 1;
+      if (aIsRec !== bIsRec) return aIsRec - bIsRec;
+      return a.layout_id < b.layout_id ? -1 : 1;
+    }
+    if (a.variant !== b.variant) {
+      return a.variant - b.variant;
+    }
+    return a.id < b.id ? -1 : 1;
+  });
+}
+
 /**
  * Builds today's study queue for a deck or the whole collection.
  * Enforces:
  * - Study-day rollover (default 04:00 local time)
- * - Per-deck `new_cards_per_day` (plus custom-study extra new cards today) & `max_reviews_per_day`
+ * - Per-deck `new_cards_per_day` & `max_reviews_per_day`, plus custom-study extra new cards today
+ *   (each `NewCardLimitRaised` is one pool shared by its decks / categories, spent once)
  * - `new_card_order` (`source` | `random`)
  * - Sibling burying (§5.1): if one card of a `note_id` was reviewed today (or is queued),
  *   sibling cards of the same note are buried until the next study day.
@@ -118,6 +215,7 @@ export function buildStudyQueue(
   const reviewedNoteIdsToday = new Set<string>();
   const reviewsTodayByDeck = new Map<string, number>();
   const newCardsStartedTodayByDeck = new Map<string, number>();
+  const startedToday: Array<{ card: Card; at: number }> = [];
 
   for (const card of state.cards.values()) {
     const deck = state.decks.get(card.deck_id);
@@ -155,6 +253,7 @@ export function buildStudyQueue(
           card.deck_id,
           (newCardsStartedTodayByDeck.get(card.deck_id) ?? 0) + 1,
         );
+        startedToday.push({ card, at: firstActiveReviewTime });
       }
     }
   }
@@ -259,59 +358,41 @@ export function buildStudyQueue(
     finalDue.push(card);
   }
 
-  // Apply per-deck new_cards_per_day & new_card_order
+  // Apply per-deck new_cards_per_day & new_card_order, then custom-study extra new cards
+  const pools = openRaisePools(state, startedToday, nowMs, tzOffsetMinutes, globalDayStart);
   const deckIdsSorted = [...newCardsByDeck.keys()].sort();
   for (const dId of deckIdsSorted) {
     const deck = state.decks.get(dId);
-    if (!deck) continue;
-    const dayStart = resolveDayStartHour(deck.settings.day_start_hour, globalDayStart);
-    const todayIndex = getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
-    const alreadyStarted = newCardsStartedTodayByDeck.get(dId) ?? 0;
-    const newLimit =
-      deck.settings.new_cards_per_day +
-      getExtraNewCardsToday(state, dId, nowMs, tzOffsetMinutes, dayStart);
-    const remainingNewQuota = Math.max(0, newLimit - alreadyStarted);
-    if (remainingNewQuota === 0) continue;
-
     const candidates = newCardsByDeck.get(dId);
-    if (!candidates) continue;
-    if (deck.settings.new_card_order === 'random') {
-      candidates.sort((a, b) => {
-        const ha = hashString32(`${todayIndex}:${a.id}`);
-        const hb = hashString32(`${todayIndex}:${b.id}`);
-        return ha - hb || (a.id < b.id ? -1 : 1);
-      });
-    } else {
-      // Source order: by note.created_order, then layout order (Recognition before Production), then id
-      candidates.sort((a, b) => {
-        const na = state.notes.get(a.note_id);
-        const nb = state.notes.get(b.note_id);
-        const oa = na?.created_order ?? 0;
-        const ob = nb?.created_order ?? 0;
-        if (oa !== ob) return oa - ob;
-        if (a.layout_id !== b.layout_id) {
-          const aIsRec = a.layout_id.includes('recognition') ? 0 : 1;
-          const bIsRec = b.layout_id.includes('recognition') ? 0 : 1;
-          if (aIsRec !== bIsRec) return aIsRec - bIsRec;
-          return a.layout_id < b.layout_id ? -1 : 1;
-        }
-        if (a.variant !== b.variant) {
-          return a.variant - b.variant;
-        }
-        return a.id < b.id ? -1 : 1;
-      });
-    }
-
-    let taken = 0;
+    if (!deck || !candidates) continue;
+    let baseLeft = Math.max(
+      0,
+      deck.settings.new_cards_per_day - (newCardsStartedTodayByDeck.get(dId) ?? 0),
+    );
+    if (baseLeft === 0 && !pools.some((p) => p.left > 0)) continue;
+    const dayStart = resolveDayStartHour(deck.settings.day_start_hour, globalDayStart);
+    sortNewCandidates(state, candidates, deck.settings.new_card_order, {
+      nowMs,
+      tzOffsetMinutes,
+      dayStart,
+    });
     for (const card of candidates) {
-      if (taken >= remainingNewQuota) break;
+      const pool =
+        baseLeft > 0
+          ? undefined
+          : findRaisePool(state, pools, card, nowMs, tzOffsetMinutes, globalDayStart);
+      if (baseLeft === 0 && pool === undefined) {
+        if (!pools.some((p) => p.left > 0)) break;
+        continue;
+      }
       if (queuedNoteIds.has(card.note_id)) {
         buriedNoteIds.add(card.note_id);
         continue;
       }
       queuedNoteIds.add(card.note_id);
       finalNew.push(card);
-      taken += 1;
+      if (pool) pool.left -= 1;
+      else baseLeft -= 1;
     }
   }
 

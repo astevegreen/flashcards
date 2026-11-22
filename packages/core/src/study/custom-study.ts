@@ -36,8 +36,7 @@ export const STUDY_SET_NAME_MAX_LENGTH = 80;
 export const STUDY_SET_MODES: readonly StudySetMode[] = ['schedule', 'practice'];
 /** Longest review-ahead window custom study accepts. */
 export const MAX_REVIEW_AHEAD_DAYS = 365;
-/** Largest single "extra new cards today" raise. */
-export const MAX_EXTRA_NEW_CARDS = 9999;
+export { MAX_EXTRA_NEW_CARDS } from './new-card-raises.ts';
 
 const MS_PER_DAY = 86_400_000;
 
