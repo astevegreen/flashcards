@@ -60,6 +60,20 @@ export const OPEN_DATA_ATTRIBUTIONS: readonly DataLicenseAttribution[] = [
       'Licensed under Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0). Distributed as an optional standalone downloadable data pack.',
   },
   {
+    id: 'dict-krdict',
+    packId: 'dict-krdict',
+    name: 'Korean Basic Dictionary (한국어기초사전, KRDict) — English edition',
+    scope:
+      'Korean headwords with per-sense English equivalents and definitions, part of speech, learner level, standard pronunciation, Hanja origin, conjugations and example sentences',
+    licenseName: 'CC BY-SA 2.0 KR',
+    licenseUrl: 'https://creativecommons.org/licenses/by-sa/2.0/kr/',
+    sourceUrl: 'https://krdict.korean.go.kr/',
+    attribution:
+      '한국어기초사전 (Korean Basic Dictionary) © National Institute of Korean Language (국립국어원).',
+    noticeText:
+      'Text licensed under Creative Commons Attribution-ShareAlike 2.0 Korea (CC BY-SA 2.0 KR). Converted to the offline pack JSON format; share-alike applies to the dictionary data pack only, not to the Flashcards application code. Multimedia (pronunciation audio, images) is not included. The bundled dev/CI starter pack is a small hand-authored sample in the same format.',
+  },
+  {
     id: 'strokes-ja-kanjivg',
     packId: 'strokes-ja-kanjivg',
     name: 'KanjiVG (Japanese Stroke Order Data)',
