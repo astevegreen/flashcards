@@ -1,30 +1,68 @@
 # Follow-ups
 
-Open items left after the Phase 12/13/14 batch (PR #8). Tick an item off, or delete it, once it is resolved. Product decisions belong to the owner. Until one is made, the shipped default is the least-committal, reversible option described here.
+Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). Tick an item off, or delete it, once it is resolved. Product decisions belong to the owner. Until one is made, the shipped default is the least-committal, reversible option described here.
 
-## Next batch (decided 2026-11-22): Phase 14 code + the release blocker
+## Phase 14 batch: what landed (2026-11-22)
 
-- [ ] **Secure-store bridge for phone tokens (release blocker).** Add a small Keychain (iOS) / Keystore (Android) storage plugin and keep the Microsoft refresh token only there. `@capgo/capacitor-social-login` stays for the sign-in itself. Today it keeps tokens in UserDefaults/SharedPreferences, which Phase 14's compliance checklist forbids. Code: `packages/platform-capacitor` (`microsoft-social-login.ts`).
-- [ ] **Android Microsoft redirect.** The flow uses an in-app view. Using Custom Tabs needs a `flashcards://oauth` intent filter, and `AndroidManifest.xml` was not changed.
-- [ ] **"Sync my devices" default.** iOS/macOS devices default to iCloud (no sign-in). Android, Windows and web default to Google Drive. The other providers are always listed as alternatives.
-- [ ] **Add-device QR code or short link.** It carries the provider and collection, never tokens.
-- [ ] **Guided "Bring my cards" import.** Detects Flashcards Deluxe CSV, Anki `.apkg`, `.flashpkg` and Google Sheets.
-- [ ] **Curated starter decks** per language for onboarding (e.g. TOPIK 1 vocabulary, JLPT N5, HSK 1). They must be small, properly attributed and shipped in the app, replacing the sample decks in onboarding. Open questions for that batch: the source list and licence per deck, and deck size.
-- [ ] **Commit a Cloudflare Pages `_headers` file** to `apps/web/public`, with the CSP and `.wasm` headers from `docs/setup-gcp-cloudflare.md` §6, plus a test that keeps it in sync with `apps/web/csp.ts`.
-- [ ] **Anki `kana:` fields render readings only.** `漢字[かんじ]` becomes `かんじ`, matching Anki. Today they show as ruby.
-- [ ] **Anki field languages.** Keep automatic detection, but show the detected language per field in the import summary with a way to change it.
-- [ ] **Onboarding language order** (approved 2026-11-22). Don't preselect from the device locale, because the locale shows what people speak, not what they're learning. Put Korean first. On a Korean-locale device, put English first.
-- [ ] **Existing users never see onboarding** (approved 2026-11-22). It stays on empty collections only. Users with data but no sync provider get the existing one-time "Sync my devices" prompt instead.
-- [ ] **Empty-screen buttons** (approved 2026-11-22). Keep the sync button visible, renamed along the lines of "I already use this app: sync my devices" and tied to the add-device QR code. Drop "Load Sample Decks", which onboarding replaces.
-- [ ] **Re-offer onboarding after "Reset Local Device Data"** (approved 2026-11-22). Clear the `onboarding_v1` record on reset, so a reset behaves like a fresh install.
-- [ ] `docs/onboarding-review.md`, the audit with measured tester results on real devices. This needs real devices and non-technical testers, so it may not fit in a code batch.
+- [x] **Secure-store bridge for phone tokens (release blocker): code complete, not yet built natively.** `@flash/capacitor-secure-storage` (`packages/capacitor-secure-storage`): iOS Keychain (after first unlock, this device only, no iCloud sync) and an Android Keystore AES-GCM key over app-private SharedPreferences. The Microsoft refresh token, the Google and OneDrive session access tokens and the BYO TTS config live only there. Older copies are migrated at launch. Phone OneDrive refreshes go through CapacitorHttp, because the capgo plugin writes refreshed tokens back to plaintext storage. Google on Android had the same problem: the plugin writes the ID and access token, but no refresh token, to plaintext SharedPreferences, and the app now deletes that copy. Google on iOS uses the SDK's Keychain. Evidence with file and line: `docs/native-shells.md` "Phone secure storage".
+- [x] **Android Microsoft redirect:** Custom Tabs (`androidUseCustomTabs`) plus a `flashcards://oauth` intent filter. The plugin checks state and PKCE natively. Android Auto Backup now excludes the token SharedPreferences files.
+- [x] **"Sync my devices":** one button in Settings, on the empty screen and in the one-time prompt. iCloud is the default where an iCloud transport exists (iOS only today); Google Drive is the default elsewhere. The other providers are listed below it.
+- [x] **Add-device QR code and link (web build):** they carry the provider code and the manifest `collection_id` only. The receiving device parses them against an allow-list, strips them from the URL, and never shows onboarding while it joins a collection. Native shells show text instructions only (see the decisions below).
+- [x] **Guided "Bring my cards" import** in the Library. Detection reads the content, not the extension: Flashcards Deluxe/plain CSV and TSV, Anki `.apkg` (anki2/anki21/anki21b), `.flashpkg`, and Google Sheets links. It routes to the existing importers. Non-UTF-8 CSV and `.xls` files get a "Save as CSV UTF-8" hint.
+- [x] **Curated starter decks (partial):** "Korean Starter: Beginner Words" (145 notes: the NIKL 2003 level-A list under KOGL Type 1, with English meanings from Wikidata lexemes under CC0) and "Mandarin Basics: Common Characters" (150 characters from Unihan 17.0.0 under the Unicode License v3). Both are built by `scripts/build-starter-decks.mjs`, load lazily, and are attributed on every card and in `THIRD-PARTY-NOTICES.txt`. Japanese and English keep their sample decks (see the decisions below).
+- [x] **Cloudflare Pages `_headers`** is committed in `apps/web/public`. `apps/web/tests/headers.test.ts` keeps it in sync with `PRODUCTION_CSP` and with §6 of the setup guide.
+- [x] **Anki `kana:` / `kanji:` fields** store readings only or bases only, like Anki. A field used with mixed filters keeps ruby.
+- [x] **Anki field languages:** the detected language of each field is shown in the import summary, where it can be changed.
+- [x] **Anki suspended state** (`queue = -1`) imports as `CardSuspended` (reason `manual`), unless the card already has suspend history in the app. Buried cards import as normal.
+- [x] **Anki media:** every image and sound reference in a field is kept, up to 20 of each, with a warning when more are dropped.
+- [x] **Onboarding:** Korean is listed first (English first on a Korean-locale device), with nothing preselected. Onboarding appears only on empty collections; existing users with no sync get the one-time "Sync my devices" prompt. Empty screen: "I already use this app: sync my devices" and "Bring my cards"; "Load Sample Decks" is removed. Reset Local Device Data clears `onboarding_v1`.
+- [ ] `docs/onboarding-review.md`: it now holds a **developer-measured baseline** (Chromium Playwright on Windows: 2 taps; about 0.3 s on desktop and 1.1 s on a phone viewport) and templates for the real audit. The **tester audit on real devices** with non-technical testers is still to do, and it is the store-launch gate.
+
+## Owner decisions from the Phase 14 batch (defaults shipped)
+
+### Starter decks
+
+- [ ] **Japanese starter deck: blocked by licences.** JMdict/EDICT and KANJIDIC2 are CC BY-SA 4.0. The tanos JLPT lists are unclear (the site is gone, and the glosses likely come from EDICT). Unihan kJapanese readings are under licence from CITPC. Options: (a) accept CC BY-SA JMdict for a separately licensed deck; (b) a Unihan-only kanji deck (kJoyoKanji + kJapaneseOn/Kun + kDefinition, all Unicode License v3; weaker, with no frequency field and Chinese-oriented glosses); (c) keep the sample decks (the current default).
+- [ ] **Mandarin is common characters, not HSK 1.** Official HSK lists have no open licence, and HSK compilations embed CC-CEDICT glosses (CC BY-SA). Accept character cards, or allow HSK words under CC BY-SA?
+- [ ] **Korean is NIKL level A (beginner), not an official TOPIK I list**, which has no open licence.
+- [ ] **Deck size:** about 150 notes (`STARTER_DECK_SIZE` in `scripts/build-starter-decks.mjs`). The Korean deck has 145, because only that many level-A words had an unambiguous CC0 gloss.
+- [ ] **Gloss quality:** the Wikidata glosses are never hand-edited, and some are vague or encyclopedic (개 "domestic animal"). Unihan's `kDefinition` is terse. Spot-check them.
+- [ ] **Korean homographs** (그, 이, 일, 팔) have the same front and differ only on the back. Showing part of speech or hanja on the front would change the `vocab-ko` template.
+- [ ] **Attribution placement:** a one-line credit is in every card's Notes field. Onboarding doesn't show the deck description or credits yet; `OnboardingDeckInfo` carries both. Consider listing the sources in Settings > About & Open Data Licenses too.
+- [ ] **Any English starter deck?** No open source has been evaluated yet.
+
+### Sync and add-device
+
+- [ ] **Native add-device QR code and link.** Native shells (Capacitor, Tauri) show text instructions only, because their origins can't be shared and no app link exists. Options: a public app URL with Android App Links and iOS associated domains (blocked on the §16 domain decision), or a `flashcards://add-device` deep link.
+- [ ] **macOS has no iCloud transport**, so the macOS desktop app defaults to Google Drive. Build one?
+- [ ] **Duplicate Google Drive entry in Settings:** "Sync my devices (uses Google Drive)" sits above the existing "Connect Google Drive" button.
+- [ ] **A collection mismatch only warns, with a Dismiss button.** The engine has already adopted the other collection.
+- [ ] **A device with cards opened from an add-device link** is sent to Settings once per page load.
+
+### Import
+
+- [ ] **Bring my cards imports a detected `.apkg` right away**, with review history off (the owner default). To include history, tick the box and pick the file again. Show a pre-import summary with an Import button instead?
+- [ ] **`kana:` / `kanji:` filters are applied at import time**, so the dropped text can't be recovered in the app. A reversible alternative is to keep ruby and add a per-layout "readings only" / "bases only" render flag.
+- [ ] **Flashcards Deluxe / generic CSV mapping:** Bring my cards imports into a new deck with `preset:vocab-ko`, mapping columns by position. Add a Front/Back preset or a column-mapping step?
+- [ ] **Imported suspensions use reason `manual`.** A separate `imported` reason would need an event schema change.
+- [ ] **A pasted Google Sheets link** returns 404 under `drive.file` when the app was never granted that file; the UI then suggests the Picker. Acceptable?
+
+### Phone secure storage
+
+- [ ] The BYO cloud TTS key (`tts_config_v1`) also moved to Keychain/Keystore, beyond the spec. On a fresh install the app wipes leftover Keychain items, because iOS keeps them across reinstalls. If the Keystore key is lost, every stored secret is dropped and the user signs in again, with no message.
+- [ ] The plugin's WebView fallback, used only when no browser at all can open the sign-in page, is kept.
+- [ ] The SQLite database is still included in Android backups; only the token files are excluded.
 
 ## Not verified on real devices or services
 
 Only Chromium Playwright with faked endpoints has covered these.
 
+- [ ] **First Gradle and Xcode builds of `@flash/capacitor-secure-storage`.** The Java and Swift code has never been compiled: the build machine has no JDK, Android SDK or Xcode. Then on devices: the Keychain/Keystore round trip, the Custom Tabs OneDrive redirect (including a WebView older than Chromium M130), migration of an existing plaintext token on upgrade, backup exclusions, and the CapacitorHttp refresh against real Entra.
+- [ ] Recheck the capgo plugin's internal plaintext key names (`packages/platform-capacitor/src/secure/secure-store.ts` and the native allowlists) on every `@capgo/capacitor-social-login` upgrade. They are pinned for 8.7.x.
+- [ ] Add-device QR codes scanned with a real phone camera.
+- [ ] Second device fully synced within 2 minutes with one sign-in (the Phase 14 target). It has not been measured, because the e2e sign-in is faked.
 - [ ] Tauri loopback Microsoft sign-in end to end, including whether `tauri-plugin-http` sends an `Origin` header that Entra rejects (AADSTS9002327).
-- [ ] Capacitor Microsoft sign-in on Android and iOS, including whether `SocialLogin.initialize` with the oauth2 config keeps the existing Google provider config on Android.
+- [ ] Capacitor Microsoft sign-in on Android and iOS. From reading the code, `SocialLogin.initialize` with only the oauth2 config re-creates only that provider and keeps the Google config, but this hasn't been seen on a device.
 - [ ] OneDrive download and upload-session URLs allowing CORS from the Capacitor and Tauri WebView origins.
 - [ ] Real Microsoft Graph and Entra behaviour, against a real app registration (`docs/setup-microsoft.md`).
 - [ ] Tauri attaching its CSP to Worker script responses, so the FSRS optimizer and the Anki SQLite WASM run under `'wasm-unsafe-eval'`.
@@ -40,12 +78,17 @@ Only Chromium Playwright with faked endpoints has covered these.
 
 ## Still open
 
+### Small code follow-ups
+
+- [ ] Export the OneDrive session KV key from `packages/platform-web/src/auth/microsoft-native-auth.ts` and import it in `secure-store.ts`. Today it is duplicated, and a test guards the duplicate.
+- [ ] Scrub SQLite free pages after the secure-store migration (`PRAGMA secure_delete` or a one-time `VACUUM`).
+- [ ] `apps/web/public/packs/_headers` has a `/*` block that Cloudflare Pages ignores, because only the root `_headers` file applies. Check whether it is meant only for the packs CDN.
+- [ ] The byte-identical starter-deck rebuild is checked only where the upstream cache exists. Run `node scripts/build-starter-decks.mjs --check` before changing the generated decks.
+
 ### Anki extras (owner: no preference; proposed defaults)
 
-- [ ] **Suspended state:** import it (`CardSuspended` events). Proposed: yes, cheap and expected.
-- [ ] **All media per field:** keep every image and audio reference, not just the first. Proposed: yes.
 - [ ] **Current scheduling:** seed FSRS from Anki's due/interval/ease when review history isn't imported. Proposed: no for now, because the mapping from SM-2 state is lossy.
-- [ ] **`.colpkg` full backups.** Proposed: later.
+- [ ] **`.colpkg` full backups.** Proposed: later. Bring my cards currently routes a raw `.colpkg` to the Anki importer.
 - [ ] **Older builds and `NoteTagsAdded`.** Builds from before `NoteTagsAdded` keep the event as unknown and don't show the tag. Acceptable before launch.
 
 ### OneDrive later
