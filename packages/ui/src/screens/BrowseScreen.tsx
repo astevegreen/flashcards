@@ -71,6 +71,12 @@ const LazyTagManagerPanel = lazy(() =>
 const LazyBulkEditBar = lazy(() =>
   import('../browse/BulkEditBar.tsx').then((m) => ({ default: m.BulkEditBar })),
 );
+const LazyNoteDetailPane = lazy(() =>
+  import('../browse/NoteDetailPane.tsx').then((m) => ({ default: m.NoteDetailPane })),
+);
+
+/** Selected split-view row: highlighted only once the detail pane is beside the list. */
+const SELECTED_BROWSE_ROW_CLASS = '@3xl:bg-[var(--accent-soft)]';
 
 export interface BrowseScreenProps {
   onOpenSettings?: () => void;
@@ -104,6 +110,8 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   // Bulk edit selection (Phase 9). Only notes in the visible list count; see `selectedVisible`.
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const parentRef = useRef<HTMLDivElement | null>(null);
+  // Tablet / desktop list + detail split view (Phase 13): the detail pane shows this note.
+  const [detailNoteId, setDetailNoteId] = useState<string | null>(null);
 
   const decks = useMemo(
     () =>
@@ -234,6 +242,8 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
     });
   };
 
+  const detailNote = filteredNotes.find((n) => n.id === detailNoteId) ?? filteredNotes[0];
+
   const rowVirtualizer = useVirtualizer({
     count: filteredNotes.length,
     getScrollElement: () => parentRef.current,
@@ -242,7 +252,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   });
 
   return (
-    <section className="flex flex-1 flex-col gap-4">
+    <section className="@container flex flex-1 flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold tracking-tight">
@@ -473,11 +483,11 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
             </Suspense>
           )}
 
-          {/* Virtualized scroll container (§8) */}
+          {/* Virtualized scroll container (§8); 3/5 of the width in the split view */}
           <div
             ref={parentRef}
             data-testid="browse-list"
-            className="h-[calc(100dvh-13rem)] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)]"
+            className="h-[calc(100dvh-13rem)] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] @3xl:w-[calc(60%-0.375rem)]"
           >
             {filteredNotes.length === 0 ? (
               <div className="flex h-full items-center justify-center p-8 text-sm text-[var(--muted)]">
@@ -531,7 +541,10 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                         height: `${virtualRow.size}px`,
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
-                      className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4"
+                      data-selected={detailNote?.id === note.id ? 'true' : undefined}
+                      className={`flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 ${
+                        detailNote?.id === note.id ? SELECTED_BROWSE_ROW_CLASS : ''
+                      }`}
                     >
                       <input
                         type="checkbox"
@@ -593,7 +606,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                           {note.tags.slice(0, 2).map((tag) => (
                             <span
                               key={tag}
-                              className="hidden rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[11px] text-[var(--muted)] sm:inline"
+                              className="hidden rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[11px] text-[var(--muted)] sm:inline @3xl:hidden"
                             >
                               #{tag}
                             </span>
@@ -602,6 +615,17 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                             {deck?.language ?? ''}
                           </span>
                         </div>
+                      </button>
+
+                      {/* Split view: picks the note shown in the detail pane (keyboard / D-pad too) */}
+                      <button
+                        type="button"
+                        data-testid={`browse-show-${note.id}`}
+                        aria-pressed={detailNote?.id === note.id}
+                        onClick={() => setDetailNoteId(note.id)}
+                        className="hidden shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-[11px] font-semibold text-[var(--fg)] hover:border-[var(--accent)] @3xl:inline-flex"
+                      >
+                        Details
                       </button>
 
                       {note.archived && (
@@ -648,6 +672,15 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
               </div>
             )}
           </div>
+
+          {/* Split view detail pane: beside the list (pulled up by the list height + gap) */}
+          {detailNote && (
+            <div className="hidden @3xl:-mt-[calc(100dvh-12rem)] @3xl:ml-[calc(60%+0.375rem)] @3xl:block @3xl:h-[calc(100dvh-13rem)] @3xl:overflow-y-auto">
+              <Suspense fallback={null}>
+                <LazyNoteDetailPane note={detailNote} onEdit={setEditingNote} />
+              </Suspense>
+            </div>
+          )}
 
           <NoteEditDialog
             note={editingNote}
