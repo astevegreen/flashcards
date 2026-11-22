@@ -1,8 +1,8 @@
-import type { SampleDeckInfo } from '@flash/core/samples';
 import type { Storage } from '@flash/platform';
 import { use, useState } from 'react';
 import { FirstRunOnboarding } from '../onboarding/FirstRunOnboarding.tsx';
 import { onboardingRecordResource, saveOnboardingRecord } from '../onboarding/onboardingState.ts';
+import type { OnboardingDeckInfo } from '../onboarding/starterDecks.ts';
 
 const SECONDARY_BUTTON_CLASS =
   'rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-2.5 text-sm font-semibold hover:bg-[var(--surface-2)]';
@@ -30,7 +30,7 @@ export function EmptyCollection({
   onOpenSettings: (() => void) | undefined;
   onLoadSamples: () => void;
   /** Seeds the starter deck; rejects when it could not be loaded (onboarding stays open). */
-  onStartWithDeck: (deck: SampleDeckInfo) => Promise<void>;
+  onStartWithDeck: (deck: OnboardingDeckInfo) => Promise<void>;
 }) {
   const record = use(onboardingRecordResource(storage));
   const [onboardingOpen, setOnboardingOpen] = useState(record === undefined);
@@ -45,7 +45,7 @@ export function EmptyCollection({
 
   // The device is marked onboarded only once the deck is in the collection: if the samples chunk
   // fails to load, the user stays in onboarding with an error and can retry.
-  const startWithDeck = async (deck: SampleDeckInfo) => {
+  const startWithDeck = async (deck: OnboardingDeckInfo) => {
     if (starting) return;
     setStarting(true);
     setStartError(undefined);

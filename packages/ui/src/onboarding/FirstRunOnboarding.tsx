@@ -1,5 +1,5 @@
-import { SAMPLE_DECKS, type SampleDeckInfo } from '@flash/core/samples';
 import { useState } from 'react';
+import { ONBOARDING_DECKS, type OnboardingDeckInfo } from './starterDecks.ts';
 
 /**
  * First-run onboarding (Phase 13, held to the Phase 14 bar): pick a language, then a starter
@@ -23,14 +23,16 @@ function languageLabel(language: string): { name: string; native: string } {
 }
 
 /** Languages that have at least one starter deck, in sample-deck order. */
-export function onboardingLanguages(decks: readonly SampleDeckInfo[] = SAMPLE_DECKS): string[] {
+export function onboardingLanguages(
+  decks: readonly OnboardingDeckInfo[] = ONBOARDING_DECKS,
+): string[] {
   return [...new Set(decks.map((d) => d.language))];
 }
 
 export function starterDecksFor(
   language: string,
-  decks: readonly SampleDeckInfo[] = SAMPLE_DECKS,
-): SampleDeckInfo[] {
+  decks: readonly OnboardingDeckInfo[] = ONBOARDING_DECKS,
+): OnboardingDeckInfo[] {
   return decks.filter((d) => d.language === language);
 }
 
@@ -49,7 +51,7 @@ export function FirstRunOnboarding({
   busy = false,
   error,
 }: Readonly<{
-  onPickDeck: (deck: SampleDeckInfo) => void;
+  onPickDeck: (deck: OnboardingDeckInfo) => void;
   onSkip: () => void;
   /** A starter deck is loading: deck choices are disabled. */
   busy?: boolean;

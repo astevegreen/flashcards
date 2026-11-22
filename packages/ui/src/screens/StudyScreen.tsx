@@ -309,18 +309,13 @@ function CaughtUpPanel({
  * Rejects when the samples chunk cannot load (stale deploy, offline cache miss), so the caller
  * can keep onboarding open and let the user retry.
  */
-async function startWithSampleDeck(
+// Onboarding decks live behind one seam (`onboarding/starterDecks.ts`), loaded only on demand.
+async function startOnboardingDeck(
   slug: string,
   app: Pick<AppContextValue, 'getEventFactory' | 'setActiveDeckId' | 'emitEvents'>,
 ): Promise<void> {
-  const samples = await import('@flash/core/samples');
-  const events = samples.buildSampleDeckEvents(
-    app.getEventFactory(),
-    samples.SAMPLE_SEED_EPOCH_MS,
-    { deckSlugs: [slug] },
-  );
-  app.setActiveDeckId(samples.sampleDeckId(slug));
-  app.emitEvents(events);
+  const decks = await import('../onboarding/starterDecks.ts');
+  await decks.startOnboardingDeck(slug, app);
 }
 
 export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps) {
@@ -764,7 +759,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           onOpenSettings={onOpenSettings}
           onLoadSamples={loadSampleDecks}
           onStartWithDeck={(deck) =>
-            startWithSampleDeck(deck.slug, { getEventFactory, setActiveDeckId, emitEvents })
+            startOnboardingDeck(deck.slug, { getEventFactory, setActiveDeckId, emitEvents })
           }
         />
       </Suspense>
