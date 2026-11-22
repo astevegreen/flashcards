@@ -1,6 +1,7 @@
 import type {
   Auth,
   DictionaryService,
+  FsrsOptimizer,
   GooglePickerAdapter,
   GoogleSourcesClient,
   HandwritingRecognizer,
@@ -322,6 +323,11 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     return cachedDictionaryService;
   };
 
+  const getFsrsOptimizer = async (): Promise<FsrsOptimizer> => {
+    const { createWebFsrsOptimizer } = await import('./fsrs/web-fsrs-optimizer.ts');
+    return createWebFsrsOptimizer();
+  };
+
   const getPurchase = async (): Promise<Purchase> => {
     if (!cachedPurchase) {
       const { WebLicensePurchase } = await import('./purchase/web-license-purchase.ts');
@@ -387,5 +393,6 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     getHandwritingRecognizer,
     getDictionaryService,
     getPurchase,
+    getFsrsOptimizer,
   };
 }
