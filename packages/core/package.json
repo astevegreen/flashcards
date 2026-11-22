@@ -49,6 +49,10 @@
       "types": "./src/samples/decks.ts",
       "default": "./src/samples/decks.ts"
     },
+    "./starters": {
+      "types": "./src/starters/index.ts",
+      "default": "./src/starters/index.ts"
+    },
     "./snapshot": {
       "types": "./src/events/snapshot.ts",
       "default": "./src/events/snapshot.ts"

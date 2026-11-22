@@ -1,0 +1,1026 @@
+{
+  "source": "Wikidata lexemes (CC0 1.0), one pinned revision each",
+  "query": "Korean lexemes with an English gloss whose lemma is a NIKL level-A word",
+  "lexemes": [
+    {
+      "id": "L17",
+      "revision": 2378642305,
+      "sha256": "7191f8b5b5d727a8b790b04a7d45eb83eb6ad141c9027f83f96725b52dcc026b"
+    },
+    {
+      "id": "L43",
+      "revision": 2384726422,
+      "sha256": "7f9316b309f4d7e0e02d0b266ffe1b40a3fb616a64c53fffdd2d878d39c88d9d"
+    },
+    {
+      "id": "L130",
+      "revision": 2273442127,
+      "sha256": "a68a54bbb59d6eba5035b6ff9d6b076ed8b958ad5b486b1ef0f61ccf1230a5f5"
+    },
+    {
+      "id": "L131",
+      "revision": 2514912783,
+      "sha256": "70a9498895430b06f8d001a84884a57af4253b06f1c7d6409079887482d0f453"
+    },
+    {
+      "id": "L132",
+      "revision": 2026117874,
+      "sha256": "d446ed72a33cc0dc57149d7f7647e88b4bd3262954e97d4f6c2f60abb092e746"
+    },
+    {
+      "id": "L140",
+      "revision": 2379368976,
+      "sha256": "b4144459452a492f92752ddbe9974f4ccc76edb66ab517035ac468ea61ee321b"
+    },
+    {
+      "id": "L147",
+      "revision": 1815886426,
+      "sha256": "a0f5f737f82e94e586faac70591c0ca57781117bc17cae8f5080a3258a044bd3"
+    },
+    {
+      "id": "L148",
+      "revision": 1815884123,
+      "sha256": "a549f7ebc905a04cd211488ff04e9867720391d025aad7f6384d149b98de38a3"
+    },
+    {
+      "id": "L154",
+      "revision": 2273449779,
+      "sha256": "0063b81ba66b7eec1f324f1dd97ab0c4307ac9b39dcbac3ffeff638133ae7834"
+    },
+    {
+      "id": "L157",
+      "revision": 2502817715,
+      "sha256": "726e8b06a30b5e264d73af420828f1360cc882e078466a66e946a84c2abcc2c9"
+    },
+    {
+      "id": "L159",
+      "revision": 2514914598,
+      "sha256": "cb2c32358da30d71d66023494259ff80c9f534cbeb8021a7f54384ca435f67b4"
+    },
+    {
+      "id": "L191",
+      "revision": 2183694513,
+      "sha256": "5e10ea4e8c1bbd22e44ca4826260321b46129fd29ecc1478561e426ad8ca503d"
+    },
+    {
+      "id": "L195",
+      "revision": 1815509602,
+      "sha256": "811bed1fe0f9f3fe5cb4384818506473d90a16be0b93feeefe267c15d811ad50"
+    },
+    {
+      "id": "L196",
+      "revision": 1815587274,
+      "sha256": "fbd464a4a90094730f56001a19f25a3f3c6bab43655242a7db1039fbef9503af"
+    },
+    {
+      "id": "L197",
+      "revision": 2514333237,
+      "sha256": "2654a447388fe16d2d2d8f671af3e9f34eebea2198f91a06bf3ebf9dbeeb0848"
+    },
+    {
+      "id": "L204",
+      "revision": 2273438265,
+      "sha256": "35f48dbbbf1807a2f4ba7d926a99fd24c48f70e552d6d253a859fcca6cc8450f"
+    },
+    {
+      "id": "L207",
+      "revision": 2514912086,
+      "sha256": "5aa52c3991d0b22743743b527b2b8598db00d3fc19fe78f4cebdfc53fd085781"
+    },
+    {
+      "id": "L222",
+      "revision": 2514335187,
+      "sha256": "1a65e9147cbdc7d399c2f58996232f4f20a71055b8a9e7c0a3f6772ff3afc4f7"
+    },
+    {
+      "id": "L226",
+      "revision": 2296562153,
+      "sha256": "6a7e7e616817eadebe97cdf671c41d4be5b96b0dc2b2fc1dc44b8831904707b0"
+    },
+    {
+      "id": "L246",
+      "revision": 2273445152,
+      "sha256": "26273ae1929b9e51a0f526064441a04f5ae7e30ae3b5a4c15508fad441d38efd"
+    },
+    {
+      "id": "L254",
+      "revision": 1815569463,
+      "sha256": "7353992df512e8229b0247b1fdc5df8f9cd4e9dd33d71d0f84bee68802a4a3c9"
+    },
+    {
+      "id": "L328",
+      "revision": 2514337725,
+      "sha256": "c2b8c55de6c12c37480764fca82bc61fdac0ac3277eb40f3a4f90383f669d6ea"
+    },
+    {
+      "id": "L331",
+      "revision": 2514336388,
+      "sha256": "1fc4278dcf20f24012531a97cc85540aed0a0df2310107507428d41c2aaa1caa"
+    },
+    {
+      "id": "L765",
+      "revision": 2306377984,
+      "sha256": "75d28a3c989ffb797e46433c9c04e738dabd39715e8c90c8f56c02f12318c840"
+    },
+    {
+      "id": "L1226",
+      "revision": 1815885436,
+      "sha256": "e52e9b9e8f3c7446d0b1df25735208d6cdbfdc245e85eb0fc3b2f2e331032be6"
+    },
+    {
+      "id": "L1227",
+      "revision": 1815883193,
+      "sha256": "637ad3d7cd8f105b47cedfc8dd45f8e5e37338d40db8f14dec2b98ee57f8d533"
+    },
+    {
+      "id": "L1228",
+      "revision": 1953837657,
+      "sha256": "bb89df3963b6742c6d3fcc63a20a6f6fba8144171729ca8137f14522e411908d"
+    },
+    {
+      "id": "L1229",
+      "revision": 2273439065,
+      "sha256": "5c13b67e648b415ed2b73f18d19da41c114d60e5e45206679dcfd3d585b66256"
+    },
+    {
+      "id": "L6538",
+      "revision": 1815510982,
+      "sha256": "f7e93b29f6c89ec38e241f3c966fe10e66104b610ca60e2697f197b034e5e8f7"
+    },
+    {
+      "id": "L6545",
+      "revision": 2215163234,
+      "sha256": "734967a3f66ecb4f84be88a081117506205ddae4b42f58909d22207746e4e2e1"
+    },
+    {
+      "id": "L6625",
+      "revision": 1814787137,
+      "sha256": "2b3a24e9235288dd581d924fa4ecedbb3619c91628dd862135907625f822c98b"
+    },
+    {
+      "id": "L8330",
+      "revision": 1759284523,
+      "sha256": "5d6078c46aec465cfbf31a60f7543140e5aac145c1eb3753a2721f6081d5c541"
+    },
+    {
+      "id": "L30566",
+      "revision": 2514915227,
+      "sha256": "80a6baec24fff1f4cd40ce201971d09b116263fd948fbcfe09dc610cc3c1464d"
+    },
+    {
+      "id": "L30571",
+      "revision": 2150734059,
+      "sha256": "1e422e10ae4e8465f422714ce45d291d8a5e462e97d31d06c970b0682c931867"
+    },
+    {
+      "id": "L43550",
+      "revision": 2150732693,
+      "sha256": "2af474e5662ab9e824b3e15b7b807377c8e3cb44d56d1435ad6b74e8b5e4e1b5"
+    },
+    {
+      "id": "L58960",
+      "revision": 2211121225,
+      "sha256": "3ff72fabf2e39196f87ea6a00f076b7ce8f923d9e7f6f743aa1f25927bd5244d"
+    },
+    {
+      "id": "L221414",
+      "revision": 2150737671,
+      "sha256": "b4726705ef6029bb2e53945157b7930595dd44a44d61fe6a053d887efdf3202e"
+    },
+    {
+      "id": "L267659",
+      "revision": 2150733018,
+      "sha256": "a69badee9049e77a077a3692473866dee8acc2df02ba03e8125f7dcbce464a57"
+    },
+    {
+      "id": "L269895",
+      "revision": 1788494177,
+      "sha256": "8c1319b28820ee7fbe6b2c8b1629b6ea1eb879050dfc267cee8c6e7268459cf9"
+    },
+    {
+      "id": "L269896",
+      "revision": 2150733054,
+      "sha256": "003b8b322bf1495605693c0c4fd1ed74a759a0f478eec6065063c5357dae543d"
+    },
+    {
+      "id": "L269897",
+      "revision": 1788609090,
+      "sha256": "f59b8c1369189bfe59785e9a41e65ebbc0dbc02d711d1aff5f6a602c23133961"
+    },
+    {
+      "id": "L269902",
+      "revision": 2295877242,
+      "sha256": "286784880e8178629999863b1dbbc8d14606225c782a21ff03604c52edaef8a5"
+    },
+    {
+      "id": "L269903",
+      "revision": 1815507853,
+      "sha256": "bae9e45040d82fe66b82b684d1710451ec486e503696459301dd53742c98f26b"
+    },
+    {
+      "id": "L269905",
+      "revision": 2150738902,
+      "sha256": "579b5a7663b81f611242ee2eda367245fafc068348beb92e79ef9846534b8a7a"
+    },
+    {
+      "id": "L269907",
+      "revision": 2387998061,
+      "sha256": "6bb359963a59b31c722e1865a4d741c2e8019183b208c3567c60c40218bbb101"
+    },
+    {
+      "id": "L301202",
+      "revision": 2487162622,
+      "sha256": "292cbb9b9b33d078caecd74a651dc910366c403039210069d61f35de6c9c4b13"
+    },
+    {
+      "id": "L404580",
+      "revision": 1759296399,
+      "sha256": "93c6fa4dc35cca0fc9baa7e00c6f5583db56f7bf6c9a765f63f84565c3ec75a5"
+    },
+    {
+      "id": "L404581",
+      "revision": 2263378461,
+      "sha256": "4e73e2fd0cf750cea5d5cd6916195240cc31bab4e88b31edab8bd476dfa7e32d"
+    },
+    {
+      "id": "L406980",
+      "revision": 1758020668,
+      "sha256": "3c92a6312ff1b10e24bfc9c2ea119fa38210fc3f1816877ec6c1a9821bd800ac"
+    },
+    {
+      "id": "L406981",
+      "revision": 1759303345,
+      "sha256": "3c4f9f82cb28eab69852ed0fe6190fd3d6ecce768bdc1618e5cbd5daa3928bac"
+    },
+    {
+      "id": "L630824",
+      "revision": 2150733111,
+      "sha256": "f9a1faf43eb923e903f568f5e13348cf8ad0f63ceaba3e7e258379cf43c12069"
+    },
+    {
+      "id": "L642780",
+      "revision": 2150733903,
+      "sha256": "acd19a13bd7105f5bbd0f230918098068218889bfa9fd6eb4dd6421c00e75e00"
+    },
+    {
+      "id": "L656566",
+      "revision": 2265472614,
+      "sha256": "558e885d2e0dee111e318c3bbfa6538e28daabb6b63bcd3bd4de78b2228c3d98"
+    },
+    {
+      "id": "L688556",
+      "revision": 1758312793,
+      "sha256": "2df5b1fdb15ed4f5bd26d2ad3e70e950b9e9ab0525ac67ac5e4d31c89b763629"
+    },
+    {
+      "id": "L701012",
+      "revision": 1758018398,
+      "sha256": "d265ebc7696095036ebbb27a1ad1ba9427c3eb14a2a759dd96789fbc127fe311"
+    },
+    {
+      "id": "L719245",
+      "revision": 1815671822,
+      "sha256": "8df91f6d3f3b2e688cfb8384a5461397dc7021f433ecac44e8ce630abc75b774"
+    },
+    {
+      "id": "L719246",
+      "revision": 2219940372,
+      "sha256": "9bb1f9273df42bac9ee4d7848e848c935af595650c6d9a4bf370bfa017198aa7"
+    },
+    {
+      "id": "L719247",
+      "revision": 1815676578,
+      "sha256": "dadfd55df55de89fd80e66b2a294d08add7b523dea80d3b4793b51a0b7120c0a"
+    },
+    {
+      "id": "L719248",
+      "revision": 2273441768,
+      "sha256": "cd2be682468477ebe217075a2ac32abdb2872e3fb8ab4142c3b6ef550bdefff7"
+    },
+    {
+      "id": "L719341",
+      "revision": 2514912121,
+      "sha256": "e6ba9aab1cb47ae67d5877c1c85498e7a30f8b8fc2c9475c85c5cb21f1c77757"
+    },
+    {
+      "id": "L719342",
+      "revision": 1815681939,
+      "sha256": "b5c9421b9d2e13db9fd3870783c8d5df6b350f890c25e982b4ba0cc97a22e75a"
+    },
+    {
+      "id": "L721948",
+      "revision": 1759286616,
+      "sha256": "7909df12b1e727de8cba7c5bb15a07a8cf4fc2c9bf59c5d20af278a2a4fcc0d4"
+    },
+    {
+      "id": "L722045",
+      "revision": 2150738108,
+      "sha256": "bd5f9e34969e962adad7b7a97689fd6656212b299404dcd4fcaae65772bc0df0"
+    },
+    {
+      "id": "L722047",
+      "revision": 2274207392,
+      "sha256": "104f467bdc823aa63870c58276b573c1200bb7e9961e7571987125f4b8027ef6"
+    },
+    {
+      "id": "L722050",
+      "revision": 2215721253,
+      "sha256": "fa697e27bc4cf95de93f2b3847b3221c7709838a00e4ae905ce41e18366e1766"
+    },
+    {
+      "id": "L724732",
+      "revision": 1761953797,
+      "sha256": "1b6fa5bcaf351586e7791c9480a0929a4f9e08c12946f37545c83d602c9cdd32"
+    },
+    {
+      "id": "L724739",
+      "revision": 2268806536,
+      "sha256": "6bbab9c49c9e4344e983642c8c20e485e433374cb6f0e07076787c7f0eed6354"
+    },
+    {
+      "id": "L729527",
+      "revision": 2382038627,
+      "sha256": "32aca7285d18e4bc7fda8355280f69628cecd587f9f32037433e5da970712fd2"
+    },
+    {
+      "id": "L729529",
+      "revision": 2382038711,
+      "sha256": "7d14ae3f55ddfc5450be417822ce8dac945faffffe4a3bf9cec3029f53d916c7"
+    },
+    {
+      "id": "L729546",
+      "revision": 1780450842,
+      "sha256": "ed83ed361a4cb691c9546d44aa7aa53604b07a61ff623de402fe0afa1f9e18d6"
+    },
+    {
+      "id": "L729559",
+      "revision": 2436996780,
+      "sha256": "d2be08fd018c2715432f45cda5468fc5c585323f2243fe02712ef7e9101d1031"
+    },
+    {
+      "id": "L729571",
+      "revision": 2514207767,
+      "sha256": "87023eb534ab0cb64295eafccc097a12629d7d7f665c4b3a941895c1e5a48da5"
+    },
+    {
+      "id": "L729573",
+      "revision": 2382030873,
+      "sha256": "56d6d7ded6f30fddbf9d6304c7a738a1269c0071f3ffcbcfae0a18c9bb48c934"
+    },
+    {
+      "id": "L731048",
+      "revision": 2386643799,
+      "sha256": "9ddceab45b008c5cab235bd137ff2bfbcc9e24ebde27d9e50a609fb381ac6473"
+    },
+    {
+      "id": "L740723",
+      "revision": 1954113597,
+      "sha256": "9390086446889270d0ab9bc875f3f42f3f663eeeb7a677e2e37838cff8001b43"
+    },
+    {
+      "id": "L741212",
+      "revision": 1780439962,
+      "sha256": "5e7823dd060acb2789b1ddc2dc1fb63085d74d507fd3e7a21868a38ced9da862"
+    },
+    {
+      "id": "L741213",
+      "revision": 2215802910,
+      "sha256": "750589a257880fd6f72b720f8f63af042255910ba4c70feabe155ecf3f75e0e1"
+    },
+    {
+      "id": "L741214",
+      "revision": 2289004629,
+      "sha256": "30dbded1dfcd47352bc7e0902ff3e16fbf3cee1e26330bb999754af466425e91"
+    },
+    {
+      "id": "L741216",
+      "revision": 1805251015,
+      "sha256": "31999187a0767ed250af7b3b3c51a02f101bf4e89fac65cf5a225981bf6f3f88"
+    },
+    {
+      "id": "L741218",
+      "revision": 2386339644,
+      "sha256": "5104fcbdda25f07cd3e16a2d8ff6ee659ffe5c45528e4607b426a90b76fb7ec0"
+    },
+    {
+      "id": "L741231",
+      "revision": 1958334488,
+      "sha256": "c3b0b5c9bd61c3ca3fee55ab96cc626fdf86dcf3dec8663754e31f415dcf65cd"
+    },
+    {
+      "id": "L741729",
+      "revision": 1781335771,
+      "sha256": "08885ba6842d185199e881c89069a164eed3a399f4a116124e5af3dd770a0906"
+    },
+    {
+      "id": "L741730",
+      "revision": 1781340563,
+      "sha256": "5dad548a2bcbecce44aaa22cbd747ff25a264d2d47a0ba3f6a700c80f45de3bb"
+    },
+    {
+      "id": "L741731",
+      "revision": 1954606616,
+      "sha256": "4adc8cbe6b1c1ccff3d78d765eb6d1fef7edf1ecc61f6679f22136e966eaeb1d"
+    },
+    {
+      "id": "L741734",
+      "revision": 2379397609,
+      "sha256": "791cae07507840fbc7f4893c5645e4b2be5b7a24525a18fec9970c0c3e9e09ff"
+    },
+    {
+      "id": "L742360",
+      "revision": 1782481849,
+      "sha256": "4b7c84433c4893534da6c08724385c301a2a254cd0ab67cf87401bf3a893a395"
+    },
+    {
+      "id": "L742361",
+      "revision": 1782481829,
+      "sha256": "72360867f63de30d99bc2357615177eda22f9940fa1e69841ae9ae97a5744b11"
+    },
+    {
+      "id": "L742362",
+      "revision": 1782482667,
+      "sha256": "b79ded9536e63cb80f64d2a0e03d659e99851d703865eb1b17da98363041dc62"
+    },
+    {
+      "id": "L742365",
+      "revision": 1954607238,
+      "sha256": "df294df342b71fcede8d5c29b0de7619f0463f2bb7ea44345c70a5beda6de367"
+    },
+    {
+      "id": "L742574",
+      "revision": 2514939502,
+      "sha256": "00a1f8dc8714d04c04c5e37f4cc0641db49ca567aa6ffa76e068f9c2907f1cf4"
+    },
+    {
+      "id": "L742583",
+      "revision": 2514912931,
+      "sha256": "64538d3bda0ae6051439b4898d67db63ecbf6c042594dc22b924d50b12ce4f97"
+    },
+    {
+      "id": "L742586",
+      "revision": 2514939605,
+      "sha256": "fbca0a24830e8334d4b85537d53b698dfb8f6f94d2d6249471f4340858836a28"
+    },
+    {
+      "id": "L742587",
+      "revision": 2514939669,
+      "sha256": "becc63d4e156a7c64d825db158df0867d6b64d1decde4dd03e702241529dfccc"
+    },
+    {
+      "id": "L742639",
+      "revision": 2270888060,
+      "sha256": "41ec6a0c0f7d8e6efa57b3a1651197165cb853a01c51c8a2170fa3a0188d7346"
+    },
+    {
+      "id": "L742641",
+      "revision": 2514939038,
+      "sha256": "064775d0fe3899136f0913b52331c9a324875252a23e26f5fa645983f2c4e235"
+    },
+    {
+      "id": "L742643",
+      "revision": 2514939143,
+      "sha256": "9eb798f5b736b8b51485ebcd0fc4e923c59d151f30baeaddf17820cd2ad78bba"
+    },
+    {
+      "id": "L742644",
+      "revision": 2514337813,
+      "sha256": "bfc67f7eda39d43d117e4c4a6b97efc44873eab81639d161f1912d8343c0b764"
+    },
+    {
+      "id": "L742645",
+      "revision": 2150736861,
+      "sha256": "ba2230c0d1c3eca1f7319fbb00bc92a0c94a6fe43bcf5a54b290c26d9a6c92fb"
+    },
+    {
+      "id": "L742647",
+      "revision": 2150738446,
+      "sha256": "7219c5bc8a6170795233b2aba1027ad808c0df3a69d6f32338dc2d85485520ca"
+    },
+    {
+      "id": "L742648",
+      "revision": 2150735019,
+      "sha256": "e7120cad259043cddfffd24e069fbaa782b23b5050878c9197d55eb1a06a9ecb"
+    },
+    {
+      "id": "L742649",
+      "revision": 2150737535,
+      "sha256": "c8f84edb70b6c8ee907aa1fa00c33e00a5d854672074fd92411061b8bcec430a"
+    },
+    {
+      "id": "L743809",
+      "revision": 2481056030,
+      "sha256": "18953568b588747aac03b9db5cbeac0b4f6dc07f3350274a32dcebcd8457ab3d"
+    },
+    {
+      "id": "L743817",
+      "revision": 1785097465,
+      "sha256": "714cb0cb4cc14e54a2c4eb007bef4d5b4039e4434385f360849759f542a78d8c"
+    },
+    {
+      "id": "L744425",
+      "revision": 1786577578,
+      "sha256": "b1d2cb6b541682f5cad44efae06cd6fa87bb03c4cd7a9e50ea16b81af6cea096"
+    },
+    {
+      "id": "L744592",
+      "revision": 2150736576,
+      "sha256": "86fabb811cd3dd7f3ec5617b56c5cbc467754effd22bba02ecec2522821a79cc"
+    },
+    {
+      "id": "L744806",
+      "revision": 2514940413,
+      "sha256": "a9281dcb3f1463a464145561e35a02f42e71d9e039e6e2ce885661694bb1284f"
+    },
+    {
+      "id": "L744807",
+      "revision": 1955855851,
+      "sha256": "bac8bb81902c3fb3b612875db87386bda3cc571067c1298e3e74d776272c8d88"
+    },
+    {
+      "id": "L745330",
+      "revision": 2514940290,
+      "sha256": "99e4d0e5b14e9c6309a3b7663abe071b3810d2cade877601b4aaae37352ae527"
+    },
+    {
+      "id": "L745334",
+      "revision": 2514940312,
+      "sha256": "ce1f5b3f36e95f4357be95252354b95db858102cc7b3a6a337c76f8ef3771a08"
+    },
+    {
+      "id": "L745338",
+      "revision": 2514940337,
+      "sha256": "6f44cea3dc7d58724c2267265c5c32a03b2cc325a462219235f33b1a7a03632d"
+    },
+    {
+      "id": "L745339",
+      "revision": 2514940268,
+      "sha256": "68ec22e82ead22e1fc516e6564bff2fb681c52a5bacf90f32da4c8e71103aa37"
+    },
+    {
+      "id": "L745344",
+      "revision": 2514912751,
+      "sha256": "7d20b40024d51d753a478350241a1610d947a8a92ac9fc753769a283e1b29d7b"
+    },
+    {
+      "id": "L745345",
+      "revision": 1788088550,
+      "sha256": "56451aae8bb438d19e0d7b44ec8832aa039ffe0b856d5e750f996fd85b843045"
+    },
+    {
+      "id": "L745386",
+      "revision": 2150737774,
+      "sha256": "bda1483a492ddfc53b6f39e53505b5df7b4859fe5f785a69852d827acf874ab4"
+    },
+    {
+      "id": "L747172",
+      "revision": 1789899084,
+      "sha256": "df339b8e5c6b50e7a2fcf3e46a31be9e2731fa7a14c8dcc5caba4cc57ccea418"
+    },
+    {
+      "id": "L747178",
+      "revision": 2379397737,
+      "sha256": "91d82a46867931d4b4d6cf4b7327ff5621a1fbdaa27e3842ff419de54bf8678f"
+    },
+    {
+      "id": "L747233",
+      "revision": 2379310672,
+      "sha256": "ab24c305e363335afa5a62d502bd0cc9fdfc8a3e8c8f4c852fc43f5f541097a6"
+    },
+    {
+      "id": "L747234",
+      "revision": 2150736754,
+      "sha256": "3c1c46e5140b54887fc57a99ec2a3e24014cbece25a5dc4b07b64dbbe6bd93cd"
+    },
+    {
+      "id": "L747235",
+      "revision": 2215737105,
+      "sha256": "1eb0faa9b57f514639700b02dcf5c6e7cb9cf11f768c78a7e4f118002bdfa4a1"
+    },
+    {
+      "id": "L747236",
+      "revision": 2215737786,
+      "sha256": "946505d8b7d654b777c983ce5588309ba3b24c31c06525d2e005a05af63251c5"
+    },
+    {
+      "id": "L748823",
+      "revision": 1953952999,
+      "sha256": "93ac53daf3b49acadcf9bef2dedd58fa2615056c25447a231569d72f18161e19"
+    },
+    {
+      "id": "L748866",
+      "revision": 1791647785,
+      "sha256": "de9a9163f5d88eb06436e95c3f8f0c446861dcdaff969d6c05c5ccf567ccb8d0"
+    },
+    {
+      "id": "L880764",
+      "revision": 1799115521,
+      "sha256": "3329d6de81dcb5ed2403d82e0a46fb0a0400a7bb649f9d509ade1b7939ca0361"
+    },
+    {
+      "id": "L880766",
+      "revision": 1799117097,
+      "sha256": "62a558907df7fe55c8d57a2d8e3a1349cc8d5dbea8bc718def8974c3f31970a7"
+    },
+    {
+      "id": "L941341",
+      "revision": 2150732863,
+      "sha256": "2147a5e181e2cb451994a867b54c6a8a6ab58d1fe27100ccdc7273cb59f48d9a"
+    },
+    {
+      "id": "L991822",
+      "revision": 2150732881,
+      "sha256": "70ab6667e76c52691fb30928d285029e94e3740bfa9c6fe357bc59bb7e2ab322"
+    },
+    {
+      "id": "L991825",
+      "revision": 2150733710,
+      "sha256": "b8a15b43d6dc3aa4122382be204dbbfa601b810022274a83346c87e5db678529"
+    },
+    {
+      "id": "L991826",
+      "revision": 2150735143,
+      "sha256": "b07819f6efd744d59acf46bcbed78826706e7abf38fc4e44c0e74f6e0f3b0267"
+    },
+    {
+      "id": "L991827",
+      "revision": 2150734652,
+      "sha256": "8f7c42716f6d8fcfb49bfdbd2ebef6592d863d1df122d88efce95f4f3e9c09cf"
+    },
+    {
+      "id": "L991828",
+      "revision": 2150736339,
+      "sha256": "4fd5fe21a50348dc5f893474405e8c7bd5d8f5adb8ae2b6ab1c5dbf64d8b8eaf"
+    },
+    {
+      "id": "L991829",
+      "revision": 2150734201,
+      "sha256": "7b8384d5694f04dce31f72314e48b967e170b3618049dadeb198fc2e4831c668"
+    },
+    {
+      "id": "L991830",
+      "revision": 2150732894,
+      "sha256": "7e71185898c6bfb8a66c573f3a2c107d78d73041d42c1a8e5d66ccb72ffce7c6"
+    },
+    {
+      "id": "L991832",
+      "revision": 2150735174,
+      "sha256": "20b9fc38cfff2cf6868ad974779165bfb9bf92ba1966d97ae7b9459af24e2919"
+    },
+    {
+      "id": "L991833",
+      "revision": 2150734683,
+      "sha256": "e792570051a7f0100aedb076919a2460a73016c2ccdf6b8dbb25b3e200bd340a"
+    },
+    {
+      "id": "L991834",
+      "revision": 2150734234,
+      "sha256": "a55c090691173bde7c8e58bff0c25df94c92f4ca0028a7b737236fe093840df9"
+    },
+    {
+      "id": "L991836",
+      "revision": 2150735210,
+      "sha256": "be6582528efd0b0abb79e0f745ec302d886f7ab703fcfc8447d233896adc51f4"
+    },
+    {
+      "id": "L991837",
+      "revision": 2150735247,
+      "sha256": "e8dd53db6ebb7304e00a5ebde35c9c7001e9359cd327d50e3a2b27cb21debfa5"
+    },
+    {
+      "id": "L991840",
+      "revision": 2150733748,
+      "sha256": "c67bb576e45153fbbbd46d65d56faa8ab74ac26b473429a5f902ff87e09775c1"
+    },
+    {
+      "id": "L991844",
+      "revision": 2150738759,
+      "sha256": "05c7e916a0ea7b2b6228d5deedaefc4e8e96bc1c425b4c47e7500194b5803119"
+    },
+    {
+      "id": "L991847",
+      "revision": 2150735262,
+      "sha256": "3f674225376825e0f05d3f63813018ecd123265ee3a17e0e93df84a49256a5c5"
+    },
+    {
+      "id": "L991850",
+      "revision": 2289295976,
+      "sha256": "5ed17b20a1737dc4ca83117c26259aa644f486a28416fbdba89127dd1b24aa69"
+    },
+    {
+      "id": "L991851",
+      "revision": 2150738797,
+      "sha256": "82d93b68eceb3f589bdf323c8b9bea22ee9e3a4fa83d7151c678c78d21c72b04"
+    },
+    {
+      "id": "L991852",
+      "revision": 2150732926,
+      "sha256": "64b8ae47f103ea9a8f394aeadcc303a0eed11252067963f0066f8e5bc45bda88"
+    },
+    {
+      "id": "L991853",
+      "revision": 2150736882,
+      "sha256": "faf02629b83d0179176217ef6c15fcfb6b86cea790612f914c3c15bdc90e2978"
+    },
+    {
+      "id": "L992177",
+      "revision": 2150736974,
+      "sha256": "0d131eadeb45bdeccf4693bc78140807a5e6a73ffede5f517c5f7452e29c533c"
+    },
+    {
+      "id": "L992178",
+      "revision": 2150732947,
+      "sha256": "245dc0ecf166af97fe5fe981f4a54e325c9c65402a1c8fe4b57323c21080f46b"
+    },
+    {
+      "id": "L992179",
+      "revision": 2150734712,
+      "sha256": "990005cedc0a530eac0665562d79d80b11cf7cb259c2166aeb50dd689be3e4b2"
+    },
+    {
+      "id": "L992180",
+      "revision": 2150735282,
+      "sha256": "f911db3f0e46cb71d8af7edbc3e6723b6c6257136bbde828878f1b2d2e02a86d"
+    },
+    {
+      "id": "L992181",
+      "revision": 2215742138,
+      "sha256": "5a4c4a02d3ecb7e29d8c9c104da4a8bdba28d9de4ca21c605f7353c346251853"
+    },
+    {
+      "id": "L992182",
+      "revision": 1816597357,
+      "sha256": "1ebc3a19d100a390353db9880d40027ca30a6f59c38069ce17817deb69ff7c2e"
+    },
+    {
+      "id": "L992183",
+      "revision": 1816600487,
+      "sha256": "7c86ba0b3819f9e80d1dae197232f224075b2df612e3ee56c51871d3d1786cee"
+    },
+    {
+      "id": "L992184",
+      "revision": 1816601942,
+      "sha256": "18be2c318322291705d88c42488cdd897e5802a75fddd4f367e3a13a7d496e9c"
+    },
+    {
+      "id": "L992185",
+      "revision": 2524516632,
+      "sha256": "8d1005762bb52f317afc7852fcf6386fae444794bade53f4b526707d02ce059b"
+    },
+    {
+      "id": "L992186",
+      "revision": 1816602434,
+      "sha256": "b1bf5996662ae3dc681590bf0bb183ebf355678d7e8a05bd95769e98e2af7fdb"
+    },
+    {
+      "id": "L992187",
+      "revision": 1816602600,
+      "sha256": "368707aabfc8d9287fb598dde84a86eb47eb137995fab30a4d791f39c25cc8e7"
+    },
+    {
+      "id": "L992188",
+      "revision": 1816602863,
+      "sha256": "5c395d97064a87f0e23f4de09b70dd8907dba0c0ed53e557aa6575e5e11188ff"
+    },
+    {
+      "id": "L992189",
+      "revision": 1816603054,
+      "sha256": "599677a4552e5b030c55daea091f061c2e08601cbfd6d9f94f9957f888d85303"
+    },
+    {
+      "id": "L992190",
+      "revision": 1816601497,
+      "sha256": "b5fb9cc3bca1fee5ab1adf811a324660b7c9b021eddddd12fc28034f99498c12"
+    },
+    {
+      "id": "L992191",
+      "revision": 1816610266,
+      "sha256": "0d928a7e2d90a2c6edba4f8d17d2b5c6140aac53bda54855a9aee04f1898967b"
+    },
+    {
+      "id": "L992192",
+      "revision": 1816610539,
+      "sha256": "4e458368dbb2a20a76090f0335c42cb5463804bc04c4135f3f33ba57b97842aa"
+    },
+    {
+      "id": "L992193",
+      "revision": 1816610731,
+      "sha256": "405d0f4e33e03fe43d5362ff5b71b8d3a70382da34d1aa7c3bda6ce190cf4d89"
+    },
+    {
+      "id": "L992195",
+      "revision": 1816611726,
+      "sha256": "0e79e901feb6b284460418b65c81a8fd042646bc0a3ae77f17d3816ff87a87a8"
+    },
+    {
+      "id": "L992196",
+      "revision": 1816612009,
+      "sha256": "8d86d789d8f766c9fb890cfe86d7e995c5cd580f9a6a861155b716fdcd57c444"
+    },
+    {
+      "id": "L992197",
+      "revision": 1816612469,
+      "sha256": "6ac353beff06fc7fb4e52e8c87954e0e7ccf7920a9f139f4ddeb08261ccbf384"
+    },
+    {
+      "id": "L992198",
+      "revision": 1816612664,
+      "sha256": "5d5178f338a217c4a047635e40126bd97b8572d6ab5e4c545972e1fdab897c29"
+    },
+    {
+      "id": "L992199",
+      "revision": 1816624893,
+      "sha256": "7fa4fb06f9bc23c2cb33a51ee09c265c6a9281c469ecd646b47576e1349dcece"
+    },
+    {
+      "id": "L992201",
+      "revision": 2150737008,
+      "sha256": "4a0ee304a670cc9824d4de7125bb38e5baf7fff2c5cb671683f798ce34e90690"
+    },
+    {
+      "id": "L992202",
+      "revision": 2150734267,
+      "sha256": "95f8bd58e7a2c2cae123d0f3f1e8b93f884f2046e85bc59f630de58c4f786ae8"
+    },
+    {
+      "id": "L992203",
+      "revision": 2456665530,
+      "sha256": "2c9763dcd436982e6caaf2c3b4d8e3503001ef4fe7ce26e9e028bb5a78dca837"
+    },
+    {
+      "id": "L1003504",
+      "revision": 2379010646,
+      "sha256": "7e1b73e5a4e4428973a561d7f25a45c24b8f456a198053f0b60df61db59fc7db"
+    },
+    {
+      "id": "L1011470",
+      "revision": 2515432863,
+      "sha256": "7556e04e61992ec8774a92e47a8e3fc7ec6a0ed098cc54436dfcb044325a52e5"
+    },
+    {
+      "id": "L1011472",
+      "revision": 1826242164,
+      "sha256": "fac9102d7f7f96ec26fb026fb913d79eba50b3f10cbd2b18449e53fab04d01d5"
+    },
+    {
+      "id": "L1011573",
+      "revision": 1826521244,
+      "sha256": "ddd2430df234f3bb0255ceaa014daaae67c532e6fff1ae1e4d04497a01321c93"
+    },
+    {
+      "id": "L1012186",
+      "revision": 1827836382,
+      "sha256": "7afb80e6205652aa0b891b6beacd7fcc2db894824240164626b3a57428e46e39"
+    },
+    {
+      "id": "L1012187",
+      "revision": 1827837594,
+      "sha256": "cd9c5b18420059163c4db3c612bec494a5a67878655fdc2ece0dacc90df46ee9"
+    },
+    {
+      "id": "L1012189",
+      "revision": 2387161449,
+      "sha256": "7658105d8cfbcd28d716a66f9b4de11c076bb46a3cb47ef32d9b3d3a57abd90c"
+    },
+    {
+      "id": "L1012190",
+      "revision": 1827842531,
+      "sha256": "c1586462c4519236c7fb3b01c8dcb48e8cbfb2f21bc0bde115dd07b20d99ebaa"
+    },
+    {
+      "id": "L1012542",
+      "revision": 1828599473,
+      "sha256": "21c6c1ae4ba8df5dba762810e679f95a92808099058df05f7e58c3b2b9b01956"
+    },
+    {
+      "id": "L1036065",
+      "revision": 2150740286,
+      "sha256": "317ef4cd0cf133c416de18306b3ab375a46d07a79801b6adb060d2a0e7586bbc"
+    },
+    {
+      "id": "L1133356",
+      "revision": 1926583809,
+      "sha256": "24b2956e6fa48571be37d13d6d7fa726524f19a8333d045dc5075a193c533d32"
+    },
+    {
+      "id": "L1158843",
+      "revision": 1971959716,
+      "sha256": "2c854e797a5273cc6a38f7892e648fcaab1346bd2df406c440cfc3cd3a2bf1a3"
+    },
+    {
+      "id": "L1158845",
+      "revision": 1971961509,
+      "sha256": "8c76107eeef5c1d300dd1e0b6dc2ec1c122b926a7c594864c721a2a66eb7f7ee"
+    },
+    {
+      "id": "L1216498",
+      "revision": 2383091567,
+      "sha256": "96c6bb4303f52dcb16e8aec42f33e55e511097291ce1d7a24c6eebad7f2866d3"
+    },
+    {
+      "id": "L1216499",
+      "revision": 2382033919,
+      "sha256": "90be51b00166f6f0c6ee7d97dd8a5e5452077a252f537e4bda3417a274c93a67"
+    },
+    {
+      "id": "L1218652",
+      "revision": 2388983518,
+      "sha256": "1a871578314a0c3d6b83e5ee8ab5f26a8fd978284ac64c8832fcefb827a947f4"
+    },
+    {
+      "id": "L1220261",
+      "revision": 2025897180,
+      "sha256": "e9eb3e33edf04e6836a9d675aaecfdb73071c742d112950991b7b0260a4474f1"
+    },
+    {
+      "id": "L1233395",
+      "revision": 2150740855,
+      "sha256": "65e82fb71099a78870f7b499e520680860e7f6f9622278590a3c4ead52e43377"
+    },
+    {
+      "id": "L1327520",
+      "revision": 2166901244,
+      "sha256": "697cd50230e99200ae3210927db8c636beea9691436aeac464709bc643890252"
+    },
+    {
+      "id": "L1327869",
+      "revision": 2170954485,
+      "sha256": "bb36ee15addd943aa09425f0bd3e24902a05fe29a5af2d0304f0fcee36f9d3b5"
+    },
+    {
+      "id": "L1327870",
+      "revision": 2170958734,
+      "sha256": "744673647c580ae9061b899212c0e8b1c5696078a3ebf20c579b9ee858788687"
+    },
+    {
+      "id": "L1328531",
+      "revision": 2296625542,
+      "sha256": "7f69d59e0cbe9610b0a89d146ddc6735d4fcd7ab40210c025ada8b73797c314f"
+    },
+    {
+      "id": "L1372716",
+      "revision": 2264453508,
+      "sha256": "79b786e515e3080f9c329c04561bb8f58c5124bbb96f5957cb3d3465bb8c807b"
+    },
+    {
+      "id": "L1411644",
+      "revision": 2307506226,
+      "sha256": "df402658ebaa48ad09d53bfa7268efbee494333d49ced32f93b82aea5db51a9b"
+    },
+    {
+      "id": "L1453651",
+      "revision": 2345020053,
+      "sha256": "2328815790a64c95a87b16d211311b6ec01bcb3cf3d0db06831b06f9c1f6ab76"
+    },
+    {
+      "id": "L1474548",
+      "revision": 2385693149,
+      "sha256": "c8ed7d769044f1f0b51929504ae88a54760fd53bf28320a9e9ae489176d8cf4a"
+    },
+    {
+      "id": "L1474571",
+      "revision": 2384210278,
+      "sha256": "c098448a9fb4e952a4a8c56b61c168abfed8e9302a3d7989a52ade6ac9610081"
+    },
+    {
+      "id": "L1474751",
+      "revision": 2384726408,
+      "sha256": "d717db13d7ff6e554a192c43a2e76e7a516da430fb87a5ce3f5d69222d49b7d2"
+    },
+    {
+      "id": "L1474761",
+      "revision": 2384735960,
+      "sha256": "ab3f3b8bf13e6c7a06d21c18f2472cdbbcaaeef3d628dff302c4f31e812446a6"
+    },
+    {
+      "id": "L1521076",
+      "revision": 2525392911,
+      "sha256": "10e3c31c4531195406bb9dd725493ba34de2df54922593494e506302c78ac129"
+    },
+    {
+      "id": "L1571995",
+      "revision": 2515418396,
+      "sha256": "3b7f38d7081dd3b3dffd5179e47a33013da1e6bda1054acd2f4ee936d16d0851"
+    },
+    {
+      "id": "L1572002",
+      "revision": 2515411533,
+      "sha256": "4fb6d23615063e0940702dc64d635c4a6afd1bfcbf8c7d3beea47a7a8b01e3cf"
+    },
+    {
+      "id": "L1572004",
+      "revision": 2515335403,
+      "sha256": "5b68a729838e1f089f899bb344737bcc12912ed433adde6eeb4195c186069de8"
+    },
+    {
+      "id": "L1572510",
+      "revision": 2515418462,
+      "sha256": "ddfad7fdb03b4db1f68a48233f4e98ac74ab0cf531ba253f0219b0c9f304f985"
+    },
+    {
+      "id": "L1572512",
+      "revision": 2515713059,
+      "sha256": "0028ed1d6fdfc55974f55b3f01fd443109b1e31fdcec9314b78c00687bc173c5"
+    }
+  ]
+}
