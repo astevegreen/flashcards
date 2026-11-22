@@ -34,9 +34,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": [
-          "flashcards"
-        ]
+        "schemes": ["flashcards"]
       }
     }
   },
