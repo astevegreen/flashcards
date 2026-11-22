@@ -147,4 +147,51 @@ describe('desktop refresh-token storage', () => {
     const resolved = await resolveRefreshTokenStore({ secure: backend, legacy, account: ACCOUNT });
     expect(await resolved.store.get()).toBe('signed-in-while-keychain-was-down');
   });
+
+  it('two providers share the table: one falling back never loses the other token', async () => {
+    const db = sqliteDb();
+    // Google signed in while the keychain refused writes, so its token stayed in SQLite.
+    const google = createSqliteRefreshTokenStore(db, 'google');
+    const lockedKeychain = fakeKeychain({ failSet: true });
+    await google.set('google-sqlite-token');
+    const googleResolved = await resolveRefreshTokenStore({
+      secure: lockedKeychain.backend,
+      legacy: google,
+      account: ACCOUNT,
+    });
+    expect(googleResolved.mode).toBe('sqlite');
+
+    // Later the keychain works: the Microsoft store moves (nothing) and must not drop the table.
+    const { backend, entries } = fakeKeychain();
+    const microsoft = createSqliteRefreshTokenStore(db, 'microsoft');
+    const msResolved = await resolveRefreshTokenStore({
+      secure: backend,
+      legacy: microsoft,
+      account: 'microsoft-refresh-token',
+    });
+    expect(msResolved.mode).toBe('keychain');
+    expect(db.tables()).toContain('oauth_refresh_tokens');
+    expect(await google.get()).toBe('google-sqlite-token');
+
+    // The other way round: a Microsoft token left in SQLite survives Google's move.
+    await microsoft.set('ms-sqlite-token');
+    const googleMoved = await resolveRefreshTokenStore({
+      secure: backend,
+      legacy: google,
+      account: ACCOUNT,
+    });
+    expect(googleMoved.mode).toBe('keychain');
+    expect(entries.get(ACCOUNT)).toBe('google-sqlite-token');
+    expect(await microsoft.get()).toBe('ms-sqlite-token');
+    expect(await google.get()).toBeUndefined();
+
+    // Once the last provider has moved, the table is gone.
+    await resolveRefreshTokenStore({
+      secure: backend,
+      legacy: microsoft,
+      account: 'microsoft-refresh-token',
+    });
+    expect(entries.get('microsoft-refresh-token')).toBe('ms-sqlite-token');
+    expect(db.tables()).not.toContain('oauth_refresh_tokens');
+  });
 });

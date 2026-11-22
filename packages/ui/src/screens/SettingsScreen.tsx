@@ -13,6 +13,8 @@ import { StudyRemindersSetting } from '../reminders/StudyRemindersSetting.tsx';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
 import { LeechAutoSuspendSetting } from '../study/LeechSettings.tsx';
+import { OneDriveSyncButtons } from '../sync/OneDriveSyncButtons.tsx';
+import { describeSyncProvider } from '../sync/syncProviderLabel.ts';
 
 const LazyPackManagerPanel = lazy(() =>
   import('../packs/PackManagerPanel.tsx').then((m) => ({ default: m.PackManagerPanel })),
@@ -226,18 +228,7 @@ export function SettingsScreen() {
   };
 
   const isSyncConnected = syncState.provider !== 'none';
-  const providerLabel =
-    syncState.provider === 'google_drive'
-      ? 'Google Drive (App Data)'
-      : syncState.provider === 'dropbox'
-        ? 'Dropbox (App Folder)'
-        : syncState.provider === 'icloud'
-          ? 'iCloud Drive'
-          : syncState.provider === 'local_folder'
-            ? `Local Folder (${syncState.localFolderName ?? 'Selected folder'})`
-            : syncState.provider === 'dev_channel'
-              ? 'Dev Channel (Local Tabs)'
-              : 'Not Connected';
+  const providerLabel = describeSyncProvider(syncState.provider, syncState.localFolderName);
 
   const handleSyncNow = async () => {
     const syncGate = canUseCloudSync(entitlement);
@@ -573,6 +564,8 @@ export function SettingsScreen() {
               Reconnect Dropbox
             </button>
           )}
+
+          <OneDriveSyncButtons busy={syncBusy} onError={setError} />
 
           {platform.iCloudSyncSupported && syncState.provider !== 'icloud' && (
             <button

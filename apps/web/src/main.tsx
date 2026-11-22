@@ -8,7 +8,13 @@ import {
   type Card,
   type CollectionState,
 } from '@flash/core';
-import type { MaterializedCardRow, PlatformServices, SyncConfig } from '@flash/platform';
+import type {
+  AuthSession,
+  MaterializedCardRow,
+  PlatformServices,
+  SyncConfig,
+  SyncProviderKind,
+} from '@flash/platform';
 import { createWebPlatform, resolveDeviceFromUrl } from '@flash/platform-web';
 import { FlashcardsApp } from '@flash/ui';
 import { StrictMode } from 'react';
@@ -19,6 +25,13 @@ import './styles.css';
 const DEFAULT_GOOGLE_CLIENT_ID =
   '932735219487-p20rc5hu0gegb2bh43q8phe8lgi957v3.apps.googleusercontent.com';
 const DEFAULT_TOKEN_HELPER_URL = 'https://flashcards-token-helper.yodc.workers.dev';
+
+/** The e2e-only OneDrive client ID set by a Playwright init script (see `boot`). */
+function testMicrosoftClientId(): string {
+  const value = (window as unknown as { __FLASH_TEST_MS_CLIENT_ID__?: unknown })
+    .__FLASH_TEST_MS_CLIENT_ID__;
+  return typeof value === 'string' ? value.trim() : '';
+}
 
 type NativeRuntime = 'capacitor' | 'tauri' | null;
 
@@ -44,6 +57,25 @@ function cardToRow(card: Card): MaterializedCardRow {
   };
 }
 
+/**
+ * Completes an OAuth redirect. OneDrive and Dropbox each return null unless the callback matches
+ * their own pending PKCE state, so they run before Google (which rejects a foreign state).
+ */
+async function handleOAuthRedirect(
+  platform: PlatformServices,
+): Promise<{ session: AuthSession | null; sessionProvider: SyncProviderKind }> {
+  if (platform.oneDriveConfigured && platform.getOneDriveAuth) {
+    const session = await (await platform.getOneDriveAuth()).handleRedirectCallback();
+    if (session) return { session, sessionProvider: 'onedrive' };
+  }
+  if (platform.dropboxConfigured && platform.getDropboxAuth) {
+    const session = await (await platform.getDropboxAuth()).handleRedirectCallback();
+    if (session) return { session, sessionProvider: 'dropbox' };
+  }
+  const session = await (await platform.getGoogleAuth()).handleRedirectCallback();
+  return { session, sessionProvider: 'google_drive' };
+}
+
 async function boot(): Promise<void> {
   const resolved = resolveDeviceFromUrl();
   const isDevMode = import.meta.env.DEV || Boolean(resolved.slug);
@@ -57,6 +89,17 @@ async function boot(): Promise<void> {
   const dropboxAppKey =
     (import.meta.env['VITE_DROPBOX_APP_KEY'] as string | undefined)?.trim() || '';
   const searchParams = new URLSearchParams(window.location.search);
+  // OneDrive (Microsoft Entra) client ID, from the build env. Overrides exist for tests only and
+  // can never come from a link: `?msClientId=` works in the Vite dev server only, and the e2e
+  // suite (a production preview build) sets `window.__FLASH_TEST_MS_CLIENT_ID__` with an init
+  // script, which only code already running in the page can do. A crafted link therefore cannot
+  // send users to the consent screen of another Entra app.
+  const microsoftClientId =
+    testMicrosoftClientId() ||
+    (import.meta.env.DEV ? searchParams.get('msClientId')?.trim() : '') ||
+    (import.meta.env['VITE_MS_CLIENT_ID'] as string | undefined)?.trim() ||
+    '';
+  const microsoftTenant = (import.meta.env['VITE_MS_TENANT'] as string | undefined)?.trim() || '';
   const envPackCatalogUrl =
     (import.meta.env['VITE_PACK_CATALOG_URL'] as string | undefined)?.trim() || '';
   const envStarterCatalogUrl =
@@ -77,6 +120,8 @@ async function boot(): Promise<void> {
     tokenHelperUrl,
     googleApiKey,
     ...(dropboxAppKey ? { dropboxAppKey } : {}),
+    ...(microsoftClientId ? { microsoftClientId } : {}),
+    ...(microsoftTenant ? { microsoftTenant } : {}),
     ...(envPackCatalogUrl ? { packCatalogUrl: envPackCatalogUrl } : {}),
     ...(starterCatalogUrl ? { starterCatalogUrl } : {}),
     isPersonalBuild: !enableLicenseGate,
@@ -93,6 +138,8 @@ async function boot(): Promise<void> {
         googleApiKey,
         isPersonalBuild: !enableLicenseGate,
         licensePublicKeyHex,
+        microsoftClientId,
+        microsoftTenant,
         packCatalogUrl: envPackCatalogUrl,
         starterCatalogUrl,
       })
@@ -120,21 +167,15 @@ async function boot(): Promise<void> {
 
   if (nativeRuntime === null && (searchParams.has('code') || searchParams.has('error'))) {
     try {
-      // Dropbox returns null unless the callback matches its own pending PKCE state.
-      const dropboxSession =
-        platform.dropboxConfigured && platform.getDropboxAuth
-          ? await (await platform.getDropboxAuth()).handleRedirectCallback()
-          : null;
-      const auth = dropboxSession ? null : await platform.getGoogleAuth();
-      const session = dropboxSession ?? (auth ? await auth.handleRedirectCallback() : null);
-      const sessionProvider = dropboxSession ? 'dropbox' : 'google_drive';
+      const { session, sessionProvider } = await handleOAuthRedirect(platform);
       if (session) {
-        // Only switch sync provider to google_drive when sign-in was initiated for sync (or no provider was configured).
+        // Only switch sync provider when sign-in was initiated for sync (or no provider was configured).
         // Signing in from Library Sources keeps an existing Local Folder Sync configuration intact.
+        // A OneDrive picker sign-in (Files.Read for imports) never turns on OneDrive sync by itself.
         const preserveExistingSync =
           session.intent === 'sources' &&
-          syncConfig?.provider !== undefined &&
-          syncConfig.provider !== 'none';
+          (sessionProvider === 'onedrive' ||
+            (syncConfig?.provider !== undefined && syncConfig.provider !== 'none'));
         if (!preserveExistingSync) {
           const switchingProvider = syncConfig?.provider !== sessionProvider;
           syncConfig = { provider: sessionProvider, connectedAt: Date.now() };

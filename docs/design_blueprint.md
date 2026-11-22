@@ -678,3 +678,11 @@ Ideas worth building if time and demand allow. Each needs its own go/no-go decis
 1. **App domain & GCP OAuth clients:** Choose production domain before finalizing GCP Android/iOS/Desktop OAuth Client IDs and Cloudflare Pages site.
 2. **Free-tier policy (`packages/core/src/license`):** Commercial builds (`VITE_ENABLE_LICENSE_GATE=true`) allow 2 local-only decks free and one-time `unlock_full` (IAP or Ed25519 key) for unlimited decks + cloud sync; personal/family builds keep `VITE_ENABLE_LICENSE_GATE=false`.
 3. **Production CSP headers for WASM Workers (Phases 11–12):** the PWA meta-tag CSP does not reach dedicated Workers, which take the CSP header of their own script response. Before launch, configure the host per `docs/setup-gcp-cloudflare.md` §6: send no CSP header on `/assets/*.js`, or send the exact `PRODUCTION_CSP` from `apps/web/csp.ts` (it includes `script-src 'wasm-unsafe-eval'`, `worker-src 'self'`, `connect-src 'self' https:`) on every file, and serve `.wasm` as `application/wasm`. Decide whether to commit a Cloudflare Pages `_headers` file. OneDrive needs no `frame-src`/`form-action` entry (Graph-based in-app picker, top-level sign-in); adopting the hosted OneDrive File Picker v8 would first need its redirect hosts verified under the policy and pinned (no wildcards).
+4. **Microsoft OneDrive storage connector (Phase 12, optional):** Follow [`setup-microsoft.md`](./setup-microsoft.md).
+   - Register one Entra app for **personal Microsoft accounts** (tenant `consumers`).
+   - Add a **Web** redirect for each PWA origin. Don't use the SPA type: the token-helper redeems codes as a confidential client.
+   - Add **Mobile and desktop** redirects: `http://localhost` for Tauri and `flashcards://oauth/microsoft` for Android/iOS.
+   - Grant delegated `Files.ReadWrite.AppFolder` + `offline_access`, plus optional `Files.Read` for the picker.
+   - Set Worker secrets `MS_CLIENT_ID` / `MS_CLIENT_SECRET` (and `MS_TENANT` if it isn't `consumers`), and set a renewal reminder before the client secret expires.
+   - Build with `VITE_MS_CLIENT_ID` (and `VITE_MS_TENANT`). Without it, no OneDrive UI ships.
+   - Store listings and consent copy present OneDrive as a storage connector, never as an app account (Phase 14).

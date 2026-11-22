@@ -92,6 +92,8 @@ curl https://flashcards-token-helper.<subdomain>.workers.dev/health
 # Expected: {"ok":true,"stateless":true}
 ```
 
+The same Worker also serves the OneDrive storage connector's `/ms/exchange` and `/ms/refresh` routes. To turn OneDrive on, register a Microsoft Entra app and set `MS_CLIENT_ID` / `MS_CLIENT_SECRET` as described in [`setup-microsoft.md`](./setup-microsoft.md).
+
 ---
 
 ## 4. Deploy the Phase 0 Spike PWA Harness (`spikes/phase0/`) to Cloudflare Pages

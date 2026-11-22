@@ -72,7 +72,7 @@ export interface MediaBlob {
 }
 
 export type SyncProviderKind =
-  'none' | 'dev_channel' | 'google_drive' | 'local_folder' | 'dropbox' | 'icloud';
+  'none' | 'dev_channel' | 'google_drive' | 'local_folder' | 'dropbox' | 'icloud' | 'onedrive';
 
 export interface SyncConfig {
   provider: SyncProviderKind;
@@ -318,6 +318,33 @@ export interface GooglePickedFile {
 export interface GooglePickerAdapter {
   isConfigured(): boolean;
   pickSheetsAndDocs(): Promise<GooglePickedFile[]>;
+}
+
+/** One entry in a OneDrive folder listing (Microsoft Graph `driveItem`, §15 Phase 12). */
+export interface OneDriveBrowseItem {
+  id: string;
+  name: string;
+  kind: 'folder' | 'file';
+  size: number;
+  /** Number of children, folders only. */
+  childCount?: number;
+  lastModifiedAt?: number;
+}
+
+/**
+ * Optional OneDrive file picker (§15 Phase 12): browses the user's OneDrive with the optional
+ * `Files.Read` scope and downloads one `.csv` / `.xlsx` / `.flashpkg` file for import.
+ */
+export interface OneDriveFilePicker {
+  isConfigured(): boolean;
+  /** True once the user has granted `Files.Read` (sync alone only grants the app folder). */
+  hasFileAccess(): Promise<boolean>;
+  /** Starts the incremental-consent sign-in for `Files.Read` (a redirect on web). */
+  requestFileAccess(): Promise<boolean>;
+  /** Lists a folder (the drive root when `folderId` is omitted); folders first, then files. */
+  listFolder(folderId?: string): Promise<OneDriveBrowseItem[]>;
+  /** Downloads a file picked from `listFolder` (size-capped). */
+  downloadFile(item: OneDriveBrowseItem): Promise<PickedFile>;
 }
 
 export interface GoogleDriveFileMeta {
@@ -695,6 +722,15 @@ export interface PlatformServices {
   readonly dropboxConfigured?: boolean;
   getDropboxAuth?(): Promise<Auth>;
   createDropboxTransport?(): Promise<SyncTransport>;
+  /**
+   * True when a Microsoft Entra client ID is configured for OneDrive app-folder sync
+   * (`VITE_MS_CLIENT_ID` on web; native shells set it from their own config).
+   */
+  readonly oneDriveConfigured?: boolean;
+  getOneDriveAuth?(): Promise<Auth>;
+  createOneDriveTransport?(): Promise<SyncTransport>;
+  /** Optional OneDrive file picker for `.csv` / `.xlsx` / `.flashpkg` imports (lazy). */
+  getOneDrivePicker?(): Promise<OneDriveFilePicker>;
   /** iOS only: true when the iCloud Drive plugin is present (the user may still be signed out). */
   readonly iCloudSyncSupported?: boolean;
   /** iOS only: iCloud Drive transport; throws when iCloud Drive is off or the user is signed out. */

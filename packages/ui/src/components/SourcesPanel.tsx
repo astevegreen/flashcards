@@ -10,8 +10,10 @@ import type {
   SourceSyncStatus,
   SourceWarning,
 } from '@flash/platform';
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+
+const LazyOneDrivePickerPanel = lazy(() => import('../sources/OneDrivePickerPanel.tsx'));
 
 function formatStatusLabel(status?: SourceSyncStatus): string {
   switch (status) {
@@ -104,6 +106,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   const [templateLang, setTemplateLang] = useState('ko');
 
   const [showSubscribeForm, setShowSubscribeForm] = useState(false);
+  const [showOneDrivePicker, setShowOneDrivePicker] = useState(false);
   const [subscribeUrl, setSubscribeUrl] = useState('');
   const [subscribeKind, setSubscribeKind] = useState<'auto' | 'package' | 'catalog'>('auto');
 
@@ -753,6 +756,20 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
           </button>
         )}
 
+        {platform.oneDriveConfigured && platform.getOneDrivePicker && (
+          <button
+            type="button"
+            data-testid="onedrive-import-btn"
+            aria-expanded={showOneDrivePicker}
+            disabled={busy}
+            onClick={() => setShowOneDrivePicker((v) => !v)}
+            title="Import a .csv, .tsv, .xlsx or .flashpkg file from your OneDrive"
+            className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-40"
+          >
+            Import from OneDrive
+          </button>
+        )}
+
         <button
           type="button"
           data-testid="toggle-subscribe-url-btn"
@@ -763,6 +780,25 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
           Subscribe to URL / Catalog
         </button>
       </div>
+
+      {/* Optional OneDrive file picker: lazy, below the action row. The fallback reserves the
+          panel's fixed height (h-[26rem], ONEDRIVE_PICKER_PANEL_HEIGHT), so nothing below moves. */}
+      {showOneDrivePicker && (
+        <Suspense
+          fallback={
+            <div
+              data-testid="onedrive-picker-fallback"
+              className="h-[26rem] rounded-xl border border-[var(--border)] bg-[var(--bg)]"
+            />
+          }
+        >
+          <LazyOneDrivePickerPanel
+            onStatusMessage={onStatusMessage}
+            onErrorMessage={onErrorMessage}
+            onClose={() => setShowOneDrivePicker(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Inline Create Sheet from Template form */}
       {showTemplateForm && (

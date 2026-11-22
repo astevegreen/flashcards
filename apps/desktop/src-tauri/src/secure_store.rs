@@ -7,7 +7,7 @@
 use keyring::{Entry, Error};
 
 const SERVICE: &str = "app.flashcards.localfirst";
-const ALLOWED_ACCOUNTS: &[&str] = &["google-refresh-token"];
+const ALLOWED_ACCOUNTS: &[&str] = &["google-refresh-token", "microsoft-refresh-token"];
 const PROBE_ACCOUNT: &str = "secure-store-probe";
 
 fn entry(account: &str) -> Result<Entry, String> {

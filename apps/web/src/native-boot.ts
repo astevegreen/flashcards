@@ -6,6 +6,9 @@ export interface NativeBootSettings {
   googleApiKey: string;
   isPersonalBuild: boolean;
   licensePublicKeyHex: string;
+  /** Microsoft Entra client ID (OneDrive); native shells use it as a public client. */
+  microsoftClientId: string;
+  microsoftTenant: string;
   packCatalogUrl: string;
   starterCatalogUrl: string;
 }
@@ -34,6 +37,8 @@ export async function bootNativePlatform(
     ...nonEmpty('pickerPageUrl', envString('VITE_PICKER_PAGE_URL')),
     ...nonEmpty('packCatalogUrl', settings.packCatalogUrl),
     ...nonEmpty('starterCatalogUrl', settings.starterCatalogUrl),
+    ...nonEmpty('microsoftClientId', settings.microsoftClientId),
+    ...nonEmpty('microsoftTenant', settings.microsoftTenant),
   };
   if (runtime === 'capacitor') {
     const { bootCapacitorPlatform } = await import('@flash/platform-capacitor/native');

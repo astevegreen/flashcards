@@ -83,6 +83,7 @@ export interface AppContextValue {
   flushPendingSync: () => void;
   connectGoogleDrive: () => Promise<void>;
   connectDropbox: () => Promise<void>;
+  connectOneDrive: () => Promise<void>;
   connectLocalFolder: () => Promise<boolean>;
   reconnectLocalFolder: () => Promise<boolean>;
   connectICloud: () => Promise<void>;
@@ -852,6 +853,7 @@ export function AppProvider({
     if (
       (syncController.syncState.provider === 'google_drive' ||
         syncController.syncState.provider === 'dropbox' ||
+        syncController.syncState.provider === 'onedrive' ||
         syncController.syncState.provider === 'local_folder' ||
         syncController.syncState.provider === 'icloud') &&
       syncController.syncState.status !== 'reconnect_required'
@@ -905,6 +907,7 @@ export function AppProvider({
     flushPendingSync: syncController.flushPendingSync,
     connectGoogleDrive: syncController.connectGoogleDrive,
     connectDropbox: syncController.connectDropbox,
+    connectOneDrive: syncController.connectOneDrive,
     connectLocalFolder: syncController.connectLocalFolder,
     reconnectLocalFolder: syncController.reconnectLocalFolder,
     connectICloud: syncController.connectICloud,
