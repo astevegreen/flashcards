@@ -271,28 +271,12 @@ function renameTag(raw: string, fromKey: string, to: string): string | undefined
 export function planTagOperation(state: CollectionState, op: TagOperation): TagOperationPlan {
   if (op.kind === 'normalize') return planNormalize(state);
 
-  const sources = [
-    ...new Set(
-      operationSources(op)
-        .map(tagKey)
-        .filter((k) => k.length > 0),
-    ),
-  ].sort(cmpStr);
-  if (sources.length === 0) return { payloads: [], error: { code: 'no_source' } };
-
-  const resolved = op.kind === 'delete' ? { target: undefined } : resolveTarget(op, sources);
+  const resolved = resolveTagOperation(op);
   if ('error' in resolved) return { payloads: [], error: resolved.error };
-
-  // Deepest source first so `a::b` wins over `a` for a tag inside both subtrees.
-  const bySpecificity = [...sources].sort(
-    (a, b) =>
-      b.split(TAG_HIERARCHY_SEPARATOR).length - a.split(TAG_HIERARCHY_SEPARATOR).length ||
-      cmpStr(a, b),
-  );
 
   const payloads: NoteUpsertedPayload[] = [];
   for (const note of sortedNotes(state)) {
-    const next = rewriteNoteTags(note, bySpecificity, resolved.target);
+    const next = rewriteTagsForOperation(note.tags, resolved);
     if (next === undefined) continue;
     const normalized = normalizeTagList(next);
     if (!sameList(note.tags, normalized)) payloads.push(tagOnlyPayload(note, normalized));
@@ -307,6 +291,42 @@ function planNormalize(state: CollectionState): TagOperationPlan {
     if (!sameList(note.tags, next)) payloads.push(tagOnlyPayload(note, next));
   }
   return { payloads };
+}
+
+/** A validated rename / merge / delete (see {@link resolveTagOperation}). */
+export interface ResolvedTagOperation {
+  /** Source category keys, deepest `::` level first (so `a::b` wins over `a`). */
+  sources: string[];
+  /** Normalized rename / merge target; `undefined` for a delete. */
+  target: string | undefined;
+}
+
+/**
+ * Validates a rename / merge / delete once, for every place it is applied: note tags
+ * ({@link planTagOperation}) and the category criteria of saved Study Sets.
+ */
+export function resolveTagOperation(
+  op: Exclude<TagOperation, { kind: 'normalize' }>,
+): ResolvedTagOperation | { error: TagOperationError } {
+  const sources = [
+    ...new Set(
+      operationSources(op)
+        .map(tagKey)
+        .filter((k) => k.length > 0),
+    ),
+  ].sort(cmpStr);
+  if (sources.length === 0) return { error: { code: 'no_source' } };
+
+  const resolved = op.kind === 'delete' ? { target: undefined } : resolveTarget(op, sources);
+  if ('error' in resolved) return resolved;
+
+  // Deepest source first so `a::b` wins over `a` for a tag inside both subtrees.
+  const bySpecificity = [...sources].sort(
+    (a, b) =>
+      b.split(TAG_HIERARCHY_SEPARATOR).length - a.split(TAG_HIERARCHY_SEPARATOR).length ||
+      cmpStr(a, b),
+  );
+  return { sources: bySpecificity, target: resolved.target };
 }
 
 function operationSources(op: Exclude<TagOperation, { kind: 'normalize' }>): readonly string[] {
@@ -339,17 +359,17 @@ function resolveTarget(
 }
 
 /**
- * A note's tags with every tag inside a source subtree renamed onto `target` (or removed when
- * `target` is `undefined`); `undefined` when no tag of the note is inside a source.
+ * `tags` with every tag inside a source subtree renamed onto the target (or removed for a
+ * delete), not yet normalized; `undefined` when no tag is inside a source.
  */
-function rewriteNoteTags(
-  note: Note,
-  bySpecificity: readonly string[],
-  target: string | undefined,
+export function rewriteTagsForOperation(
+  tags: readonly string[],
+  op: ResolvedTagOperation,
 ): string[] | undefined {
+  const { sources: bySpecificity, target } = op;
   let touched = false;
   const next: string[] = [];
-  for (const raw of note.tags) {
+  for (const raw of tags) {
     const key = tagKey(raw);
     const source = bySpecificity.find((s) => isTagInSubtree(key, s));
     if (source === undefined) {

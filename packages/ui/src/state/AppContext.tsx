@@ -9,6 +9,8 @@ import {
   getActiveFsrsParamsVersion,
   getEnabledLayoutsForDeck,
   getTotalAppliedEventCount,
+  planLeechTag,
+  planLeechTagUndo,
   resolveDeckFsrsConfig,
   shouldAutoSuspendLeech,
   uuidv5,
@@ -56,6 +58,8 @@ export interface UndoEntry {
   deckId: string;
   /** The review made the card a leech and auto-suspended it; Undo unsuspends it too. */
   leechSuspended?: boolean;
+  /** The review made the card a leech and tagged its note `leech`; Undo removes the tag. */
+  leechTagged?: boolean;
 }
 
 export interface AppContextValue {
@@ -414,9 +418,18 @@ export function AppProvider({
           ),
         );
       }
+      // Reaching the leech threshold tags the note `leech` (always, independent of auto-suspend).
+      const leechTag = planLeechTag(st, card, card.schedule.lapses, next.lapses);
+      if (leechTag) events.push(factory.create('NoteUpserted', leechTag, nowMs));
       setUndoStack((prev) => [
         ...prev.slice(-49),
-        { reviewId, cardId: card.id, deckId: card.deck_id, ...(leech && { leechSuspended: true }) },
+        {
+          reviewId,
+          cardId: card.id,
+          deckId: card.deck_id,
+          ...(leech && { leechSuspended: true }),
+          ...(leechTag && { leechTagged: true }),
+        },
       ]);
       emitEvents(events);
     },
@@ -428,15 +441,20 @@ export function AppProvider({
     if (!last) return false;
     const factory = factoryRef.current ?? eventFactory;
     const nowMs = Date.now();
-    const ev = factory.create('ReviewUndone', { review_id: last.reviewId }, nowMs);
+    const events: KnownEvent[] = [
+      factory.create('ReviewUndone', { review_id: last.reviewId }, nowMs),
+    ];
+    if (last.leechSuspended) {
+      events.push(factory.create('CardUnsuspended', { card_id: last.cardId }, nowMs));
+    }
+    const st = stateRef.current ?? collectionState;
+    const card = last.leechTagged ? st.cards.get(last.cardId) : undefined;
+    const untag = card && planLeechTagUndo(st, card);
+    if (untag) events.push(factory.create('NoteUpserted', untag, nowMs));
     setUndoStack((prev) => prev.slice(0, -1));
-    emitEvents(
-      last.leechSuspended
-        ? [ev, factory.create('CardUnsuspended', { card_id: last.cardId }, nowMs)]
-        : [ev],
-    );
+    emitEvents(events);
     return true;
-  }, [emitEvents, eventFactory, undoStack]);
+  }, [collectionState, emitEvents, eventFactory, undoStack]);
 
   const updateNote = useCallback(
     (note: Note, fields: Record<string, string>, tags: string[]) => {

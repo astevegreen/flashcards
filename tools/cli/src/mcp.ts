@@ -5,7 +5,6 @@ import { createInterface } from 'node:readline';
 import {
   applyEvents,
   buildStudyQueue,
-  cardFilterToStatsFilter,
   createEmptyState,
   createEventFactory,
   createHlcState,
@@ -19,7 +18,11 @@ import {
 } from '@flash/core';
 import { importFlashpkg } from '@flash/core/flashpkg';
 import { deserializeCollectionState } from '@flash/core/snapshot';
-import { computeCollectionStats, type CollectionStatsOptions } from '@flash/core/stats';
+import {
+  computeCollectionStats,
+  computeFilteredCollectionStats,
+  type CollectionStatsOptions,
+} from '@flash/core/stats';
 import { decodeEventsSegment, decodeSyncSnapshot, SYNC_V1_PREFIX } from '@flash/core/sync';
 import {
   buildPackageFromSpec,
@@ -443,12 +446,11 @@ function getStatsTool(args: Record<string, unknown>, ctx: McpServerContext, now:
   let stats = collectionStats;
   if (deckIds !== undefined || args['filter'] !== undefined) {
     const filter = resolveFilterArg(args['filter'], deckIds);
-    stats = computeCollectionStats(state, {
-      ...statsOptions,
-      filter: filter
-        ? cardFilterToStatsFilter(state, filter, { nowMs: now, tzOffsetMinutes })
-        : { deckIds: [] },
-    });
+    // The Stats screen calls the same `computeFilteredCollectionStats` for its deck / category
+    // filter; contradicting `deckIds` and `filter.deckIds` select no deck at all.
+    stats = filter
+      ? computeFilteredCollectionStats(state, filter, statsOptions)
+      : computeCollectionStats(state, { ...statsOptions, filter: { deckIds: [] } });
   }
   const { totals } = collectionStats;
 

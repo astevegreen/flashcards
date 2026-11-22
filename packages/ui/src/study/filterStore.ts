@@ -44,6 +44,8 @@ export interface StudySession {
   rate?: (card: Card, rating: ReviewRating, durationMs: number) => void;
   /** Undoes this session's last answer instead of the last review. */
   undo?: () => boolean;
+  /** Whether {@link undo} has an answer to undo (Study disables Undo until then). */
+  canUndo?: () => boolean;
 }
 
 /**

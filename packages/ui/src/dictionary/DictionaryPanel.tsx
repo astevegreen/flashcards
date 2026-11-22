@@ -1,5 +1,6 @@
 import {
   BUILTIN_NOTE_TYPE_IDS,
+  compareCodeUnits,
   deriveNoteId,
   stripRuby,
   type Deck,
@@ -463,7 +464,7 @@ export function DictionaryPanel({
     () =>
       [...state.decks.values()]
         .filter((d) => !d.archived)
-        .sort((a, b) => a.name.localeCompare(b.name)),
+        .sort((a, b) => compareCodeUnits(a.name, b.name) || compareCodeUnits(a.id, b.id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );

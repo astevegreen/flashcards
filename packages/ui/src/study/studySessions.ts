@@ -56,6 +56,7 @@ export function createPracticeSession(deps: SessionDeps, filter: CardFilter): St
         ),
       ]);
     },
+    canUndo: () => answered.length > 0,
     undo: () => {
       const practiceId = answered.pop();
       if (practiceId === undefined) return false;

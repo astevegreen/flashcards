@@ -1,4 +1,5 @@
 import {
+  planStudySetTagRewrites,
   planTagOperation,
   summarizeTags,
   TAG_HIERARCHY_SEPARATOR,
@@ -30,6 +31,8 @@ function describeError(error: TagOperationError): string {
       return `"${error.source}" and the new name are in the same "::" branch. Pick a name outside it.`;
   }
 }
+
+const studySetsText = (n: number) => `${n} study set${n === 1 ? '' : 's'}`;
 
 const inputClass =
   'min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-sm';
@@ -63,11 +66,15 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
       setMessage({ kind: 'error', text: describeError(plan.error) });
       return false;
     }
+    // Saved Study Sets that reference the category follow it, in the same batch.
+    const setPayloads = planStudySetTagRewrites(state, op);
     const factory = getEventFactory();
     const nowMs = Date.now();
     const events: KnownEvent[] = plan.payloads.map((p) => factory.create('NoteUpserted', p, nowMs));
+    for (const p of setPayloads) events.push(factory.create('StudySetSaved', p, nowMs));
     emitEvents(events);
-    setMessage({ kind: 'ok', text: done(plan.payloads.length) });
+    const setsText = setPayloads.length > 0 ? ` Updated ${studySetsText(setPayloads.length)}.` : '';
+    setMessage({ kind: 'ok', text: done(plan.payloads.length) + setsText });
     return true;
   };
 
@@ -130,8 +137,8 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
         </button>
       </div>
       <p className="text-xs text-[var(--muted)]">
-        Changes apply to every note in the collection. Renaming or deleting a category also changes
-        its <code>::</code> subcategories.
+        Changes apply to every note in the collection and to saved study sets. Renaming or deleting
+        a category also changes its <code>::</code> subcategories.
       </p>
 
       {message && (

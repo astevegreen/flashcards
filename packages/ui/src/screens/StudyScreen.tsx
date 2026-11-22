@@ -1,5 +1,6 @@
 import {
   buildStudyQueue,
+  compareCodeUnits,
   formatIntervalLabel,
   getStudyDayIndex,
   previewIntervals,
@@ -26,6 +27,7 @@ import {
   setStudyFilter,
   useStudyFilter,
   type ActiveStudyFilter,
+  type StudySession,
 } from '../study/filterStore.ts';
 import { RatingBar } from '../study/RatingBar.tsx';
 import { StudyCard, type SwipeIntent } from '../study/StudyCard.tsx';
@@ -185,6 +187,12 @@ function resolveStudyKeyAction(
   return rating && Number(ratingMode) >= rating[1] ? rating[0] : undefined;
 }
 
+/** Undo is enabled only when there is something to undo: the session's last answer, else a review. */
+function canUndo(session: StudySession | undefined, reviewUndoDepth: number): boolean {
+  if (session?.undo) return session.canUndo?.() ?? true;
+  return reviewUndoDepth > 0;
+}
+
 function layoutLabelFor(layout: Layout, card: Card): string {
   return card.variant > 0 ? `${layout.name} · c${card.variant}` : layout.name;
 }
@@ -304,7 +312,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     () =>
       [...state.decks.values()]
         .filter((d) => !d.archived)
-        .sort((a, b) => a.name.localeCompare(b.name)),
+        .sort((a, b) => compareCodeUnits(a.name, b.name) || compareCodeUnits(a.id, b.id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
@@ -800,7 +808,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           <button
             type="button"
             onClick={handleUndo}
-            disabled={undoStack.length === 0 && !studyFilter?.session?.undo}
+            disabled={!canUndo(studyFilter?.session, undoStack.length)}
             title="Undo last review (Z)"
             className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)] disabled:opacity-40"
           >

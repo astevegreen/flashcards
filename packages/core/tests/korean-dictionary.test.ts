@@ -3,7 +3,6 @@ import { gzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import {
   analyzeKoreanQuery,
-  buildEnglishReverseIndex,
   composeHangulSyllable,
   decodePackArchive,
   decomposeHangulSyllable,
@@ -307,15 +306,20 @@ describe('Phase 10 romanization, 초성 and English reverse index', () => {
     expect(rankDictionaryResults(ENTRIES, '공ㅂ').map((e) => e.headword)).toContain('공부');
   });
 
-  it('builds the English → Korean reverse index from equivalents (golden)', () => {
+  it('serves English → Korean lookups from per-sense equivalents (search tokens, golden)', () => {
     expect(normalizeEnglishEquivalent('To eat.')).toBe('eat');
     expect(normalizeEnglishEquivalent('a Book')).toBe('book');
-    const index = buildEnglishReverseIndex(SAMPLE);
-    expect(index['eat']).toEqual(['먹다']);
-    expect(index['study']).toEqual(['공부', '공부하다']);
-    expect(index['blue']).toEqual(['파랗다', '푸르다']);
-    expect(index['korea']).toEqual(['한국']);
-    expect(Object.keys(index)).toEqual([...Object.keys(index)].sort());
+    // The reverse index is the `searchTokens` multiEntry index: every entry is reachable by the
+    // normalized English equivalents of its senses.
+    const tokensOf = (hw: string) => ENTRIES.find((e) => e.headword === hw)?.searchTokens ?? [];
+    expect(tokensOf('먹다')).toContain('eat');
+    expect(tokensOf('공부')).toContain('study');
+    expect(tokensOf('공부하다')).toContain('study');
+    expect(tokensOf('한국')).toContain('korea');
+    expect(planDictionarySearch('eat').prefixTokens[0]).toBe('eat');
+    expect(rankDictionaryResults(ENTRIES, 'blue').map((e) => e.headword)).toEqual(
+      expect.arrayContaining(['파랗다', '푸르다']),
+    );
     expect(top('eat')).toBe('먹다');
     expect(top('to eat')).toBe('먹다');
     expect(top('help')).toBe('돕다');
@@ -355,8 +359,13 @@ describe('Phase 10 romanization, 초성 and English reverse index', () => {
     expect(planDictionarySearch('xuéxí').prefixTokens).toContain('xuexi');
   });
 
-  it('memoizes the last analysis (ranking calls it per entry)', () => {
-    expect(analyzeKoreanQuery('먹었어요')).toBe(analyzeKoreanQuery('먹었어요'));
+  it('analyzes queries without a module-level cache (pure, same answer every call)', () => {
+    const first = analyzeKoreanQuery('먹었어요');
+    expect(analyzeKoreanQuery('hanguk').romanized.has('한국')).toBe(true);
+    const again = analyzeKoreanQuery(' 먹었어요 ');
+    expect(again).not.toBe(first);
+    expect(again).toEqual(first);
+    expect(again.lemmas.has('먹다')).toBe(true);
   });
 });
 

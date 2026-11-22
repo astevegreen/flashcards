@@ -44,6 +44,10 @@ media/<sha256>.<ext>     optional  images and audio, named by content hash
 - `package_id` identifies the package across versions. Re-importing a newer `version` of the same
   `package_id` updates the existing decks in place.
 - `format_version` must be `1`. Importers reject unknown versions.
+- `subset` (optional, `true`) marks a package that holds only part of its decks' notes, such as
+  one exported category. Its decks keep their real ids so re-importing updates the same notes,
+  but importers never archive a deck's other notes for it (not even for watched folders or
+  package URLs) and never relink the existing deck's source or rename it.
 
 ### `decks/<name>.jsonl` ([schema](./schemas/note_record.schema.json))
 
