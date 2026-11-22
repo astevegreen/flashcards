@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useApp, type SyncUiState } from '../state/AppContext.tsx';
 
-export type NavTab = 'study' | 'library' | 'browse' | 'settings';
+export type NavTab = 'study' | 'library' | 'browse' | 'stats' | 'settings';
 
 export interface AppShellProps {
   activeTab: NavTab;
@@ -13,6 +13,7 @@ const NAV_ITEMS: readonly { id: NavTab; label: string; icon: string }[] = [
   { id: 'study', label: 'Study', icon: '◫' },
   { id: 'library', label: 'Library', icon: '▤' },
   { id: 'browse', label: 'Browse', icon: '⌕' },
+  { id: 'stats', label: 'Stats', icon: '▥' },
   { id: 'settings', label: 'Settings', icon: '⚙' },
 ];
 

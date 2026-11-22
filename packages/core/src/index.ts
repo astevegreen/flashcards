@@ -25,3 +25,4 @@ export * from './import/csv.ts';
 export * from './import/flashpkg.ts';
 export * from './sync/codec.ts';
 export * from './sync/engine.ts';
+export * from './stats/index.ts';

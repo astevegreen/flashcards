@@ -1,0 +1,274 @@
+{
+  "nowMs": 1773111600000,
+  "today": {
+    "day": 20522,
+    "date": "2026-03-10"
+  },
+  "deckIds": [
+    "16dde1a5-eaf9-594c-8a07-a8fd737579df"
+  ],
+  "totals": {
+    "cards": 4,
+    "reviews": 6,
+    "passed": 5,
+    "timeMs": 26000
+  },
+  "reviewsPerDay": {
+    "days": [
+      {
+        "day": 20516,
+        "date": "2026-03-04",
+        "count": 0,
+        "passed": 0,
+        "again": 0,
+        "newCards": 0,
+        "timeMs": 0
+      },
+      {
+        "day": 20517,
+        "date": "2026-03-05",
+        "count": 1,
+        "passed": 1,
+        "again": 0,
+        "newCards": 1,
+        "timeMs": 1000
+      },
+      {
+        "day": 20518,
+        "date": "2026-03-06",
+        "count": 0,
+        "passed": 0,
+        "again": 0,
+        "newCards": 0,
+        "timeMs": 0
+      },
+      {
+        "day": 20519,
+        "date": "2026-03-07",
+        "count": 0,
+        "passed": 0,
+        "again": 0,
+        "newCards": 0,
+        "timeMs": 0
+      },
+      {
+        "day": 20520,
+        "date": "2026-03-08",
+        "count": 1,
+        "passed": 1,
+        "again": 0,
+        "newCards": 1,
+        "timeMs": 5000
+      },
+      {
+        "day": 20521,
+        "date": "2026-03-09",
+        "count": 2,
+        "passed": 2,
+        "again": 0,
+        "newCards": 1,
+        "timeMs": 5000
+      },
+      {
+        "day": 20522,
+        "date": "2026-03-10",
+        "count": 2,
+        "passed": 1,
+        "again": 1,
+        "newCards": 0,
+        "timeMs": 15000
+      }
+    ],
+    "totalReviews": 6,
+    "totalTimeMs": 26000,
+    "averagePerDay": 0.8571,
+    "daysStudied": 4
+  },
+  "retention": {
+    "windowDays": 30,
+    "target": 0.9,
+    "deckTargets": [
+      {
+        "deckId": "16dde1a5-eaf9-594c-8a07-a8fd737579df",
+        "target": 0.9
+      }
+    ],
+    "mature": {
+      "passed": 0,
+      "total": 0,
+      "rate": null
+    },
+    "young": {
+      "passed": 0,
+      "total": 1,
+      "rate": 0
+    },
+    "all": {
+      "passed": 0,
+      "total": 1,
+      "rate": 0
+    }
+  },
+  "forecast": {
+    "days": [
+      {
+        "day": 20522,
+        "date": "2026-03-10",
+        "offset": 0,
+        "count": 2,
+        "learning": 2,
+        "review": 0
+      },
+      {
+        "day": 20523,
+        "date": "2026-03-11",
+        "offset": 1,
+        "count": 0,
+        "learning": 0,
+        "review": 0
+      },
+      {
+        "day": 20524,
+        "date": "2026-03-12",
+        "offset": 2,
+        "count": 0,
+        "learning": 0,
+        "review": 0
+      },
+      {
+        "day": 20525,
+        "date": "2026-03-13",
+        "offset": 3,
+        "count": 0,
+        "learning": 0,
+        "review": 0
+      },
+      {
+        "day": 20526,
+        "date": "2026-03-14",
+        "offset": 4,
+        "count": 1,
+        "learning": 0,
+        "review": 1
+      },
+      {
+        "day": 20527,
+        "date": "2026-03-15",
+        "offset": 5,
+        "count": 0,
+        "learning": 0,
+        "review": 0
+      },
+      {
+        "day": 20528,
+        "date": "2026-03-16",
+        "offset": 6,
+        "count": 0,
+        "learning": 0,
+        "review": 0
+      }
+    ],
+    "overdue": 0,
+    "total": 3
+  },
+  "heatmap": {
+    "days": [
+      {
+        "day": 20509,
+        "date": "2026-02-25",
+        "count": 0,
+        "weekday": 3
+      },
+      {
+        "day": 20510,
+        "date": "2026-02-26",
+        "count": 0,
+        "weekday": 4
+      },
+      {
+        "day": 20511,
+        "date": "2026-02-27",
+        "count": 0,
+        "weekday": 5
+      },
+      {
+        "day": 20512,
+        "date": "2026-02-28",
+        "count": 0,
+        "weekday": 6
+      },
+      {
+        "day": 20513,
+        "date": "2026-03-01",
+        "count": 0,
+        "weekday": 0
+      },
+      {
+        "day": 20514,
+        "date": "2026-03-02",
+        "count": 0,
+        "weekday": 1
+      },
+      {
+        "day": 20515,
+        "date": "2026-03-03",
+        "count": 0,
+        "weekday": 2
+      },
+      {
+        "day": 20516,
+        "date": "2026-03-04",
+        "count": 0,
+        "weekday": 3
+      },
+      {
+        "day": 20517,
+        "date": "2026-03-05",
+        "count": 1,
+        "weekday": 4
+      },
+      {
+        "day": 20518,
+        "date": "2026-03-06",
+        "count": 0,
+        "weekday": 5
+      },
+      {
+        "day": 20519,
+        "date": "2026-03-07",
+        "count": 0,
+        "weekday": 6
+      },
+      {
+        "day": 20520,
+        "date": "2026-03-08",
+        "count": 1,
+        "weekday": 0
+      },
+      {
+        "day": 20521,
+        "date": "2026-03-09",
+        "count": 2,
+        "weekday": 1
+      },
+      {
+        "day": 20522,
+        "date": "2026-03-10",
+        "count": 2,
+        "weekday": 2
+      }
+    ],
+    "maxCount": 2,
+    "currentStreak": 3,
+    "longestStreak": 3,
+    "studiedToday": true,
+    "totalDaysStudied": 4
+  },
+  "maturity": {
+    "new": 1,
+    "learning": 2,
+    "young": 1,
+    "mature": 0,
+    "total": 4
+  }
+}

@@ -12,6 +12,9 @@ const LibraryScreen = lazy(() =>
 const BrowseScreen = lazy(() =>
   import('./screens/BrowseScreen.tsx').then((m) => ({ default: m.BrowseScreen })),
 );
+const StatsScreen = lazy(() =>
+  import('./screens/StatsScreen.tsx').then((m) => ({ default: m.StatsScreen })),
+);
 const SettingsScreen = lazy(() =>
   import('./screens/SettingsScreen.tsx').then((m) => ({ default: m.SettingsScreen })),
 );
@@ -50,6 +53,7 @@ function ScreenRouter() {
           {activeTab === 'browse' && (
             <BrowseScreen onOpenSettings={() => handleSelectTab('settings')} />
           )}
+          {activeTab === 'stats' && <StatsScreen />}
           {activeTab === 'settings' && <SettingsScreen />}
         </Suspense>
       )}
