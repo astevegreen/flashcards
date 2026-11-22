@@ -501,24 +501,43 @@ export function deinflectKorean(word: string, opts: DeinflectOptions = {}): Kore
     if (prev === undefined || steps < prev) best.set(lemma, steps);
   };
   add(w, 0);
-  for (const p of NOUN_PARTICLES) {
-    if (w.length > p.length && w.endsWith(p)) add(w.slice(0, -p.length), 1);
-  }
 
-  const visited = new Set<string>([w]);
-  const queue: Array<readonly [string, number]> = [[w, 0]];
+  // BFS over two kinds of state: noun states (the input, or a noun with particles peeled off)
+  // may lose further particles (`학교에서도` → `학교에서` → `학교`); every state may also be a
+  // conjugated predicate. Verb stems are not particle-stripped, so `도와` never yields `도`.
+  const visited = new Set<string>([`n:${w}`]);
+  const queue: Array<readonly [string, number, boolean]> = [[w, 0, true]];
+  const enqueue = (state: string, depth: number, noun: boolean): void => {
+    const key = `${noun ? 'n' : 'v'}:${state}`;
+    if (!visited.has(key) && visited.size < 400) {
+      visited.add(key);
+      queue.push([state, depth, noun]);
+    }
+  };
   for (let head = 0; head < queue.length; head++) {
     const item = queue[head];
     if (!item) break;
-    const [state, depth] = item;
+    const [state, depth, noun] = item;
     if (depth >= maxDepth) continue;
+    if (noun) {
+      for (const p of NOUN_PARTICLES) {
+        if (state.length <= p.length || !state.endsWith(p)) continue;
+        const bare = state.slice(0, -p.length);
+        add(bare, depth + 1);
+        enqueue(bare, depth + 1, true);
+      }
+    }
     for (const stem of expandSurface(state)) {
       if (!isAllHangulSyllables(stem)) continue;
       add(`${stem}다`, depth + 1);
-      if (!visited.has(stem) && visited.size < 400) {
-        visited.add(stem);
-        queue.push([stem, depth + 1]);
+      // Copula stem 이 (`학생이었어요` → `학생이`, `친구였어요` → `친구이`, `선생님이세요`) → the noun.
+      if (stem.length >= 2) {
+        const last = lastSyllable(stem);
+        if (last && last.l === L_NG && last.v === V_I && last.t === 0) {
+          add(stem.slice(0, -1), depth + 2);
+        }
       }
+      enqueue(stem, depth + 1, false);
     }
   }
 

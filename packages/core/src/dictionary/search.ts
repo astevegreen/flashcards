@@ -235,11 +235,33 @@ export function planDictionarySearch(rawQuery: string): DictionarySearchPlan {
   return { query: q, prefixTokens, headwordCandidates };
 }
 
+/**
+ * Ceiling for a romanization match when the query is also an English word some candidate
+ * translates exactly: below the English-equivalent (780–800) and exact-meaning (760) tiers,
+ * so `son` ranks 아들 above 손 and `go` ranks 가다 above 고.
+ */
+const ROMANIZATION_CAP_WHEN_ENGLISH_HIT = 750;
+
+function hasExactEnglishMatch(entry: DictionaryEntry, english: string, lower: string): boolean {
+  if (
+    entry.senses?.some((s) =>
+      s.equivalents.some((eq) => normalizeEnglishEquivalent(eq) === english),
+    )
+  ) {
+    return true;
+  }
+  return entry.meanings.some((m) => {
+    const ml = m.toLowerCase();
+    return ml === lower || ml.split(/[;,/()]+/).some((part) => part.trim() === lower);
+  });
+}
+
 /** Korean-specific match score for one entry (0 = no Korean-specific match). */
 function koreanMatchScore(
   entry: DictionaryEntry,
   ko: KoreanQueryAnalysis,
   rawQuery: string,
+  romanizationCap: number,
 ): number {
   let best = 0;
   const hw = entry.headword;
@@ -249,7 +271,9 @@ function koreanMatchScore(
   if (rawQuery && entry.forms?.includes(rawQuery)) best = Math.max(best, 945);
 
   const romCost = ko.romanized.get(hw);
-  if (romCost !== undefined) best = Math.max(best, Math.max(700, 900 - romCost * 10));
+  if (romCost !== undefined) {
+    best = Math.max(best, Math.min(romanizationCap, Math.max(700, 900 - romCost * 10)));
+  }
 
   if (ko.english && entry.senses) {
     const english = ko.english;
@@ -293,6 +317,18 @@ export function rankDictionaryResults(
   const limit = Math.max(1, Math.min(200, opts.limit ?? 50));
   const allowedPacks = opts.packIds && opts.packIds.length > 0 ? new Set(opts.packIds) : null;
   const ko = analyzeKoreanQuery(q.raw);
+  // An English query that also parses as romanization (`son` → 손, `man` → 만) must not outrank
+  // the real translation, so romanization is capped whenever some candidate translates it.
+  const english = ko.english;
+  const romanizationCap =
+    english !== undefined &&
+    ko.romanized.size > 0 &&
+    candidates.some(
+      (e) =>
+        (!allowedPacks || allowedPacks.has(e.packId)) && hasExactEnglishMatch(e, english, q.lower),
+    )
+      ? ROMANIZATION_CAP_WHEN_ENGLISH_HIT
+      : Number.POSITIVE_INFINITY;
 
   const scored: Array<{ entry: DictionaryEntry; score: number }> = [];
 
@@ -368,7 +404,7 @@ export function rankDictionaryResults(
 
     // Korean-specific matches (deinflection, romanization, 초성, jamo prefix, English equivalents)
     if (q.lower && score < 1000) {
-      score = Math.max(score, koreanMatchScore(entry, ko, q.raw));
+      score = Math.max(score, koreanMatchScore(entry, ko, q.raw, romanizationCap));
     }
     if (score <= 0) continue;
 

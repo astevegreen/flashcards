@@ -65,6 +65,17 @@ const SAMPLE: RawEntry[] = [
   krdict('짓다', [['build', 'make']], { pos: ['verb'], level: 'intermediate' }),
   krdict('부르다', [['sing'], ['call']], { pos: ['verb'] }),
   krdict('마시다', [['drink']], { pos: ['verb'] }),
+  // Romanization collisions: English words that are also valid RR of another headword.
+  krdict('손', [['hand']], { pos: ['noun'] }),
+  krdict('아들', [['son']], { pos: ['noun'] }),
+  krdict('만', [['ten thousand']], { pos: ['numeral'] }),
+  krdict('남자', [['man', 'male']], { pos: ['noun'] }),
+  krdict('고', [['high']], { pos: ['noun'], level: 'advanced' }),
+  krdict('도', [['degree']], { pos: ['noun'] }),
+  // Nouns for particle / copula stacking.
+  krdict('학생', [['student']], { pos: ['noun'] }),
+  krdict('친구', [['friend']], { pos: ['noun'] }),
+  krdict('선생님', [['teacher']], { pos: ['noun'] }),
 ];
 const HEADWORDS = new Set(SAMPLE.map((e) => e.headword));
 const ENTRIES = materializeDictionaryEntries('dict-krdict', SAMPLE);
@@ -180,6 +191,15 @@ describe('Phase 10 Korean deinflection (validated against headwords)', () => {
     ['한국어를', '한국어'],
     ['학교에서', '학교'],
     ['한국이에요', '한국'],
+    // stacked particles and inflected copula
+    ['학교에서도', '학교'],
+    ['한국에서는', '한국'],
+    ['친구가요', '친구'],
+    ['학생이었어요', '학생'],
+    ['친구였어요', '친구'],
+    ['선생님이세요', '선생님'],
+    ['학생입니다', '학생'],
+    ['친구예요', '친구'],
   ];
 
   it.each(GOLDEN)('%s → %s', (surface, lemma) => {
@@ -193,6 +213,20 @@ describe('Phase 10 Korean deinflection (validated against headwords)', () => {
     expect(top('몰라요')).toBe('모르다');
     expect(top('추워요')).toBe('춥다');
     expect(top('공부했어요')).toBe('공부하다');
+  });
+
+  it('ranks the bare noun first for stacked particles and copula forms', () => {
+    expect(top('학교에서도')).toBe('학교');
+    expect(top('한국에서는')).toBe('한국');
+    expect(top('학생이었어요')).toBe('학생');
+    expect(top('친구였어요')).toBe('친구');
+    expect(top('선생님이세요')).toBe('선생님');
+  });
+
+  it('keeps the verb lemma above particle-stripped nouns (도와요 → 돕다 before 도)', () => {
+    expect(top('도와요')).toBe('돕다');
+    // Verb stems are not particle-stripped: 먹었어요 never yields a bare 먹 noun candidate.
+    expect(deinflectKorean('먹었어요').map((c) => c.lemma)).not.toContain('먹');
   });
 
   it('keeps genuine ambiguity: 사는 is both 살다 (live) and 사다 (buy)', () => {
@@ -279,6 +313,19 @@ describe('Phase 10 romanization, 초성 and English reverse index', () => {
     expect(top('eat')).toBe('먹다');
     expect(top('to eat')).toBe('먹다');
     expect(top('help')).toBe('돕다');
+  });
+
+  it('ranks the English translation above an accidental romanization match (golden)', () => {
+    const order = (q: string) => rankDictionaryResults(ENTRIES, q).map((e) => e.headword);
+    expect(order('son')[0]).toBe('아들');
+    expect(order('son')).toContain('손'); // the romanization match is still offered
+    expect(order('man')[0]).toBe('남자');
+    expect(order('go')[0]).toBe('가다');
+    expect(order('hand')[0]).toBe('손');
+    // Without an English hit romanization keeps its full weight.
+    expect(top('hanguk')).toBe('한국');
+    const onlyHand = ENTRIES.filter((e) => e.headword === '손');
+    expect(rankDictionaryResults(onlyHand, 'son').map((e) => e.headword)).toEqual(['손']);
   });
 
   it('keeps Hanja ↔ word lookups working through altForms', () => {
