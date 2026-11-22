@@ -401,12 +401,19 @@ test.describe('Phase 9 Study Sets, custom study and leech auto-suspend', () => {
     await page.getByTestId('browse-state-filter').selectOption('leech');
     await expect(page.getByTestId('browse-list')).toContainText(secondWord);
     await expect(page.getByTestId('browse-list')).toContainText(firstWord);
+    // Both notes carry a real #leech category.
+    await page.getByTestId('open-tag-manager').click();
+    await expect(page.getByTestId('tag-count-leech')).toHaveText('2');
+    await page.getByTestId('tag-manager-close').click();
 
-    // Undo the review: the auto-suspension is undone with it.
+    // Undo the review: the auto-suspension and the #leech category are undone with it.
     await openStudy(page);
     await page.keyboard.press('z');
     await expect.poll(() => countStoredEvents(page, db, 'CardUnsuspended')).toBe(1);
     await expect(page.getByTestId('study-card')).toContainText(secondWord);
     await expect(page.getByTestId('count-due')).toHaveText('1');
+    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByTestId('open-tag-manager').click();
+    await expect(page.getByTestId('tag-count-leech')).toHaveText('1');
   });
 });
