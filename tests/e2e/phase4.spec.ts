@@ -317,6 +317,10 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await expect(viewer.getByTestId('directive-cards')).toBeVisible();
     await viewer.getByTestId('directive-cards-flip').click();
     await expect(viewer.getByTestId('directive-cards-back')).toBeVisible();
+    // Rating inside the page records a real FSRS review and advances to the next card
+    await viewer.getByTestId('directive-cards-rate-3').click();
+    await expect(viewer.getByTestId('directive-cards-reviewed')).toContainText('1 reviewed');
+    await expect(viewer.getByTestId('directive-cards-back')).toHaveCount(0);
 
     // ::deck-link visible
     await expect(viewer.getByTestId('directive-deck-link')).toBeVisible();

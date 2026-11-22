@@ -1,4 +1,13 @@
-import { stripCloze, type Deck, type Note, type Page } from '@flash/core';
+import {
+  deriveCardId,
+  getEnabledLayoutsForDeck,
+  stripCloze,
+  type Card,
+  type Deck,
+  type Note,
+  type Page,
+  type ReviewRating,
+} from '@flash/core';
 import { isStrictHttpsUrl } from '@flash/core/sources';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MediaImage } from '../components/MediaImage.tsx';
@@ -102,14 +111,19 @@ function InlineCardsWidget({
   deckRef,
   tagFilter,
   onStudyDeck,
+  previewMode = false,
 }: {
   deckRef: string;
   tagFilter?: string;
   onStudyDeck?: ((deckId: string) => void) | undefined;
+  /** Editor preview: flip-through only, never records reviews. */
+  previewMode?: boolean;
 }) {
-  const { state, stateVersion } = useApp();
+  const { state, stateVersion, rateCard } = useApp();
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
+  const [reviewedCount, setReviewedCount] = useState(0);
+  const shownAtRef = useRef(Date.now());
 
   const { deck, notes } = useMemo(() => {
     const matchedDeck = findDeckByRef(state.decks.values(), deckRef);
@@ -166,6 +180,39 @@ function InlineCardsWidget({
   const frontRaw = note.fields[frontKey] ?? '';
   const backRaw = note.fields[backKey] ?? '';
 
+  // Rate against the deck's flip layout (else its first enabled layout), so a review here is
+  // the same FSRS review the Study screen would record for that card (§2.3 inline mini-study).
+  const enabledLayouts = getEnabledLayoutsForDeck(state, deck);
+  const studyLayout =
+    enabledLayouts.find((l) => l.answer_mode === 'flip') ?? enabledLayouts[0] ?? undefined;
+  // Cloze layouts number their cards by blank (c1, c2, …), every other layout uses variant 0.
+  let studyCard: Card | undefined;
+  if (studyLayout) {
+    for (let variant = 0; variant <= 20 && !studyCard; variant++) {
+      studyCard = state.cards.get(deriveCardId(note.id, studyLayout.id, variant));
+    }
+  }
+  const ratingMode = state.preferences.rating_button_mode;
+  const ratingButtons: Array<{ rating: ReviewRating; label: string }> = [
+    { rating: 1, label: 'Again' },
+    ...(ratingMode === '4' ? [{ rating: 2 as ReviewRating, label: 'Hard' }] : []),
+    { rating: 3, label: 'Good' },
+    ...(ratingMode !== '2' ? [{ rating: 4 as ReviewRating, label: 'Easy' }] : []),
+  ];
+
+  const goNext = () => {
+    setIndex((prev) => (prev + 1) % notes.length);
+    setRevealed(false);
+    shownAtRef.current = Date.now();
+  };
+
+  const handleRate = (rating: ReviewRating) => {
+    if (!studyCard) return;
+    rateCard(studyCard, rating, Date.now() - shownAtRef.current);
+    setReviewedCount((n) => n + 1);
+    goNext();
+  };
+
   return (
     <div
       data-testid="directive-cards"
@@ -178,6 +225,9 @@ function InlineCardsWidget({
         </span>
         <span>
           Card {safeIndex + 1} / {notes.length}
+          {reviewedCount > 0 && (
+            <span data-testid="directive-cards-reviewed"> · {reviewedCount} reviewed</span>
+          )}
         </span>
       </div>
 
@@ -218,15 +268,32 @@ function InlineCardsWidget({
           <button
             type="button"
             data-testid="directive-cards-next"
-            onClick={() => {
-              setIndex((prev) => (prev + 1) % notes.length);
-              setRevealed(false);
-            }}
+            onClick={goNext}
             className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--surface-2)]"
           >
             Next Card →
           </button>
         </div>
+
+        {revealed && studyCard && !previewMode && (
+          <div className="flex flex-wrap gap-1.5" data-testid="directive-cards-ratings">
+            {ratingButtons.map((b) => (
+              <button
+                key={b.rating}
+                type="button"
+                data-testid={`directive-cards-rate-${b.rating}`}
+                onClick={() => handleRate(b.rating)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                  b.rating === 1
+                    ? 'bg-rose-500/15 text-rose-700 hover:bg-rose-500/25 dark:text-rose-300'
+                    : 'border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)]'
+                }`}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {onStudyDeck && (
           <button
@@ -603,6 +670,7 @@ export function PageViewer({
               deckRef={deckRef}
               {...(tagFilter !== undefined ? { tagFilter } : {})}
               onStudyDeck={onStudyDeck}
+              previewMode={previewMode}
             />
           );
         }
