@@ -541,6 +541,27 @@ describe('Phase 11 stats: retention, maturity, forecast', () => {
     expect(later.forecast.days[0]).toMatchObject({ count: 2, learning: 1, review: 1 });
     expect(later.forecast.days.map((d) => d.offset)).toEqual([0, 1, 2]);
   });
+
+  it('leaves suspended cards out of the forecast but keeps their review history', () => {
+    const { factory, deckId, cardIds, events, t0 } = matureDeck();
+    const [a, b] = cardIds as [string, string, string];
+    const log = [
+      review(factory, a, 1, t0, KST),
+      review(factory, b, 4, t0, KST),
+      factory.create('CardSuspended', { card_id: b }, t0 + 1000),
+    ];
+    const state = replayAllEvents([...events, ...log]);
+    const stats = computeCollectionStats(state, {
+      nowMs: t0 + MS_PER_MINUTE,
+      tzOffsetMinutes: KST,
+      filter: { deckIds: [deckId] },
+      forecastDays: 60,
+    });
+    expect(stats.forecast.total).toBe(1);
+    expect(stats.forecast.days.some((d) => d.review > 0)).toBe(false);
+    expect(stats.totals.reviews).toBe(2);
+    expect(stats.maturity.total).toBe(3);
+  });
 });
 
 describe('Phase 11 stats: properties', () => {

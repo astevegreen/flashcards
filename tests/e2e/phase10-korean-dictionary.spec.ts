@@ -17,7 +17,13 @@ test.describe('Phase 10 Korean dictionary (KRDict starter pack)', () => {
       timeout: 10_000,
     });
 
-    // Everything below runs offline against IndexedDB.
+    // Everything below runs offline against IndexedDB. Wait for the service worker precache first,
+    // otherwise lazily loaded screens (Browse, DictionaryPanel) can race it under parallel load.
+    await page.evaluate(async () => {
+      if ('serviceWorker' in navigator) {
+        await navigator.serviceWorker.ready;
+      }
+    });
     await context.setOffline(true);
     await page.getByRole('button', { name: 'Browse' }).first().click();
     await page.getByTestId('browse-tab-dictionary').click();

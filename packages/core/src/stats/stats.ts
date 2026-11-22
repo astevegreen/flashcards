@@ -1,6 +1,7 @@
 import {
   compareReviewRecords,
   getActiveFsrsParamsVersion,
+  isCardSuspended,
   resolveDeckFsrsConfig,
   type CollectionState,
 } from '../events/replay.ts';
@@ -344,7 +345,9 @@ export function computeCollectionStats(
     maturity.total += 1;
 
     // Due forecast: every non-new card lands on its due study day (overdue folds into today).
-    if (card.schedule.state !== 0) {
+    // Suspended cards never come due (Phase 9), so they are left out of the forecast only; their
+    // history still counts towards reviews, retention and maturity.
+    if (card.schedule.state !== 0 && !isCardSuspended(state, card.id)) {
       const dueDay = getStudyDayIndex(card.schedule.due, tzOffsetMinutes, dayStart);
       const rel = dueDay - today;
       if (rel < 0) overdue += 1;
