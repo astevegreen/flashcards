@@ -75,6 +75,28 @@ Before the first device build:
 - Add that client's reversed client ID as a second URL scheme in `ios/App/App/Info.plist`.
   `flashcards` is already registered for the picker callback.
 - Add the In-App Purchase capability for StoreKit 2.
+- For iCloud Drive sync, in the Apple Developer account enable **iCloud** for the
+  `app.flashcards.localfirst` App ID and create the container `iCloud.app.flashcards.localfirst`.
+  `ios/App/App/App.entitlements` already requests it (iCloud Documents), and Xcode's automatic
+  signing picks it up once the App ID has it. Without it, "Use iCloud Drive" reports that iCloud
+  Drive is off.
+
+iCloud Drive sync is the app's own Swift plugin, `ios/App/App/ICloudDocumentsPlugin.swift`
+(JS name `ICloudDocuments`), registered by `MainViewController.swift`, which `Main.storyboard`
+uses in place of `CAPBridgeViewController`. It is not an npm package, so `cap sync` neither
+adds nor removes it. Files live in the iCloud container outside `Documents/`, so they stay out
+of the Files app:
+
+- `listFiles` merges an `NSMetadataQuery` (sees files not downloaded to this device yet) with a
+  local directory walk (sees files written moments ago, before iCloud indexes them).
+- `readFile` starts the download when needed, waits up to 60 s, then reads under
+  `NSFileCoordinator`.
+- `writeFile` writes under `NSFileCoordinator`; `ifAbsent` is an exclusive create that fails
+  with `ALREADY_EXISTS`. That check is per device: two devices creating the same file while
+  offline both succeed, and iCloud keeps the later copy. Segments and snapshots have
+  per-device paths and media files are named by content hash, so the one real race is two
+  devices creating `manifest.json` for the first time while offline. Connect the first device
+  and let it sync before connecting the second.
 
 ## Desktop (Tauri 2): Windows, macOS or Linux
 
@@ -111,15 +133,25 @@ Rust plugins registered in `src-tauri/src/lib.rs`, with their permissions in
 | `tauri-plugin-opener`                        | Opens the Google consent page and `picker.html` in the system browser  |
 | `tauri-plugin-oauth`                         | Loopback `127.0.0.1` redirect server for Google OAuth (PKCE, RFC 8252) |
 | `tauri-plugin-http`                          | Token exchange from Rust (avoids WebView CORS)                         |
+| `keyring` crate (app commands)               | `secure_store_*` commands in `src/secure_store.rs`: OS keychain        |
 
 Google OAuth on desktop needs a **Desktop app** client
 (`VITE_GOOGLE_DESKTOP_CLIENT_ID` / `_SECRET`).
 
+The Google refresh token is kept in the OS keychain (Windows Credential Manager, macOS
+Keychain, Linux Secret Service) under service `app.flashcards.localfirst`, account
+`google-refresh-token`. The Rust commands only accept that account name. On first start after
+the upgrade, a token left in the old `oauth_refresh_tokens` SQLite table is moved to the
+keychain and the table is dropped. When no keychain is available (Linux without GNOME Keyring,
+KWallet or another Secret Service), the token stays in SQLite and Settings shows a warning that
+it is not in a secure store. Linux builds need the D-Bus development package (`libdbus-1-dev`).
+`cargo test -- --ignored` in `src-tauri` round-trips a value through the real keychain.
+
 ## Interfaces still waiting on a native plugin
 
-| Interface               | Status                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `MlKitDigitalInkPlugin` | **Wired** to `@capacitor-mlkit/digital-ink-recognition` (Capawesome). `zh-Hans`/`zh-Hant` map to ML Kit `zh-Hani-CN`/`zh-Hani-TW`. The web stroke matcher is the fallback.                                                                                                                                                                                                                                         |
-| `StoreBillingPlugin`    | **Wired** to `@capgo/native-purchases` (StoreKit 2 / Play Billing 7, non-consumable `INAPP`).                                                                                                                                                                                                                                                                                                                      |
-| `ICloudDocumentPlugin`  | **Not wired.** No maintained Capacitor plugin exposes iCloud Drive ubiquity-container file I/O. `capacitor-icloud-documents` was last published in 2024 at 0.0.2. TODO: write a small local Swift plugin (`NSFileCoordinator` on the ubiquity container) that implements `listFiles`/`readFile`/`writeFile`, then pass it as `iCloudPlugin` in `bootCapacitorPlatform`. Until then iOS syncs through Google Drive. |
-| Desktop refresh token   | Stored in a SQLite table (`oauth_refresh_tokens`) for now. TODO: move it to the OS keychain with a keyring plugin.                                                                                                                                                                                                                                                                                                 |
+| Interface               | Status                                                                                                                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MlKitDigitalInkPlugin` | **Wired** to `@capacitor-mlkit/digital-ink-recognition` (Capawesome). `zh-Hans`/`zh-Hant` map to ML Kit `zh-Hani-CN`/`zh-Hani-TW`. The web stroke matcher is the fallback. |
+| `StoreBillingPlugin`    | **Wired** to `@capgo/native-purchases` (StoreKit 2 / Play Billing 7, non-consumable `INAPP`).                                                                              |
+| `ICloudDocumentPlugin`  | **Wired** to the local Swift plugin `ios/App/App/ICloudDocumentsPlugin.swift` (iOS only; see the iOS section).                                                             |
+| Desktop refresh token   | **Done.** Kept in the OS keychain (see the Desktop section).                                                                                                               |

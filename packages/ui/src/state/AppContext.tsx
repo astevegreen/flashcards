@@ -75,6 +75,7 @@ export interface AppContextValue {
   connectDropbox: () => Promise<void>;
   connectLocalFolder: () => Promise<boolean>;
   reconnectLocalFolder: () => Promise<boolean>;
+  connectICloud: () => Promise<void>;
   disconnectSync: () => Promise<void>;
   emitEvents: (events: readonly KnownEvent[]) => void;
   getEventFactory: () => EventFactory;
@@ -792,7 +793,8 @@ export function AppProvider({
     if (
       (syncController.syncState.provider === 'google_drive' ||
         syncController.syncState.provider === 'dropbox' ||
-        syncController.syncState.provider === 'local_folder') &&
+        syncController.syncState.provider === 'local_folder' ||
+        syncController.syncState.provider === 'icloud') &&
       syncController.syncState.status !== 'reconnect_required'
     ) {
       return false;
@@ -846,6 +848,7 @@ export function AppProvider({
     connectDropbox: syncController.connectDropbox,
     connectLocalFolder: syncController.connectLocalFolder,
     reconnectLocalFolder: syncController.reconnectLocalFolder,
+    connectICloud: syncController.connectICloud,
     disconnectSync: syncController.disconnectSync,
     emitEvents,
     getEventFactory,

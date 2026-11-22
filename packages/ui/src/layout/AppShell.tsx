@@ -19,7 +19,11 @@ const NAV_ITEMS: readonly { id: NavTab; label: string; icon: string }[] = [
 const PULL_REFRESH_THRESHOLD_PX = 64;
 
 function getSidebarBadge(syncState: SyncUiState): { label: string; tone: string } {
-  if (!syncState.isOnline && syncState.provider !== 'local_folder') {
+  if (
+    !syncState.isOnline &&
+    syncState.provider !== 'local_folder' &&
+    syncState.provider !== 'icloud'
+  ) {
     return { label: 'Offline', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' };
   }
   switch (syncState.status) {

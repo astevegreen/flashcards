@@ -10,6 +10,7 @@ import {
 } from '@capacitor-community/sqlite';
 import { DigitalInkRecognition } from '@capacitor-mlkit/digital-ink-recognition';
 import { App } from '@capacitor/app';
+import { registerPlugin } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
@@ -23,6 +24,7 @@ import type { CapacitorFileBridge } from '../files/capacitor-files.ts';
 import type { StoreBillingPlugin } from '../purchase/store-purchase.ts';
 import type { SystemBrowserLauncher } from '../sources/native-picker-bridge.ts';
 import type { SqliteDriver } from '../storage/sqlite-storage.ts';
+import type { ICloudDocumentPlugin } from '../sync/icloud-transport.ts';
 
 // ---------------------------------------------------------------------------
 // SQLite (@capacitor-community/sqlite)
@@ -280,6 +282,36 @@ export function createStoreBillingPlugin(): StoreBillingPlugin {
       return purchases
         .filter((p) => !p.revocationDate && p.isActive !== false)
         .map((p) => p.productIdentifier);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// iCloud Drive (local Swift plugin: apps/mobile/ios/App/App/ICloudDocumentsPlugin.swift)
+// ---------------------------------------------------------------------------
+
+interface ICloudDocumentsNative {
+  isAvailable(): Promise<{ available: boolean }>;
+  listFiles(opts: {
+    prefix: string;
+  }): Promise<{ files: Array<{ path: string; size: number; updatedAt?: number }> }>;
+  readFile(opts: { path: string }): Promise<{ data: string }>;
+  writeFile(opts: { path: string; data: string; ifAbsent?: boolean }): Promise<void>;
+}
+
+/** Adapts the iOS-only `ICloudDocuments` plugin; bytes cross the bridge as base64. */
+export function createICloudDocumentPlugin(): ICloudDocumentPlugin {
+  const native = registerPlugin<ICloudDocumentsNative>('ICloudDocuments');
+  return {
+    isAvailable: async () => (await native.isAvailable()).available,
+    listFiles: async ({ prefix }) => (await native.listFiles({ prefix })).files,
+    readFile: async ({ path }) => base64ToBytes((await native.readFile({ path })).data),
+    writeFile: async ({ path, data, ifAbsent }) => {
+      await native.writeFile({
+        path,
+        data: bytesToBase64(data),
+        ...(ifAbsent !== undefined ? { ifAbsent } : {}),
+      });
     },
   };
 }

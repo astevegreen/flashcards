@@ -8,6 +8,7 @@ import {
   onUrl,
   start as startOAuthServer,
 } from '@fabianlars/tauri-plugin-oauth';
+import { invoke } from '@tauri-apps/api/core';
 import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import {
@@ -25,6 +26,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import Database from '@tauri-apps/plugin-sql';
 import type { Files, PickedFile } from '@flash/platform';
 import type { SystemBrowserLauncher } from '@flash/platform-capacitor';
+import type { SecureSecretBackend } from '../auth/refresh-token-store.ts';
 import type { TauriLoopbackOAuthPlugin } from '../auth/tauri-google-auth.ts';
 import type { TauriFsBridge, TauriFsDirEntry } from '../sources/tauri-fs-watcher.ts';
 import type { TauriSqlPluginDatabase } from '../storage/tauri-sqlite-storage.ts';
@@ -45,6 +47,24 @@ export function asSqlPluginDatabase(db: Database): TauriSqlPluginDatabase {
     },
     select: async <T = Record<string, unknown>>(query: string, bindValues?: unknown[]) =>
       db.select<T[]>(query, bindValues),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// OS keychain (app commands in apps/desktop/src-tauri/src/secure_store.rs)
+// ---------------------------------------------------------------------------
+
+export function createSecureSecretBackend(): SecureSecretBackend {
+  return {
+    isAvailable: () => invoke<boolean>('secure_store_available'),
+    get: async (account) =>
+      (await invoke<string | null>('secure_store_get', { account })) ?? undefined,
+    set: async (account, secret) => {
+      await invoke('secure_store_set', { account, secret });
+    },
+    delete: async (account) => {
+      await invoke('secure_store_delete', { account });
+    },
   };
 }
 
@@ -210,7 +230,7 @@ export interface LoopbackOAuthConfig {
    * endpoint; it is not confidential for installed apps (RFC 8252 §8.5).
    */
   clientSecret?: string;
-  /** Where the refresh token is kept (SQLite `kv` via `Storage` by default). */
+  /** Where the refresh token is kept (the OS keychain, or SQLite when none is available). */
   tokenStore: {
     get(): Promise<string | undefined>;
     set(token: string): Promise<void>;

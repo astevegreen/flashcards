@@ -73,6 +73,7 @@ export function SettingsScreen() {
     connectDropbox,
     connectLocalFolder,
     reconnectLocalFolder,
+    connectICloud,
     disconnectSync,
     emitEvents,
     getEventFactory,
@@ -227,11 +228,13 @@ export function SettingsScreen() {
       ? 'Google Drive (App Data)'
       : syncState.provider === 'dropbox'
         ? 'Dropbox (App Folder)'
-        : syncState.provider === 'local_folder'
-          ? `Local Folder (${syncState.localFolderName ?? 'Selected folder'})`
-          : syncState.provider === 'dev_channel'
-            ? 'Dev Channel (Local Tabs)'
-            : 'Not Connected';
+        : syncState.provider === 'icloud'
+          ? 'iCloud Drive'
+          : syncState.provider === 'local_folder'
+            ? `Local Folder (${syncState.localFolderName ?? 'Selected folder'})`
+            : syncState.provider === 'dev_channel'
+              ? 'Dev Channel (Local Tabs)'
+              : 'Not Connected';
 
   const handleSyncNow = async () => {
     const syncGate = canUseCloudSync(entitlement);
@@ -291,6 +294,24 @@ export function SettingsScreen() {
       if (ok) {
         setStatus('Connected local sync folder.');
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSyncBusy(false);
+    }
+  };
+
+  const handleConnectICloud = async () => {
+    const syncGate = canUseCloudSync(entitlement);
+    if (!syncGate.allowed) {
+      setError(syncGate.reason ?? 'Cloud sync requires the one-time Unlock upgrade.');
+      return;
+    }
+    setSyncBusy(true);
+    setError(null);
+    try {
+      await connectICloud();
+      setStatus('Connected iCloud Drive sync.');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -455,6 +476,16 @@ export function SettingsScreen() {
           </div>
         )}
 
+        {platform.secureStorageWarning && (
+          <div
+            role="status"
+            data-testid="secure-storage-warning"
+            className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300"
+          >
+            {platform.secureStorageWarning}
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
           <span>
             Last synced:{' '}
@@ -534,6 +565,19 @@ export function SettingsScreen() {
               className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300"
             >
               Reconnect Dropbox
+            </button>
+          )}
+
+          {platform.iCloudSyncSupported && syncState.provider !== 'icloud' && (
+            <button
+              type="button"
+              data-testid="connect-icloud-btn"
+              disabled={syncBusy}
+              onClick={() => void handleConnectICloud()}
+              title="Sync privately via your iCloud Drive (no sign-in needed)"
+              className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
+            >
+              Use iCloud Drive
             </button>
           )}
 

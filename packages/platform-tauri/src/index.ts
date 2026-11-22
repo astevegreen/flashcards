@@ -24,6 +24,15 @@ import {
 } from './sources/tauri-fs-watcher.ts';
 import { TauriSqliteStorage, type TauriSqlPluginDatabase } from './storage/tauri-sqlite-storage.ts';
 
+export {
+  createSqliteRefreshTokenStore,
+  resolveRefreshTokenStore,
+  type LegacyRefreshTokenStore,
+  type RefreshTokenStorageMode,
+  type RefreshTokenStore,
+  type ResolvedRefreshTokenStore,
+  type SecureSecretBackend,
+} from './auth/refresh-token-store.ts';
 export { TauriGoogleAuth, type TauriLoopbackOAuthPlugin } from './auth/tauri-google-auth.ts';
 export {
   TauriDesktopLicensePurchase,
@@ -61,6 +70,8 @@ export interface CreateTauriPlatformOptions {
   dictionaryService?: DictionaryService;
   packCatalogUrl?: string;
   starterCatalogUrl?: string;
+  /** Set when sign-in secrets could not be kept in the OS keychain. */
+  secureStorageWarning?: string;
 }
 
 /** Spreads an optional service getter only when the service was injected. */
@@ -120,6 +131,7 @@ export function createTauriPlatform(options: CreateTauriPlatformOptions): Platfo
     googleOAuthConfigured: googleAuth.isConfigured(),
     googlePickerConfigured: Boolean(options.pickerPageUrl && options.googleApiKey),
     supportsLocalFolderSync: Boolean(options.fsBridge),
+    ...(options.secureStorageWarning ? { secureStorageWarning: options.secureStorageWarning } : {}),
     ...(options.packCatalogUrl ? { packCatalogUrl: options.packCatalogUrl } : {}),
     ...(options.starterCatalogUrl ? { starterCatalogUrl: options.starterCatalogUrl } : {}),
     getGoogleAuth: async () => googleAuth,

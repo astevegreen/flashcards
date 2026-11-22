@@ -15,6 +15,7 @@ import type {
   StrokeDataProvider,
   SyncTransport,
 } from '@flash/platform';
+import { SyncTransportError } from '@flash/core';
 import { CapacitorGoogleAuth, type NativeGoogleSignInPlugin } from './auth/native-google-auth.ts';
 import {
   CapacitorMlKitInkRecognizer,
@@ -104,17 +105,16 @@ export function createCapacitorPlatform(options: CreateCapacitorPlatformOptions)
     isPersonalBuild: options.isPersonalBuild ?? false,
     ...(options.billingPlugin ? { billingPlugin: options.billingPlugin } : {}),
   });
-  const syncTransport: SyncTransport = options.iCloudPlugin
-    ? new ICloudDriveSyncTransport(options.iCloudPlugin)
-    : {
-        list: async () => [],
-        read: async () => {
-          throw new Error('No sync transport connected yet.');
-        },
-        write: async () => {
-          throw new Error('No sync transport connected yet.');
-        },
-      };
+  const syncTransport: SyncTransport = {
+    list: async () => [],
+    read: async () => {
+      throw new Error('No sync transport connected yet.');
+    },
+    write: async () => {
+      throw new Error('No sync transport connected yet.');
+    },
+  };
+  const iCloudPlugin = options.iCloudPlugin;
 
   return {
     deviceId: options.deviceId,
@@ -129,6 +129,20 @@ export function createCapacitorPlatform(options: CreateCapacitorPlatformOptions)
     googleOAuthConfigured: googleAuth.isConfigured(),
     googlePickerConfigured: Boolean(options.pickerPageUrl && options.googleApiKey),
     supportsLocalFolderSync: false,
+    ...(iCloudPlugin
+      ? {
+          iCloudSyncSupported: true,
+          createICloudTransport: async (): Promise<SyncTransport> => {
+            if (iCloudPlugin.isAvailable && !(await iCloudPlugin.isAvailable())) {
+              throw new SyncTransportError(
+                'AUTH_REQUIRED',
+                'iCloud Drive is off. Sign in to iCloud and turn on iCloud Drive for Flashcards in the Settings app.',
+              );
+            }
+            return new ICloudDriveSyncTransport(iCloudPlugin);
+          },
+        }
+      : {}),
     ...(options.packCatalogUrl ? { packCatalogUrl: options.packCatalogUrl } : {}),
     ...(options.starterCatalogUrl ? { starterCatalogUrl: options.starterCatalogUrl } : {}),
     getGoogleAuth: async () => googleAuth,

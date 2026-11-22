@@ -214,6 +214,9 @@ async function resolveActiveTransport(
   if (provider === 'dropbox') {
     return ctx.platform.createDropboxTransport ? ctx.platform.createDropboxTransport() : null;
   }
+  if (provider === 'icloud') {
+    return ctx.platform.createICloudTransport ? ctx.platform.createICloudTransport() : null;
+  }
   if (provider === 'local_folder') {
     if (ctx.localFolderTransportRef.current) {
       return ctx.localFolderTransportRef.current;
@@ -515,7 +518,7 @@ export async function connectLocalFolderSync(
  */
 export async function activateCloudProvider(
   ctx: SyncRunnerContext,
-  provider: 'google_drive' | 'dropbox',
+  provider: 'google_drive' | 'dropbox' | 'icloud',
   clearCollectionBinding: () => DeviceMeta,
 ): Promise<void> {
   if (ctx.configRef.current.provider === provider) return;

@@ -66,7 +66,8 @@ export interface MediaBlob {
   bytes: Uint8Array;
 }
 
-export type SyncProviderKind = 'none' | 'dev_channel' | 'google_drive' | 'local_folder' | 'dropbox';
+export type SyncProviderKind =
+  'none' | 'dev_channel' | 'google_drive' | 'local_folder' | 'dropbox' | 'icloud';
 
 export interface SyncConfig {
   provider: SyncProviderKind;
@@ -641,6 +642,11 @@ export interface PlatformServices {
   readonly googleOAuthConfigured: boolean;
   readonly googlePickerConfigured: boolean;
   readonly supportsLocalFolderSync: boolean;
+  /**
+   * Set by native shells when sign-in secrets fall back to the app database because the OS
+   * has no usable keychain (e.g. Linux without a Secret Service). Settings shows it as a warning.
+   */
+  readonly secureStorageWarning?: string;
   /** Optional static pack catalog URL (`VITE_PACK_CATALOG_URL` -> `packs.json`, §6.3). */
   readonly packCatalogUrl?: string;
   /** Optional built-in Starter Decks catalog URL (`VITE_STARTER_CATALOG_URL` -> `index.json`, §3.4). */
@@ -651,6 +657,10 @@ export interface PlatformServices {
   readonly dropboxConfigured?: boolean;
   getDropboxAuth?(): Promise<Auth>;
   createDropboxTransport?(): Promise<SyncTransport>;
+  /** iOS only: true when the iCloud Drive plugin is present (the user may still be signed out). */
+  readonly iCloudSyncSupported?: boolean;
+  /** iOS only: iCloud Drive transport; throws when iCloud Drive is off or the user is signed out. */
+  createICloudTransport?(): Promise<SyncTransport>;
   getGooglePicker(): Promise<GooglePickerAdapter>;
   getGoogleSourcesClient(): Promise<GoogleSourcesClient>;
   getLocalFolderSources(): Promise<LocalFolderSourcesAdapter>;

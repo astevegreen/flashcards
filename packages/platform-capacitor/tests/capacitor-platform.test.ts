@@ -11,6 +11,11 @@ import {
   ICloudDriveSyncTransport,
 } from '../src/index.ts';
 
+/** Mimics a Capacitor rejection from the Swift plugin: an Error with the native `code`. */
+function pluginError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code });
+}
+
 describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () => {
   it('CapacitorSqliteStorage stores/queries events, local_seq, cards_cache, media & kv', async () => {
     const storage = new CapacitorSqliteStorage();
@@ -176,11 +181,11 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
           .map(([path, b]) => ({ path, size: b.byteLength })),
       readFile: async ({ path }) => {
         const b = icloudStore.get(path);
-        if (!b) throw new Error('missing');
+        if (!b) throw pluginError('NOT_FOUND', 'missing');
         return b;
       },
       writeFile: async ({ path, data, ifAbsent }) => {
-        if (ifAbsent && icloudStore.has(path)) return;
+        if (ifAbsent && icloudStore.has(path)) throw pluginError('ALREADY_EXISTS', 'exists');
         icloudStore.set(path, data);
       },
     });
@@ -194,5 +199,60 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
     });
     expect(platform.deviceId).toBe('cap-device-1');
     expect(await (await platform.getPurchase?.())?.isUnlocked()).toBe(true);
+  });
+
+  it('iCloud transport maps plugin error codes and gates on iCloud availability', async () => {
+    const files = new Map<string, Uint8Array>();
+    let available = false;
+    const platform = createCapacitorPlatform({
+      deviceId: 'cap-ios-icloud',
+      iCloudPlugin: {
+        isAvailable: async () => available,
+        listFiles: async ({ prefix }) =>
+          [...files.entries()]
+            .filter(([k]) => k.startsWith(prefix))
+            .map(([path, b]) => ({ path, size: b.byteLength, updatedAt: 1000 })),
+        readFile: async ({ path }) => {
+          const b = files.get(path);
+          if (!b) throw pluginError('NOT_FOUND', `iCloud Drive sync file not found: "${path}"`);
+          return b;
+        },
+        writeFile: async ({ path, data, ifAbsent }) => {
+          if (ifAbsent && files.has(path)) throw pluginError('ALREADY_EXISTS', 'exists');
+          if (path.includes('locked')) throw pluginError('SOMETHING_ELSE', 'odd failure');
+          files.set(path, data);
+        },
+      },
+    });
+    expect(platform.iCloudSyncSupported).toBe(true);
+    await expect(platform.createICloudTransport?.()).rejects.toMatchObject({
+      name: 'SyncTransportError',
+      code: 'AUTH_REQUIRED',
+    });
+
+    available = true;
+    const transport = await platform.createICloudTransport?.();
+    if (!transport) throw new Error('expected an iCloud transport');
+    await expect(transport.read('sync/v1/manifest.json')).rejects.toMatchObject({
+      name: 'SyncTransportError',
+      code: 'NOT_FOUND',
+    });
+    await transport.write('sync/v1/manifest.json', new Uint8Array([7]), { ifAbsent: true });
+    await expect(
+      transport.write('sync/v1/manifest.json', new Uint8Array([8]), { ifAbsent: true }),
+    ).rejects.toMatchObject({ name: 'SyncTransportError', code: 'ALREADY_EXISTS' });
+    await transport.write('sync/v1/manifest.json', new Uint8Array([9]));
+    expect(await transport.read('sync/v1/manifest.json')).toEqual(new Uint8Array([9]));
+    await expect(transport.write('sync/v1/locked.bin', new Uint8Array([1]))).rejects.toThrow(
+      'odd failure',
+    );
+    await expect(transport.read('../outside')).rejects.toThrow(/Unsafe/);
+    expect(await transport.list('sync/v1/')).toEqual([
+      { path: 'sync/v1/manifest.json', size: 1, updatedAt: 1000 },
+    ]);
+
+    const android = createCapacitorPlatform({ deviceId: 'cap-android' });
+    expect(android.iCloudSyncSupported).toBeUndefined();
+    expect(android.createICloudTransport).toBeUndefined();
   });
 });

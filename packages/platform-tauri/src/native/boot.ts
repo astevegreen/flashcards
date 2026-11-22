@@ -1,11 +1,16 @@
 import type { PlatformServices } from '@flash/platform';
 import { composeNativePlatform } from '@flash/platform-web/native-support';
+import {
+  createSqliteRefreshTokenStore,
+  resolveRefreshTokenStore,
+} from '../auth/refresh-token-store.ts';
 import { createTauriPlatform } from '../index.ts';
 import {
   asSqlPluginDatabase,
   createDesktopFiles,
   createFsBridge,
   createLoopbackOAuthPlugin,
+  createSecureSecretBackend,
   createSystemBrowserLauncher,
   openTauriDatabase,
 } from './plugins.ts';
@@ -25,8 +30,9 @@ export interface TauriBootConfig {
   starterCatalogUrl?: string;
 }
 
-const REFRESH_TOKEN_TABLE =
-  'CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (provider TEXT PRIMARY KEY, token TEXT NOT NULL)';
+/** Shown in Settings when the Google refresh token has to stay in SQLite. */
+export const INSECURE_TOKEN_STORAGE_WARNING =
+  'Your Google sign-in is saved in the app database, not in a secure store, because no OS keychain was found. Install and unlock a keyring (for example GNOME Keyring or KWallet), then restart the app to move it there.';
 
 /**
  * Boots `PlatformServices` for the Tauri desktop shell with real Tauri v2 plugins.
@@ -35,7 +41,17 @@ const REFRESH_TOKEN_TABLE =
 export async function bootTauriPlatform(config: TauriBootConfig): Promise<PlatformServices> {
   const db = await openTauriDatabase();
   const sqlDb = asSqlPluginDatabase(db);
-  await sqlDb.execute(REFRESH_TOKEN_TABLE);
+
+  let secureStorageWarning: string | undefined;
+  const tokenStorage = await resolveRefreshTokenStore({
+    secure: createSecureSecretBackend(),
+    legacy: createSqliteRefreshTokenStore(sqlDb, 'google'),
+    account: 'google-refresh-token',
+    onInsecureFallback: (reason) => {
+      console.warn(`Google refresh token stays in SQLite: ${reason}`);
+      secureStorageWarning = INSECURE_TOKEN_STORAGE_WARNING;
+    },
+  });
 
   const fsBridge = createFsBridge();
   const oauthPlugin = config.googleDesktopClientId
@@ -44,25 +60,7 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
         ...(config.googleDesktopClientSecret
           ? { clientSecret: config.googleDesktopClientSecret }
           : {}),
-        // TODO(phase-8): move to the OS keychain (e.g. a keyring plugin) — see docs/native-shells.md.
-        tokenStore: {
-          get: async () => {
-            const rows = await sqlDb.select<{ token: string }>(
-              'SELECT token FROM oauth_refresh_tokens WHERE provider = $1',
-              ['google'],
-            );
-            return rows[0]?.token;
-          },
-          set: async (token) => {
-            await sqlDb.execute(
-              'INSERT INTO oauth_refresh_tokens (provider, token) VALUES ($1, $2) ON CONFLICT(provider) DO UPDATE SET token = excluded.token',
-              ['google', token],
-            );
-          },
-          delete: async () => {
-            await sqlDb.execute('DELETE FROM oauth_refresh_tokens WHERE provider = $1', ['google']);
-          },
-        },
+        tokenStore: tokenStorage.store,
       })
     : undefined;
 
@@ -82,6 +80,8 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
     ...(config.licensePublicKeyHex ? { licensePublicKeyHex: config.licensePublicKeyHex } : {}),
     ...(config.packCatalogUrl ? { packCatalogUrl: config.packCatalogUrl } : {}),
     ...(config.starterCatalogUrl ? { starterCatalogUrl: config.starterCatalogUrl } : {}),
+    // Only relevant when Google sign-in is configured at all.
+    ...(oauthPlugin && secureStorageWarning ? { secureStorageWarning } : {}),
   });
 
   return composeNativePlatform(native, base);

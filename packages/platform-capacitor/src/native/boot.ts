@@ -8,6 +8,7 @@ import { createCapacitorPlatform } from '../index.ts';
 import {
   createFileBridge,
   createGoogleSignInPlugin,
+  createICloudDocumentPlugin,
   createMlKitInkPlugin,
   createStoreBillingPlugin,
   createSystemBrowserLauncher,
@@ -31,8 +32,8 @@ export interface CapacitorBootConfig {
  * Boots `PlatformServices` for the Capacitor Android / iOS shell with real native plugins.
  * Called by `apps/web/src/main.tsx` only when `Capacitor.isNativePlatform()` is true.
  *
- * iCloud Drive sync stays behind `ICloudDocumentPlugin` until a maintained plugin exists
- * (see docs/native-shells.md).
+ * On iOS, iCloud Drive sync uses the app's own Swift plugin (`ICloudDocumentsPlugin.swift`),
+ * registered by `MainViewController`.
  */
 export async function bootCapacitorPlatform(
   config: CapacitorBootConfig,
@@ -66,6 +67,7 @@ export async function bootCapacitorPlatform(
       ? { fallbackRecognizer: new LazyHandwritingRecognizer(base.getHandwritingRecognizer) }
       : {}),
     billingPlugin: createStoreBillingPlugin(),
+    ...(platformName === 'ios' ? { iCloudPlugin: createICloudDocumentPlugin() } : {}),
     isPersonalBuild: config.isPersonalBuild,
     ...(config.packCatalogUrl ? { packCatalogUrl: config.packCatalogUrl } : {}),
     ...(config.starterCatalogUrl ? { starterCatalogUrl: config.starterCatalogUrl } : {}),

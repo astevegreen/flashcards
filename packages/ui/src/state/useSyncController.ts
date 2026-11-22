@@ -46,6 +46,7 @@ export interface SyncController {
   connectDropbox: () => Promise<void>;
   connectLocalFolder: () => Promise<boolean>;
   reconnectLocalFolder: () => Promise<boolean>;
+  connectICloud: () => Promise<void>;
   disconnectSync: () => Promise<void>;
   notifyLocalEvents: (events: readonly FlashEvent[], reviewCount?: number) => void;
   getCurrentWatermarks: () => Record<string, number>;
@@ -287,7 +288,12 @@ export function useSyncController({
   // Trigger 1: App open (after first paint) for connected cloud / local-folder providers
   useEffect(() => {
     const provider = configRef.current.provider;
-    if (provider === 'google_drive' || provider === 'dropbox' || provider === 'local_folder') {
+    if (
+      provider === 'google_drive' ||
+      provider === 'dropbox' ||
+      provider === 'local_folder' ||
+      provider === 'icloud'
+    ) {
       const timer = window.setTimeout(() => {
         void executeSync();
       }, 0);
@@ -468,6 +474,17 @@ export function useSyncController({
     return true;
   }, [executeSync, platform]);
 
+  const connectICloud = useCallback(async (): Promise<void> => {
+    if (!platform.createICloudTransport) {
+      throw new Error('iCloud Drive sync is only available in the iOS app.');
+    }
+    // Fails with a clear message when the user is signed out of iCloud or iCloud Drive is off.
+    await platform.createICloudTransport();
+    const { activateCloudProvider } = await import('./syncRunner.ts');
+    await activateCloudProvider(makeRunnerCtx(), 'icloud', clearCollectionBinding);
+    await executeSync();
+  }, [clearCollectionBinding, executeSync, makeRunnerCtx, platform]);
+
   const disconnectSync = useCallback(async (): Promise<void> => {
     clearIdlePushTimer();
     lastSyncCompletedAtRef.current = 0;
@@ -509,6 +526,7 @@ export function useSyncController({
     connectDropbox,
     connectLocalFolder,
     reconnectLocalFolder,
+    connectICloud,
     disconnectSync,
     notifyLocalEvents,
     getCurrentWatermarks,

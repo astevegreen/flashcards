@@ -24,6 +24,8 @@ tauri-plugin-oauth = "2"
 tauri-plugin-persisted-scope = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# OS keychain for the Google refresh token (Credential Manager / Keychain / Secret Service).
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
