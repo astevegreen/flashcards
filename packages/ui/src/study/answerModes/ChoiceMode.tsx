@@ -4,6 +4,7 @@ import { RichText } from '../../components/RichText.tsx';
 import { useApp } from '../../state/AppContext.tsx';
 import { CardFieldValue, RevealedBackSteps } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
+import { cardTextFitClass } from '../fitText.ts';
 
 function ChoiceModeView({
   state,
@@ -91,8 +92,8 @@ function ChoiceModeView({
               data-testid={`front-field-${fieldKey}`}
               className={
                 idx === 0
-                  ? 'whitespace-pre-wrap text-3xl font-semibold leading-snug tracking-tight sm:text-5xl'
-                  : 'whitespace-pre-wrap text-lg text-[var(--muted)] sm:text-xl'
+                  ? `whitespace-pre-wrap font-semibold tracking-tight ${cardTextFitClass(value, 'answer')}`
+                  : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail')}`
               }
             >
               <CardFieldValue

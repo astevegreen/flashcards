@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { RichText } from '../../components/RichText.tsx';
 import { CardFieldValue, RevealedBackSteps } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
+import { cardTextFitClass } from '../fitText.ts';
 
 const LazyTypedAnswerPanel = lazy(() => import('./TypedAnswerPanel.tsx'));
 
@@ -148,8 +149,8 @@ function ClozeModeView({
               data-testid={`front-field-${fieldKey}`}
               className={
                 idx === 0
-                  ? 'whitespace-pre-wrap text-2xl font-semibold leading-relaxed tracking-tight sm:text-4xl'
-                  : 'whitespace-pre-wrap text-lg text-[var(--muted)] sm:text-xl'
+                  ? `whitespace-pre-wrap font-semibold tracking-tight ${cardTextFitClass(value)}`
+                  : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail')}`
               }
             >
               <ClozeText
