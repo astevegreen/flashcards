@@ -1,6 +1,12 @@
 import type { CollectionState } from '../events/replay.ts';
+import type { Card } from '../model/types.ts';
 import { cardFilterToStatsFilter } from '../study/custom-study.ts';
-import { isCardFilterEmpty, normalizeCardFilter } from '../study/filter.ts';
+import {
+  filterCards,
+  isCardFilterEmpty,
+  normalizeCardFilter,
+  type CardFilterContext,
+} from '../study/filter.ts';
 import {
   computeCollectionStats,
   type CollectionStats,
@@ -29,4 +35,26 @@ export function computeFilteredCollectionStats(
     ...options,
     filter: cardFilterToStatsFilter(state, filter, ctx),
   });
+}
+
+/** Default number of rows in the Stats screen "Hardest cards" list and MCP `get_weak_cards`. */
+export const HARDEST_CARDS_DEFAULT_LIMIT = 20;
+
+/**
+ * The hardest reviewed cards of a Phase 9 `CardFilter` selection (lapses desc, stability asc,
+ * difficulty desc, card id: `compareHardestCards`, the Trouble cards ranking). The single entry
+ * point shared by the Stats screen "Hardest cards" list and MCP `get_weak_cards`, so both list
+ * the same cards in the same order for the same filter. A filter's own `performance.hardest`
+ * still caps the result when it is smaller than `limit`.
+ */
+export function computeHardestCards(
+  state: CollectionState,
+  rawFilter: unknown,
+  ctx: CardFilterContext,
+  limit: number = HARDEST_CARDS_DEFAULT_LIMIT,
+): Card[] {
+  const filter = normalizeCardFilter(rawFilter);
+  const cap = Math.max(1, Math.floor(limit));
+  const hardest = Math.min(cap, filter.performance?.hardest ?? cap);
+  return filterCards(state, { ...filter, performance: { ...filter.performance, hardest } }, ctx);
 }

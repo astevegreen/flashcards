@@ -2,10 +2,15 @@ import {
   compareCodeUnits,
   listCategories,
   normalizeCardFilter,
+  type Card as FlashCard,
+  type CardFilter,
   type CategoryCriterion,
+  type CollectionState,
 } from '@flash/core';
 import {
   computeFilteredCollectionStats,
+  computeHardestCards,
+  HARDEST_CARDS_DEFAULT_LIMIT,
   MATURE_INTERVAL_DAYS,
   type CollectionStats,
   type HeatmapDay,
@@ -361,6 +366,61 @@ function Maturity({ stats }: { stats: CollectionStats }) {
   );
 }
 
+function cardPreview(state: CollectionState, card: FlashCard): string {
+  const note = state.notes.get(card.note_id);
+  const first = Object.values(note?.fields ?? {}).find((v) => v.trim().length > 0) ?? '';
+  return first.slice(0, 80);
+}
+
+/**
+ * The hardest reviewed cards of the current filter, from `computeHardestCards`: the same core
+ * ranking (and the same rows, in the same order) as MCP `get_weak_cards` for this filter. Field
+ * text is rendered as plain text, never as HTML.
+ */
+function HardestCards({
+  state,
+  stateVersion,
+  filter,
+}: {
+  state: CollectionState;
+  stateVersion: number;
+  filter: CardFilter;
+}) {
+  const cards = useMemo(() => {
+    const nowMs = Date.now();
+    return computeHardestCards(
+      state,
+      filter,
+      { nowMs, tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset() },
+      HARDEST_CARDS_DEFAULT_LIMIT,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, stateVersion, filter]);
+  if (cards.length === 0) {
+    return (
+      <p className="text-xs text-[var(--muted)]" data-testid="stats-hardest-empty">
+        No reviewed cards here yet.
+      </p>
+    );
+  }
+  return (
+    <ol className="flex flex-col gap-1 text-xs" data-testid="stats-hardest-list">
+      {cards.map((card) => (
+        <li
+          key={card.id}
+          data-card-id={card.id}
+          className="flex items-baseline justify-between gap-3 border-t border-[var(--border)] pt-1 first:border-t-0 first:pt-0"
+        >
+          <span className="min-w-0 truncate font-medium">{cardPreview(state, card) || '—'}</span>
+          <span className="shrink-0 tabular-nums text-[var(--muted)]">
+            {plural(card.schedule.lapses, 'lapse')} · {state.decks.get(card.deck_id)?.name ?? ''}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export function StatsScreen() {
   const { state, stateVersion } = useApp();
   const [deckFilter, setDeckFilter] = useState('');
@@ -572,6 +632,14 @@ export function StatsScreen() {
 
       <Card title="Card maturity" testId="stats-maturity-card">
         <Maturity stats={stats} />
+      </Card>
+
+      <Card title="Hardest cards" testId="stats-hardest-card">
+        <p className="text-xs text-[var(--muted)]">
+          Most lapses first, then lowest stability and highest difficulty. The same ranking as the
+          Trouble cards preset.
+        </p>
+        <HardestCards state={state} stateVersion={stateVersion} filter={cardFilter} />
       </Card>
     </section>
   );
