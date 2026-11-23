@@ -54,7 +54,7 @@ export async function loadStarterDeck(slug: string): Promise<StarterDeckContent>
 
 /**
  * Seed events for one starter deck: `DeckCreated` (a native deck that records where it came
- * from) and one `NoteUpserted` per note, with ids derived from the slug and each note's source key.
+ * from), `DeckDescriptionChanged` with the catalog description, and one `NoteUpserted` per note, with ids derived from the slug and each note's source key.
  */
 export function buildStarterDeckEvents(
   eventFactory: EventFactory,
@@ -85,6 +85,16 @@ export function buildStarterDeckEvents(
       nowMs,
     ),
   ];
+  const description = info.description.trim();
+  if (description) {
+    events.push(
+      eventFactory.create(
+        'DeckDescriptionChanged',
+        { deck_id: deckId, description, from_package: true },
+        nowMs,
+      ),
+    );
+  }
   content.notes.forEach((note, i) => {
     events.push(
       eventFactory.create(

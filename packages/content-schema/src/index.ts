@@ -67,6 +67,8 @@ export const PackageDeckEntrySchema = z.object({
   file: z.string().min(1),
   note_type_id: z.string().min(1),
   language: z.string().min(1).optional(),
+  /** Plain-text deck description for the overview before study (never HTML). */
+  description: z.string().max(10000).optional(),
 });
 export type PackageDeckEntry = z.infer<typeof PackageDeckEntrySchema>;
 

@@ -47,6 +47,22 @@ export interface DeckSettingsChangedPayload {
   settings?: Partial<DeckSettings>;
 }
 
+/**
+ * Sets a deck's plain-text description (an empty string clears it), shown on the deck overview
+ * before study. Log-retained like the deck organization events: replay keeps it in
+ * `unknownEvents` and `decks/description.ts` folds it on demand (HLC last-writer-wins per deck),
+ * so nothing new runs on the study screen and snapshots stay byte-compatible.
+ */
+export interface DeckDescriptionChangedPayload {
+  deck_id: string;
+  description: string;
+  /**
+   * Written by a `.flashpkg` import or the starter catalog, not the user. Any description event
+   * the user wrote (including a clear) wins over every package one, whatever their HLCs.
+   */
+  from_package?: true;
+}
+
 export interface DeckFSRSParamsChangedPayload {
   deck_id: string;
   params_version: number;
@@ -280,6 +296,7 @@ export interface EventPayloadMap {
   DeckCreated: DeckCreatedPayload;
   DeckSettingsChanged: DeckSettingsChangedPayload;
   DeckFSRSParamsChanged: DeckFSRSParamsChangedPayload;
+  DeckDescriptionChanged: DeckDescriptionChangedPayload;
   NoteUpserted: NoteUpsertedPayload;
   NoteArchived: NoteArchivedPayload;
   NoteRestored: NoteRestoredPayload;
@@ -339,7 +356,8 @@ export type LogRetainedEventType =
   | 'DeckPresetDeleted'
   | 'DeckFolderSaved'
   | 'DeckFolderDeleted'
-  | 'DeckGroupingChanged';
+  | 'DeckGroupingChanged'
+  | 'DeckDescriptionChanged';
 
 /**
  * Event types `applyKnownEvent` handles. Log-retained types are intentionally absent: they fall

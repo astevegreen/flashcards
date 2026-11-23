@@ -1,6 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-
-const KO_DECK = 'Korean Core + Hanja';
+import { deckRow, KO_DECK, openLibrary, startInLibrary } from './helpers/library.ts';
 
 interface EventRow {
   type: string;
@@ -27,22 +26,11 @@ async function readEvents(page: Page): Promise<EventRow[]> {
   }, dbName);
 }
 
-async function openLibrary(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Library' }).first().click();
-  await expect(page.getByTestId('deck-organization-panel')).toBeVisible();
-}
-
-function deckRow(page: Page) {
-  return page.locator('[data-testid^="deck-row-"]', { hasText: KO_DECK });
-}
-
 test.describe('Deck option presets and folders', () => {
   test('a preset sets a deck’s limits and retention, a folder groups and studies its decks', async ({
     page,
   }) => {
-    await page.goto('/?device=presetsfolders');
-    await expect(page.getByTestId('study-card')).toBeVisible();
-    await openLibrary(page);
+    await startInLibrary(page, 'presetsfolders');
 
     // With no folders the deck list stays flat.
     await expect(page.locator('[data-testid^="folder-section-"]')).toHaveCount(0);
