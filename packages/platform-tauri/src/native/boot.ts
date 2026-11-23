@@ -10,6 +10,7 @@ import {
   createDesktopFiles,
   createDesktopNotificationBridge,
   createFsBridge,
+  createICloudOptions,
   createLoopbackOAuthPlugin,
   createSecureSecretBackend,
   createAddDeviceUrlSource,
@@ -48,6 +49,9 @@ export const INSECURE_MICROSOFT_TOKEN_STORAGE_WARNING =
  * Called by `apps/web/src/main.tsx` only when the Tauri runtime is detected.
  */
 export async function bootTauriPlatform(config: TauriBootConfig): Promise<PlatformServices> {
+  // macOS: iCloud Drive (same container as the iOS app) is always offered, and becomes the
+  // "Sync my devices" default when it is available at launch. Probed alongside the database open.
+  const iCloudReady = createICloudOptions();
   const db = await openTauriDatabase();
   const sqlDb = asSqlPluginDatabase(db);
 
@@ -89,6 +93,7 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
     ...(config.licensePublicKeyHex ? { licensePublicKeyHex: config.licensePublicKeyHex } : {}),
     ...(config.packCatalogUrl ? { packCatalogUrl: config.packCatalogUrl } : {}),
     ...(config.starterCatalogUrl ? { starterCatalogUrl: config.starterCatalogUrl } : {}),
+    ...(await iCloudReady),
     // Only relevant when Google sign-in is configured at all.
     ...(oauthPlugin && secureStorageWarning ? { secureStorageWarning } : {}),
   });

@@ -28,6 +28,11 @@ serde_json = "1"
 # OS keychain for the Google refresh token (Credential Manager / Keychain / Secret Service).
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
+# iCloud Drive container lookup and on-demand downloads (`src/icloud.rs`).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
