@@ -52,6 +52,13 @@ const LazyTagManagerPanel = lazyWithRetry(
   () => import('../browse/TagManagerPanel.tsx').then((m) => ({ default: m.TagManagerPanel })),
   { closeWith: 'onClose' },
 );
+const LazyDuplicateFinderPanel = lazyWithRetry(
+  () =>
+    import('../browse/DuplicateFinderPanel.tsx').then((m) => ({
+      default: m.DuplicateFinderPanel,
+    })),
+  { closeWith: 'onClose' },
+);
 const LazyBulkEditBar = lazyWithRetry(() =>
   import('../browse/BulkEditBar.tsx').then((m) => ({ default: m.BulkEditBar })),
 );
@@ -93,6 +100,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [showTagManager, setShowTagManager] = useState(false);
   const [showTagsGuide, setShowTagsGuide] = useState(false);
+  const [showDuplicates, setShowDuplicates] = useState(false);
   // Bulk edit selection (Phase 9). Only notes in the visible list count; see `selectedVisible`.
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const parentRef = useRef<HTMLDivElement | null>(null);
@@ -429,7 +437,31 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
             >
               How tags work
             </button>
+            <button
+              type="button"
+              data-testid="open-duplicate-finder"
+              aria-expanded={showDuplicates}
+              onClick={() => setShowDuplicates((v) => !v)}
+              className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] hover:text-[var(--fg)]"
+            >
+              Find duplicates
+            </button>
           </div>
+
+          {showDuplicates && (
+            <Suspense
+              fallback={
+                <div className="py-6 text-center text-xs text-[var(--muted)]">
+                  Looking for duplicates…
+                </div>
+              }
+            >
+              <LazyDuplicateFinderPanel
+                onOpen={setEditingNote}
+                onClose={() => setShowDuplicates(false)}
+              />
+            </Suspense>
+          )}
 
           {showTagsGuide && (
             <Suspense fallback={null}>

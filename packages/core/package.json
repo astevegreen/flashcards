@@ -25,6 +25,10 @@
       "types": "./src/sources/index.ts",
       "default": "./src/sources/index.ts"
     },
+    "./duplicates": {
+      "types": "./src/tags/duplicates.ts",
+      "default": "./src/tags/duplicates.ts"
+    },
     "./answer-match": {
       "types": "./src/study/answer-match.ts",
       "default": "./src/study/answer-match.ts"
