@@ -126,6 +126,58 @@ describe('description sources', () => {
     expect(getDeckDescription(stateB, deckId)).toBe('Mine');
   });
 
+  it('never brings back a description the user cleared, from any device', () => {
+    const { factory, events } = deckEvents();
+    events.push(
+      factory.create('DeckDescriptionChanged', { deck_id: DECK, description: 'Pkg' }, T0 + 1),
+    );
+    const pkg = exportFlashpkg(replayAllEvents(events), { packageId: 'pkg:travel' });
+
+    // Device B imports the package, then the user clears the description there.
+    const factoryB = createEventFactory('dev-b', 0, createHlcState('dev-b', T0 + 10));
+    const logB: FlashEvent[] = [
+      ...importFlashpkg(pkg, replayAllEvents([]), factoryB, { nowMs: T0 + 10 }).events,
+    ];
+    const deckId = [...replayAllEvents(logB).decks.keys()][0] ?? '';
+    expect(getDeckDescription(replayAllEvents(logB), deckId)).toBe('Pkg');
+    const cleared = factoryB.create(
+      'DeckDescriptionChanged',
+      { deck_id: deckId, description: '' },
+      T0 + 20,
+    );
+    logB.push(cleared);
+
+    // A package update on B writes nothing.
+    const update = importFlashpkg(pkg, replayAllEvents(logB), factoryB, { nowMs: T0 + 30 });
+    expect(update.events.some((e) => e.type === 'DeckDescriptionChanged')).toBe(false);
+
+    // A new device C fetches the package before syncing B's clear: its later package event
+    // loses to the user's clear once both are merged, in either order.
+    const factoryC = createEventFactory('dev-c', 0, createHlcState('dev-c', T0 + 40));
+    const logC = importFlashpkg(pkg, replayAllEvents([]), factoryC, { nowMs: T0 + 40 }).events;
+    const fromC = logC.find((e) => e.type === 'DeckDescriptionChanged');
+    expect(fromC?.payload).toMatchObject({ deck_id: deckId, from_package: true });
+    for (const merged of [
+      [...logB, ...logC],
+      [...logC, ...logB],
+    ]) {
+      expect(getDeckDescription(replayAllEvents(merged), deckId)).toBe('');
+    }
+
+    // The same holds for text the user wrote: a later package event never replaces it.
+    const written = factoryB.create(
+      'DeckDescriptionChanged',
+      { deck_id: deckId, description: 'Mine' },
+      T0 + 50,
+    );
+    const lateC = factoryC.create(
+      'DeckDescriptionChanged',
+      { deck_id: deckId, description: 'Pkg', from_package: true },
+      T0 + 60,
+    );
+    expect(getDeckDescription(replayAllEvents([...logB, written, lateC]), deckId)).toBe('Mine');
+  });
+
   it('comes from the starter catalog for starter decks', async () => {
     const info = findStarterDeck('starter-ko-core');
     if (!info) throw new Error('missing starter deck');

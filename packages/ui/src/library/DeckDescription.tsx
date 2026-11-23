@@ -5,7 +5,7 @@ import {
   type Deck,
   type StudyCounts,
 } from '@flash/core';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 
 /**
@@ -72,7 +72,14 @@ export function DeckDescriptionField({ deck }: Readonly<{ deck: Deck }>) {
   const { state, emitEvents, getEventFactory } = useApp();
   const stored = getDeckDescription(state, deck.id);
   const [draft, setDraft] = useState(stored);
-  useEffect(() => setDraft(stored), [stored]);
+  // A synced change replaces the draft only while the user has not changed it, so text being
+  // typed is never thrown away.
+  const shownRef = useRef(stored);
+  useEffect(() => {
+    const shown = shownRef.current;
+    shownRef.current = stored;
+    setDraft((d) => (d === shown ? stored : d));
+  }, [stored]);
   const commit = () => {
     const next = normalizeDeckDescription(draft);
     setDraft(next);

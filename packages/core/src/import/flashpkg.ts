@@ -14,7 +14,11 @@ import {
 } from '@flash/content-schema';
 import { zipSync } from 'fflate';
 import type { CollectionState, EventFactory } from '../events/replay.ts';
-import { getDeckDescription, normalizeDeckDescription } from '../decks/description.ts';
+import {
+  getDeckDescription,
+  hasDeckDescriptionHistory,
+  normalizeDeckDescription,
+} from '../decks/description.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { decodeUtf8, deriveNoteId, encodeUtf8, uuidv5, FLASH_NAMESPACE_UUID } from '../ids.ts';
 import type { Deck, Note, SourceRef } from '../model/types.ts';
@@ -676,13 +680,15 @@ export function importFlashpkg(
         ),
       );
     }
-    // A package's description fills in a deck that has none; it never replaces the user's own.
+    // A package's description fills in a deck that never had one: not one the user cleared, nor a
+    // deck whose description a package already set. It is marked `from_package`, so it never wins
+    // over the user's own text, even text this device has not synced yet.
     const description = normalizeDeckDescription(deckEntry.description);
-    if (description && !(existingDeck && getDeckDescription(state, existingDeck.id))) {
+    if (description && !(existingDeck && hasDeckDescriptionHistory(state, existingDeck.id))) {
       events.push(
         eventFactory.create(
           'DeckDescriptionChanged',
-          { deck_id: targetDeckId, description },
+          { deck_id: targetDeckId, description, from_package: true },
           nowMs,
         ),
       );

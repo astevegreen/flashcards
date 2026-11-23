@@ -88,7 +88,11 @@ export function buildStarterDeckEvents(
   const description = info.description.trim();
   if (description) {
     events.push(
-      eventFactory.create('DeckDescriptionChanged', { deck_id: deckId, description }, nowMs),
+      eventFactory.create(
+        'DeckDescriptionChanged',
+        { deck_id: deckId, description, from_package: true },
+        nowMs,
+      ),
     );
   }
   content.notes.forEach((note, i) => {

@@ -56,6 +56,11 @@ export interface DeckSettingsChangedPayload {
 export interface DeckDescriptionChangedPayload {
   deck_id: string;
   description: string;
+  /**
+   * Written by a `.flashpkg` import or the starter catalog, not the user. Any description event
+   * the user wrote (including a clear) wins over every package one, whatever their HLCs.
+   */
+  from_package?: true;
 }
 
 export interface DeckFSRSParamsChangedPayload {
