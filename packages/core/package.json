@@ -29,6 +29,10 @@
       "types": "./src/tags/duplicates.ts",
       "default": "./src/tags/duplicates.ts"
     },
+    "./find-replace": {
+      "types": "./src/tags/find-replace.ts",
+      "default": "./src/tags/find-replace.ts"
+    },
     "./answer-match": {
       "types": "./src/study/answer-match.ts",
       "default": "./src/study/answer-match.ts"

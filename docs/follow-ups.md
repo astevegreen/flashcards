@@ -197,7 +197,7 @@ On 2026-11-23 an agent compared the app with Anki, about 25 features. This secti
 - [x] **Deck descriptions.** Built: a plain-text description per deck, edited in deck options and shown on an overview before study. Starter decks and `.flashpkg` packages (so Family Library decks) bring one. Defaults under "Decisions needed (deck descriptions)".
 - [x] **Limited rich text in the field editor.** Strict inline markup in the plain field string: `{b:…}`, `{i:…}` and `{red:…}`, `{orange:…}`, `{green:…}`, `{blue:…}`, `{purple:…}`, parsed in `packages/core/src/parsers/rich-text.ts` and rendered as React elements by `RichText.tsx`, never as HTML. It works with ruby and cloze (`{b:日本[にほん]}`, `{{c1::{b:word}}}`, `{b:{{c1::word}}}`); notes without it render as before. Answer matching, TTS, choice dedupe and draw grading ignore it; `stripRichText` is exported for the export and duplicate-finder work. The editor has a B / I / colour toolbar under the focused field, Ctrl/Cmd+B and Ctrl/Cmd+I, and a preview line. Defaults under "Decisions needed (2026-11-23 field editor)".
 - [x] **Paste images into fields.** Pasting or dropping an image on an image field's drop zone in `NoteEditDialog.tsx` goes through the same `processImage` → `addMedia` path as the file picker, with the same type and size checks (`editor-paste-image.spec.ts`). Defaults under "Decisions needed (2026-11-23 field editor)".
-- [ ] **Later:** find and replace across notes. The event log makes it undoable.
+- [x] **Find and replace across notes.** Browse > select notes > **Find and replace…** (`FindReplacePanel.tsx`, lazy). Planned in `@flash/core/find-replace` and appended as one batch of `NoteUpserted` events carrying only the changed fields, with a live count and preview. **Undo replace** puts the old text back in each field that still holds the replaced text. Defaults under "Decisions needed (find and replace)".
 - [ ] **Later, if cheap:** redo after undo. Undo appends `ReviewUndone` (`undoLastReview`, `AppContext.tsx`).
 
 ### Waiting for customer feedback
@@ -319,6 +319,17 @@ Defaults picked for "Export for Anki". Each stays shipped until the owner decide
 - [ ] **`.apkg` Empty and buried cards:** a card marked empty (optional card whose field was cleared) is exported new, without its history. The app has no stored bury (sibling burying is worked out per day), so nothing is exported buried. When two cards share one Anki ord (a cloze note without markers), the one with more reviews keeps its history.
 - [ ] **`.apkg` writer:** SQLite is written with sql.js in a short-lived Web Worker, reached through the existing lazy Anki service (`AnkiPackageReader.writeCollection`) rather than a new platform getter, so the study-screen bundle doesn't grow. A write that fails or doesn't answer within 5 minutes is stopped with an error. The package is streamed like the CSV zip and downloaded as `application/octet-stream`.
 - [ ] **Importer:** `[ ] { } |` written as entities (`&#91;`, `&#124;`, …) in an Anki field never form ruby or cloze, as in Anki. They come back as the literal characters when that changes no ruby or cloze (so `test&#91;abc&#93;` stays `test[abc]`), and as fullwidth lookalikes (`［］｛｝｜`) when it would (`漢字&#91;かんじ&#93;` becomes `漢字［かんじ］`).
+
+## Decisions needed (find and replace)
+
+Defaults picked while building find and replace. Each stays shipped until the owner decides.
+
+- [ ] **Scope:** the notes selected in Browse (select-all takes the visible list). Only text fields are searched (`text`, `reading`, `rich`), one field or all of them. Tags are not searched; the tag manager renames tags.
+- [ ] **Media stays safe:** image and audio fields are never searched, and `media:<sha256>` references inside a text field are never matched or changed.
+- [ ] **Literal by default:** case-insensitive, with **Match case** and **Regular expression** (JavaScript syntax, `$1` / `$<name>` / `$&` in the replacement). Ruby, cloze and rich-text markup are searched as typed, so a replace can change markup. A zero-length match (`^`, `x*`) replaces nothing. Find and replace text are NFC-normalized.
+- [ ] **Undo:** one level, for the last replace while the panel is open. A field edited since (here or synced in) keeps its new text. Not the study undo stack.
+- [ ] **Linked decks:** notes in decks fed by a Sheet, folder or package are changed too, with a warning that the next refresh may bring the old text back.
+- [ ] **Provenance:** a replace leaves the note's provenance as it is (the note editor marks edited notes as reviewed).
 
 ## Decisions needed (deck presets and folders)
 

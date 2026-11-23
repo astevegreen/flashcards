@@ -8,9 +8,15 @@ import {
   type BulkActionError,
   type BulkNoteAction,
 } from '@flash/core';
-import { useMemo, useState, type FormEvent } from 'react';
+import { Suspense, useMemo, useState, type FormEvent } from 'react';
 import { exportAnkiCsvZip } from '../export/ankiExport.ts';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
+
+const LazyFindReplacePanel = lazyWithRetry(
+  () => import('./FindReplacePanel.tsx').then((m) => ({ default: m.FindReplacePanel })),
+  { closeWith: 'onClose' },
+);
 
 /** Code-unit order (not localeCompare), like the rest of the collection's sorting. */
 function cmpStr(a: string, b: string): number {
@@ -56,6 +62,7 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
   const [removeTag, setRemoveTag] = useState('');
   const [moveDeckId, setMoveDeckId] = useState('');
   const [forAnki, setForAnki] = useState(false);
+  const [showFindReplace, setShowFindReplace] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
   const info = useMemo(() => {
@@ -276,6 +283,16 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
           </button>
         </div>
 
+        <button
+          type="button"
+          data-testid="bulk-find-replace"
+          aria-expanded={showFindReplace}
+          className={buttonClass}
+          onClick={() => setShowFindReplace((v) => !v)}
+        >
+          Find and replace…
+        </button>
+
         {!showingArchived && (
           <div className="flex items-center gap-1.5">
             <select
@@ -315,6 +332,12 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
           </div>
         )}
       </div>
+
+      {showFindReplace && (
+        <Suspense fallback={null}>
+          <LazyFindReplacePanel noteIds={noteIds} onClose={() => setShowFindReplace(false)} />
+        </Suspense>
+      )}
 
       {message && (
         <p
