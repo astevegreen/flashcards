@@ -914,42 +914,44 @@ export function SettingsScreen() {
         </div>
 
         {/* Live Voice Test */}
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            aria-label="Test voice language"
-            data-testid="tts-test-lang-select"
-            value={ttsTestLang}
-            onChange={(e) => setTtsTestLangChoice(e.target.value)}
-            className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--fg)]"
-          >
-            {ttsLanguages.map((l) => (
-              <option key={l.key} value={l.key}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            data-testid="tts-test-btn"
-            disabled={ttsTestBusy}
-            onClick={() => void handleTestVoice()}
-            className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-50"
-          >
-            {ttsTestBusy ? 'Playing…' : '🔊 Test Voice'}
-          </button>
-          {ttsTestMessage && (
-            <span
-              data-testid="tts-test-status"
-              className={`text-xs ${
-                ttsTestMessage.ok
-                  ? 'text-emerald-700 dark:text-emerald-300'
-                  : 'text-rose-600 dark:text-rose-400'
-              }`}
+        {ttsLanguages.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label="Test voice language"
+              data-testid="tts-test-lang-select"
+              value={ttsTestLang}
+              onChange={(e) => setTtsTestLangChoice(e.target.value)}
+              className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--fg)]"
             >
-              {ttsTestMessage.text}
-            </span>
-          )}
-        </div>
+              {ttsLanguages.map((l) => (
+                <option key={l.key} value={l.key}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              data-testid="tts-test-btn"
+              disabled={ttsTestBusy}
+              onClick={() => void handleTestVoice()}
+              className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-50"
+            >
+              {ttsTestBusy ? 'Playing…' : '🔊 Test Voice'}
+            </button>
+            {ttsTestMessage && (
+              <span
+                data-testid="tts-test-status"
+                className={`text-xs ${
+                  ttsTestMessage.ok
+                    ? 'text-emerald-700 dark:text-emerald-300'
+                    : 'text-rose-600 dark:text-rose-400'
+                }`}
+              >
+                {ttsTestMessage.text}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Diagnostics Strip */}
         <div className="grid gap-1 border-t border-[var(--border)] pt-2 text-[11px] text-[var(--muted)] sm:flex sm:flex-wrap sm:items-center sm:gap-x-4">

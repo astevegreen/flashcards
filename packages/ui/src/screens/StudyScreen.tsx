@@ -339,8 +339,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     syncState,
     addDeviceLink,
   } = useApp();
-  // Furigana is a Japanese option (UX #2): hidden, not reset, when Japanese is not in use.
-  const showFuriganaToggle = useActiveLanguages().hasFeature('furigana');
+  const rubyLanguage = useActiveLanguages().hasFeature('ruby');
 
   const [revealStep, setRevealStep] = useState(0);
   const deferredSyncPrompt = useDeferredSyncPromptModule(platform.storage);
@@ -540,6 +539,8 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCard?.id]);
 
+  // Ruby (furigana, Hanja, pinyin) is offered for ja/ko/zh, and always where the layout hides it.
+  const showFuriganaToggle = rubyLanguage || Boolean(currentLayout?.hide_furigana_on_front);
   const hideFrontRuby =
     furiganaOverride ?? (!isRevealed && Boolean(currentLayout?.hide_furigana_on_front));
 

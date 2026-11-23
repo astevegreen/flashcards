@@ -1,6 +1,8 @@
 import {
   compareCodeUnits,
   decodeUtf8,
+  isLanguageFeatureActive,
+  normalizeLanguage,
   type CollectionState,
   type Deck,
   type NoteType,
@@ -411,7 +413,8 @@ function CsvRoute({ name, text, detected, source, onBusyChange }: Readonly<CsvRo
   const [language, setLanguage] = useState(setup.language);
   const activeLanguages = useActiveLanguages();
   const showAnkiRuby =
-    activeLanguages.hasFeature('kanaImport') || (target === 'new' && language === 'ja');
+    activeLanguages.hasFeature('ruby') ||
+    (target === 'new' && isLanguageFeatureActive([normalizeLanguage(language)], 'ruby'));
   const [phase, setPhase] = useState<ImportPhase>('idle');
   const [message, setMessage] = useState('');
   const locked = phase === 'importing' || phase === 'done';

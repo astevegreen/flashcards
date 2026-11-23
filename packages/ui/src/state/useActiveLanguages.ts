@@ -39,7 +39,11 @@ export function useActiveLanguages(): ActiveLanguages {
   }, [platform]);
 
   return useMemo(() => {
-    const languages = deriveActiveLanguages(state.decks.values(), onboardingLanguage);
+    const languages = deriveActiveLanguages(
+      state.decks.values(),
+      onboardingLanguage,
+      state.noteTypes,
+    );
     return {
       languages,
       hasFeature: (feature) => isLanguageFeatureActive(languages, feature),

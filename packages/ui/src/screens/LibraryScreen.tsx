@@ -53,7 +53,7 @@ function DeckOptionsPanel({
   onUpdateLayout: (layout: Layout) => void;
 }) {
   const { platform, state, stateVersion, rescheduleDeck } = useApp();
-  const showRuby = useActiveLanguages().hasFeature('furigana');
+  const rubyLanguage = useActiveLanguages().hasFeature('ruby');
   const [rescheduleStatus, setRescheduleStatus] = useState<string | null>(null);
   const [newPerDayDraft, setNewPerDayDraft] = useState(String(deck.settings.new_cards_per_day));
   const [maxRevDraft, setMaxRevDraft] = useState(String(deck.settings.max_reviews_per_day));
@@ -419,26 +419,27 @@ function DeckOptionsPanel({
         <LazyFsrsOptimizerPanel deck={deck} />
       </Suspense>
 
-      {showRuby && noteTypeLayouts.length > 0 && (
-        <div
-          data-testid={`layout-ruby-list-${deck.id}`}
-          className="flex flex-col gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3"
-        >
-          <div className="text-xs font-semibold text-[var(--fg)]">Layouts: ruby display</div>
-          {noteTypeLayouts.map((l) => (
-            <label key={l.id} className="flex items-center justify-between gap-2 text-xs">
-              <span className="min-w-0 truncate text-[var(--muted)]">
-                {l.name} ({l.answer_mode})
-              </span>
-              <RubyDisplaySelect
-                label={`Ruby shows for ${l.name}`}
-                value={l.ruby_display ?? 'both'}
-                onChange={(next) => onUpdateLayout({ ...l, ruby_display: next })}
-              />
-            </label>
-          ))}
-        </div>
-      )}
+      {(rubyLanguage || noteTypeLayouts.some((l) => l.ruby_display)) &&
+        noteTypeLayouts.length > 0 && (
+          <div
+            data-testid={`layout-ruby-list-${deck.id}`}
+            className="flex flex-col gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3"
+          >
+            <div className="text-xs font-semibold text-[var(--fg)]">Layouts: ruby display</div>
+            {noteTypeLayouts.map((l) => (
+              <label key={l.id} className="flex items-center justify-between gap-2 text-xs">
+                <span className="min-w-0 truncate text-[var(--muted)]">
+                  {l.name} ({l.answer_mode})
+                </span>
+                <RubyDisplaySelect
+                  label={`Ruby shows for ${l.name}`}
+                  value={l.ruby_display ?? 'both'}
+                  onChange={(next) => onUpdateLayout({ ...l, ruby_display: next })}
+                />
+              </label>
+            ))}
+          </div>
+        )}
 
       {/* Add Answer Mode Layout (§5.2) */}
       <form
@@ -558,7 +559,7 @@ function DeckOptionsPanel({
           </>
         )}
 
-        {showRuby && (
+        {rubyLanguage && (
           <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
             <span>Ruby shows</span>
             <RubyDisplaySelect value={rubyDisplay} onChange={setRubyDisplay} />

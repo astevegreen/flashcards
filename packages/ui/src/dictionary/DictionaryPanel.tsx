@@ -1237,7 +1237,7 @@ export function DictionaryPanel({
       )}
 
       {/* Collapsible Draw-to-Lookup handwriting surface */}
-      {showDraw && (
+      {showDraw && showDrawTools && (
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
           <DrawLookupPanel
             lang={drawLang}

@@ -8,17 +8,16 @@ import { compareCodeUnits } from '../study/queue.ts';
  */
 
 /** A language-specific UI option group. */
-export type LanguageFeature =
-  'furigana' | 'kanaImport' | 'hanja' | 'pinyin' | 'tones' | 'strokeOrder' | 'handwriting';
+export type LanguageFeature = 'ruby' | 'pinyin' | 'tones' | 'handwriting';
 
-/** Which active languages switch each feature on (normalized language codes). */
+/**
+ * Which active languages switch each feature on (normalized language codes). Ruby covers
+ * furigana, Hangul over Hanja and pinyin (blueprint 6.2), so it is not Japanese-only.
+ */
 export const LANGUAGE_FEATURE_LANGUAGES: Readonly<Record<LanguageFeature, readonly string[]>> = {
-  furigana: ['ja'],
-  kanaImport: ['ja'],
-  hanja: ['ko'],
+  ruby: ['ja', 'ko', 'zh-Hans'],
   pinyin: ['zh-Hans'],
   tones: ['zh-Hans'],
-  strokeOrder: ['ja', 'zh-Hans', 'ko'],
   handwriting: ['ja', 'zh-Hans', 'ko'],
 };
 
@@ -28,20 +27,51 @@ export function normalizeLanguage(tag: string): string {
   return primary === 'zh' ? 'zh-Hans' : primary;
 }
 
+interface DeckLike {
+  readonly language: string;
+  readonly note_type_id?: string;
+}
+
+interface NoteTypeLike {
+  readonly fields: ReadonlyArray<{ readonly lang: string; readonly tts?: boolean }>;
+}
+
 /**
- * The languages in use: every deck's language plus the onboarding choice, normalized, de-duplicated
- * and sorted. Archived decks still count (their cards are still in the collection).
+ * Languages a note type's fields are written in. Romanisation tags (`zh-Latn-pinyin`) are dropped,
+ * and English only counts for a field that is spoken (`tts`), since every vocab type carries an
+ * English meaning field.
+ */
+export function noteTypeLanguages(noteType: NoteTypeLike): string[] {
+  const out: string[] = [];
+  for (const field of noteType.fields) {
+    if (/-latn/i.test(field.lang)) continue;
+    const code = normalizeLanguage(field.lang);
+    if (code && (code !== 'en' || field.tts)) out.push(code);
+  }
+  return out;
+}
+
+/**
+ * The languages in use: every deck's language, the languages of its note type's fields (so a
+ * Japanese deck imported with a missing or wrong language tag still counts), and the onboarding
+ * choice. Normalized, de-duplicated and sorted. Archived decks still count (their cards are still
+ * in the collection).
  */
 export function deriveActiveLanguages(
-  decks: Iterable<{ readonly language: string }>,
+  decks: Iterable<DeckLike>,
   onboardingLanguage?: string,
+  noteTypes?: ReadonlyMap<string, NoteTypeLike>,
 ): string[] {
   const out = new Set<string>();
   const add = (tag: string | undefined) => {
     const code = normalizeLanguage(tag ?? '');
     if (code) out.add(code);
   };
-  for (const deck of decks) add(deck.language);
+  for (const deck of decks) {
+    add(deck.language);
+    const noteType = deck.note_type_id ? noteTypes?.get(deck.note_type_id) : undefined;
+    if (noteType) for (const code of noteTypeLanguages(noteType)) out.add(code);
+  }
   add(onboardingLanguage);
   return [...out].sort(compareCodeUnits);
 }

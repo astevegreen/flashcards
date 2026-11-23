@@ -45,13 +45,13 @@ async function dropCsv(page: Page, text: string): Promise<void> {
 }
 
 test.describe('Language-aware options (UX #2)', () => {
-  test('a Korean-only collection shows no furigana or pinyin options; importing a Japanese deck brings furigana back', async ({
+  test('a Korean-only collection shows no pinyin or Japanese options; importing a Japanese deck brings them back', async ({
     page,
   }) => {
     await onboardKorean(page);
 
-    // Study: no Ruby toggle.
-    await expect(page.getByRole('button', { name: /^Ruby (On|Off)$/ })).toHaveCount(0);
+    // Study: ruby is not Japanese-only (the Korean starter uses Hanja ruby), so the toggle stays.
+    await expect(page.getByRole('button', { name: /^Ruby (On|Off)$/ })).toBeVisible();
 
     // Settings: no pinyin, tone or kana options, no Japanese/Mandarin voices or drawing rows;
     // Korean's own options stay.
@@ -66,28 +66,31 @@ test.describe('Language-aware options (UX #2)', () => {
     await expect(page.getByTestId('drawing-mode-select-ja')).toHaveCount(0);
     await expect(page.getByTestId('drawing-mode-select-zh-Hans')).toHaveCount(0);
 
-    // Library: no per-layout ruby selector.
+    // Library: ruby display applies to Korean too.
     await openLibrary(page);
     const koRow = page.locator('[data-testid^="deck-row-"]').first();
     await koRow.getByRole('button', { name: 'Options' }).click();
     await expect(koRow.locator('[data-testid^="add-layout-form-"]')).toBeVisible();
-    await expect(koRow.getByLabel('Ruby shows')).toHaveCount(0);
-    await expect(koRow.locator('[data-testid^="layout-ruby-list-"]')).toHaveCount(0);
+    await expect(koRow.getByLabel('Ruby shows').first()).toBeVisible();
 
-    // Import: the Anki furigana switch is offered once the new deck's language is Japanese.
+    // Import: the Anki furigana switch is language-neutral for ja/ko/zh.
     await openBringMyCards(page);
     await dropCsv(page, NEW_DECK_CSV);
-    await expect(page.getByTestId('bring-csv-anki-ruby')).toHaveCount(0);
+    await expect(page.getByTestId('bring-csv-anki-ruby')).toBeVisible();
     await page.getByTestId('bring-csv-language').selectOption('ja');
     await page.getByTestId('bring-csv-note-type').selectOption('preset:vocab-ja');
     await expect(page.getByTestId('bring-csv-anki-ruby')).toBeVisible();
     await page.getByTestId('bring-csv-import-btn').click();
     await expect(page.getByTestId('bring-csv-status')).toHaveAttribute('data-phase', 'done');
 
-    // The new language is active: furigana options are back everywhere.
+    // The new language is active: Japanese options are back.
     await openSettings(page);
     await expect(page.getByText('Japanese typed mode: Hiragana = Katakana')).toBeVisible();
     await expect(page.getByTestId('drawing-mode-select-ja')).toBeVisible();
+    await expect(page.getByTestId('tts-test-lang-select').locator('option')).toHaveText([
+      'Japanese (ja)',
+      'Korean (ko)',
+    ]);
     await expect(page.getByText('Pinyin tone colors')).toHaveCount(0);
 
     await openLibrary(page);
