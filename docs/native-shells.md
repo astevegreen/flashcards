@@ -269,10 +269,10 @@ it is not in a secure store. Linux builds need the D-Bus development package (`l
 
 ## Interfaces still waiting on a native plugin
 
-| Interface               | Status                                                                                                                                                                      |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MlKitDigitalInkPlugin` | **Wired** to `@capacitor-mlkit/digital-ink-recognition` (Capawesome). `zh-Hans`/`zh-Hant` map to ML Kit `zh-Hani-CN`/`zh-Hani-TW`. The web stroke matcher is the fallback.  |
-| `StoreBillingPlugin`    | **Wired** to `@capgo/native-purchases` (StoreKit 2 / Play Billing 7, non-consumable `INAPP`).                                                                               |
-| `ICloudDocumentPlugin`  | **Wired** to the local Swift plugin `ios/App/App/ICloudDocumentsPlugin.swift` (iOS only; see the iOS section).                                                              |
-| Desktop refresh token   | **Done.** Kept in the OS keychain (see the Desktop section).                                                                                                                |
-| Phone sign-in tokens    | **Done.** Kept in the Keychain / Keystore by `@flash/capacitor-secure-storage` (see Phone secure storage). Gradle and Xcode builds not yet run; not yet tested on a device. |
+| Interface               | Status                                                                                                                                                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MlKitDigitalInkPlugin` | **Wired** to `@capacitor-mlkit/digital-ink-recognition` (Capawesome). `zh-Hans`/`zh-Hant` map to ML Kit `zh-Hani-CN`/`zh-Hani-TW`. The web stroke matcher is the fallback.                                       |
+| `StoreBillingPlugin`    | **Wired** to `@capgo/native-purchases` (StoreKit 2 / Play Billing 7, non-consumable `INAPP`).                                                                                                                    |
+| `ICloudDocumentPlugin`  | **Wired** to the local Swift plugin `ios/App/App/ICloudDocumentsPlugin.swift` (iOS only; see the iOS section).                                                                                                   |
+| Desktop refresh token   | **Done.** Kept in the OS keychain (see the Desktop section).                                                                                                                                                     |
+| Phone sign-in tokens    | **Done.** Kept in the Keychain / Keystore by `@flash/capacitor-secure-storage` (see Phone secure storage). Compiles on Android and iOS in `native.yml` (first green run 2026-11-23); not yet tested on a device. |

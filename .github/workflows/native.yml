@@ -131,3 +131,17 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGNING_ALLOWED=NO \
             -quiet
+
+      # `-quiet` hides the compile lines, so prove the app's own Swift code was built.
+      - name: The app's own native code was compiled
+        run: |
+          set -euo pipefail
+          intermediates="$RUNNER_TEMP/DerivedData/Build/Intermediates.noindex"
+          for object in FlashSecureStoragePlugin.o ICloudDocumentsPlugin.o; do
+            found=$(find "$intermediates" -name "$object" -print -quit)
+            if [ -z "$found" ]; then
+              echo "::error::$object was not built."
+              exit 1
+            fi
+            echo "built: ${found#"$intermediates"/}"
+          done
