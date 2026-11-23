@@ -52,34 +52,55 @@ export function trackStoredSecrets(options: {
           marked.add(key);
         });
 
+  /**
+   * Runs operations on one key one at a time. Without it a token-refresh `set` racing a sign-out
+   * `remove` could run `store.set`, then the whole `remove`, then the `set`'s marker write, leaving
+   * a marker with no secret behind it (a false "sign in again" notice later).
+   */
+  const queues = new Map<string, Promise<unknown>>();
+  const serialized = <T>(key: string, work: () => Promise<T>): Promise<T> => {
+    const previous = queues.get(key) ?? Promise.resolve();
+    const run = previous.then(work, work);
+    const settled = run.catch(() => undefined);
+    queues.set(key, settled);
+    void settled.then(() => {
+      if (queues.get(key) === settled) queues.delete(key);
+    });
+    return run;
+  };
+
   return {
-    get: async (key) => {
-      const value = await store.get(key);
-      if (value !== null) {
+    get: (key) =>
+      serialized(key, async () => {
+        const value = await store.get(key);
+        if (value !== null) {
+          await ensureMarker(key);
+          return value;
+        }
+        marked.delete(key);
+        await quietly(async () => {
+          const marker = secureStoredMarkerKey(key);
+          if ((await markers.getKv(marker)) === undefined) return;
+          // Cleared first, so this loss is reported once, not on every later read.
+          await markers.deleteKv(marker);
+          await options.onSecretsLost();
+        });
+        return null;
+      }),
+    set: (key, value) =>
+      serialized(key, async () => {
+        await store.set(key, value);
         await ensureMarker(key);
-        return value;
-      }
-      marked.delete(key);
-      await quietly(async () => {
-        const marker = secureStoredMarkerKey(key);
-        if ((await markers.getKv(marker)) === undefined) return;
-        // Cleared first, so this loss is reported once, not on every later read.
-        await markers.deleteKv(marker);
-        await options.onSecretsLost();
-      });
-      return null;
-    },
-    set: async (key, value) => {
-      await store.set(key, value);
-      await ensureMarker(key);
-    },
-    remove: async (key) => {
-      marked.delete(key);
-      // The marker goes first: if the Keychain delete then fails, the item is still there and the
-      // next read writes the marker again, so a deliberate delete is never reported as a loss.
-      await quietly(() => markers.deleteKv(secureStoredMarkerKey(key)));
-      await store.remove(key);
-    },
+      }),
+    remove: (key) =>
+      serialized(key, async () => {
+        marked.delete(key);
+        // The marker goes first: if the Keychain delete then fails, the item is still there and
+        // the next read writes the marker again, so a deliberate delete is never reported as a
+        // loss.
+        await quietly(() => markers.deleteKv(secureStoredMarkerKey(key)));
+        await store.remove(key);
+      }),
     removeLegacyPreference: (entry) => store.removeLegacyPreference(entry),
   };
 }

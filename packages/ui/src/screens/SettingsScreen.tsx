@@ -21,7 +21,6 @@ import {
   useActiveSyncChoice,
 } from '../sync/SettingsSyncBlocks.tsx';
 import { describeSyncProvider } from '../sync/syncProviderLabel.ts';
-import { iCloudOffHint } from '../sync/syncProviders.ts';
 
 const LazyPackManagerPanel = lazy(() =>
   import('../packs/PackManagerPanel.tsx').then((m) => ({ default: m.PackManagerPanel })),
@@ -256,7 +255,6 @@ export function SettingsScreen() {
 
   const isSyncConnected = syncState.provider !== 'none';
   const activeSyncChoice = useActiveSyncChoice();
-  const iCloudHint = iCloudOffHint(platform);
   const providerLabel = describeSyncProvider(syncState.provider, syncState.localFolderName);
 
   const handleSyncNow = async () => {
@@ -657,14 +655,6 @@ export function SettingsScreen() {
             </button>
           )}
         </div>
-
-        {iCloudHint !== undefined &&
-          syncState.provider !== 'icloud' &&
-          activeSyncChoice !== 'icloud' && (
-            <p data-testid="icloud-off-hint" className="text-xs break-words text-[var(--muted)]">
-              {iCloudHint}
-            </p>
-          )}
 
         {/* Phase 14: "Add a device" (QR code + link) and the add-device collection check. */}
         <SettingsAddDevice />

@@ -823,11 +823,17 @@ export interface PlatformServices {
   readonly iCloudSyncSupported?: boolean;
   /**
    * macOS (entitled builds): false when iCloud Drive was not available at launch (signed out, or
-   * iCloud Drive off). iCloud is still offered, with a hint to turn iCloud Drive on in System
-   * Settings (a saved connection keeps working), but is not the "Sync my devices" default. Unset on
+   * iCloud Drive off), or when the launch probe timed out. iCloud is still offered (a saved
+   * connection keeps working) but is not the "Sync my devices" default. Unset on
    * iOS.
    */
   readonly iCloudAvailableAtLaunch?: boolean;
+  /**
+   * macOS (entitled builds): true when iCloud answered at launch that iCloud Drive is off (signed
+   * out, or iCloud Drive turned off). Unset when it was available or the probe timed out, so a slow
+   * iCloud daemon never shows the "turn on iCloud Drive" hint.
+   */
+  readonly iCloudOffAtLaunch?: boolean;
   /** iOS / macOS: iCloud Drive transport; throws when iCloud Drive is off or the user is signed out. */
   createICloudTransport?(): Promise<SyncTransport>;
   getGooglePicker(): Promise<GooglePickerAdapter>;

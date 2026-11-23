@@ -300,7 +300,9 @@ The macOS app syncs through the **same iCloud container and file layout as the i
   syncing even if iCloud was slow or off at launch. At launch `bootTauriPlatform` also asks
   `icloud_available` (at most 2 s, alongside the database open). That answer only picks the
   **Sync my devices** default: iCloud Drive when it is true, otherwise Google Drive, with iCloud
-  Drive listed as an alternative and a one-line hint to turn on iCloud Drive in System Settings.
+  Drive listed as an alternative. Only when iCloud answered in time that it is off (not when the
+  probe timed out) does the Sync my devices chooser add a one-line hint to turn on iCloud Drive in
+  System Settings. Settings itself shows no standing hint.
 - Unsigned Mac builds (all of them today), Windows and Linux never offer iCloud: no **Use iCloud
   Drive** button and no iCloud option in Sync my devices, so the "sign in to iCloud" error an
   unentitled build would always hit cannot appear. Google Drive is the default there.
@@ -359,7 +361,8 @@ is needed for the unsigned CI build, and none of it has been tried):
 6. **Check on a Mac** signed in to iCloud with iCloud Drive on: Settings shows **Use iCloud Drive**,
    Sync my devices defaults to iCloud Drive, and a deck studied on the iPhone appears on the Mac
    after a sync (and the other way round). With iCloud Drive turned off before launch, iCloud
-   Drive is still listed, with the System Settings hint, and Google Drive is the default.
+   Drive is still listed in the Sync my devices chooser, with the System Settings hint, and Google
+   Drive is the default.
 
 `.github/workflows/desktop.yml` compiles the macOS app on every pull request that touches
 `apps/desktop/` or `packages/platform-tauri/`: an unsigned `tauri build --debug --no-bundle` on

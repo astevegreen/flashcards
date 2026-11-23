@@ -65,6 +65,8 @@ export function createTauriICloudDocumentPlugin(invoke: TauriInvoke): ICloudDocu
 export interface TauriICloudOptions {
   iCloudPlugin?: ICloudDocumentPlugin;
   iCloudAvailableAtLaunch?: boolean;
+  /** True only when the launch probe answered in time that iCloud Drive is off. */
+  iCloudOffAtLaunch?: boolean;
 }
 
 /**
@@ -82,10 +84,40 @@ export async function resolveTauriICloudOptions(
   const supported = await invoke<boolean>('icloud_supported').catch(() => false);
   if (supported !== true) return {};
   const iCloudPlugin = createTauriICloudDocumentPlugin(invoke);
+  const availability = await probeICloudAvailability(iCloudPlugin, timeoutMs);
   return {
     iCloudPlugin,
-    iCloudAvailableAtLaunch: await probeICloudAvailable(iCloudPlugin, timeoutMs),
+    iCloudAvailableAtLaunch: availability === 'available',
+    ...(availability === 'off' ? { iCloudOffAtLaunch: true } : {}),
   };
+}
+
+/**
+ * What the launch probe learned: `available`, `off` (iCloud answered in time that it is not
+ * usable: signed out or iCloud Drive off), or `unknown` (no answer within `timeoutMs`, or an
+ * error). Only `off` earns the "turn on iCloud Drive" hint, so a slow iCloud daemon never shows it.
+ */
+export async function probeICloudAvailability(
+  plugin: ICloudDocumentPlugin,
+  timeoutMs = 2000,
+): Promise<'available' | 'off' | 'unknown'> {
+  if (!plugin.isAvailable) return 'available';
+  const isAvailable = plugin.isAvailable.bind(plugin);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<'unknown'>((resolve) => {
+    timer = setTimeout(() => resolve('unknown'), timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      isAvailable().then(
+        (available): 'available' | 'off' => (available ? 'available' : 'off'),
+        (): 'unknown' => 'unknown',
+      ),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -96,14 +128,5 @@ export async function probeICloudAvailable(
   plugin: ICloudDocumentPlugin,
   timeoutMs = 2000,
 ): Promise<boolean> {
-  if (!plugin.isAvailable) return true;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<boolean>((resolve) => {
-    timer = setTimeout(() => resolve(false), timeoutMs);
-  });
-  try {
-    return await Promise.race([plugin.isAvailable().catch(() => false), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
+  return (await probeICloudAvailability(plugin, timeoutMs)) === 'available';
 }

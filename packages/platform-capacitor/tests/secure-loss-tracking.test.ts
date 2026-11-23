@@ -180,6 +180,53 @@ describe('iOS Keychain loss detection', () => {
     expect(onSecretsLost).not.toHaveBeenCalled();
   });
 
+  it('a token refresh racing a sign-out never leaves a marker without its secret', async () => {
+    const database = await existingDatabase();
+    const keychain = new FakeKeychain();
+    // Holds the set's marker write until the sign-out has been started.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let gated = true;
+    const markers = {
+      getKv: async <T>(key: string) => {
+        if (gated) {
+          gated = false;
+          await gate;
+        }
+        return database.getKv<T>(key);
+      },
+      setKv: (key: string, value: unknown) => database.setKv(key, value),
+      deleteKv: (key: string) => database.deleteKv(key),
+    };
+    const onSecretsLost = vi.fn();
+    const secure = trackStoredSecrets({ store: keychain, markers, onSecretsLost });
+
+    const refresh = secure.set('k', 'fresh-token');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const signOut = secure.remove('k');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    release();
+    await Promise.all([refresh, signOut]);
+
+    expect(keychain.values.has('k')).toBe(false);
+    expect(await database.getKv(secureStoredMarkerKey('k'))).toBeUndefined();
+    expect(await secure.get('k')).toBeNull();
+    expect(onSecretsLost).not.toHaveBeenCalled();
+  });
+
+  it('a failed operation does not block later ones on the same key', async () => {
+    const database = await existingDatabase();
+    const keychain = new FakeKeychain();
+    const { secure } = launch(database, keychain);
+    keychain.failRemoves = true;
+    await expect(secure.remove('k')).rejects.toThrow('Keychain busy');
+    keychain.failRemoves = false;
+    await secure.set('k', 'v');
+    await expect(secure.get('k')).resolves.toBe('v');
+  });
+
   it('reads the marker once per session for a secret that is present', async () => {
     const database = await existingDatabase();
     const getKv = vi.spyOn(database, 'getKv');

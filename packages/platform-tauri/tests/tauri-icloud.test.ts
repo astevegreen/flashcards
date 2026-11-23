@@ -4,6 +4,7 @@ import {
   createTauriICloudDocumentPlugin,
   createTauriPlatform,
   probeICloudAvailable,
+  probeICloudAvailability,
   resolveTauriICloudOptions,
   type TauriInvoke,
 } from '../src/index.ts';
@@ -137,6 +138,35 @@ describe('macOS iCloud Drive transport (Tauri)', () => {
     expect(await probeICloudAvailable(failing)).toBe(false);
     const hanging = createTauriICloudDocumentPlugin((() => new Promise(() => {})) as TauriInvoke);
     expect(await probeICloudAvailable(hanging, 10)).toBe(false);
+
+    // Only a definite answer counts as "off"; a timeout or an error is unknown.
+    expect(await probeICloudAvailability(hanging, 10)).toBe('unknown');
+    expect(await probeICloudAvailability(failing)).toBe('unknown');
+    expect(
+      await probeICloudAvailability(
+        createTauriICloudDocumentPlugin(fakeRust({ available: false }).invoke),
+      ),
+    ).toBe('off');
+  });
+
+  it('flags iCloud as off at launch only when iCloud answered so in time', async () => {
+    const off = fakeRust({ available: false });
+    const offInvoke = (async (cmd: string, ...rest: unknown[]) =>
+      cmd === 'icloud_supported'
+        ? true
+        : (off.invoke as (...a: unknown[]) => Promise<unknown>)(cmd, ...rest)) as TauriInvoke;
+    const offOptions = await resolveTauriICloudOptions(offInvoke);
+    expect(offOptions).toMatchObject({ iCloudAvailableAtLaunch: false, iCloudOffAtLaunch: true });
+    expect(createTauriPlatform({ deviceId: 'mac', ...offOptions }).iCloudOffAtLaunch).toBe(true);
+
+    const slowInvoke = (async (cmd: string) =>
+      cmd === 'icloud_supported' ? true : new Promise(() => {})) as TauriInvoke;
+    const slowOptions = await resolveTauriICloudOptions(slowInvoke, 10);
+    expect(slowOptions.iCloudAvailableAtLaunch).toBe(false);
+    expect(slowOptions.iCloudOffAtLaunch).toBeUndefined();
+    expect(
+      createTauriPlatform({ deviceId: 'mac', ...slowOptions }).iCloudOffAtLaunch,
+    ).toBeUndefined();
   });
 });
 

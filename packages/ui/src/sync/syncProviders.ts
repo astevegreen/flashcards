@@ -85,6 +85,7 @@ export type SyncPlatformFlags = Pick<
   | 'iCloudSyncSupported'
   | 'createICloudTransport'
   | 'iCloudAvailableAtLaunch'
+  | 'iCloudOffAtLaunch'
   | 'supportsLocalFolderSync'
 >;
 
@@ -140,12 +141,13 @@ export const ICLOUD_OFF_HINT =
   'iCloud Drive looks off on this Mac. To use it, turn on iCloud Drive in System Settings (your Apple Account, then iCloud).';
 
 /**
- * The hint for a Mac where iCloud Drive was off at launch: iCloud stays listed (it may be turned
- * on while the app runs), with this line saying how. `undefined` everywhere else, including Macs
- * whose build cannot use iCloud at all (unsigned builds never offer it).
+ * The hint for a Mac where iCloud said at launch that iCloud Drive is off: iCloud stays listed (it
+ * may be turned on while the app runs), with this line saying how. `undefined` everywhere else:
+ * when the launch probe only timed out (a slow iCloud daemon is not "off"), and on Macs whose
+ * build cannot use iCloud at all (unsigned builds never offer it).
  */
 export function iCloudOffHint(platform: SyncPlatformFlags): string | undefined {
-  return isSyncProviderAvailable(platform, 'icloud') && platform.iCloudAvailableAtLaunch === false
+  return isSyncProviderAvailable(platform, 'icloud') && platform.iCloudOffAtLaunch === true
     ? ICLOUD_OFF_HINT
     : undefined;
 }
