@@ -1,6 +1,6 @@
 import type { CollectionState } from '../events/replay.ts';
 import type { Note, NoteType } from '../model/types.ts';
-import { stripRichText } from '../parsers/rich-text.ts';
+import { stripRichText as stripRichTextMarkup } from '../parsers/rich-text.ts';
 import { normalizeTagList } from '../tags/index.ts';
 
 export interface CsvExportOptions {
@@ -13,11 +13,11 @@ export interface CsvExportOptions {
   /** Prefix a UTF-8 BOM so Excel opens Hangul / CJK text correctly (default `true`). */
   bom?: boolean;
   /**
-   * Keep the field editor's rich-text markup (`{b:…}`, `{red:…}`) as typed (default `false`: it is
-   * stripped, since other apps show the braces). Ruby (`漢字[かな]`) and cloze are kept either way.
-   * Keep it for a copy that is meant to be imported back into this app.
+   * Strip the field editor's rich-text markup (`{b:…}`, `{red:…}`) from the cells (default
+   * `false`: kept as typed, like ruby and cloze, so the file imports back into this app intact).
+   * Strip it for a copy that other apps read, where the braces would show.
    */
-  keepRichText?: boolean;
+  stripRichText?: boolean;
 }
 
 export interface CsvExportResult {
@@ -109,7 +109,7 @@ export function exportCsv(state: CollectionState, options: CsvExportOptions): Cs
       note.source_key || note.id,
       ...fields.map((f) => {
         const value = note.fields[f.key] ?? '';
-        return options.keepRichText ? value : stripRichText(value);
+        return options.stripRichText ? stripRichTextMarkup(value) : value;
       }),
       ...Array.from({ length: categoryColumns }, (_, i) => tags[i] ?? ''),
     ];

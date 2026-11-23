@@ -111,15 +111,15 @@ describe('rich text in the Anki writers and plain CSV', () => {
     expect(JSON.stringify(plan)).toContain('<b>to&lt;day&gt;</b>');
   });
 
-  it('strips markup in plain CSV, keeps ruby, and can keep markup on request', () => {
-    const stripped = exportCsv(state, { deckId: VOCAB_DECK, noteIds: ['note-2'] }).text;
-    expect(stripped).toContain('to<day> 今日[きょう]');
-    expect(stripped).not.toContain('{b:');
-    const kept = exportCsv(state, {
+  it('keeps markup in plain CSV as typed, and strips it on request', () => {
+    const kept = exportCsv(state, { deckId: VOCAB_DECK, noteIds: ['note-2'] }).text;
+    expect(kept).toContain('{b:to<day>} {red:今日[きょう]}');
+    const stripped = exportCsv(state, {
       deckId: VOCAB_DECK,
       noteIds: ['note-2'],
-      keepRichText: true,
+      stripRichText: true,
     }).text;
-    expect(kept).toContain('{b:to<day>} {red:今日[きょう]}');
+    expect(stripped).toContain('to<day> 今日[きょう]');
+    expect(stripped).not.toContain('{b:');
   });
 });
