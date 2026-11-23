@@ -1,11 +1,10 @@
-import type { NoteType } from '@flash/core';
+import type { NoteType, SourceColumnMapping } from '@flash/core';
 import {
   guessDeckSetup,
   looksLikeHeaderRow,
   resolveSourceColumnMap,
   toSourceColumnMap,
 } from '@flash/core/import-mapping';
-import type { SourceColumnMapping } from '@flash/core';
 import { useMemo, useState } from 'react';
 import { ColumnMappingView, useColumnMapping } from '../import/ColumnMapping.tsx';
 import { useApp } from '../state/AppContext.tsx';

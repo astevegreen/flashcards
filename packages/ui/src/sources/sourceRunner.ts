@@ -154,7 +154,8 @@ export async function loadSourcesRegistry(
       } else if (deck.source.kind === 'onedrive_file' && deck.source.external_id) {
         if (!knownOneDriveIds.has(deck.source.external_id)) {
           knownOneDriveIds.add(deck.source.external_id);
-          (registry.oneDriveSources ??= []).push({
+          registry.oneDriveSources ??= [];
+          registry.oneDriveSources.push({
             id: `onedrive:${deck.source.external_id}`,
             itemId: deck.source.external_id,
             name: deck.name,
