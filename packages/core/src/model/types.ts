@@ -231,6 +231,12 @@ export interface CollectionPreferences {
   tts_voices?: Record<string, string>;
   /** Optional synced per-language drawing mode overrides (§6.4: graded | lookup | off). */
   drawing_modes?: Record<string, DrawingMode>;
+  /**
+   * Optional synced Settings > Languages tick boxes (UX #2), per normalized language code: `true`
+   * keeps a language's options shown with no deck in it, `false` drops the onboarding choice.
+   * Decks always count; see `deriveActiveLanguages`.
+   */
+  languages?: Record<string, boolean>;
   /** Phase 9: suspend a card when a review makes it a leech (8 lapses; default false). */
   leech_auto_suspend?: boolean;
 }

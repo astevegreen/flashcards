@@ -264,6 +264,9 @@ export function computeStatePatch(
             ...(state.preferences.drawing_modes !== undefined
               ? { drawing_modes: { ...state.preferences.drawing_modes } }
               : {}),
+            ...(state.preferences.languages !== undefined
+              ? { languages: { ...state.preferences.languages } }
+              : {}),
           },
         }
       : {}),
@@ -410,6 +413,9 @@ export function mergeStatePatch(
         : {}),
       ...(patch.preferences.drawing_modes !== undefined
         ? { drawing_modes: { ...patch.preferences.drawing_modes } }
+        : {}),
+      ...(patch.preferences.languages !== undefined
+        ? { languages: { ...patch.preferences.languages } }
         : {}),
     };
   }

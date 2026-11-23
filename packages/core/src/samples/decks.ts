@@ -27,8 +27,8 @@ const SAMPLE_DECK_SEEDS: readonly SampleDeckSeed[] = [
       {
         key: 'ko-1',
         fields: {
-          word: '학교 (學校[학교])',
-          hanja: '學[학] 배울 학 · 校[교] 학교 교',
+          word: '학교 (學校)',
+          hanja: '學 배울 학 · 校 학교 교',
           meaning: 'school',
           example: '매일 아침 학교에 가요.',
           notes: 'Common Hanja compound word.',
@@ -38,8 +38,8 @@ const SAMPLE_DECK_SEEDS: readonly SampleDeckSeed[] = [
       {
         key: 'ko-2',
         fields: {
-          word: '도서관 (圖書館[도서관])',
-          hanja: '圖[도] · 書[서] · 館[관]',
+          word: '도서관 (圖書館)',
+          hanja: '圖 그림 도 · 書 글 서 · 館 집 관',
           meaning: 'library',
           example: '도서관에서 한국어를 공부해요.',
           notes: '',
@@ -49,8 +49,8 @@ const SAMPLE_DECK_SEEDS: readonly SampleDeckSeed[] = [
       {
         key: 'ko-3',
         fields: {
-          word: '약속 (約束[약속])',
-          hanja: '約[약] 맺을 약 · 束[속] 묶을 속',
+          word: '약속 (約束)',
+          hanja: '約 맺을 약 · 束 묶을 속',
           meaning: 'promise; appointment',
           example: '친구와 저녁 약속이 있어요.',
           notes: '',
@@ -60,8 +60,8 @@ const SAMPLE_DECK_SEEDS: readonly SampleDeckSeed[] = [
       {
         key: 'ko-4',
         fields: {
-          word: '경험 (經驗[경험])',
-          hanja: '經[경] 지날 경 · 驗[험] 시험 험',
+          word: '경험 (經驗)',
+          hanja: '經 지날 경 · 驗 시험 험',
           meaning: 'experience',
           example: '좋은 경험이었어요.',
           notes: '',
