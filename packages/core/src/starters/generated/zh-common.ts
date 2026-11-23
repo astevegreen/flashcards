@@ -9,10 +9,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '的',
         reading: 'de',
-        meaning: 'possessive, adjectival suffix',
+        meaning: 'possessive particle: \'s (我的 "my")',
         example: '',
         notes:
-          'Also read: dì, dí. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: dì, dí. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -69,10 +69,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '我',
         reading: 'wǒ',
-        meaning: 'our, us, i, me, my, we',
+        meaning: 'I; me; my',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -129,10 +129,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '他',
         reading: 'tā',
-        meaning: 'other, another; he, she, it',
+        meaning: 'he; him',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -153,10 +153,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '来',
         reading: 'lái',
-        meaning: 'come, coming; return, returning',
+        meaning: 'to come',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -165,10 +165,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '个',
         reading: 'gè',
-        meaning: 'numerary adjunct, piece; single',
+        meaning: 'general measure word',
         example: '',
         notes:
-          'Also read: ge, gě. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: ge, gě. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -189,10 +189,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '地',
         reading: 'dì',
-        meaning: 'earth; soil, ground; region',
+        meaning: 'earth; ground; (de) adverb particle (-ly)',
         example: '',
         notes:
-          'Also read: de. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: de. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -213,10 +213,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '着',
         reading: 'zhe',
-        meaning: 'make move, take action',
+        meaning: 'continuous-aspect particle (-ing)',
         example: '',
         notes:
-          'Also read: zháo, zhuó, zhāo. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: zháo, zhuó, zhāo. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -273,10 +273,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '和',
         reading: 'hé',
-        meaning: 'harmony, peace; peaceful, calm',
+        meaning: 'and; with; harmony',
         example: '',
         notes:
-          'Also read: huo, he, hè. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: huo, he, hè. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -285,10 +285,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '要',
         reading: 'yào',
-        meaning: 'necessary, essential; necessity',
+        meaning: 'to want; will; must',
         example: '',
         notes:
-          'Also read: yāo. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: yāo. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -297,10 +297,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '里',
         reading: 'lǐ',
-        meaning: 'unit of distance; village; lane; Kangxi radical 166',
+        meaning: 'inside; Chinese mile',
         example: '',
         notes:
-          'Also read: li. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: li. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -309,10 +309,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '么',
         reading: 'me',
-        meaning: 'interrogative particle; small',
+        meaning: 'suffix in 什么 "what", 怎么 "how"',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -321,10 +321,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '子',
         reading: 'zǐ',
-        meaning: 'offspring, child; fruit, seed of; first earthly branch',
+        meaning: 'child; noun suffix (桌子 "table")',
         example: '',
         notes:
-          'Also read: zi. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: zi. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -369,10 +369,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '得',
         reading: 'dé',
-        meaning: 'obtain, get, gain, acquire',
+        meaning: 'to get; complement particle (跑得快 "runs fast")',
         example: '',
         notes:
-          'Also read: de, děi. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: de, děi. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -393,10 +393,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '会',
         reading: 'huì',
-        meaning: 'assemble, meet together; meeting',
+        meaning: 'can; will; meeting',
         example: '',
         notes:
-          'Also read: kuài. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: kuài. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -465,10 +465,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '为',
         reading: 'wèi',
-        meaning: 'do, handle, govern, act; be',
+        meaning: 'for; because of; (wéi) to be',
         example: '',
         notes:
-          'Also read: wéi. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: wéi. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -549,10 +549,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '都',
         reading: 'dōu',
-        meaning: 'metropolis, capital; all, the whole; elegant, refined',
+        meaning: 'all; both; (dū) capital',
         example: '',
         notes:
-          'Also read: dū. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: dū. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -573,10 +573,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '没',
         reading: 'méi',
-        meaning: 'not, have not, none; drown, sink',
+        meaning: 'not; have not (没有)',
         example: '',
         notes:
-          'Also read: mò. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: mò. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -645,10 +645,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '把',
         reading: 'bǎ',
-        meaning: 'hold, take; guard; regard as',
+        meaning: 'particle placing the object before the verb; to hold',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -693,10 +693,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '发',
         reading: 'fā',
-        meaning: 'issue, dispatch, send out; hair',
+        meaning: 'to send out; to develop (fā); hair (fà, 头发)',
         example: '',
         notes:
-          'Also read: fa, fà. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: fa, fà. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -885,10 +885,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '后',
         reading: 'hòu',
-        meaning: 'queen, empress, sovereign; (simp. for 後) behind, rear, after',
+        meaning: 'after; behind; later',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -933,10 +933,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '什',
         reading: 'shén',
-        meaning: 'file of ten soldiers; mixed, miscellaneous',
+        meaning: 'what (in 什么)',
         example: '',
         notes:
-          'Also read: shen. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: shen. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -981,10 +981,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '只',
         reading: 'zhǐ',
-        meaning: 'only, just, simply',
+        meaning: 'only; just; (zhī) measure word for animals',
         example: '',
         notes:
-          'Also read: zhī. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: zhī. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -993,10 +993,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '儿',
         reading: 'ér',
-        meaning: 'son, child; Kangxi radical 10',
+        meaning: 'child; son; suffix (女儿 "daughter")',
         example: '',
         notes:
-          'Also read: r. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: r. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1005,10 +1005,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '点',
         reading: 'diǎn',
-        meaning: 'dot, speck, spot; point, degree',
+        meaning: "dot; point; o'clock",
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1029,10 +1029,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '种',
         reading: 'zhǒng',
-        meaning: 'seed; race, breed; to plant',
+        meaning: 'kind; type; seed',
         example: '',
         notes:
-          'Also read: zhòng. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: zhòng. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1041,10 +1041,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '从',
         reading: 'cóng',
-        meaning: 'from, by, since, whence, through',
+        meaning: 'from; since',
         example: '',
         notes:
-          'Also read: cōng. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: cōng. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1053,10 +1053,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '甚',
         reading: 'shèn',
-        meaning: 'great extent; considerably',
+        meaning: 'very; extremely (甚至 "even")',
         example: '',
         notes:
-          'Also read: shén. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: shén. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1089,10 +1089,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '然',
         reading: 'rán',
-        meaning: 'yes, certainly; pledge, promise',
+        meaning: 'so; like that (然后 "then")',
         example: '',
         notes:
-          'Also read: ran. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: ran. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1125,10 +1125,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '老',
         reading: 'lǎo',
-        meaning: 'old, aged; experienced; Kangxi radical 125',
+        meaning: 'old; experienced; prefix (老师 "teacher")',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1173,10 +1173,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '于',
         reading: 'yú',
-        meaning: 'in, on, at; go to; surname',
+        meaning: 'in; at; to; (formal) from',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1197,10 +1197,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '而',
         reading: 'ér',
-        meaning: 'and; and then; and yet; but; Kangxi radical 126',
+        meaning: 'and; but; yet',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1209,11 +1209,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '心',
         reading: 'xīn',
-        meaning:
-          'heart; mind, intelligence; soul; 5th lunar mansion, determinative star α Scorpii (Antares)',
+        meaning: 'heart; mind',
         example: '',
         notes:
-          'Also read: xin. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: xin. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1222,10 +1221,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '两',
         reading: 'liǎng',
-        meaning: 'two, both, pair, couple; ounce',
+        meaning: 'two (before measure words); a few',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1246,10 +1245,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '行',
         reading: 'xíng',
-        meaning: 'go; walk; move, travel; circulate; Kangxi radical 144',
+        meaning: 'OK; to walk; to do; (háng) row, profession',
         example: '',
         notes:
-          'Also read: háng. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: háng. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1258,10 +1257,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '长',
         reading: 'zhǎng',
-        meaning: 'long; length; excel in; leader',
+        meaning: '(zhǎng) to grow; chief; (cháng) long',
         example: '',
         notes:
-          'Also read: cháng. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: cháng. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1270,10 +1269,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '高',
         reading: 'gāo',
-        meaning: 'high, tall; lofty, elevated; Kangxi radical 189',
+        meaning: 'tall; high',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1306,10 +1305,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '当',
         reading: 'dāng',
-        meaning: 'bear, accept, undertake; just',
+        meaning: 'to act as; when; just at the time of',
         example: '',
         notes:
-          'Also read: dàng, dang. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: dàng, dang. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1378,10 +1377,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '全',
         reading: 'quán',
-        meaning: 'maintain, keep whole or intact',
+        meaning: 'whole; all; complete',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1414,10 +1413,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '几',
         reading: 'jǐ',
-        meaning: 'small table',
+        meaning: 'how many; several',
         example: '',
         notes:
-          'Also read: jī. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: jī. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1510,10 +1509,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '己',
         reading: 'jǐ',
-        meaning: 'self, oneself; personal, private; 6th heavenly stem',
+        meaning: 'self (in 自己 "oneself")',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1522,10 +1521,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '机',
         reading: 'jī',
-        meaning: 'desk; machine; moment',
+        meaning: 'machine; chance (飞机 "plane")',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1534,10 +1533,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '气',
         reading: 'qì',
-        meaning: 'steam, vapor; Kangxi radical 84',
+        meaning: 'air; gas; breath; anger',
         example: '',
         notes:
-          'Also read: qi. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: qi. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1570,10 +1569,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '所',
         reading: 'suǒ',
-        meaning: 'place, location; numerary adjunct',
+        meaning: 'place; (grammar) that which (所以 "so")',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1594,10 +1593,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '等',
         reading: 'děng',
-        meaning: 'rank, grade; to wait; equal, “and so forth”',
+        meaning: 'to wait; and so on',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1606,10 +1605,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '社',
         reading: 'shè',
-        meaning: 'god of the soil and altars to him; group of families; company, society',
+        meaning: 'society; agency (社会 "society")',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1678,10 +1677,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '候',
         reading: 'hòu',
-        meaning: 'wait; expect; visit; greet',
+        meaning: 'wait; (时候 "time, moment")',
         example: '',
         notes:
-          'Also read: hou. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: hou. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1702,10 +1701,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '呢',
         reading: 'ne',
-        meaning: 'interrogative or emphatic final',
+        meaning: 'sentence-final particle ("and you?", "still …")',
         example: '',
         notes:
-          'Also read: ní. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: ní. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1750,10 +1749,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '呐',
         reading: 'nà',
-        meaning: 'raise voice, yell out loud, shout; stammer',
+        meaning: '(na) sentence-final particle (exclamation); (nà) to shout',
         example: '',
         notes:
-          'Also read: ne. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: ne. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1762,10 +1761,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '使',
         reading: 'shǐ',
-        meaning: 'cause, send on a mission, order; envoy, messenger, ambassador',
+        meaning: 'to cause; to use; to make (someone do)',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1774,10 +1773,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '之',
         reading: 'zhī',
-        meaning: 'marks preceding phrase as modifier of following phrase; it, him her, them; go to',
+        meaning: 'literary "of"',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1786,10 +1785,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '打',
         reading: 'dǎ',
-        meaning: 'strike, hit, beat; fight; attack',
+        meaning: 'to hit; to play (a sport); to make (a call)',
         example: '',
         notes:
-          'Also read: da. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Also read: da. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },
@@ -1798,10 +1797,10 @@ const deck: StarterDeckContent = {
       fields: {
         word: '叫',
         reading: 'jiào',
-        meaning: 'cry, shout; hail, greet, call',
+        meaning: 'to call; to be called; to shout',
         example: '',
         notes:
-          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.',
+          'Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
       },
       tags: ['hanzi-common'],
     },

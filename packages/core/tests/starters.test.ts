@@ -64,6 +64,36 @@ describe('curated starter decks (generated data)', () => {
     },
   );
 
+  it('ships the reviewed gloss fixes, each credited as edited by the app', async () => {
+    const ko = await loadStarterDeck('starter-ko-core');
+    const zh = await loadStarterDeck('starter-zh-common');
+    const note = (notes: typeof ko.notes, key: string) => {
+      const found = notes.find((n) => n.key === key);
+      if (!found) throw new Error(`missing ${key}`);
+      return found.fields;
+    };
+    expect(note(ko.notes, 'nikl:개03:noun')).toMatchObject({
+      word: '개',
+      meaning: 'dog',
+      notes:
+        'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L269897 (CC0), edited by this app.',
+    });
+    expect(note(ko.notes, 'nikl:일05:numeral')['meaning']).toBe('one (Sino-Korean number)');
+    expect(note(ko.notes, 'nikl:하나:numeral')['meaning']).toBe('one (native Korean number)');
+    // An unedited card keeps the plain Wikidata credit.
+    expect(note(ko.notes, 'nikl:가다01:verb')['notes']).toMatch(
+      /English: Wikidata L\d+ \(CC0\)\.$/,
+    );
+    expect(note(zh.notes, 'unihan:U+51E0')).toMatchObject({
+      word: '几',
+      meaning: 'how many; several',
+    });
+    expect(note(zh.notes, 'unihan:U+51E0')['notes']).toMatch(
+      /Unicode License v3; meaning edited by this app\.$/,
+    );
+    expect(note(zh.notes, 'unihan:U+4E00')['notes']).toMatch(/Unicode License v3\.$/);
+  });
+
   it('rejects an unknown starter deck', async () => {
     await expect(loadStarterDeck('starter-xx-none')).rejects.toThrow('Unknown starter deck');
   });

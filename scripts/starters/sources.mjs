@@ -12,7 +12,7 @@
  */
 
 /** Bump when the generated decks change in a way users should see as a new deck version. */
-export const STARTER_DECKS_VERSION = '1.0.0';
+export const STARTER_DECKS_VERSION = '1.1.0';
 
 /** NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. CP949-encoded tab-separated text. */
 export const NIKL_VOCAB = {

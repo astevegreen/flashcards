@@ -1283,8 +1283,10 @@ async function buildStarterPacks({ outDir, urlPrefix }) {
   // Korean words: hand-authored rows rendered as KRDict LMF XML and run through the real parser,
   // so the starter build exercises exactly the code path used for the full KRDict download.
   const { parseKrdictXml } = await import('./packs/upstream-parsers.mjs');
-  const { renderKrdictStarterXml } = await import('./packs/krdict-starter.mjs');
-  const krdictEntries = parseKrdictXml(renderKrdictStarterXml());
+  const { markAppWrittenSenses, renderKrdictStarterXml } =
+    await import('./packs/krdict-starter.mjs');
+  // The hand-written Korean definitions are badged as the app's own wording, not KRDict's.
+  const krdictEntries = markAppWrittenSenses(parseKrdictXml(renderKrdictStarterXml()));
 
   const dict = (id, entries, extra) => ({
     id,

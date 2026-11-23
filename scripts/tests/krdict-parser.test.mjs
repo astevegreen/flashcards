@@ -12,7 +12,12 @@ import {
   deinflectKorean,
   romanizationToHangul,
 } from '../../packages/core/src/dictionary/korean.ts';
-import { KRDICT_STARTER_ROWS, renderKrdictStarterXml } from '../packs/krdict-starter.mjs';
+import {
+  KRDICT_STARTER_EXTRAS,
+  KRDICT_STARTER_ROWS,
+  markAppWrittenSenses,
+  renderKrdictStarterXml,
+} from '../packs/krdict-starter.mjs';
 import { cleanKrdictOrigin, parseKrdictXml } from '../packs/upstream-parsers.mjs';
 
 const PACKS_DIR = join(
@@ -158,7 +163,7 @@ describe('KRDict LMF parser', () => {
 });
 
 describe('dict-krdict starter fixture', () => {
-  const starter = parseKrdictXml(renderKrdictStarterXml());
+  const starter = markAppWrittenSenses(parseKrdictXml(renderKrdictStarterXml()));
   const byHeadword = new Map(starter.map((e) => [e.headword, e]));
 
   it('parses every hand-authored row and includes the reference words', () => {
@@ -177,8 +182,26 @@ describe('dict-krdict starter fixture', () => {
     });
     for (const e of starter) {
       expect(e.senses.length).toBeGreaterThan(0);
-      expect(e.senses.every((s) => s.source === 'krdict' && s.equivalents.length > 0)).toBe(true);
+      expect(e.senses.every((s) => s.equivalents.length > 0)).toBe(true);
     }
+  });
+
+  it('badges the hand-written Korean definitions as the app’s own, every other sense as KRDict', () => {
+    const appWritten = Object.keys(KRDICT_STARTER_EXTRAS);
+    expect(appWritten).toEqual(['먹다', '춥다']);
+    for (const e of starter) {
+      e.senses.forEach((s, i) => {
+        const app = i === 0 && appWritten.includes(e.headword);
+        expect(s.source, `${e.headword} sense ${i + 1}`).toBe(app ? 'app' : 'krdict');
+        // Only the app-written senses carry the hand-written Korean definition.
+        if (!app) expect(s.definitionNative).toBeUndefined();
+      });
+    }
+    expect(byHeadword.get('먹다')?.senses[0]).toMatchObject({
+      source: 'app',
+      definitionNative: KRDICT_STARTER_EXTRAS.먹다.native,
+    });
+    expect(() => markAppWrittenSenses([], { 없다: { native: 'x' } })).toThrow('없다');
   });
 
   it('every starter conjugation deinflects back to its headword', () => {

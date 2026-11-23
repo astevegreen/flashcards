@@ -36,6 +36,11 @@ import {
   writeRecentLookups,
   type DictionaryBrowseSelection,
 } from './dictionary-home-model.ts';
+import {
+  SENSE_SOURCE_ATTRIBUTION,
+  SENSE_SOURCE_CLASS,
+  SENSE_SOURCE_LABEL,
+} from './sense-source.ts';
 
 export interface DictionaryPanelProps {
   initialQuery?: string;
@@ -49,11 +54,6 @@ const PACK_SHORT_LABEL: Record<DictionaryPackId, string> = {
   'dict-cc-cedict': 'Chinese',
   'dict-jmdict': 'Japanese',
   'dict-krdict': 'Korean',
-};
-
-/** Per-sense source badge (Phase 10: every sense shows where it came from). */
-const SENSE_SOURCE_LABEL: Record<DictionarySenseSource, string> = {
-  krdict: 'KRDict',
 };
 
 const LEVEL_LABEL: Record<DictionaryLevel, string> = {
@@ -392,6 +392,23 @@ function EntryHeadline(props: EntryLangProps & { onLookup: (text: string) => voi
   );
 }
 
+/** Where one sense came from (KRDict, or the app's own wording), with its attribution as a tooltip. */
+function SenseSourceBadge({
+  source,
+  testId,
+}: Readonly<{ source: DictionarySenseSource; testId: boolean }>) {
+  return (
+    <span
+      data-testid={testId ? 'dict-sense-source' : undefined}
+      data-source={source}
+      title={SENSE_SOURCE_ATTRIBUTION[source]}
+      className={`rounded px-1 py-0.5 text-[10px] font-semibold ${SENSE_SOURCE_CLASS[source]}`}
+    >
+      {SENSE_SOURCE_LABEL[source]}
+    </span>
+  );
+}
+
 const RELATION_LABEL: Record<DictionaryRelationType, string> = {
   synonym: 'Synonyms',
   antonym: 'Antonyms',
@@ -467,14 +484,7 @@ function SenseItem({
         <span className="font-semibold text-[var(--fg)]">
           {sense.equivalents.length > 0 ? sense.equivalents.join('; ') : sense.definition}
         </span>
-        {sense.source && (
-          <span
-            data-testid="dict-sense-source"
-            className="rounded bg-[var(--surface-2)] px-1 py-0.5 text-[10px] font-semibold text-[var(--muted)]"
-          >
-            {SENSE_SOURCE_LABEL[sense.source]}
-          </span>
-        )}
+        {sense.source && <SenseSourceBadge source={sense.source} testId />}
       </div>
       {sense.definition && sense.equivalents.length > 0 && (
         <p className="text-xs text-[var(--muted)]">{sense.definition}</p>
@@ -1455,11 +1465,7 @@ function DetailSense({
         <span className="font-semibold text-[var(--fg)]">
           {sense.equivalents.length > 0 ? sense.equivalents.join('; ') : sense.definition}
         </span>
-        {sense.source && (
-          <span className="rounded bg-[var(--surface-2)] px-1 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
-            {SENSE_SOURCE_LABEL[sense.source]}
-          </span>
-        )}
+        {sense.source && <SenseSourceBadge source={sense.source} testId={false} />}
       </div>
       {sense.definition && sense.equivalents.length > 0 && (
         <p className="text-sm text-[var(--muted)]">{sense.definition}</p>
