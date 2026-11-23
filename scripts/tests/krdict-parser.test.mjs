@@ -186,13 +186,13 @@ describe('dict-krdict starter fixture', () => {
     }
   });
 
-  it('badges the hand-written Korean definitions as the app’s own, every other sense as KRDict', () => {
+  it('badges every hand-written starter sense as the app’s own, never KRDict', () => {
     const appWritten = Object.keys(KRDICT_STARTER_EXTRAS);
     expect(appWritten).toEqual(['먹다', '춥다']);
     for (const e of starter) {
       e.senses.forEach((s, i) => {
         const app = i === 0 && appWritten.includes(e.headword);
-        expect(s.source, `${e.headword} sense ${i + 1}`).toBe(app ? 'app' : 'krdict');
+        expect(s.source, `${e.headword} sense ${i + 1}`).toBe('app');
         // Only the app-written senses carry the hand-written Korean definition.
         if (!app) expect(s.definitionNative).toBeUndefined();
       });

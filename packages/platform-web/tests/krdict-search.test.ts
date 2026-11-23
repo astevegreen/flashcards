@@ -54,9 +54,9 @@ describe('Phase 10 Korean search over the installed KRDict starter pack (Indexed
 
     const korea = await first('먹다');
     expect(korea?.packId).toBe('dict-krdict');
-    // 먹다's first sense has a hand-written Korean definition (App badge); the second is KRDict's.
+    // Every starter sense is hand-written, so all of them carry the App badge (never KRDict).
     expect(korea?.senses?.[0]).toMatchObject({ equivalents: ['eat'], source: 'app' });
-    expect(korea?.senses?.[1]).toMatchObject({ equivalents: ['take'], source: 'krdict' });
+    expect(korea?.senses?.[1]).toMatchObject({ equivalents: ['take'], source: 'app' });
     expect(korea?.level).toBe('beginner');
 
     // Existing Hanja pack search still works next to the Korean words pack.

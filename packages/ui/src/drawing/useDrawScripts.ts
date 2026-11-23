@@ -23,6 +23,11 @@ export function useDrawScripts() {
   };
 }
 
+/** Draw tools show when a CJK language is active, or when the caller explicitly asked for the pad. */
+export function drawToolsVisible(languageShowsDrawTools: boolean, explicitlyOpened: boolean) {
+  return languageShowsDrawTools || explicitlyOpened;
+}
+
 /** The script a single-script draw panel (Browse) should use. */
 export function primaryDrawLang(hasLanguage: (language: string) => boolean): DrawScriptLang {
   const found = DRAW_SCRIPTS.find((s) => hasLanguage(s.lang));
