@@ -45,7 +45,9 @@ function DrawModeView({
   const answerLang = answerMeta?.lang ?? deck.language;
   const drawingMode = resolveDrawingMode(state.preferences, answerLang);
   const strokeScript = resolveStrokeScriptForLang(answerLang);
-  const drawableChars = extractDrawableCharacters(expectedRaw, answerLang);
+  const drawableChars = extractDrawableCharacters(expectedRaw, answerLang, {
+    rubyDisplay: layout.ruby_display,
+  });
 
   const [lookupCandidates, setLookupCandidates] = useState<readonly HandwritingCandidate[]>([]);
   const [selectedLookupChar, setSelectedLookupChar] = useState<string | null>(null);

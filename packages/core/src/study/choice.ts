@@ -6,7 +6,7 @@
  */
 
 import type { CollectionState } from '../events/replay.ts';
-import type { Card } from '../model/types.ts';
+import type { Card, RubyDisplay } from '../model/types.ts';
 import { stripCloze } from '../parsers/cloze.ts';
 import { stripRuby } from '../parsers/ruby.ts';
 
@@ -35,8 +35,9 @@ function hashString32(input: string): number {
   return h >>> 0;
 }
 
-function normalizeChoiceDedupKey(raw: string): string {
-  return stripRuby(stripCloze(raw)).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+/** Dedupe key: the text the card shows (the layout's ruby flag picks readings or bases). */
+function normalizeChoiceDedupKey(raw: string, rubyDisplay?: RubyDisplay): string {
+  return stripRuby(stripCloze(raw), rubyDisplay).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 /**
@@ -81,7 +82,7 @@ export function generateChoiceOptions(
     };
   }
 
-  const correctNorm = normalizeChoiceDedupKey(correctRaw);
+  const correctNorm = normalizeChoiceDedupKey(correctRaw, layout?.ruby_display);
   const noteTags = new Set(note.tags);
   const deckNoteIds = state.noteIdsByDeck.get(card.deck_id);
 
@@ -95,7 +96,7 @@ export function generateChoiceOptions(
       if (!cand || cand.archived) continue;
       const val = cand.fields[answerFieldKey]?.trim();
       if (!val) continue;
-      const norm = normalizeChoiceDedupKey(val);
+      const norm = normalizeChoiceDedupKey(val, layout?.ruby_display);
       if (!norm || norm === correctNorm) continue;
 
       const sharesTag = noteTags.size > 0 && cand.tags.some((t) => noteTags.has(t));
