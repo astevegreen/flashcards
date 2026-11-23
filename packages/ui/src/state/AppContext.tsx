@@ -48,7 +48,13 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { consumeAddDeviceLinkFromLocation, type AddDeviceLink } from '../sync/addDeviceLink.ts';
+import {
+  consumeAddDeviceLinkFromLocation,
+  mergeOpenedAddDeviceLink,
+  parseAddDeviceDeepLink,
+  type AddDeviceLink,
+} from '../sync/addDeviceLink.ts';
+import { SECURE_KEYS_LOST_KV_KEY } from './secureKeysNotice.ts';
 import { useAudioController, type AudioController } from './useAudioController.ts';
 import { isLeechBackfillReady } from './leechBackfillGate.ts';
 import { useSyncController, type SyncUiState } from './useSyncController.ts';
@@ -83,6 +89,9 @@ export interface AppContextValue {
   activeDeckId: string | undefined;
   setActiveDeckId: (deckId: string | undefined) => void;
   showBackupBanner: boolean;
+  /** The secure key for sign-ins was lost (native shells): explain once why to sign in again. */
+  secureKeysLostNotice: boolean;
+  dismissSecureKeysLostNotice: () => void;
   audio: AudioController;
   syncState: SyncUiState;
   syncNow: () => Promise<void>;
@@ -94,6 +103,7 @@ export interface AppContextValue {
   reconnectLocalFolder: () => Promise<boolean>;
   connectICloud: () => Promise<void>;
   disconnectSync: () => Promise<void>;
+  resolveCollectionChoice: (choice: 'synced' | 'local') => Promise<void>;
   emitEvents: (events: readonly KnownEvent[]) => void;
   getEventFactory: () => EventFactory;
   rateCard: (
@@ -238,6 +248,17 @@ export function AppProvider({
   // the address bar once per page load. Its collection id is kept on this device until the first
   // sync confirms the new device reached that collection (it survives the sign-in redirect).
   const [openedAddDeviceLink, setOpenedAddDeviceLink] = useState(consumeAddDeviceLinkFromLocation);
+  // Native shells: the OS hands the app a `flashcards://add-device?...` link (a scanned QR code or
+  // a tapped link). It goes through the same allow-list and the same join flow as a web link.
+  useEffect(() => {
+    if (!platform.onAddDeviceUrl) return undefined;
+    return platform.onAddDeviceUrl((url) => {
+      const link = parseAddDeviceDeepLink(url);
+      if (!link) return;
+      // The same link again (a double tap, a re-scan) keeps the current object, so nothing re-routes.
+      setOpenedAddDeviceLink((prev) => mergeOpenedAddDeviceLink(prev, link));
+    });
+  }, [platform]);
   useEffect(() => {
     const storage = platform.storage;
     const persist = async (): Promise<void> => {
@@ -306,6 +327,33 @@ export function AppProvider({
     onStateMutated: handleRemoteStateMutated,
     onReplaceState: handleReplaceState,
   });
+
+  const syncStatusForNotice = syncController.syncState.status;
+  // Native shells leave a plain flag when the Keystore / Keychain key was lost and the sign-in
+  // secrets were dropped. Shown once; re-read when sync status changes (the loss is usually found
+  // by the first sync after launch).
+  const [secureKeysLostNotice, setSecureKeysLostNotice] = useState(false);
+  const secureKeysDismissedRef = useRef(false);
+  useEffect(() => {
+    let live = true;
+    platform.storage
+      .getKv(SECURE_KEYS_LOST_KV_KEY)
+      .then((flag) => {
+        // Once dismissed in this session, a later sync-status change never brings it back.
+        if (live && flag !== undefined && !secureKeysDismissedRef.current) {
+          setSecureKeysLostNotice(true);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [platform.storage, syncStatusForNotice]);
+  const dismissSecureKeysLostNotice = useCallback(() => {
+    secureKeysDismissedRef.current = true;
+    setSecureKeysLostNotice(false);
+    platform.storage.deleteKv(SECURE_KEYS_LOST_KV_KEY).catch(() => undefined);
+  }, [platform.storage]);
 
   const emitEvents = useCallback(
     (events: readonly KnownEvent[]) => {
@@ -947,6 +995,8 @@ export function AppProvider({
     activeDeckId,
     setActiveDeckId,
     showBackupBanner,
+    secureKeysLostNotice,
+    dismissSecureKeysLostNotice,
     audio,
     syncState: syncController.syncState,
     syncNow: syncController.syncNow,
@@ -958,6 +1008,7 @@ export function AppProvider({
     reconnectLocalFolder: syncController.reconnectLocalFolder,
     connectICloud: syncController.connectICloud,
     disconnectSync: syncController.disconnectSync,
+    resolveCollectionChoice: syncController.resolveCollectionChoice,
     emitEvents,
     getEventFactory,
     rateCard,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
-import { checkAddDeviceCollection } from './addDeviceLink.ts';
+import { checkAddDeviceCollection, isAddDeviceProvider } from './addDeviceLink.ts';
 import {
   addDeviceExpectationResource,
   clearAddDeviceExpectation,
@@ -22,8 +22,9 @@ export function AddDeviceCollectionNotice({
   /** Also told when the user dismisses the notice (the stored link is forgotten either way). */
   onDismiss?: () => void;
 }> = {}) {
-  const { platform, syncState, meta } = useApp();
+  const { platform, syncState, meta, resolveCollectionChoice } = useApp();
   const storage = platform.storage;
+  const [resolving, setResolving] = useState(false);
   const [expected, setExpected] = useState(() => peekAddDeviceExpectation(storage));
   const check = checkAddDeviceCollection(expected, {
     provider: syncState.provider,
@@ -45,6 +46,56 @@ export function AddDeviceCollectionNotice({
   useEffect(() => {
     if (check === 'match') void clearAddDeviceExpectation(storage);
   }, [check, storage]);
+
+  if (syncState.collectionChoice !== undefined) {
+    const providerLabel = isAddDeviceProvider(syncState.provider)
+      ? syncProviderInfo(syncState.provider).label
+      : 'sync';
+    const choose = async (choice: 'synced' | 'local') => {
+      setResolving(true);
+      try {
+        setExpected(undefined);
+        await resolveCollectionChoice(choice);
+      } finally {
+        setResolving(false);
+      }
+    };
+    return (
+      <div
+        data-testid="add-device-collection-choice"
+        className="flex min-w-0 flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-left text-xs text-amber-800 dark:text-amber-300"
+      >
+        <p className="break-words">
+          This {providerLabel} account holds a different collection from the device that showed the
+          code. Nothing has changed yet, and neither choice deletes any of your cards or reviews.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            data-testid="add-device-use-synced"
+            disabled={resolving}
+            onClick={() => void choose('synced')}
+            className="min-h-11 rounded-lg border border-current px-3 py-1 font-semibold hover:opacity-80 disabled:opacity-50"
+          >
+            Use the synced collection
+          </button>
+          <button
+            type="button"
+            data-testid="add-device-keep-local"
+            disabled={resolving}
+            onClick={() => void choose('local')}
+            className="min-h-11 rounded-lg border border-current px-3 py-1 font-semibold hover:opacity-80 disabled:opacity-50"
+          >
+            Keep this device's cards
+          </button>
+        </div>
+        <p className="break-words opacity-80">
+          "Use the synced collection" joins it and adds this device's cards to it. "Keep this
+          device's cards" stops syncing here and leaves {providerLabel} as it is.
+        </p>
+      </div>
+    );
+  }
 
   if (!expected || check === 'not_applicable') return null;
   const label = syncProviderInfo(expected.provider).label;

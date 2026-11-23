@@ -28,9 +28,14 @@ import type { StoreBillingPlugin } from '../purchase/store-purchase.ts';
 import type { LocalNotificationsBridge } from '../reminders/local-notification-reminders.ts';
 import type { SystemBrowserLauncher } from '../sources/native-picker-bridge.ts';
 import type { SqliteDriver } from '../storage/sqlite-storage.ts';
-import type { NativeSecureStorage } from '../secure/secure-store.ts';
+import { adaptSecureStoragePlugin, type NativeSecureStorage } from '../secure/secure-store.ts';
 import type { ICloudDocumentPlugin } from '../sync/icloud-transport.ts';
-import { isAppDeepLink, PICKER_CALLBACK_HOST } from './deep-links.ts';
+import {
+  ADD_DEVICE_HOST,
+  APP_URL_SCHEME,
+  isAppDeepLink,
+  PICKER_CALLBACK_HOST,
+} from './deep-links.ts';
 
 // ---------------------------------------------------------------------------
 // SQLite (@capacitor-community/sqlite)
@@ -145,6 +150,38 @@ export function createSystemBrowserLauncher(): SystemBrowserLauncher {
         });
       });
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// `flashcards://add-device?...` deep link (@capacitor/app)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every `flashcards://add-device` URL the OS opens the app with. The launch URL is delivered once
+ * per process, so subscribing again never replays it.
+ */
+export function createAddDeviceUrlSource(
+  app: Pick<typeof App, 'getLaunchUrl' | 'addListener'> = App,
+): (handler: (url: string) => void) => () => void {
+  let launchUrlDelivered = false;
+  return (handler) => {
+    let live = true;
+    const deliver = (url: string | undefined) => {
+      if (live && url && isAppDeepLink(url, APP_URL_SCHEME, ADD_DEVICE_HOST)) handler(url);
+    };
+    if (!launchUrlDelivered) {
+      launchUrlDelivered = true;
+      void app
+        .getLaunchUrl()
+        .then((launch) => deliver(launch?.url))
+        .catch(() => undefined);
+    }
+    const handle = app.addListener('appUrlOpen', (event) => deliver(event.url));
+    return () => {
+      live = false;
+      void handle.then((h) => h.remove()).catch(() => undefined);
+    };
   };
 }
 
@@ -348,22 +385,8 @@ export function createICloudDocumentPlugin(): ICloudDocumentPlugin {
 // Keychain / Keystore (workspace plugin `@flash/capacitor-secure-storage`)
 // ---------------------------------------------------------------------------
 
-export function createNativeSecureStorage(): NativeSecureStorage {
-  return {
-    get: async (key) => (await FlashSecureStorage.get({ key })).value,
-    set: async (key, value) => {
-      await FlashSecureStorage.set({ key, value });
-    },
-    remove: async (key) => {
-      await FlashSecureStorage.remove({ key });
-    },
-    removeLegacyPreference: async (entry) => {
-      await FlashSecureStorage.removeLegacyPreference({
-        key: entry.key,
-        ...(entry.androidPreferencesName
-          ? { androidPreferencesName: entry.androidPreferencesName }
-          : {}),
-      });
-    },
-  };
+export function createNativeSecureStorage(
+  onSecretsLost?: () => void | Promise<void>,
+): NativeSecureStorage {
+  return adaptSecureStoragePlugin(FlashSecureStorage, onSecretsLost);
 }

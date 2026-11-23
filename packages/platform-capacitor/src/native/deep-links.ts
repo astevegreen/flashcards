@@ -8,13 +8,18 @@
  *   ASWebAuthenticationSession on iOS). The sign-in plugin consumes it natively and checks `state`
  *   and the PKCE verifier itself.
  *
- * Both checks are plain string comparisons, never `new URL(...)`: Android System WebViews older than
+ * - `flashcards://add-device?sync=...&col=...` — a scanned QR code or tapped link from another
+ *   device's "Add a device" panel. The web app validates the query against its own allow-list.
+ *
+ * All checks are plain string comparisons, never `new URL(...)`: Android System WebViews older than
  * Chromium 130 parse custom-scheme URLs non-standardly (`host` is empty and the authority ends up in
  * `pathname`), and Capacitor 8 still runs on those WebViews.
  */
 export const APP_URL_SCHEME = 'flashcards';
 export const PICKER_CALLBACK_HOST = 'picker-callback';
 export const OAUTH_REDIRECT_HOST = 'oauth';
+/** `flashcards://add-device?sync=<provider>&col=<collection id>`: Phase 14 "Add a device". */
+export const ADD_DEVICE_HOST = 'add-device';
 
 /** Characters that may follow `<scheme>://<host>`: the end of the authority. */
 const AUTHORITY_END = new Set(['/', '?', '#']);

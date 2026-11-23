@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import {
+  buildAddDeviceDeepLink,
   buildAddDeviceUrl,
   isAddDeviceProvider,
   isShareableCollectionId,
@@ -14,9 +15,10 @@ import { syncProviderInfo } from './syncProviders.ts';
  * that tell a new device which provider and which collection to connect to. They carry nothing
  * else (no token, secret, email or account name); the new device signs in by itself.
  *
- * The link points at this web app's own address. Inside the native shells that address
- * (`capacitor://`, `tauri://`, or a `localhost` origin) means nothing on another device and no
- * app link opens the native app yet, so they show the provider to choose instead.
+ * On the web the link points at this web app's own address. Inside the native shells that address
+ * (`capacitor://`, `tauri://`, or a `localhost` origin) means nothing on another device, so they
+ * show a `flashcards://add-device` link instead, which opens the app on a device that has it
+ * installed (no App Links or universal links yet: a phone without the app gets nothing from it).
  */
 
 function isNativeShell(): boolean {
@@ -38,7 +40,11 @@ export function addDeviceLinkBase(): string | undefined {
 
 const NOTE_CLASS = 'text-sm break-words text-[var(--muted)]';
 
-function ShareLink({ url, providerLabel }: Readonly<{ url: string; providerLabel: string }>) {
+function ShareLink({
+  url,
+  providerLabel,
+  plainText = false,
+}: Readonly<{ url: string; providerLabel: string; plainText?: boolean }>) {
   const [copyStatus, setCopyStatus] = useState('');
 
   const copy = async () => {
@@ -54,13 +60,19 @@ function ShareLink({ url, providerLabel }: Readonly<{ url: string; providerLabel
     <div className="flex min-w-0 flex-wrap items-start gap-4">
       <QrCodeSvg text={url} label={`QR code: connect a new device to ${providerLabel}`} />
       <div className="flex min-w-0 flex-1 basis-48 flex-col gap-2">
-        <a
-          data-testid="add-device-link"
-          href={url}
-          className="font-mono text-xs break-all text-[var(--accent)] underline"
-        >
-          {url}
-        </a>
+        {plainText ? (
+          <code data-testid="add-device-link" className="font-mono text-xs break-all">
+            {url}
+          </code>
+        ) : (
+          <a
+            data-testid="add-device-link"
+            href={url}
+            className="font-mono text-xs break-all text-[var(--accent)] underline"
+          >
+            {url}
+          </a>
+        )}
         <button
           type="button"
           data-testid="add-device-copy-btn"
@@ -94,14 +106,32 @@ function AddDeviceBody({
     );
   }
   const base = addDeviceLinkBase();
+  const native = base === undefined && isNativeShell();
   const account =
     provider === 'icloud' ? 'uses the same Apple ID' : `signs in to the same ${info.label} account`;
-  if (base === undefined) {
+  if (base === undefined && !native) {
     return (
       <p data-testid="add-device-instructions" className={NOTE_CLASS}>
         On your new device, open the app, choose <strong>Sync my devices</strong> and pick{' '}
         <strong>{info.label}</strong>. It then {account} and gets everything from here.
       </p>
+    );
+  }
+  if (base === undefined) {
+    return (
+      <>
+        <p className={NOTE_CLASS}>
+          Install the app on your new device, then scan this code with its camera or open the link
+          there. It tells the app to use {info.label} and this collection. It contains no passwords
+          or keys: the new device {account} by itself. Or open the app there, choose{' '}
+          <strong>Sync my devices</strong> and pick <strong>{info.label}</strong>.
+        </p>
+        <ShareLink
+          url={buildAddDeviceDeepLink({ provider, collectionId })}
+          providerLabel={info.label}
+          plainText
+        />
+      </>
     );
   }
   return (

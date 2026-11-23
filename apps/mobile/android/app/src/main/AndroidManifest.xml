@@ -41,6 +41,15 @@
                 <data android:scheme="flashcards" android:host="oauth" />
             </intent-filter>
 
+            <!-- Add a device: flashcards://add-device?sync=<provider>&col=<collection id> from another
+                 device's QR code or link (Phase 14). The web layer validates the query. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="flashcards" android:host="add-device" />
+            </intent-filter>
+
         </activity>
 
         <provider

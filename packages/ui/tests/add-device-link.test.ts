@@ -8,7 +8,10 @@ import {
   saveAddDeviceExpectation,
 } from '../src/sync/addDeviceExpectation.ts';
 import {
+  buildAddDeviceDeepLink,
   buildAddDeviceUrl,
+  mergeOpenedAddDeviceLink,
+  parseAddDeviceDeepLink,
   checkAddDeviceCollection,
   parseAddDeviceParams,
   stripAddDeviceParams,
@@ -198,5 +201,51 @@ describe('QR path', () => {
     expect(qr.data[4]?.[4]).toBe(true);
     expect(qr.data[0]?.[0]).toBe(false);
     expect(qrMatrixToPath(qr.data)).toMatch(/^M\d+ \d+h\d+v1h-\d+z/);
+  });
+});
+
+describe('native add-device deep link (flashcards://add-device)', () => {
+  it('round-trips the provider and collection id, and carries nothing else', () => {
+    const url = buildAddDeviceDeepLink({ provider: 'google_drive', collectionId: COLLECTION });
+    expect(url).toBe(`flashcards://add-device?sync=google&col=${COLLECTION}`);
+    expect(parseAddDeviceDeepLink(url)).toEqual({
+      provider: 'google_drive',
+      collectionId: COLLECTION,
+    });
+  });
+
+  it('reads the same query as the web link, a trailing slash and a hash included', () => {
+    expect(
+      parseAddDeviceDeepLink(`flashcards://add-device/?sync=onedrive&col=${COLLECTION}`),
+    ).toEqual({ provider: 'onedrive', collectionId: COLLECTION });
+    expect(parseAddDeviceDeepLink(`FLASHCARDS://ADD-DEVICE?sync=icloud#x`)).toEqual({
+      provider: 'icloud',
+    });
+  });
+
+  it('rejects other hosts, paths, unknown providers, bad ids and repeated params', () => {
+    for (const bad of [
+      'flashcards://oauth/microsoft?sync=google',
+      'flashcards://add-device.evil?sync=google',
+      'flashcards://add-device/x?sync=google',
+      'flashcards://add-device',
+      'flashcards://add-device?sync=evil',
+      'flashcards://add-device?sync=google&col=nope',
+      `flashcards://add-device?sync=google&sync=dropbox`,
+      'https://example.com/?sync=google',
+      `flashcards://add-device?sync=google&x=${'a'.repeat(3000)}`,
+    ]) {
+      expect(parseAddDeviceDeepLink(bad), bad).toBeUndefined();
+    }
+  });
+});
+
+describe('mergeOpenedAddDeviceLink', () => {
+  it('keeps the current object for the same link and takes a different one', () => {
+    const a = { provider: 'google_drive' as const, collectionId: COLLECTION };
+    expect(mergeOpenedAddDeviceLink(a, { ...a })).toBe(a);
+    const b = { provider: 'dropbox' as const, collectionId: COLLECTION };
+    expect(mergeOpenedAddDeviceLink(a, b)).toBe(b);
+    expect(mergeOpenedAddDeviceLink(undefined, b)).toBe(b);
   });
 });

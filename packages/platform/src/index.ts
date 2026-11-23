@@ -778,6 +778,12 @@ export interface PlatformServices {
     requestPermission?: boolean;
   }): Promise<{ name: string; transport: SyncTransport } | null>;
   disconnectLocalSyncFolder(): Promise<void>;
+  /**
+   * Native shells only: calls `handler` with every `flashcards://add-device?...` link the OS opens
+   * the app with (a scanned QR code or a tapped link), including the link that launched the app.
+   * Returns an unsubscribe function. The handler must treat the URL as untrusted text.
+   */
+  onAddDeviceUrl?: (handler: (url: string) => void) => () => void;
   onDevSyncNotification?: (listener: (path: string) => void) => () => void;
   createReplayWorker?: () => Promise<ReplayWorkerClient | null>;
   processImage?: (
