@@ -9,6 +9,7 @@ is part of the sunset promise in [store-listing-and-sunset.md](../store-listing-
 | `.flashpkg`  | Zip package for sharing decks, pages and courses, AI-generated content, and full backups | [flashpkg.md](./flashpkg.md) |
 | `sync/v1/`   | Append-only event log that devices exchange through the user's own cloud folder          | [sync-v1.md](./sync-v1.md)   |
 | Events       | The immutable change records stored in sync segments and replayed into app state         | [events.md](./events.md)     |
+| Packs        | Offline dictionary and stroke packs (`packs.json`), including sharded dictionary packs   | [packs.md](./packs.md)       |
 | JSON Schemas | Machine-readable schemas for package files and catalogs                                  | [schemas/](./schemas/)       |
 
 The Zod schemas in `packages/content-schema/src/index.ts` are the source of truth for every

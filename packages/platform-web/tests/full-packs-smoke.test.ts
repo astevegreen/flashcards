@@ -41,7 +41,9 @@ describe.skipIf(!HAS_FULL_BUILD)('full open-data packs (build-packs --full) smok
   }
 
   it('catalog lists all six real packs, none a starter fixture, each within 25 MiB', () => {
-    expect(catalog?.packs.map((p) => p.id).sort()).toEqual([
+    // KRDict is a manual download, so it is checked separately when present.
+    const ids = catalog?.packs.map((p) => p.id).filter((id) => id !== 'dict-krdict');
+    expect(ids?.sort()).toEqual([
       'dict-cc-cedict',
       'dict-hanja-unihan',
       'dict-jmdict',
@@ -81,6 +83,46 @@ describe.skipIf(!HAS_FULL_BUILD)('full open-data packs (build-packs --full) smok
     const byEnglish = await dict.search('eat', { packIds: ['dict-kanjidic2'] });
     expect(byEnglish.map((e) => e.headword)).toContain('食');
   }, 120_000);
+
+  const krdict = catalog?.packs.find((p) => p.id === 'dict-krdict');
+  it.skipIf(!krdict)(
+    'installs the real KRDict pack (sharded or not) and searches it',
+    async () => {
+      // Serve the build output by URL so a sharded pack's shards load like they do in the app.
+      const fetchImpl = ((input: RequestInfo | URL) => {
+        const file = String(input).split('/').pop() ?? '';
+        const path = join(PACKS_DIR, file);
+        return Promise.resolve(
+          existsSync(path)
+            ? new Response(new Uint8Array(readFileSync(path)))
+            : new Response('missing', { status: 404 }),
+        );
+      }) as typeof fetch;
+      const storage = new DexiePackStorage(`full-smoke-krdict-${Date.now()}`);
+      const manager = new WebPackManager({
+        packStorage: storage,
+        allowRelativeUrls: true,
+        fetchImpl,
+      });
+      const dict = new WebDictionaryService(storage, { allowRelativeUrls: true, fetchImpl });
+      if (!krdict) return;
+      const info = await manager.installPackFromCatalog(krdict);
+      expect(info.entryCount).toBe(krdict.entry_count);
+      expect(info.shardCount).toBe(krdict.shards?.count);
+
+      const [eat] = await dict.search('먹었어요', { packIds: ['dict-krdict'] });
+      expect(eat?.headword).toBe('먹다');
+      expect(eat?.stub).toBeUndefined();
+      expect(eat?.senses?.some((s) => s.examples && s.examples.length > 0)).toBe(true);
+      const english = await dict.search('school', {
+        packIds: ['dict-krdict'],
+        direction: 'from-english',
+      });
+      expect(english.map((e) => e.headword)).toContain('학교');
+      expect((await dict.search('ㅎㄱ', { packIds: ['dict-krdict'] })).length).toBeGreaterThan(0);
+    },
+    300_000,
+  );
 
   it('installs the real Make Me a Hanzi stroke pack and serves strokes offline', async () => {
     const storage = new DexiePackStorage(`full-smoke-strokes-${Date.now()}`);

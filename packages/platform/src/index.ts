@@ -695,6 +695,7 @@ export interface InstalledPackInfo {
   language: string;
   script?: StrokeScript;
   entryCount: number;
+  /** Bytes downloaded so far (for a sharded pack: the index plus the shards loaded). */
   byteSize: number;
   installedAt: number;
   licenseName: string;
@@ -702,6 +703,12 @@ export interface InstalledPackInfo {
   attribution: string;
   sourceUrl: string;
   sourceCatalogUrl?: string;
+  /**
+   * Sharded dictionary packs only: how many shards the pack has and how many are on this device.
+   * Search works from the index alone; shards with the full entries download as they're needed.
+   */
+  shardCount?: number;
+  shardsLoaded?: number;
 }
 
 export interface PackInstallProgress {
@@ -735,6 +742,11 @@ export interface PackManager {
   ): Promise<InstalledPackInfo>;
   removePack(packId: PackId): Promise<void>;
   getStorageUsageBytes(): Promise<number>;
+  /** Sharded dictionary packs: downloads every shard not on the device yet (full offline use). */
+  downloadAllShards?(
+    packId: PackId,
+    onProgress?: (progress: PackInstallProgress) => void,
+  ): Promise<InstalledPackInfo>;
 }
 
 export interface DictionarySearchOptions {
@@ -755,6 +767,12 @@ export interface DictionaryService {
   browse(query: DictionaryBrowseQuery): Promise<DictionaryBrowsePage>;
   /** The groups a pack can be browsed by (levels, topics, grades, parts of speech) with counts. */
   getBrowseSummary(packId: DictionaryPackId): Promise<DictionaryBrowseSummary>;
+  /**
+   * Full entries for `entries` (sharded packs return `stub` rows until their shard is loaded):
+   * loads the shards they need and returns the rows in the same order. Rows whose shard can't be
+   * loaded (offline) come back unchanged.
+   */
+  loadFullEntries?(entries: readonly DictionaryEntry[]): Promise<DictionaryEntry[]>;
 }
 
 /** OS notification permission as the native shells report it. */

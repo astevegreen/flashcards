@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "scheme": { "type": "string", "const": "first-syllable-v1" },
+    "total_entries": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "shards": {
+      "minItems": 1,
+      "maxItems": 256,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string", "pattern": "^[a-z0-9-]{1,32}$" },
+          "file": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\.json(\\.gz)?$"
+          },
+          "from": { "type": "string", "pattern": "^[가-힣]$" },
+          "to": { "type": "string", "pattern": "^[가-힣]$" },
+          "entry_count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "compressed_bytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "uncompressed_bytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "required": [
+          "key",
+          "file",
+          "entry_count",
+          "compressed_bytes",
+          "uncompressed_bytes",
+          "sha256"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["scheme", "total_entries", "shards"],
+  "additionalProperties": false
+}

@@ -127,7 +127,7 @@ Importers must enforce these limits while extracting, not just from the zip head
 Static catalogs let a site list packages for one-tap install:
 
 - `index.json` (Family Library / Starter Decks): [family_catalog.schema.json](./schemas/family_catalog.schema.json)
-- `packs.json` (offline dictionary and stroke packs): [pack_catalog.schema.json](./schemas/pack_catalog.schema.json)
+- `packs.json` (offline dictionary and stroke packs): [pack_catalog.schema.json](./schemas/pack_catalog.schema.json), described in [packs.md](./packs.md)
 
 Host catalogs with CORS enabled. Cloudflare Pages or GitHub Pages plus an `_headers` file both
 work.

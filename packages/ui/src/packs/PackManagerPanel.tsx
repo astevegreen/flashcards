@@ -141,6 +141,26 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
     }
   };
 
+  const handleDownloadAllShards = async (packId: PackId, name: string) => {
+    if (!platform.getPackManager) return;
+    setBusyPackId(packId);
+    setProgress({ phase: 'downloading', loadedBytes: 0 });
+    setError(null);
+    setStatus(null);
+    try {
+      const mgr = await platform.getPackManager();
+      if (!mgr.downloadAllShards) return;
+      await mgr.downloadAllShards(packId, (p) => setProgress(p));
+      await refreshState(false);
+      setStatus(`${name} is fully on this device.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyPackId(null);
+      setProgress(null);
+    }
+  };
+
   const handleRemovePack = async (packId: PackId, name: string) => {
     if (!platform.getPackManager) return;
     setBusyPackId(packId);
@@ -304,6 +324,14 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-[var(--muted)]">
                     <span>{entry.entry_count.toLocaleString()} entries</span>
                     <span>{formatBytes(entry.compressed_bytes)} download</span>
+                    {entry.shards && (
+                      <span data-testid={`pack-shards-${entry.id}`}>
+                        + up to {formatBytes(entry.shards.compressed_bytes)} in {entry.shards.count}{' '}
+                        parts as you look words up
+                        {local?.shardCount !== undefined &&
+                          ` (${local.shardsLoaded ?? 0} of ${local.shardCount} on this device)`}
+                      </span>
+                    )}
                     <span>License: {entry.license_name}</span>
                   </div>
                   {isBusy && progress && (
@@ -325,6 +353,19 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
                       {isBusy ? 'Installing…' : hasUpdate ? 'Update' : 'Install'}
                     </button>
                   )}
+                  {local?.shardCount !== undefined &&
+                    (local.shardsLoaded ?? 0) < local.shardCount &&
+                    !hasUpdate && (
+                      <button
+                        type="button"
+                        data-testid={`pack-download-all-btn-${entry.id}`}
+                        disabled={busyPackId !== null}
+                        onClick={() => void handleDownloadAllShards(entry.id, entry.name)}
+                        className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-semibold hover:bg-[var(--surface)] disabled:opacity-40"
+                      >
+                        Download all for offline
+                      </button>
+                    )}
                   {local && (
                     <button
                       type="button"

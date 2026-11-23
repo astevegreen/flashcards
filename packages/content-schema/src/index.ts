@@ -232,6 +232,53 @@ export const PackUrlSchema = z
     message: 'Pack URL must be a valid https:// URL or safe relative /packs/... path.',
   });
 
+/** Sharding scheme of a dictionary pack split by the first Hangul syllable of each headword. */
+export const DictionaryShardSchemeSchema = z.literal('first-syllable-v1');
+
+const HANGUL_SYLLABLE_RE = /^[가-힣]$/;
+
+/**
+ * One shard of a sharded dictionary pack. `from` / `to` (inclusive) bound the first syllable of
+ * the shard's headwords. A shard without them holds the headwords that don't start with a Hangul
+ * syllable. `file` is a bare file name, fetched from the directory of the pack's index URL.
+ */
+export const DictionaryShardDescriptorSchema = z
+  .object({
+    key: z.string().regex(/^[a-z0-9-]{1,32}$/),
+    file: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.json(\.gz)?$/),
+    from: z.string().regex(HANGUL_SYLLABLE_RE).optional(),
+    to: z.string().regex(HANGUL_SYLLABLE_RE).optional(),
+    entry_count: z.number().int().nonnegative(),
+    compressed_bytes: z.number().int().nonnegative(),
+    uncompressed_bytes: z.number().int().nonnegative(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/i, 'sha256 must be a 64-character hex string'),
+  })
+  .refine((s) => (s.from === undefined) === (s.to === undefined), {
+    message: 'A shard sets both "from" and "to", or neither.',
+  })
+  .refine((s) => s.from === undefined || s.to === undefined || s.from <= s.to, {
+    message: 'A shard\'s "from" syllable must not come after its "to" syllable.',
+  });
+export type DictionaryShardDescriptorDef = z.infer<typeof DictionaryShardDescriptorSchema>;
+
+/** `manifest.sharding` of a sharded dictionary pack's index file (pack `format_version: 2`). */
+export const DictionaryShardingSchema = z.object({
+  scheme: DictionaryShardSchemeSchema,
+  total_entries: z.number().int().nonnegative(),
+  shards: z.array(DictionaryShardDescriptorSchema).min(1).max(256),
+});
+export type DictionaryShardingDef = z.infer<typeof DictionaryShardingSchema>;
+
+/** Catalog summary of a sharded pack: `url` is its index, and the shards download on demand. */
+export const PackCatalogShardsSchema = z.object({
+  scheme: DictionaryShardSchemeSchema,
+  count: z.number().int().positive(),
+  /** Sum over every shard file (the index itself is the entry's `compressed_bytes`). */
+  compressed_bytes: z.number().int().nonnegative(),
+  uncompressed_bytes: z.number().int().nonnegative().optional(),
+});
+export type PackCatalogShardsDef = z.infer<typeof PackCatalogShardsSchema>;
+
 export const PackCatalogEntrySchema = z.object({
   id: PackIdSchema,
   kind: PackKindSchema,
@@ -255,6 +302,8 @@ export const PackCatalogEntrySchema = z.object({
   optional: z.boolean().optional(),
   /** Optional per-character static URL template on the same host (e.g. `https://.../strokes/ja/{hex5}.json` or `{char}.json`). */
   char_url_template: PackUrlSchema.optional(),
+  /** Set when the pack is sharded. Older apps ignore it and refuse the `format_version: 2` index. */
+  shards: PackCatalogShardsSchema.optional(),
 });
 export type PackCatalogEntryDef = z.infer<typeof PackCatalogEntrySchema>;
 
@@ -339,6 +388,16 @@ export function validatePackCatalog(input: unknown): ValidationResult<PackCatalo
   return { ok: false, errors: formatZodIssues(result.error.issues) };
 }
 
+export function validateDictionarySharding(
+  input: unknown,
+): ValidationResult<DictionaryShardingDef> {
+  const result = DictionaryShardingSchema.safeParse(input);
+  if (result.success) {
+    return { ok: true, data: result.data };
+  }
+  return { ok: false, errors: formatZodIssues(result.error.issues) };
+}
+
 export function getPackageJsonSchemas(): Record<string, unknown> {
   return {
     manifest: z.toJSONSchema(PackageManifestSchema),
@@ -349,5 +408,6 @@ export function getPackageJsonSchemas(): Record<string, unknown> {
     course: z.toJSONSchema(CourseDefSchema),
     family_catalog: z.toJSONSchema(FamilyCatalogSchema),
     pack_catalog: z.toJSONSchema(PackCatalogSchema),
+    dictionary_pack_sharding: z.toJSONSchema(DictionaryShardingSchema),
   };
 }
