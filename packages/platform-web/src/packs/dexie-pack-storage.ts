@@ -10,6 +10,7 @@ import {
   type DictionaryBrowseSummary,
   type DictionaryEntry,
   type DictionaryPackId,
+  type DictionaryShardingInfo,
   type PackCatalog,
   type PackId,
 } from '@flash/core/dictionary';
@@ -46,6 +47,19 @@ export interface CachedPackCatalogRecord {
 const CUSTOM_CATALOG_URL_KEY = 'custom_pack_catalog_url';
 const CACHED_CATALOG_KEY = 'cached_pack_catalog';
 const BROWSE_SUMMARY_KEY_PREFIX = 'browse_summary:';
+const SHARD_STATE_KEY_PREFIX = 'dict_shards:';
+
+/** A sharded dictionary pack's shard list and which shards are on this device. */
+export interface StoredShardState {
+  packId: DictionaryPackId;
+  version: string;
+  /** `installedAt` of the index install this state belongs to. */
+  installedAt: number;
+  /** URL the index was downloaded from; shards are fetched from the same directory. */
+  indexUrl: string;
+  sharding: DictionaryShardingInfo;
+  loaded: string[];
+}
 
 interface StoredBrowseSummary {
   /** `installedAt` of the pack the summary was computed for. */
@@ -118,12 +132,72 @@ export class DexiePackStorage {
   ): Promise<void> {
     await this.db.dict_entries.where('packId').equals(packId).delete();
     await this.db.kv.delete(BROWSE_SUMMARY_KEY_PREFIX + packId);
+    await this.db.kv.delete(SHARD_STATE_KEY_PREFIX + packId);
     const CHUNK = 2000;
     for (let i = 0; i < entries.length; i += CHUNK) {
       const slice = entries.slice(i, i + CHUNK);
       await this.db.dict_entries.bulkPut(slice);
       onChunk?.(Math.min(i + slice.length, entries.length), entries.length);
     }
+  }
+
+  async getShardState(packId: DictionaryPackId): Promise<StoredShardState | undefined> {
+    const row = await this.db.kv.get(SHARD_STATE_KEY_PREFIX + packId);
+    return row?.value as StoredShardState | undefined;
+  }
+
+  async setShardState(state: StoredShardState): Promise<void> {
+    await this.db.kv.put({ key: SHARD_STATE_KEY_PREFIX + state.packId, value: state });
+  }
+
+  /**
+   * Writes one shard's full rows over their stubs and marks the shard loaded. Does nothing and
+   * returns `undefined` when the pack was reinstalled or removed while the shard downloaded.
+   */
+  putDictionaryShard(
+    packId: DictionaryPackId,
+    installedAt: number,
+    key: string,
+    rows: readonly DictionaryEntry[],
+    downloadedBytes: number,
+  ): Promise<InstalledPackInfo | undefined> {
+    return this.db.transaction(
+      'rw',
+      [this.db.packs, this.db.dict_entries, this.db.kv],
+      async () => {
+        const state = await this.getShardState(packId);
+        const info = await this.db.packs.get(packId);
+        if (
+          !state ||
+          !info ||
+          state.installedAt !== installedAt ||
+          info.installedAt !== installedAt
+        ) {
+          return undefined;
+        }
+        if (state.loaded.includes(key)) return info;
+        // Every full row must land on its stub's id, or search would list the word twice.
+        const existing = await this.db.dict_entries.bulkGet(rows.map((r) => r.id));
+        if (existing.some((row) => row?.packId !== packId)) {
+          throw new Error(`Shard "${key}" of ${packId} does not match the installed index.`);
+        }
+        await this.db.dict_entries.bulkPut(rows);
+        const loaded = [...state.loaded, key];
+        await this.setShardState({ ...state, loaded });
+        const next: InstalledPackInfo = {
+          ...info,
+          byteSize: info.byteSize + downloadedBytes,
+          shardsLoaded: loaded.length,
+        };
+        await this.db.packs.put(next);
+        return next;
+      },
+    );
+  }
+
+  /** Rows by id, in the order given (`undefined` for ids no longer stored). */
+  getDictionaryEntriesByIds(ids: readonly string[]): Promise<Array<DictionaryEntry | undefined>> {
+    return this.db.dict_entries.bulkGet([...ids]);
   }
 
   async replaceStrokePack(
@@ -160,6 +234,7 @@ export class DexiePackStorage {
         await this.db.packs.delete(packId);
         await this.db.dict_entries.where('packId').equals(packId).delete();
         await this.db.kv.delete(BROWSE_SUMMARY_KEY_PREFIX + packId);
+        await this.db.kv.delete(SHARD_STATE_KEY_PREFIX + packId);
         await this.db.strokes.where('packId').equals(packId).delete();
         if (existing?.kind === 'strokes' && existing.script) {
           await this.db.stroke_index.delete(existing.script);

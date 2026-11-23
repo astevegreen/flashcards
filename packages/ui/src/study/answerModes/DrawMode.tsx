@@ -4,13 +4,14 @@ import {
   resolveStrokeScriptForLang,
 } from '@flash/core/drawing';
 import type { HandwritingCandidate } from '@flash/platform';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
 import { DrawLookupPanel } from '../../drawing/DrawLookupPanel.tsx';
 import { CardFieldValue, RevealedBackSteps } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 import { cardTextFitClass } from '../fitText.ts';
 
-const LazyDrawQuizPanel = lazy(() => import('../../drawing/DrawQuizPanel.tsx'));
+const LazyDrawQuizPanel = lazyWithRetry(() => import('../../drawing/DrawQuizPanel.tsx'));
 
 function DrawModeView({
   state,
@@ -45,7 +46,9 @@ function DrawModeView({
   const answerLang = answerMeta?.lang ?? deck.language;
   const drawingMode = resolveDrawingMode(state.preferences, answerLang);
   const strokeScript = resolveStrokeScriptForLang(answerLang);
-  const drawableChars = extractDrawableCharacters(expectedRaw, answerLang);
+  const drawableChars = extractDrawableCharacters(expectedRaw, answerLang, {
+    rubyDisplay: layout.ruby_display,
+  });
 
   const [lookupCandidates, setLookupCandidates] = useState<readonly HandwritingCandidate[]>([]);
   const [selectedLookupChar, setSelectedLookupChar] = useState<string | null>(null);

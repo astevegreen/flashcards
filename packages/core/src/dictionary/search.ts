@@ -293,8 +293,8 @@ interface JapaneseQuery {
   /** Kana-folded lemma → steps, for matching readings. */
   folded: ReadonlyMap<string, number>;
   /**
-   * Ceiling for deinflection hits. Set below an exact headword / reading match when some
-   * candidate already is one, so a dictionary-form query (`かえる`) keeps its exact words on top
+   * Ceiling for deinflection hits. Set below an exact headword / altForm / reading match when
+   * some returned candidate already is one, so a dictionary-form query (`かえる`) keeps its exact words on top
    * and guessed lemmas (`買う`) only follow.
    */
   cap: number;
@@ -302,19 +302,30 @@ interface JapaneseQuery {
 
 const JAPANESE_CAP_WHEN_EXACT_HIT = 780;
 
+/**
+ * An exact headword, altForm or reading hit. Only entries in an allowed pack count: an exact
+ * word in a filtered-out pack is never returned, so it must not push guessed lemmas down.
+ */
+function isExactHit(
+  e: DictionaryEntry,
+  q: NormalizedQuery,
+  allowedPacks: ReadonlySet<DictionaryPackId> | null,
+): boolean {
+  if (allowedPacks && !allowedPacks.has(e.packId)) return false;
+  if (e.headword.normalize('NFC').toLowerCase() === q.lower) return true;
+  if (e.altForms?.some((a) => a.normalize('NFC').toLowerCase() === q.lower)) return true;
+  return readingMatchesExactly(e, q);
+}
+
 function buildJapaneseQuery(
   candidates: readonly DictionaryEntry[],
   q: NormalizedQuery,
   lemmas: ReadonlyMap<string, number>,
+  allowedPacks: ReadonlySet<DictionaryPackId> | null,
 ): JapaneseQuery {
   const folded = new Map<string, number>();
   for (const [lemma, steps] of lemmas) folded.set(foldReading(lemma), steps);
-  const hasExact =
-    lemmas.size > 0 &&
-    candidates.some((e) => {
-      const hw = e.headword.normalize('NFC').toLowerCase();
-      return hw === q.lower || readingMatchesExactly(e, q);
-    });
+  const hasExact = lemmas.size > 0 && candidates.some((e) => isExactHit(e, q, allowedPacks));
   return { lemmas, folded, cap: hasExact ? JAPANESE_CAP_WHEN_EXACT_HIT : Number.POSITIVE_INFINITY };
 }
 
@@ -518,7 +529,7 @@ export function rankDictionaryResults(
   const limit = Math.max(1, Math.min(200, opts.limit ?? 50));
   const allowedPacks = opts.packIds && opts.packIds.length > 0 ? new Set(opts.packIds) : null;
   const ko = analyzeKoreanQuery(q.raw, opts.direction);
-  const ja = buildJapaneseQuery(candidates, q, deinflectJapanese(q.raw));
+  const ja = buildJapaneseQuery(candidates, q, deinflectJapanese(q.raw), allowedPacks);
   const romanizationCap = romanizationCapFor(candidates, ko, q.lower, allowedPacks);
 
   const scored: Array<{ entry: DictionaryEntry; score: number }> = [];

@@ -1,15 +1,19 @@
 import { parseMediaHashUri } from '@flash/core';
-import { lazy, Suspense, useContext } from 'react';
+import { Suspense, useContext } from 'react';
+import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
 import { RichText, RubyDisplayContext } from '../../components/RichText.tsx';
 import { useApp } from '../../state/AppContext.tsx';
 import { cardTextFitClass } from '../fitText.ts';
 import type { FieldMeta } from './types.ts';
 
-const LazyMediaAudioPlayer = lazy(() =>
-  import('../../components/MediaAudioPlayer.tsx').then((m) => ({ default: m.MediaAudioPlayer })),
+const LazyMediaAudioPlayer = lazyWithRetry(
+  () =>
+    import('../../components/MediaAudioPlayer.tsx').then((m) => ({ default: m.MediaAudioPlayer })),
+  { quiet: true },
 );
-const LazyMediaImage = lazy(() =>
-  import('../../components/MediaImage.tsx').then((m) => ({ default: m.MediaImage })),
+const LazyMediaImage = lazyWithRetry(
+  () => import('../../components/MediaImage.tsx').then((m) => ({ default: m.MediaImage })),
+  { quiet: true },
 );
 
 export interface CardFieldValueProps {

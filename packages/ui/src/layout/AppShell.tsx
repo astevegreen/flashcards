@@ -1,11 +1,14 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
-import { useApp, type SyncUiState } from '../state/AppContext.tsx';
+import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
+import { useApp } from '../state/AppContext.tsx';
 import { SECURE_KEYS_LOST_MESSAGE } from '../state/secureKeysNotice.ts';
 import { applyCardTextSize, readCardTextSize } from '../study/cardTextSize.ts';
+import { getSidebarBadge, sidebarBadgeOpensSettings, sidebarBadgeTitle } from './sidebarBadge.ts';
 
 // Phase 13 study reminders (native notifications / PWA badge): lazy, renders nothing.
-const LazyReminderRuntime = lazy(() =>
-  import('../reminders/ReminderRuntime.tsx').then((m) => ({ default: m.ReminderRuntime })),
+const LazyReminderRuntime = lazyWithRetry(
+  () => import('../reminders/ReminderRuntime.tsx').then((m) => ({ default: m.ReminderRuntime })),
+  { quiet: true },
 );
 
 /**
@@ -57,35 +60,6 @@ const NAV_ITEMS: readonly { id: NavTab; label: string; icon: string }[] = [
 ];
 
 const PULL_REFRESH_THRESHOLD_PX = 64;
-
-function getSidebarBadge(syncState: SyncUiState): { label: string; tone: string } {
-  if (
-    !syncState.isOnline &&
-    syncState.provider !== 'local_folder' &&
-    syncState.provider !== 'icloud'
-  ) {
-    return { label: 'Offline', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' };
-  }
-  switch (syncState.status) {
-    case 'syncing':
-      return { label: 'Syncing…', tone: 'bg-sky-500/15 text-sky-700 dark:text-sky-300' };
-    case 'synced':
-      return { label: 'Synced', tone: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' };
-    case 'offline':
-      return { label: 'Offline', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' };
-    case 'reconnect_required':
-      return { label: 'Reconnect', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' };
-    case 'upgrade_required':
-      return { label: 'Read-only', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' };
-    case 'error':
-      return { label: 'Sync Error', tone: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' };
-    case 'idle':
-      return { label: 'Sync', tone: 'bg-[var(--surface-2)] text-[var(--muted)]' };
-    case 'disconnected':
-    default:
-      return { label: 'Local', tone: 'bg-[var(--surface-2)] text-[var(--muted)]' };
-  }
-}
 
 export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
   const {
@@ -158,12 +132,7 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
   };
 
   const handleBadgeClick = () => {
-    if (
-      syncState.provider === 'none' ||
-      syncState.status === 'reconnect_required' ||
-      syncState.status === 'upgrade_required' ||
-      syncState.status === 'error'
-    ) {
+    if (sidebarBadgeOpensSettings(syncState)) {
       onSelectTab('settings');
     } else {
       void syncNow();
@@ -250,7 +219,7 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
               type="button"
               data-testid="sidebar-sync-badge"
               onClick={handleBadgeClick}
-              title={syncState.provider !== 'none' ? 'Sync now' : 'Configure sync in Settings'}
+              title={sidebarBadgeTitle(syncState)}
               className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase short:w-full short:whitespace-normal short:px-0.5 short:leading-tight ${badge.tone}`}
             >
               {badge.label}

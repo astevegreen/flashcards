@@ -237,6 +237,8 @@ export interface LinkedGoogleSource {
   columnMap?: SourceColumnMapping[];
   readOnly?: boolean;
   lastModifiedTime?: string;
+  /** The last refresh left the Sheet alone because its deck is archived (`lastError` says so). */
+  skipReason?: 'archived';
   lastSyncedAt?: number;
   lastStatus?: SourceSyncStatus;
   lastError?: string;
@@ -269,6 +271,12 @@ export interface LinkedOneDriveSource {
   columnMapUnsaved?: true;
   /** Content tag at the last pull; an unchanged tag skips the download. */
   contentTag?: string;
+  /**
+   * Why the last refresh left the file alone on this device (`lastError` says it in words):
+   * `archived` = its deck is archived; `unreadable` = an `.xlsx` this device cannot read (phone
+   * and Tauri shells). Cleared by the next pull that lands.
+   */
+  skipReason?: 'archived' | 'unreadable';
   lastSyncedAt?: number;
   lastStatus?: SourceSyncStatus;
   lastError?: string;
@@ -361,7 +369,11 @@ export interface SourcesRegistry {
   googleSources: LinkedGoogleSource[];
   /** Absent in registries saved before linked OneDrive sources existed. */
   oneDriveSources?: LinkedOneDriveSource[];
-  /** OneDrive item ids unlinked on this device; their synced decks are not re-listed as sources. */
+  /**
+   * Legacy (PR #19 builds): OneDrive item ids unlinked on this device only; their synced decks
+   * are not re-listed as sources. Unlink now emits `SourceUnlinked`, which reaches every device,
+   * so this is only read (and cleared when the file is linked again), never added to.
+   */
   unlinkedOneDriveIds?: string[];
   localFolders: LinkedLocalFolder[];
   packageSubscriptions: PackageSubscription[];
@@ -683,6 +695,7 @@ export interface InstalledPackInfo {
   language: string;
   script?: StrokeScript;
   entryCount: number;
+  /** Bytes downloaded so far (for a sharded pack: the index plus the shards loaded). */
   byteSize: number;
   installedAt: number;
   licenseName: string;
@@ -690,6 +703,12 @@ export interface InstalledPackInfo {
   attribution: string;
   sourceUrl: string;
   sourceCatalogUrl?: string;
+  /**
+   * Sharded dictionary packs only: how many shards the pack has and how many are on this device.
+   * Search works from the index alone; shards with the full entries download as they're needed.
+   */
+  shardCount?: number;
+  shardsLoaded?: number;
 }
 
 export interface PackInstallProgress {
@@ -723,6 +742,11 @@ export interface PackManager {
   ): Promise<InstalledPackInfo>;
   removePack(packId: PackId): Promise<void>;
   getStorageUsageBytes(): Promise<number>;
+  /** Sharded dictionary packs: downloads every shard not on the device yet (full offline use). */
+  downloadAllShards?(
+    packId: PackId,
+    onProgress?: (progress: PackInstallProgress) => void,
+  ): Promise<InstalledPackInfo>;
 }
 
 export interface DictionarySearchOptions {
@@ -743,6 +767,12 @@ export interface DictionaryService {
   browse(query: DictionaryBrowseQuery): Promise<DictionaryBrowsePage>;
   /** The groups a pack can be browsed by (levels, topics, grades, parts of speech) with counts. */
   getBrowseSummary(packId: DictionaryPackId): Promise<DictionaryBrowseSummary>;
+  /**
+   * Full entries for `entries` (sharded packs return `stub` rows until their shard is loaded):
+   * loads the shards they need and returns the rows in the same order. Rows whose shard can't be
+   * loaded (offline) come back unchanged.
+   */
+  loadFullEntries?(entries: readonly DictionaryEntry[]): Promise<DictionaryEntry[]>;
 }
 
 /** OS notification permission as the native shells report it. */

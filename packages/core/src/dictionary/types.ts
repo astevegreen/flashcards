@@ -1,4 +1,6 @@
 import type {
+  DictionaryShardDescriptorDef,
+  DictionaryShardingDef,
   PackCatalogDef,
   PackCatalogEntryDef,
   PackIdDef,
@@ -10,6 +12,10 @@ export type PackKind = PackKindDef;
 export type PackId = PackIdDef;
 export type PackCatalog = PackCatalogDef;
 export type PackCatalogEntry = PackCatalogEntryDef;
+/** One shard of a sharded dictionary pack (see `shards.ts`). */
+export type DictionaryShardDescriptor = DictionaryShardDescriptorDef;
+/** `manifest.sharding` of a sharded dictionary pack's index (`format_version: 2`). */
+export type DictionaryShardingInfo = DictionaryShardingDef;
 
 export type DictionaryPackId =
   'dict-hanja-unihan' | 'dict-kanjidic2' | 'dict-cc-cedict' | 'dict-jmdict' | 'dict-krdict';
@@ -91,6 +97,11 @@ export interface DictionaryEntry {
   searchTokens: string[];
   /** Precomputed browse keys for the IndexedDB multiEntry browse index (see `browse.ts`). */
   browseKeys?: string[];
+  /**
+   * Set on a search-only row from a sharded pack's index: it has every field search, ranking
+   * and browse use, but its senses lack definitions, examples and links until its shard loads.
+   */
+  stub?: true;
 }
 
 /**
@@ -141,7 +152,8 @@ export interface DictionaryBrowseSummary {
 }
 
 export interface DictionaryPackManifest {
-  format_version: 1;
+  /** 1: one file holding every entry. 2: a sharded pack's index (`sharding` is set). */
+  format_version: 1 | 2;
   id: DictionaryPackId;
   kind: 'dictionary';
   name: string;
@@ -152,6 +164,8 @@ export interface DictionaryPackManifest {
   license_url: string;
   attribution: string;
   source_url: string;
+  /** Sharded packs only: the shards holding the full entries behind the index's stub rows. */
+  sharding?: DictionaryShardingInfo;
 }
 
 export interface StrokePackManifest {

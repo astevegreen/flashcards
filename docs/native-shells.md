@@ -264,6 +264,7 @@ Rust plugins registered in `src-tauri/src/lib.rs`, with their permissions in
 | `tauri-plugin-http`                          | Token exchange from Rust (avoids WebView CORS)                         |
 | `keyring` crate (app commands)               | `secure_store_*` commands in `src/secure_store.rs`: OS keychain        |
 | `objc2-foundation` (app commands, macOS)     | `icloud_*` commands in `src/icloud.rs`: iCloud Drive sync              |
+| `plist` crate (app commands)                 | `src/icloud.rs`: real file size from `.<name>.icloud` placeholders     |
 
 Google OAuth on desktop needs a **Desktop app** client
 (`VITE_GOOGLE_DESKTOP_CLIENT_ID` / `_SECRET`).
@@ -317,10 +318,12 @@ Differences from the iOS plugin, all untested on a Mac:
 - Listing walks the container folder instead of running an `NSMetadataQuery`. macOS keeps the
   metadata of the whole iCloud Drive tree on disk, so files not downloaded yet still show up
   (as `.<name>.icloud` placeholders on older macOS, as dataless files on newer). A placeholder's
-  size is reported as 0.
+  size is read from its property list (`NSURLFileSizeKey`), or 0 when that fails; its modification
+  time is the placeholder's own, so it is only approximate until the file is downloaded.
 - Reads and writes use plain file I/O, not `NSFileCoordinator`. Overwrites go to a temp file in the
   hidden .flashcards-tmp/ folder at the container root (outside every sync prefix, so neither app
-  lists it) and are renamed into place; `ifAbsent` writes are an exclusive create (`create_new`) and
+  lists it) and are renamed into place. Temp files a crash left there (named `<pid>-<nanos>.tmp`,
+  more than an hour old) are deleted at the next listing. `ifAbsent` writes are an exclusive create (`create_new`) and
   also fail when only another device's placeholder is present. The `manifest.json` first-connect
   race described in the iOS section applies here too.
 

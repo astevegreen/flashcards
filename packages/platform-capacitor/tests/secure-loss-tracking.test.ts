@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { createHlcState } from '../../core/src/index.ts';
 import { CapacitorSqliteStorage, InMemorySqliteDriver } from '../src/index.ts';
 import { createSecureKvRouting } from '../src/secure/secure-kv-storage.ts';
-import { prepareSecureStorageAtLaunch } from '../src/secure/secure-launch.ts';
+import {
+  markStoredSecretsAtLaunch,
+  prepareSecureStorageAtLaunch,
+} from '../src/secure/secure-launch.ts';
 import {
   secureStoredMarkerKey,
   trackStoredSecrets,
@@ -154,6 +157,77 @@ describe('iOS Keychain loss detection', () => {
     const restored = launch(database, new FakeKeychain());
     expect(await restored.secure.get(MICROSOFT_REFRESH_TOKEN_KEY)).toBeNull();
     expect(restored.onSecretsLost).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks at launch a secret an older build stored that is never read before the backup', async () => {
+    const database = await existingDatabase();
+    const keychain = new FakeKeychain();
+    // Stored by a build from before the markers; this build never reads either secret.
+    keychain.values.set(`kv.${GOOGLE_SESSION}`, '{"accessToken":"old"}');
+    keychain.values.set(MICROSOFT_REFRESH_TOKEN_KEY, 'refresh');
+
+    const upgraded = launch(database, keychain);
+    await prepareSecureStorageAtLaunch({ database, routing: upgraded.routing });
+    await markStoredSecretsAtLaunch({
+      platform: 'ios',
+      secureStorage: upgraded.secure,
+      keys: upgraded.routing.secretKeys,
+    });
+    expect(await database.getKv(secureStoredMarkerKey(`kv.${GOOGLE_SESSION}`))).toBe(true);
+    expect(await database.getKv(secureStoredMarkerKey(MICROSOFT_REFRESH_TOKEN_KEY))).toBe(true);
+    // Only names: no marker for a secret that is not there, and no value in any marker.
+    for (const key of SECURE_KV_KEYS.filter((k) => k !== GOOGLE_SESSION)) {
+      expect(await database.getKv(secureStoredMarkerKey(`kv.${key}`))).toBeUndefined();
+    }
+    expect(upgraded.onSecretsLost).not.toHaveBeenCalled();
+
+    // Restored onto another device: the loss is explained, at launch.
+    const restored = launch(database, new FakeKeychain());
+    await prepareSecureStorageAtLaunch({ database, routing: restored.routing });
+    await markStoredSecretsAtLaunch({
+      platform: 'ios',
+      secureStorage: restored.secure,
+      keys: restored.routing.secretKeys,
+    });
+    expect(restored.onSecretsLost).toHaveBeenCalled();
+    expect(await database.getKv(SECURE_KEYS_LOST_KV_KEY)).toBeDefined();
+  });
+
+  it('the launch marking stays silent on a fresh install and is skipped on Android', async () => {
+    const database = new CapacitorSqliteStorage(new InMemorySqliteDriver());
+    const keychain = new FakeKeychain();
+    keychain.values.set(MICROSOFT_REFRESH_TOKEN_KEY, 'left-by-an-earlier-install');
+    const fresh = launch(database, keychain);
+    await prepareSecureStorageAtLaunch({ database, routing: fresh.routing });
+    await markStoredSecretsAtLaunch({
+      platform: 'ios',
+      secureStorage: fresh.secure,
+      keys: fresh.routing.secretKeys,
+    });
+    expect(keychain.values.size).toBe(0);
+    expect(
+      await database.getKv(secureStoredMarkerKey(MICROSOFT_REFRESH_TOKEN_KEY)),
+    ).toBeUndefined();
+    expect(fresh.onSecretsLost).not.toHaveBeenCalled();
+
+    const get = vi.fn(async () => 'v');
+    await markStoredSecretsAtLaunch({ platform: 'android', secureStorage: { get }, keys: ['k'] });
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('the launch marking never throws and still marks the keys it can read', async () => {
+    const database = await existingDatabase();
+    const keychain = new FakeKeychain();
+    keychain.values.set('b', 'v');
+    const { secure } = launch(database, keychain);
+    const flaky = {
+      get: (key: string) =>
+        key === 'a' ? Promise.reject(new Error('Keychain busy')) : secure.get(key),
+    };
+    await expect(
+      markStoredSecretsAtLaunch({ platform: 'ios', secureStorage: flaky, keys: ['a', 'b'] }),
+    ).resolves.toBeUndefined();
+    expect(await database.getKv(secureStoredMarkerKey('b'))).toBe(true);
   });
 
   it('a failing marker store never breaks a secret read or write', async () => {

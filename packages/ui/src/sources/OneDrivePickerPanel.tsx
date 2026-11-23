@@ -5,12 +5,15 @@ import type {
   OneDriveFilePicker,
   PendingXlsxReconciliation,
 } from '@flash/platform';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { linkedOneDriveDeck } from './oneDriveLinkedDeck.ts';
 import { importPickedOneDriveFile } from './oneDriveImport.ts';
 
-const LazyOneDriveLinkMapping = lazy(() => import('./OneDriveLinkMapping.tsx'));
+const LazyOneDriveLinkMapping = lazyWithRetry(() => import('./OneDriveLinkMapping.tsx'), {
+  closeWith: 'onCancel',
+});
 const LINKABLE = /\.(csv|tsv|xlsx)$/i;
 
 type AccessState = 'checking' | 'needed' | 'ready' | 'error';

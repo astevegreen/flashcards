@@ -14,7 +14,8 @@ import {
   type SpeakTiming,
 } from '@flash/core';
 import { canCreateOrImportDeck } from '@flash/core/license';
-import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { CoursesPanel } from '../components/CoursesPanel.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
 import { RubyDisplaySelect } from '../library/RubyDisplaySelect.tsx';
@@ -25,12 +26,22 @@ import { ANKI_IMPORT_PANEL_HEIGHT } from '../import/anki-import-layout.ts';
 import { BRING_MY_CARDS_PANEL_HEIGHT } from '../import/bring-my-cards-layout.ts';
 import { importFlashpkgBytes, type LibraryImportContext } from '../import/libraryImports.ts';
 
-const LazyPageViewer = lazy(() => import('../pages/PageViewer.tsx'));
-const LazyPageEditor = lazy(() => import('../pages/PageEditor.tsx'));
-const LazyCategoryExportPanel = lazy(() => import('../library/CategoryExportPanel.tsx'));
-const LazyFsrsOptimizerPanel = lazy(() => import('../fsrs/FsrsOptimizerPanel.tsx'));
-const LazyAnkiImportPanel = lazy(() => import('../import/AnkiImportPanel.tsx'));
-const LazyBringMyCardsPanel = lazy(() => import('../import/BringMyCardsPanel.tsx'));
+const LazyPageViewer = lazyWithRetry(() => import('../pages/PageViewer.tsx'), {
+  closeWith: 'onBack',
+});
+const LazyPageEditor = lazyWithRetry(() => import('../pages/PageEditor.tsx'), {
+  closeWith: 'onCancel',
+});
+const LazyCategoryExportPanel = lazyWithRetry(() => import('../library/CategoryExportPanel.tsx'));
+const LazyFsrsOptimizerPanel = lazyWithRetry(() => import('../fsrs/FsrsOptimizerPanel.tsx'));
+const LazyAnkiImportPanel = lazyWithRetry(() => import('../import/AnkiImportPanel.tsx'));
+const LazyBringMyCardsPanel = lazyWithRetry(() => import('../import/BringMyCardsPanel.tsx'));
+
+/** Furigana only exists in Japanese text, so only Japanese decks hide it on the front by default. */
+function isJapaneseLanguage(language: string): boolean {
+  const norm = language.toLowerCase();
+  return norm === 'ja' || norm.startsWith('ja-');
+}
 
 function DeckOptionsPanel({
   deck,
@@ -265,7 +276,8 @@ function DeckOptionsPanel({
       answer_mode: layoutMode,
       speak_field: speakFieldKey || effectiveFront,
       speak_on: layoutMode === 'listen' ? 'front' : speakOn,
-      hide_furigana_on_front: layoutMode !== 'typed' && layoutMode !== 'draw',
+      hide_furigana_on_front:
+        isJapaneseLanguage(deck.language) && layoutMode !== 'typed' && layoutMode !== 'draw',
       enabled: false,
       ...(rubyDisplay !== 'both' ? { ruby_display: rubyDisplay } : {}),
       ...(layoutMode === 'typed' || layoutMode === 'choice' || layoutMode === 'draw'

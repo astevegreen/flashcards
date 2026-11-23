@@ -4,6 +4,7 @@ import {
   materializeDictionaryEntries,
   PACK_SECURITY_LIMITS,
   parseAndValidatePackCatalog,
+  type DictionaryPackId,
   type PackCatalog,
   type PackCatalogEntry,
   type PackId,
@@ -11,62 +12,14 @@ import {
 import { buildStrokeLookupIndex } from '@flash/core/drawing';
 import type { InstalledPackInfo, PackInstallProgress, PackManager } from '@flash/platform';
 import type { DexiePackStorage } from './dexie-pack-storage.ts';
+import { DictionaryShardLoader } from './dictionary-shards.ts';
+import { readResponseWithCap, safePackFetch } from './pack-fetch.ts';
 
 export interface WebPackManagerOptions {
   packStorage: DexiePackStorage;
   defaultCatalogUrl?: string;
   allowRelativeUrls?: boolean;
   fetchImpl?: typeof fetch;
-}
-
-async function readResponseWithCap(
-  res: Response,
-  maxBytes: number,
-  onProgress?: (loaded: number, total?: number) => void,
-): Promise<Uint8Array> {
-  const contentLengthHeader = res.headers.get('content-length');
-  const declared = contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : NaN;
-  const totalBytes = Number.isFinite(declared) && declared > 0 ? declared : undefined;
-  if (totalBytes !== undefined && totalBytes > maxBytes) {
-    throw new Error(`Pack download exceeds maximum allowed size (${maxBytes} bytes).`);
-  }
-
-  if (res.body && typeof res.body.getReader === 'function') {
-    const reader = res.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let loaded = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value && value.byteLength > 0) {
-          loaded += value.byteLength;
-          if (loaded > maxBytes) {
-            await reader.cancel().catch(() => {});
-            throw new Error(`Pack download exceeded maximum allowed size (${maxBytes} bytes).`);
-          }
-          chunks.push(value);
-          onProgress?.(loaded, totalBytes);
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    const out = new Uint8Array(loaded);
-    let offset = 0;
-    for (const chunk of chunks) {
-      out.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return out;
-  }
-
-  const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.byteLength > maxBytes) {
-    throw new Error(`Pack download exceeded maximum allowed size (${maxBytes} bytes).`);
-  }
-  onProgress?.(buf.byteLength, totalBytes ?? buf.byteLength);
-  return buf;
 }
 
 /**
@@ -80,6 +33,7 @@ export class WebPackManager implements PackManager {
   private readonly defaultCatalogUrl?: string;
   private readonly allowRelativeUrls: boolean;
   private readonly fetchImpl: typeof fetch;
+  private readonly shardLoader: DictionaryShardLoader;
   private customCatalogUrl?: string;
   private loadedCustomUrl = false;
 
@@ -90,6 +44,11 @@ export class WebPackManager implements PackManager {
     }
     this.allowRelativeUrls = options.allowRelativeUrls ?? false;
     this.fetchImpl = options.fetchImpl ?? ((...args) => fetch(...args));
+    this.shardLoader = new DictionaryShardLoader({
+      packStorage: this.packStorage,
+      allowRelativeUrls: this.allowRelativeUrls,
+      fetchImpl: this.fetchImpl,
+    });
   }
 
   getCatalogUrl(): string | undefined {
@@ -117,19 +76,8 @@ export class WebPackManager implements PackManager {
     }
   }
 
-  private async safeFetch(rawUrl: string, headers?: HeadersInit): Promise<Response> {
-    const safeUrl = assertSafePackUrl(rawUrl, this.allowRelativeUrls);
-    const res = await this.fetchImpl(safeUrl, {
-      method: 'GET',
-      ...(headers ? { headers } : {}),
-      credentials: 'omit',
-      redirect: 'follow',
-    });
-    // Prevent https -> http downgrade on redirects for external URLs
-    if (res.url && !safeUrl.startsWith('/')) {
-      assertSafePackUrl(res.url, false);
-    }
-    return res;
+  private safeFetch(rawUrl: string, headers?: HeadersInit): Promise<Response> {
+    return safePackFetch(this.fetchImpl, rawUrl, this.allowRelativeUrls, headers);
   }
 
   async fetchCatalog(catalogUrl?: string): Promise<PackCatalog> {
@@ -216,15 +164,21 @@ export class WebPackManager implements PackManager {
       ...(opts?.expectedSha256 ? { expectedSha256: opts.expectedSha256 } : {}),
       ...(catalogUrl ? { sourceCatalogUrl: catalogUrl } : {}),
       ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
+      packUrl: url.trim(),
     });
   }
 
+  /**
+   * `packUrl` is where the bytes came from. A sharded pack's index needs it: its shards are
+   * downloaded later from the same directory, so a sharded index can't be installed from a file.
+   */
   async installPackFromBytes(
     bytes: Uint8Array,
     opts?: {
       expectedSha256?: string;
       sourceCatalogUrl?: string;
       onProgress?: (progress: PackInstallProgress) => void;
+      packUrl?: string;
     },
   ): Promise<InstalledPackInfo> {
     opts?.onProgress?.({ phase: 'verifying' });
@@ -236,7 +190,16 @@ export class WebPackManager implements PackManager {
 
     if ('entries' in decoded) {
       const m = decoded.manifest;
-      const materialized = materializeDictionaryEntries(m.id, decoded.entries);
+      const sharding = m.sharding;
+      if (sharding && !opts?.packUrl) {
+        throw new Error(
+          `${m.name} is a sharded pack: install it from its catalog or URL, not from a file.`,
+        );
+      }
+      // A sharded pack's index rows are stubs until their shard downloads (core `shards.ts`).
+      const materialized = materializeDictionaryEntries(m.id, decoded.entries, {
+        stub: Boolean(sharding),
+      });
       opts?.onProgress?.({
         phase: 'indexing',
         indexedEntries: 0,
@@ -265,8 +228,19 @@ export class WebPackManager implements PackManager {
         attribution: m.attribution,
         sourceUrl: m.source_url,
         ...(opts?.sourceCatalogUrl ? { sourceCatalogUrl: opts.sourceCatalogUrl } : {}),
+        ...(sharding ? { shardCount: sharding.shards.length, shardsLoaded: 0 } : {}),
       };
       await this.packStorage.putInstalledPack(info);
+      if (sharding && opts?.packUrl) {
+        await this.packStorage.setShardState({
+          packId: m.id,
+          version: m.version,
+          installedAt: now,
+          indexUrl: opts.packUrl,
+          sharding,
+          loaded: [],
+        });
+      }
       opts?.onProgress?.({
         phase: 'done',
         indexedEntries: materialized.length,
@@ -325,6 +299,17 @@ export class WebPackManager implements PackManager {
       indexedEntries: entriesList.length,
       totalEntries: entriesList.length,
     });
+    return info;
+  }
+
+  async downloadAllShards(
+    packId: PackId,
+    onProgress?: (progress: PackInstallProgress) => void,
+  ): Promise<InstalledPackInfo> {
+    const info =
+      packId.startsWith('dict-') &&
+      (await this.shardLoader.loadAllShards(packId as DictionaryPackId, onProgress));
+    if (!info) throw new Error(`Pack "${packId}" is not installed.`);
     return info;
   }
 

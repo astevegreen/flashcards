@@ -125,6 +125,11 @@ export interface SyncRunnerContext {
   reviewsSinceSyncRef: MutableRefObject<number>;
   lastLocalSnapshotCountRef: MutableRefObject<number>;
   lastSyncCompletedAtRef: MutableRefObject<number>;
+  /**
+   * Bumped each time the user answers the "different collection" question. A sync that started
+   * before the answer never raises the question again (see runSyncCycle).
+   */
+  collectionChoiceEpochRef: MutableRefObject<number>;
   enqueuePersist: (task: () => Promise<void>) => Promise<void>;
   onStateMutated: (nextMeta?: DeviceMeta) => void;
   onReplaceState: (nextState: CollectionState, nextMeta: DeviceMeta) => void;
@@ -237,6 +242,7 @@ export async function runSyncCycle(
   ctx: SyncRunnerContext,
   provider: SyncProviderKind,
 ): Promise<void> {
+  const choiceEpoch = ctx.collectionChoiceEpochRef.current;
   try {
     await ctx.enqueuePersist(async () => {});
 
@@ -311,6 +317,9 @@ export async function runSyncCycle(
 
     if (result.status === 'collection_choice_required') {
       // Nothing was bound, pulled or pushed: wait for the user's choice (see resolveCollectionChoice).
+      // The user answered while this sync was running (it read the old add-device link): the
+      // answer stands, and this stale result must not ask again.
+      if (ctx.collectionChoiceEpochRef.current !== choiceEpoch) return;
       ctx.setSyncState(({ errorMessage: _stale, ...prev }) => ({
         ...prev,
         status: 'idle',

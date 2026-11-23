@@ -38,11 +38,18 @@ function normalizeSearchText(text: string): string {
   return text.normalize('NFC').trim().toLowerCase();
 }
 
-/** Field text match, also against the ruby / cloze-stripped text of marked-up fields. */
+/**
+ * Field text match, also against the cloze-stripped text of marked-up fields with ruby reduced
+ * to its bases and to its readings, so a phrase spanning several ruby groups matches either way
+ * (`私[わたし]は日本[にほん]` matches `わたしはにほん` and `私は日本`).
+ */
 function fieldMatchesText(value: string, needle: string): boolean {
   if (value.normalize('NFC').toLowerCase().includes(needle)) return true;
   if (!value.includes('[') && !value.includes('{')) return false;
-  return stripRuby(stripCloze(value)).normalize('NFC').toLowerCase().includes(needle);
+  const plain = stripCloze(value);
+  return (['bases', 'readings'] as const).some((display) =>
+    stripRuby(plain, display).normalize('NFC').toLowerCase().includes(needle),
+  );
 }
 
 /**

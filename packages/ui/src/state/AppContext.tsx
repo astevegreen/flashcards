@@ -58,6 +58,7 @@ import { SECURE_KEYS_LOST_KV_KEY } from './secureKeysNotice.ts';
 import { useAudioController, type AudioController } from './useAudioController.ts';
 import { isLeechBackfillReady } from './leechBackfillGate.ts';
 import { useSyncController, type SyncUiState } from './useSyncController.ts';
+import { retryImport } from '../lazy/retryImport.ts';
 
 export type { AudioController } from './useAudioController.ts';
 export type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
@@ -866,11 +867,16 @@ export function AppProvider({
   );
 
   const loadSampleDecks = useCallback(() => {
-    void import('@flash/core/samples').then(({ buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS }) => {
-      const factory = factoryRef.current ?? eventFactory;
-      const events = buildSampleDeckEvents(factory, SAMPLE_SEED_EPOCH_MS);
-      emitEvents(events);
-    });
+    void retryImport(() => import('@flash/core/samples'))
+      .then(({ buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS }) => {
+        const factory = factoryRef.current ?? eventFactory;
+        const events = buildSampleDeckEvents(factory, SAMPLE_SEED_EPOCH_MS);
+        emitEvents(events);
+      })
+      .catch((error: unknown) => {
+        // Offline before the chunk was cached: nothing is added; the button can be pressed again.
+        console.warn('Could not load the sample decks', error);
+      });
   }, [emitEvents, eventFactory]);
 
   const markBackupCompleted = useCallback(async () => {

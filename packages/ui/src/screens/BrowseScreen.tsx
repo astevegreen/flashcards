@@ -15,7 +15,8 @@ import {
   type Note,
 } from '@flash/core';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { NoteEditDialog } from '../components/NoteEditDialog.tsx';
 import { RichText } from '../components/RichText.tsx';
 import { useApp } from '../state/AppContext.tsx';
@@ -36,22 +37,24 @@ const STATE_FILTER_OPTIONS: ReadonlyArray<{ value: CardStateKind; label: string 
 const isUnreviewedAiNote = (note: Note) =>
   note.provenance.source === 'ai' && !note.provenance.reviewed;
 
-const LazyDictionaryPanel = lazy(() =>
+const LazyDictionaryPanel = lazyWithRetry(() =>
   import('../dictionary/DictionaryPanel.tsx').then((m) => ({ default: m.DictionaryPanel })),
 );
-const LazyDrawLookupPanel = lazy(() =>
+const LazyDrawLookupPanel = lazyWithRetry(() =>
   import('../drawing/DrawLookupPanel.tsx').then((m) => ({ default: m.DrawLookupPanel })),
 );
-const LazyTagsGuidePanel = lazy(() =>
-  import('../browse/TagsGuidePanel.tsx').then((m) => ({ default: m.TagsGuidePanel })),
+const LazyTagsGuidePanel = lazyWithRetry(
+  () => import('../browse/TagsGuidePanel.tsx').then((m) => ({ default: m.TagsGuidePanel })),
+  { closeWith: 'onDismiss' },
 );
-const LazyTagManagerPanel = lazy(() =>
-  import('../browse/TagManagerPanel.tsx').then((m) => ({ default: m.TagManagerPanel })),
+const LazyTagManagerPanel = lazyWithRetry(
+  () => import('../browse/TagManagerPanel.tsx').then((m) => ({ default: m.TagManagerPanel })),
+  { closeWith: 'onClose' },
 );
-const LazyBulkEditBar = lazy(() =>
+const LazyBulkEditBar = lazyWithRetry(() =>
   import('../browse/BulkEditBar.tsx').then((m) => ({ default: m.BulkEditBar })),
 );
-const LazyNoteDetailPane = lazy(() =>
+const LazyNoteDetailPane = lazyWithRetry(() =>
   import('../browse/NoteDetailPane.tsx').then((m) => ({ default: m.NoteDetailPane })),
 );
 

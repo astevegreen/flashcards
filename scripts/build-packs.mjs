@@ -13,7 +13,15 @@
  *   node scripts/fetch-upstream-packs.mjs && node scripts/build-packs.mjs --full
  *       [--input <upstream-dir>] [--out <dir>] [--base-url <https-url>] [--skip-jmdict] [--no-char-files]
  *       Real packs from upstream open data (default input: .cache/upstream-open-data/, default out:
- *       dist-packs/, both gitignored). Each pack must stay <= 25 MiB gzipped (Cloudflare Pages limit).
+ *       dist-packs/, both gitignored). Each file must stay <= 25 MiB gzipped (Cloudflare Pages limit).
+ *       Every file's size is printed (also when a limit fails), so this doubles as the measurement.
+ *
+ * Sharding (both modes): a dictionary pack over the file limit is split by first syllable into an
+ * index (same file name, `format_version: 2`) plus `<id>.sNN.json.gz` shards that the app loads on
+ * demand (packages/core/src/dictionary/shards.ts, docs/formats/packs.md).
+ *   --max-file-size <size>   file limit that triggers sharding (default 25M)
+ *   --shard-size <size>      largest shard (default 2M)
+ *   --shard <pack-id>        shard this dictionary pack even when it fits (repeatable)
  */
 import { createHash } from 'node:crypto';
 import {
@@ -1109,13 +1117,12 @@ function makeManifest(id, version, extra = {}) {
   };
 }
 
-function writeGzipPack(outDir, filename, payload) {
-  const jsonStr = JSON.stringify(payload);
-  const rawBuf = Buffer.from(jsonStr, 'utf8');
+/** Gzipped JSON of one pack file, with the sizes and hash its manifest entry records. */
+function encodeGzipJson(payload) {
+  const rawBuf = Buffer.from(JSON.stringify(payload), 'utf8');
   const gzBuf = gzipSync(rawBuf, { level: 9 });
-  const filePath = join(outDir, filename);
-  writeFileSync(filePath, gzBuf);
   return {
+    bytes: gzBuf,
     compressed_bytes: gzBuf.byteLength,
     uncompressed_bytes: rawBuf.byteLength,
     // Hash canonical uncompressed JSON so verification is invariant to HTTP Content-Encoding (gzip/br)
@@ -1123,11 +1130,11 @@ function writeGzipPack(outDir, filename, payload) {
   };
 }
 
-function assertWithinLimits(filename, stats, entryCount) {
+function limitProblems(filename, stats, entryCount, maxFileBytes) {
   const problems = [];
-  if (stats.compressed_bytes > MAX_STATIC_FILE_BYTES) {
+  if (stats.compressed_bytes > maxFileBytes) {
     problems.push(
-      `${stats.compressed_bytes} B gzipped exceeds the 25 MiB Cloudflare Pages file limit — host it on R2 instead (docs/design_blueprint.md §3.4)`,
+      `${stats.compressed_bytes} B gzipped exceeds the ${formatSize(maxFileBytes)} file limit (Cloudflare Pages: 25 MiB) — shard it (dictionary packs shard automatically) or host it on R2 (docs/design_blueprint.md §3.4)`,
     );
   }
   if (stats.compressed_bytes > RUNTIME_LIMITS.maxCompressedBytes) {
@@ -1141,9 +1148,46 @@ function assertWithinLimits(filename, stats, entryCount) {
   if (entryCount > RUNTIME_LIMITS.maxEntries) {
     problems.push(`${entryCount} entries exceeds runtime maxEntries`);
   }
-  if (problems.length > 0) {
-    throw new Error(`Pack ${filename}: ${problems.join('; ')}`);
+  return problems.map((p) => `Pack ${filename}: ${p}`);
+}
+
+function formatSize(bytes) {
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(2)} MiB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${bytes} B`;
+}
+
+function logPackSize(label, entryCount, stats) {
+  console.log(
+    `  ${label.padEnd(36)} ${String(entryCount).padStart(7)} entries  ${formatSize(stats.compressed_bytes).padStart(10)} gz  ${formatSize(stats.uncompressed_bytes).padStart(10)} raw`,
+  );
+}
+
+/** Deletes `<base>.sNN.json.gz` shard files left by an earlier build of the same pack. */
+function removeStaleShards(outDir, indexFile) {
+  const base = indexFile.replace(/\.json\.gz$/, '');
+  for (const f of readdirSync(outDir)) {
+    if (f.startsWith(`${base}.s`) && /\.s\d{2}\.json\.gz$/.test(f)) rmSync(join(outDir, f));
   }
+}
+
+/**
+ * Sharding defaults. A dictionary pack whose gzipped file would exceed `maxFileBytes` (the
+ * Cloudflare Pages per-file limit) is split by first syllable into shards of at most
+ * `shardBytes`, plus an index (see packages/core/src/dictionary/shards.ts). Shards are kept
+ * small because the app downloads them on demand while searching (at most 3 per lookup).
+ */
+const DEFAULT_SHARDING = {
+  maxFileBytes: MAX_STATIC_FILE_BYTES,
+  shardBytes: 2 * 1024 * 1024,
+  force: new Set(),
+};
+
+async function loadShardBuilder() {
+  const mod = await import(
+    pathToFileURL(join(REPO_ROOT, 'packages', 'core', 'src', 'dictionary', 'shards.ts')).href
+  );
+  return mod.buildShardedDictionaryPack;
 }
 
 const LICENSE_SECTIONS = [
@@ -1210,54 +1254,151 @@ function buildLicensesText(versions = {}) {
   return lines.join('\n');
 }
 
+/** Writes a stroke pack's per-character files; returns their URL template. */
+function writeCharFilesFor(outDir, prefix, meta, payload, charFileNotice) {
+  const charDir = join(outDir, 'strokes', meta.script);
+  mkdirSync(charDir, { recursive: true });
+  for (const [ch, data] of Object.entries(payload.characters)) {
+    const body = charFileNotice ? { ...data, notice: charFileNotice } : data;
+    writeFileSync(join(charDir, `${charToHex5(ch)}.json`), JSON.stringify(body), 'utf8');
+  }
+  return `${prefix}/strokes/${meta.script}/{hex5}.json`;
+}
+
+/** Splits a dictionary pack into an index plus shards and writes them; returns the index stats. */
+function writeShardedPack({
+  outDir,
+  meta,
+  payload,
+  entryCount,
+  encoded,
+  sharding,
+  build,
+  problems,
+}) {
+  logPackSize(`${meta.filename} (unsharded, not written)`, entryCount, encoded);
+  const built = build({
+    manifest: payload.manifest,
+    entries: payload.entries,
+    indexFile: meta.filename,
+    maxShardBytes: Math.min(sharding.shardBytes, sharding.maxFileBytes),
+    encode: encodeGzipJson,
+  });
+  const stats = built.index.encoded;
+  writeFileSync(join(outDir, meta.filename), stats.bytes);
+  logPackSize(`${meta.filename} (index)`, entryCount, stats);
+  problems.push(...limitProblems(meta.filename, stats, entryCount, sharding.maxFileBytes));
+  for (const s of built.shards) {
+    writeFileSync(join(outDir, s.descriptor.file), s.encoded.bytes);
+    const range = s.descriptor.from ? `${s.descriptor.from}–${s.descriptor.to}` : 'non-Hangul';
+    logPackSize(`  ${s.descriptor.file} ${range}`, s.descriptor.entry_count, s.encoded);
+    problems.push(
+      ...limitProblems(
+        s.descriptor.file,
+        s.encoded,
+        s.descriptor.entry_count,
+        sharding.maxFileBytes,
+      ),
+    );
+  }
+  const shards = {
+    scheme: built.sharding.scheme,
+    count: built.shards.length,
+    compressed_bytes: built.shards.reduce((n, s) => n + s.encoded.compressed_bytes, 0),
+    uncompressed_bytes: built.shards.reduce((n, s) => n + s.encoded.uncompressed_bytes, 0),
+  };
+  console.log(
+    `  ${''.padEnd(36)} ${String(built.shards.length).padStart(7)} shards   ${formatSize(shards.compressed_bytes).padStart(10)} gz in total`,
+  );
+  return { stats, shards };
+}
+
+/** The `packs.json` row for one written pack. */
+function catalogEntry({ m, meta, prefix, stats, entryCount, charTemplate, shards }) {
+  return {
+    id: m.id,
+    kind: m.kind,
+    name: m.name,
+    description: m.description,
+    version: m.version,
+    language: m.language,
+    ...(m.script ? { script: m.script } : {}),
+    url: `${prefix}/${meta.filename}`,
+    compressed_bytes: stats.compressed_bytes,
+    uncompressed_bytes: stats.uncompressed_bytes,
+    entry_count: entryCount,
+    sha256: stats.sha256,
+    license_name: m.license_name,
+    license_url: m.license_url,
+    attribution: m.attribution,
+    source_url: m.source_url,
+    ...(meta.optional ? { optional: true } : {}),
+    ...(charTemplate ? { char_url_template: charTemplate } : {}),
+    ...(shards ? { shards } : {}),
+  };
+}
+
 /**
  * Writes every pack, optional per-character stroke files, `packs.json` and `LICENSES.txt`.
  * `urlPrefix` is either a same-origin path (`/packs`) or an absolute https base URL.
+ * Prints every file's size before checking limits, so an oversized build still reports them all.
  */
-function emitPacks({ outDir, urlPrefix, packs, catalogName, updatedAt, writeCharFiles, versions }) {
+async function emitPacks({
+  outDir,
+  urlPrefix,
+  packs,
+  catalogName,
+  updatedAt,
+  writeCharFiles,
+  versions,
+  sharding = DEFAULT_SHARDING,
+}) {
   mkdirSync(outDir, { recursive: true });
   const prefix = urlPrefix.replace(/\/+$/, '');
+  const problems = [];
+  const catalogPacks = [];
+  // Loaded once up front (a dictionary pack may need it) instead of inside the pack loop.
+  const hasDictionary = packs.some((p) => PACK_META[p.id].kind === 'dictionary');
+  const buildShardedDictionaryPack = hasDictionary ? await loadShardBuilder() : undefined;
 
-  const catalogPacks = packs.map(({ id, payload, entryCount, charFileNotice }) => {
+  for (const { id, payload, entryCount, charFileNotice } of packs) {
     const meta = PACK_META[id];
-    let charTemplate;
-    if (meta.kind === 'strokes' && writeCharFiles) {
-      const charDir = join(outDir, 'strokes', meta.script);
-      mkdirSync(charDir, { recursive: true });
-      for (const [ch, data] of Object.entries(payload.characters)) {
-        const body = charFileNotice ? { ...data, notice: charFileNotice } : data;
-        writeFileSync(join(charDir, `${charToHex5(ch)}.json`), JSON.stringify(body), 'utf8');
-      }
-      charTemplate = `${prefix}/strokes/${meta.script}/{hex5}.json`;
-    }
+    const charTemplate =
+      meta.kind === 'strokes' && writeCharFiles
+        ? writeCharFilesFor(outDir, prefix, meta, payload, charFileNotice)
+        : undefined;
 
-    const stats = writeGzipPack(outDir, meta.filename, payload);
-    assertWithinLimits(meta.filename, stats, entryCount);
-    const m = payload.manifest;
-    console.log(
-      `  ${meta.filename.padEnd(28)} ${String(entryCount).padStart(7)} entries  ${(stats.compressed_bytes / 1048576).toFixed(2).padStart(6)} MiB gz  ${(stats.uncompressed_bytes / 1048576).toFixed(2).padStart(7)} MiB raw`,
+    const encoded = encodeGzipJson(payload);
+    removeStaleShards(outDir, meta.filename);
+    let stats = encoded;
+    let shards;
+    const shard =
+      meta.kind === 'dictionary' &&
+      (encoded.compressed_bytes > sharding.maxFileBytes || sharding.force.has(id));
+    if (shard) {
+      ({ stats, shards } = writeShardedPack({
+        outDir,
+        meta,
+        payload,
+        entryCount,
+        encoded,
+        sharding,
+        build: buildShardedDictionaryPack,
+        problems,
+      }));
+    } else {
+      writeFileSync(join(outDir, meta.filename), encoded.bytes);
+      logPackSize(meta.filename, entryCount, encoded);
+      problems.push(...limitProblems(meta.filename, encoded, entryCount, sharding.maxFileBytes));
+    }
+    catalogPacks.push(
+      catalogEntry({ m: payload.manifest, meta, prefix, stats, entryCount, charTemplate, shards }),
     );
-    return {
-      id: m.id,
-      kind: m.kind,
-      name: m.name,
-      description: m.description,
-      version: m.version,
-      language: m.language,
-      ...(m.script ? { script: m.script } : {}),
-      url: `${prefix}/${meta.filename}`,
-      compressed_bytes: stats.compressed_bytes,
-      uncompressed_bytes: stats.uncompressed_bytes,
-      entry_count: entryCount,
-      sha256: stats.sha256,
-      license_name: m.license_name,
-      license_url: m.license_url,
-      attribution: m.attribution,
-      source_url: m.source_url,
-      ...(meta.optional ? { optional: true } : {}),
-      ...(charTemplate ? { char_url_template: charTemplate } : {}),
-    };
-  });
+  }
+
+  if (problems.length > 0) {
+    throw new Error(`Pack limits exceeded (packs.json not written):\n  ${problems.join('\n  ')}`);
+  }
 
   const catalog = {
     format_version: 1,
@@ -1275,7 +1416,7 @@ function emitPacks({ outDir, urlPrefix, packs, catalogName, updatedAt, writeChar
 /* Starter (dev/CI fixtures)                                                                   */
 /* ------------------------------------------------------------------------------------------ */
 
-async function buildStarterPacks({ outDir, urlPrefix }) {
+async function buildStarterPacks({ outDir, urlPrefix, sharding }) {
   const version = '2026.11.0-starter';
   const { jaCharacters, zhCharacters } = buildStarterStrokeSets();
   const { hanjaEntries, kanjidicEntries, cedictEntries, jmdictEntries } =
@@ -1299,7 +1440,8 @@ async function buildStarterPacks({ outDir, urlPrefix }) {
     entryCount: Object.keys(characters).length,
   });
 
-  const catalog = emitPacks({
+  const catalog = await emitPacks({
+    sharding,
     outDir,
     urlPrefix,
     catalogName: 'Flashcards Offline Packs (Starter / Dev Fixtures)',
@@ -1353,7 +1495,14 @@ function listKrdictXmlFiles(inputDir) {
     .map((f) => join(dir, f));
 }
 
-async function buildFullPacks({ inputDir, outDir, urlPrefix, writeCharFiles, includeJmdict }) {
+async function buildFullPacks({
+  inputDir,
+  outDir,
+  urlPrefix,
+  writeCharFiles,
+  includeJmdict,
+  sharding,
+}) {
   const parsers = await import('./packs/upstream-parsers.mjs');
   // Reuse the runtime's own KanjiVG converter so build output matches on-device conversions.
   const { convertKanjivgSvgToHanziWriter } = await import(
@@ -1481,7 +1630,8 @@ async function buildFullPacks({ inputDir, outDir, urlPrefix, writeCharFiles, inc
   // Clear previous per-character files so stale glyphs never linger between upstream versions.
   rmSync(join(outDir, 'strokes'), { recursive: true, force: true });
   console.log(`Writing packs to ${outDir} …`);
-  const catalog = emitPacks({
+  const catalog = await emitPacks({
+    sharding,
     outDir,
     urlPrefix,
     catalogName: 'Flashcards Offline Packs (Full Open Data)',
@@ -1501,8 +1651,43 @@ async function buildFullPacks({ inputDir, outDir, urlPrefix, writeCharFiles, inc
 /* CLI                                                                                         */
 /* ------------------------------------------------------------------------------------------ */
 
+/** `25M`, `512K`, `4096` (bytes) or `1.5MiB` → bytes. */
+function parseSize(raw, flag) {
+  const m = /^(\d+(?:\.\d+)?)\s*([KkMm]?)(?:i?[Bb])?$/.exec(String(raw ?? '').trim());
+  if (!m) throw new Error(`${flag} expects a size like 25M, 512K or 4096 (got "${raw}")`);
+  const unit = { '': 1, k: 1024, m: 1048576 }[m[2].toLowerCase()];
+  const bytes = Math.round(Number(m[1]) * unit);
+  if (bytes < 1) throw new Error(`${flag} must be at least 1 byte`);
+  return bytes;
+}
+
+/** Flags that take no value: how each changes the options. */
+const CLI_SWITCHES = {
+  '--full': (opts) => (opts.full = true),
+  '--starter': (opts) => (opts.full = false),
+  '--no-char-files': (opts) => (opts.charFiles = false),
+  '--skip-jmdict': (opts) => (opts.jmdict = false),
+};
+
+/** Flags that take a value: how each applies it to the options. */
+const CLI_VALUE_FLAGS = {
+  '--input': (opts, v) => (opts.input = resolve(v)),
+  '--out': (opts, v) => (opts.out = resolve(v)),
+  '--base-url': (opts, v) => (opts.baseUrl = v),
+  '--max-file-size': (opts, v, flag) => (opts.sharding.maxFileBytes = parseSize(v, flag)),
+  '--shard-size': (opts, v, flag) => (opts.sharding.shardBytes = parseSize(v, flag)),
+  '--shard': (opts, id) => {
+    if (PACK_META[id]?.kind !== 'dictionary') {
+      throw new Error(`--shard expects a dictionary pack id (got "${id}")`);
+    }
+    opts.sharding.force.add(id);
+  },
+};
+
 function parseCli(argv) {
+  const sharding = { ...DEFAULT_SHARDING, force: new Set() };
   const opts = {
+    sharding,
     full: false,
     input: undefined,
     out: undefined,
@@ -1512,13 +1697,8 @@ function parseCli(argv) {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--full') opts.full = true;
-    else if (a === '--starter') opts.full = false;
-    else if (a === '--input') opts.input = resolve(argv[++i]);
-    else if (a === '--out') opts.out = resolve(argv[++i]);
-    else if (a === '--base-url') opts.baseUrl = argv[++i];
-    else if (a === '--no-char-files') opts.charFiles = false;
-    else if (a === '--skip-jmdict') opts.jmdict = false;
+    if (Object.hasOwn(CLI_SWITCHES, a)) CLI_SWITCHES[a](opts);
+    else if (Object.hasOwn(CLI_VALUE_FLAGS, a)) CLI_VALUE_FLAGS[a](opts, argv[++i], a);
     else throw new Error(`Unknown argument "${a}"`);
   }
   if (opts.baseUrl !== undefined && !/^https:\/\/[^/\s]+/.test(opts.baseUrl)) {
@@ -1537,11 +1717,13 @@ async function main() {
       urlPrefix,
       writeCharFiles: opts.charFiles,
       includeJmdict: opts.jmdict,
+      sharding: opts.sharding,
     });
   } else {
     await buildStarterPacks({
       outDir: opts.out ?? join(REPO_ROOT, 'apps', 'web', 'public', 'packs'),
       urlPrefix,
+      sharding: opts.sharding,
     });
   }
 }

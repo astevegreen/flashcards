@@ -12,6 +12,7 @@ import type {
   ReviewRecord,
 } from '../model/types.ts';
 import {
+  foldSourceUnlinkedFromUnknown,
   getTotalAppliedEventCount,
   type CollectionState,
   type PendingDeckPatch,
@@ -484,7 +485,10 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
     snapshotEventCount: serialized.totalEvents,
   };
   // Snapshots from builds that predate `NoteTagsAdded` carry those events as unknown.
-  state.unknownEvents = foldTagAddEventsFromUnknown(state, unknownEvents);
+  state.unknownEvents = foldSourceUnlinkedFromUnknown(
+    state,
+    foldTagAddEventsFromUnknown(state, unknownEvents),
+  );
   // ...and those that hydrated a newer snapshot keep the add registers but may have rewritten
   // `note.tags` without the adds: re-derive every such note so hydration equals a full replay.
   canonicalizeAllTagAddNotes(state);

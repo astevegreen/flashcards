@@ -113,6 +113,11 @@ describe('Multi-device CRDT/event-log convergence (fast-check property test)', (
         dt: fc.integer({ min: 1, max: 50_000 }),
       }),
       fc.record({
+        kind: fc.constant('sourceUnlink' as const),
+        deviceIdx: fc.integer({ min: 0, max: 2 }),
+        dt: fc.integer({ min: 1, max: 50_000 }),
+      }),
+      fc.record({
         kind: fc.constant('pageRead' as const),
         deviceIdx: fc.integer({ min: 0, max: 2 }),
         dt: fc.integer({ min: 1, max: 50_000 }),
@@ -271,6 +276,10 @@ describe('Multi-device CRDT/event-log convergence (fast-check property test)', (
                   },
                   clock,
                 ),
+              );
+            } else if (act.kind === 'sourceUnlink') {
+              allEvents.push(
+                factory.create('SourceUnlinked', { target_kind: 'deck', target_id: deckId }, clock),
               );
             } else if (act.kind === 'pageRead') {
               allEvents.push(

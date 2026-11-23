@@ -156,6 +156,30 @@ describe('Japanese search planning and ranking', () => {
     expect(rankDictionaryResults([zhLater, zhPrimary], 'dog')[0]?.headword).toBe('狗');
   });
 
+  it('an exact altForm hit caps guessed lemmas too', () => {
+    // かえる reads as the potential of 買う; the frog matches only through an altForm.
+    const kau = entry('dict-jmdict', '買う', ['かう'], ['to buy']);
+    const frog = { ...entry('dict-jmdict', '蛙', ['かわず'], ['frog']), altForms: ['かえる'] };
+    expect(rankDictionaryResults([kau, frog], 'かえる').map((e) => e.headword)).toEqual([
+      '蛙',
+      '買う',
+    ]);
+  });
+
+  it('an exact hit in a filtered-out pack does not cap guessed lemmas', () => {
+    const kau = entry('dict-jmdict', '買う', ['かう'], ['to buy']);
+    // A 780-tier hit (eumhun substring): above a capped guess, below an uncapped one.
+    const other = { ...entry('dict-jmdict', '他', ['た'], ['other']), eumhun: ['かえる'] };
+    const hiddenExact = entry('dict-cc-cedict', '蛙', ['かえる'], ['frog']);
+    const pool = [kau, other, hiddenExact];
+
+    const visible = rankDictionaryResults(pool, 'かえる').map((e) => e.headword);
+    expect(visible).toEqual(['蛙', '他', '買う']);
+
+    const filtered = rankDictionaryResults(pool, 'かえる', { packIds: ['dict-jmdict'] });
+    expect(filtered.map((e) => e.headword)).toEqual(['買う', '他']);
+  });
+
   it('caps the deinflected prefix tokens', () => {
     const plan = planDictionarySearch('食べさせられなかった');
     const guessed = plan.prefixTokens.filter((t) => t.startsWith('食べ'));

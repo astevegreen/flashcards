@@ -11,10 +11,14 @@ import type {
   SourceSyncStatus,
   SourceWarning,
 } from '@flash/platform';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
+import type * as SourceRunner from '../sources/sourceRunner.ts';
 import { useApp } from '../state/AppContext.tsx';
 
-const LazyOneDrivePickerPanel = lazy(() => import('../sources/OneDrivePickerPanel.tsx'));
+const LazyOneDrivePickerPanel = lazyWithRetry(() => import('../sources/OneDrivePickerPanel.tsx'), {
+  closeWith: 'onClose',
+});
 
 function formatStatusLabel(status?: SourceSyncStatus): string {
   switch (status) {
@@ -43,6 +47,22 @@ function getStatusPillClass(status?: SourceSyncStatus): string {
     default:
       return 'bg-[var(--surface-2)] text-[var(--muted)]';
   }
+}
+
+interface SourceRowStatus {
+  lastStatus?: SourceSyncStatus;
+  skipReason?: 'archived' | 'unreadable';
+}
+
+/** A row the last refresh left alone says why (its `lastError` has the full sentence). */
+function rowPillLabel(src: SourceRowStatus): string {
+  if (src.skipReason === 'archived') return 'Deck archived';
+  if (src.skipReason === 'unreadable') return "Can't read here";
+  return formatStatusLabel(src.lastStatus);
+}
+
+function rowPillClass(src: SourceRowStatus): string {
+  return src.skipReason ? getStatusPillClass('offline') : getStatusPillClass(src.lastStatus);
 }
 
 function isSafeExternalGoogleUrl(uri?: string): boolean {
@@ -82,6 +102,26 @@ function WarningsDisclosure({ warnings }: { warnings?: SourceWarning[] | undefin
 export interface SourcesPanelProps {
   onStatusMessage: (msg: string) => void;
   onErrorMessage: (msg: string | null) => void;
+}
+
+/** The status line after "Refresh all" finished without errors. */
+function refreshAllStatusMessage(summary: {
+  importedNotes: number;
+  importedPages: number;
+  inboxImported: number;
+  skipped: readonly string[];
+}): string {
+  const parts: string[] = [];
+  if (summary.importedNotes > 0) parts.push(`${summary.importedNotes} note change(s)`);
+  if (summary.importedPages > 0) parts.push(`${summary.importedPages} page(s)`);
+  if (summary.inboxImported > 0) parts.push(`${summary.inboxImported} Inbox package(s)`);
+  // Sources left alone on purpose (archived deck, Excel file this device can't read).
+  const skipped = summary.skipped.length > 0;
+  let done = skipped
+    ? 'The other linked sources are up to date.'
+    : 'All linked sources are up to date.';
+  if (parts.length > 0) done = `Refreshed sources: ${parts.join(', ')}.`;
+  return skipped ? `${done} Not refreshed: ${summary.skipped.join(' | ')}` : done;
 }
 
 export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelProps) {
@@ -433,15 +473,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       if (summary.errors.length > 0) {
         onErrorMessage(summary.errors.join(' | '));
       } else {
-        const parts: string[] = [];
-        if (summary.importedNotes > 0) parts.push(`${summary.importedNotes} note change(s)`);
-        if (summary.importedPages > 0) parts.push(`${summary.importedPages} page(s)`);
-        if (summary.inboxImported > 0) parts.push(`${summary.inboxImported} Inbox package(s)`);
-        onStatusMessage(
-          parts.length > 0
-            ? `Refreshed sources: ${parts.join(', ')}.`
-            : 'All linked sources are up to date.',
-        );
+        onStatusMessage(refreshAllStatusMessage(summary));
       }
     } catch (err) {
       onErrorMessage(err instanceof Error ? err.message : String(err));
@@ -462,6 +494,11 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       const res = await refreshSingleGoogleSource(target, makeRunnerCtx(), { force: true });
       await saveSourcesRegistry(platform, nextReg);
       setRegistry(nextReg);
+      if (target.skipReason && target.lastError) {
+        // An archived deck: nothing was pulled, so "up to date" would be wrong.
+        onErrorMessage(target.lastError);
+        return;
+      }
       onStatusMessage(
         res.updated
           ? `Refreshed "${target.name}" (${res.notesTouched} note change(s), ${res.pagesTouched} page(s)).`
@@ -603,103 +640,97 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
-  const handleUnlink = async (
-    kind: 'google' | 'onedrive' | 'folder' | 'package' | 'catalog',
-    id: string,
-  ) => {
-    const { loadSourcesRegistry, saveSourcesRegistry } = await import('../sources/sourceRunner.ts');
-    const nextReg = await loadSourcesRegistry(platform, state);
-    if (kind === 'google') {
-      nextReg.googleSources = nextReg.googleSources.filter((s) => s.id !== id);
-    } else if (kind === 'onedrive') {
-      const removed = (nextReg.oneDriveSources ?? []).find((s) => s.id === id);
-      nextReg.oneDriveSources = (nextReg.oneDriveSources ?? []).filter((s) => s.id !== id);
-      // The deck keeps its source, so remember the unlink or the row comes back from the deck.
-      if (removed) {
-        nextReg.unlinkedOneDriveIds = [
-          ...new Set([...(nextReg.unlinkedOneDriveIds ?? []), removed.itemId]),
-        ];
-      }
-    } else if (kind === 'folder') {
-      nextReg.localFolders = nextReg.localFolders.filter((f) => f.id !== id);
-      const adapter = await platform.getLocalFolderSources();
-      await adapter.removeFolder(id);
-    } else if (kind === 'package') {
-      nextReg.packageSubscriptions = nextReg.packageSubscriptions.filter((p) => p.id !== id);
-    } else {
-      nextReg.catalogs = nextReg.catalogs.filter((c) => c.id !== id);
+  const handleUnlink = async (kind: SourceRunner.UnlinkSourceKind, id: string) => {
+    onErrorMessage(null);
+    try {
+      const { unlinkSource } = await import('../sources/sourceRunner.ts');
+      // Synced sources are unlinked on every device (SourceUnlinked), not just here.
+      setRegistry(await unlinkSource(kind, id, makeRunnerCtx()));
+      onStatusMessage('Source unlinked. Local decks and review history remain intact.');
+    } catch (err) {
+      onErrorMessage(err instanceof Error ? err.message : String(err));
     }
-    await saveSourcesRegistry(platform, nextReg);
+  };
+
+  const dropPendingReconciliation = (rec: PendingXlsxReconciliation) => {
+    setPendingReconciliations((prev) =>
+      prev.filter((r) => !(r.folderId === rec.folderId && r.relativePath === rec.relativePath)),
+    );
+  };
+
+  /** Applies a held OneDrive pull with the user's matches (`renameMap`). */
+  const applyOneDriveReconciliation = async (
+    rec: PendingXlsxReconciliation,
+    renameMap: Record<string, string>,
+    runner: typeof SourceRunner,
+  ) => {
+    const nextReg = await runner.loadSourcesRegistry(platform, state);
+    const itemId = rec.folderId.slice(runner.ONEDRIVE_RECONCILE_PREFIX.length);
+    const od = nextReg.oneDriveSources?.find((s) => s.itemId === itemId);
+    if (!od) return;
+    const res = await runner.refreshSingleOneDriveSource(od, makeRunnerCtx(), {
+      force: true,
+      renameMap,
+    });
+    await runner.saveSourcesRegistry(platform, nextReg);
     setRegistry(nextReg);
-    onStatusMessage('Source unlinked. Local decks and review history remain intact.');
+    const notApplied =
+      od.lastStatus === 'offline' ||
+      od.lastStatus === 'permission_required' ||
+      res.unreadable ||
+      od.lastError;
+    if (notApplied) {
+      // Nothing was applied (an archived deck says so here): keep the prompt for later.
+      onErrorMessage(
+        od.lastStatus === 'offline'
+          ? 'You are offline. Try again when you are back online.'
+          : (od.lastError ?? 'OneDrive could not be read. Try Refresh on the source.'),
+      );
+      return;
+    }
+    dropPendingReconciliation(rec);
+    onStatusMessage(
+      res.updated
+        ? `Applied the OneDrive changes to "${rec.deckName}".`
+        : `"${rec.deckName}" is already up to date.`,
+    );
   };
 
   const handleApplyReconciliation = async (rec: PendingXlsxReconciliation) => {
     setBusy(true);
     onErrorMessage(null);
     try {
-      const key = `${rec.folderId}:${rec.relativePath}`;
-      const chosen = reconcileChoices[key] ?? {};
+      const chosen = reconcileChoices[`${rec.folderId}:${rec.relativePath}`] ?? {};
       const renameMap: Record<string, string> = {};
       for (const [noteId, newSortKey] of Object.entries(chosen)) {
         if (newSortKey) renameMap[noteId] = newSortKey;
       }
 
-      const {
-        loadSourcesRegistry,
-        ONEDRIVE_RECONCILE_PREFIX,
-        refreshSingleOneDriveSource,
-        saveSourcesRegistry,
-        scanSingleLocalFolder,
-      } = await import('../sources/sourceRunner.ts');
-      const nextReg = await loadSourcesRegistry(platform, state);
-      if (rec.folderId.startsWith(ONEDRIVE_RECONCILE_PREFIX)) {
-        const itemId = rec.folderId.slice(ONEDRIVE_RECONCILE_PREFIX.length);
-        const od = nextReg.oneDriveSources?.find((s) => s.itemId === itemId);
-        if (!od) return;
-        const res = await refreshSingleOneDriveSource(od, makeRunnerCtx(), {
-          force: true,
-          renameMap,
-        });
-        await saveSourcesRegistry(platform, nextReg);
-        setRegistry(nextReg);
-        if (
-          od.lastStatus === 'offline' ||
-          od.lastStatus === 'permission_required' ||
-          res.unreadable ||
-          od.lastError
-        ) {
-          // Nothing was applied: keep the prompt so the user can answer it again later.
-          onErrorMessage(
-            od.lastStatus === 'offline'
-              ? 'You are offline. Try again when you are back online.'
-              : (od.lastError ?? 'OneDrive could not be read. Try Refresh on the source.'),
-          );
-          return;
-        }
-        setPendingReconciliations((prev) =>
-          prev.filter((r) => !(r.folderId === rec.folderId && r.relativePath === rec.relativePath)),
-        );
-        onStatusMessage(
-          res.updated
-            ? `Applied the OneDrive changes to "${rec.deckName}".`
-            : `"${rec.deckName}" is already up to date.`,
+      const runner = await import('../sources/sourceRunner.ts');
+      if (rec.folderId.startsWith(runner.ONEDRIVE_RECONCILE_PREFIX)) {
+        await applyOneDriveReconciliation(rec, renameMap, runner);
+        return;
+      }
+      const archivedDeck = state.decks.get(rec.deckId);
+      if (archivedDeck?.archived) {
+        // Nothing would be applied to an archived deck: keep the prompt for after a restore.
+        onErrorMessage(
+          `The deck "${archivedDeck.name}" is archived. Restore it in the Library first.`,
         );
         return;
       }
+      const nextReg = await runner.loadSourcesRegistry(platform, state);
       const folder = nextReg.localFolders.find((f) => f.id === rec.folderId);
       if (!folder) return;
 
-      await scanSingleLocalFolder(folder, makeRunnerCtx(), {
+      await runner.scanSingleLocalFolder(folder, makeRunnerCtx(), {
         requestPermission: true,
         force: true,
         xlsxRenameMaps: { [rec.relativePath]: renameMap },
       });
-      await saveSourcesRegistry(platform, nextReg);
+      await runner.saveSourcesRegistry(platform, nextReg);
       setRegistry(nextReg);
-      setPendingReconciliations((prev) =>
-        prev.filter((r) => !(r.folderId === rec.folderId && r.relativePath === rec.relativePath)),
-      );
+      dropPendingReconciliation(rec);
       onStatusMessage(`Applied .xlsx reconciliation for "${rec.deckName}".`);
     } catch (err) {
       onErrorMessage(err instanceof Error ? err.message : String(err));
@@ -1091,9 +1122,9 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
                       </span>
                     )}
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${getStatusPillClass(src.lastStatus)}`}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${rowPillClass(src)}`}
                     >
-                      {formatStatusLabel(src.lastStatus)}
+                      {rowPillLabel(src)}
                     </span>
                   </div>
                   <div className="mt-1 text-[11px] text-[var(--muted)]">
@@ -1157,9 +1188,9 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
                       Read-only
                     </span>
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${getStatusPillClass(src.lastStatus)}`}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${rowPillClass(src)}`}
                     >
-                      {formatStatusLabel(src.lastStatus)}
+                      {rowPillLabel(src)}
                     </span>
                   </div>
                   <div className="mt-1 text-[11px] text-[var(--muted)]">

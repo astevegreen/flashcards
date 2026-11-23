@@ -1350,6 +1350,7 @@ dependencies = [
  "keyring",
  "objc2",
  "objc2-foundation",
+ "plist",
  "serde",
  "serde_json",
  "tauri",

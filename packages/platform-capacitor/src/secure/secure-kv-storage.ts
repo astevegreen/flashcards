@@ -24,6 +24,8 @@ export interface SecureKvRouting {
   migrateLegacyRows(): Promise<boolean>;
   /** Deletes every secret this routing owns (routed KV keys and `extraSecretKeys`). */
   removeSecrets(): Promise<void>;
+  /** The secure-store key of every secret this routing owns (names only, in a fixed order). */
+  secretKeys: readonly string[];
 }
 
 /**
@@ -136,5 +138,6 @@ export function createSecureKvRouting(options: {
       return true;
     },
     removeSecrets,
+    secretKeys: [...[...routed].map(secureKey), ...(options.extraSecretKeys ?? [])],
   };
 }

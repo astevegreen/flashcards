@@ -254,6 +254,25 @@ describe('sourceRunner — PC Local Folder end-to-end (relative media, .xlsx rec
     expect(scan2.pendingReconciliations).toHaveLength(0);
     expect(state.notes.get(eatNoteId)?.fields['word']).toBe('食べます');
     expect(state.cards.get(eatCardId)?.schedule.reps).toBe(1);
+
+    // An archived deck is left alone, and read again once restored.
+    const archive = (archived: boolean, at: number) =>
+      applyEvents(state, [
+        factory.create('DeckSettingsChanged', { deck_id: jaDeck.id, archived }, at),
+      ]);
+    archive(true, 3000);
+    xlsxRows = [
+      ['Word', 'Reading', 'Meaning'],
+      ['食べます', 'たべます', 'to eat (changed)'],
+    ];
+    xlsxMtime = 3000;
+    await scanSingleLocalFolder(linked.folder, ctx);
+    expect(state.notes.get(eatNoteId)?.fields['meaning']).toBe('to eat (polite)');
+    expect(linked.folder.warnings?.some((w) => w.code === 'deck_archived')).toBe(true);
+
+    archive(false, 4000);
+    await scanSingleLocalFolder(linked.folder, ctx);
+    expect(state.notes.get(eatNoteId)?.fields['meaning']).toBe('to eat (changed)');
   });
 
   it('localizes CORS-accessible https: images on Google Sheets pull in strictly ascending seq, warns non-blockingly on CORS failure, and reuses cached media without re-fetching on repeat pulls (Option 1)', async () => {

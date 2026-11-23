@@ -110,6 +110,18 @@ export interface SourceLinkedPayload {
   source: SourceRef;
 }
 
+/**
+ * Unlinks a deck's or page's source on every device: the target keeps its notes, cards and review
+ * history but loses `source`, so no device lists or refreshes it as a linked source any more. It
+ * shares the `deck:<id>:source` / `page:<id>:source` LWW register with `SourceLinked`, so the
+ * newer of an unlink and a (re)link wins under any delivery order. Older builds that do not know
+ * it keep it untouched in `unknownEvents` (§4.2); hydrating their snapshots folds it back in.
+ */
+export interface SourceUnlinkedPayload {
+  target_kind: 'deck' | 'page';
+  target_id: string;
+}
+
 export interface PreferencesChangedPayload {
   preferences: Partial<CollectionPreferences>;
 }
@@ -232,6 +244,7 @@ export interface EventPayloadMap {
   CourseChanged: CourseChangedPayload;
   MediaAdded: MediaAddedPayload;
   SourceLinked: SourceLinkedPayload;
+  SourceUnlinked: SourceUnlinkedPayload;
   PreferencesChanged: PreferencesChangedPayload;
   CardSuspended: CardSuspendedPayload;
   CardUnsuspended: CardUnsuspendedPayload;
@@ -293,6 +306,7 @@ export function isKnownEventType(type: string): type is KnownEventType {
     type === 'CourseChanged' ||
     type === 'MediaAdded' ||
     type === 'SourceLinked' ||
+    type === 'SourceUnlinked' ||
     type === 'PreferencesChanged' ||
     type === 'CardSuspended' ||
     type === 'CardUnsuspended' ||

@@ -11,6 +11,7 @@ import { withSecretLossDetection } from '../secure/secure-loss-tracking.ts';
 import {
   clearPluginTokenCopiesAtLaunch,
   googleSignInCleanup,
+  markStoredSecretsAtLaunch,
   prepareSecureStorageAtLaunch,
 } from '../secure/secure-launch.ts';
 import {
@@ -93,6 +94,12 @@ export async function bootCapacitorPlatform(
     database,
     routing: secureKv,
     scrubFreePages: () => database.scrubFreePages(),
+  });
+  // In the background, so it never delays the first study screen.
+  void markStoredSecretsAtLaunch({
+    platform: mobilePlatform,
+    secureStorage,
+    keys: secureKv.secretKeys,
   });
 
   const googleSignInPlugin = await loadGoogleSignInPlugin(

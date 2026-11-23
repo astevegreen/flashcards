@@ -25,7 +25,11 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useState, type FormEv
 import { RichText } from '../components/RichText.tsx';
 import { DrawLookupPanel } from '../drawing/DrawLookupPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
-import { useDrawScripts, type DrawScriptLang } from '../drawing/useDrawScripts.ts';
+import {
+  drawToolsVisible,
+  useDrawScripts,
+  type DrawScriptLang,
+} from '../drawing/useDrawScripts.ts';
 import { ShowAllLanguagesSwitch } from '../packs/ShowAllLanguagesSwitch.tsx';
 import { homeSummariesFor, searchPackIds, useVisiblePacks } from './useVisiblePacks.ts';
 import { DictionaryBrowseHeader, DictionaryHome } from './DictionaryHome.tsx';
@@ -826,8 +830,10 @@ export function DictionaryPanel({
     scripts: drawScripts,
     lang: drawLang,
     setLang: setDrawLang,
-    show: showDrawTools,
+    show: languageShowsDrawTools,
   } = useDrawScripts();
+  // A caller that explicitly opens the pad is honoured even when no CJK language is active.
+  const showDrawTools = drawToolsVisible(languageShowsDrawTools, initialDrawOpen);
   const [direction, setDirection] = useState<DictionaryDirection>(readLookupDirection);
   const chooseDirection = (next: DictionaryDirection): void => {
     setDirection(next);
@@ -870,6 +876,26 @@ export function DictionaryPanel({
   const typed = query.trim().length > 0;
   const listEntries = visibleEntries(typed, results, browseSel, browseEntries);
   const selectedEntry = listEntries.find((r) => r.id === selectedEntryId) ?? listEntries[0];
+
+  // Sharded packs: the detail pane completes a stub row (its shard downloads on demand).
+  useEffect(() => {
+    const getService = platform.getDictionaryService;
+    if (!selectedEntry?.stub || !getService) return undefined;
+    let cancelled = false;
+    void getService()
+      .then((svc) => svc.loadFullEntries?.([selectedEntry]))
+      .then((rows) => {
+        const full = rows?.[0];
+        if (cancelled || !full || full.stub) return;
+        const swap = (list: DictionaryEntry[]) => list.map((e) => (e.id === full.id ? full : e));
+        setResults(swap);
+        setBrowseEntries(swap);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [platform, selectedEntry]);
 
   const decks = useMemo(
     () =>
@@ -1037,6 +1063,17 @@ export function DictionaryPanel({
     e.preventDefault();
     if (query.trim()) rememberLookup(query);
     void runSearch(query, packFilter);
+  };
+
+  /** A sharded pack's stub row (no definitions or examples yet) is completed before it's added. */
+  const withFullEntry = async (entry: DictionaryEntry): Promise<DictionaryEntry> => {
+    if (!entry.stub || !platform.getDictionaryService) return entry;
+    try {
+      const svc = await platform.getDictionaryService();
+      return (await svc.loadFullEntries?.([entry]))?.[0] ?? entry;
+    } catch {
+      return entry;
+    }
   };
 
   const handleAddEntryToDeck = (entry: DictionaryEntry, deckId: string) => {
@@ -1230,7 +1267,7 @@ export function DictionaryPanel({
           )}
         </div>
 
-        {showDraw && showDrawTools && (
+        {showDraw && showDrawTools && drawScripts.length > 0 && (
           <label className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
             <span>Draw script:</span>
             <select
@@ -1377,8 +1414,12 @@ export function DictionaryPanel({
                           [PACK_LANG[entry.packId]]: deckId,
                         }))
                       }
-                      onAdd={(deckId) => handleAddEntryToDeck(entry, deckId)}
-                      onCreateDeckAndAdd={() => handleQuickCreateAndAdd(entry)}
+                      onAdd={(deckId) =>
+                        void withFullEntry(entry).then((e) => handleAddEntryToDeck(e, deckId))
+                      }
+                      onCreateDeckAndAdd={() =>
+                        void withFullEntry(entry).then((e) => handleQuickCreateAndAdd(e))
+                      }
                     />
                   </Fragment>
                 ))}

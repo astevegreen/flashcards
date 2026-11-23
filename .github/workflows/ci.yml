@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - uses: actions/setup-node@v7
         with:
@@ -61,3 +61,61 @@ jobs:
           name: playwright-results
           path: test-results/
           retention-days: 7
+
+  # Stale-override + byte-identical guard for the generated starter decks. Separate from `verify` so
+  # an upstream outage (korean.go.kr, unicode.org, wikidata.org) can never block the main gate. The
+  # fetched sources are sha256-pinned and cached by the files that pin them, so the network is
+  # normally not touched. If the download itself fails the check is skipped with a warning; a real
+  # drift (stale override, non-identical rebuild) still fails the job.
+  starter-decks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # build-starter-decks.mjs imports prettier (and the scripts' other workspace deps).
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Restore and save are split so a run whose download failed never saves a partial cache.
+      # A v1 key saved by such a run is abandoned by the v2 prefix.
+      - name: Restore pinned starter sources
+        id: sources-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/starter-sources
+          key: starter-sources-v2-${{ hashFiles('scripts/starters/sources.mjs', 'scripts/fetch-starter-sources.mjs', 'content/starters/wikidata-ko-lexemes.lock.json') }}
+
+      # Always runs: the script skips files already in the cache and fills in any that are missing.
+      - name: Fetch pinned starter sources
+        id: fetch
+        continue-on-error: true
+        run: |
+          for attempt in 1 2 3; do
+            node scripts/fetch-starter-sources.mjs && exit 0
+            echo "fetch attempt $attempt failed"
+            sleep $((attempt * 20))
+          done
+          exit 1
+
+      - name: Warn when the sources could not be downloaded
+        if: steps.fetch.outcome == 'failure'
+        run: echo "::warning::Starter source download failed; starter-deck --check was skipped."
+
+      - name: Check starter decks (stale overrides, byte-identical rebuild)
+        if: steps.fetch.outcome == 'success'
+        run: node scripts/build-starter-decks.mjs --check
+
+      - name: Save pinned starter sources
+        if: steps.fetch.outcome == 'success' && steps.sources-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/starter-sources
+          key: ${{ steps.sources-cache.outputs.cache-primary-key }}
