@@ -550,7 +550,7 @@ If development ever stops:
 
 > Phases 9–14 close the gaps found in the Nov 2026 product review, before a store launch. The order is the priority order. Korean is the reference language for acceptance testing; every feature must also work for `ja`, `zh-Hans` and `en`.
 
-### Phase 9 — Categories, Filtered Study & Card Control — *Planned*
+### Phase 9 — Categories, Filtered Study & Card Control — *Implemented*
 Goal: at least Flashcards Deluxe parity for organizing and filtering cards.
 - **Categories = note `tags[]`** (already synced via `NoteUpserted`). Keep mapping `Category 1..N` / `Tags` columns on import, and write them back out on CSV/`.flashpkg` export so a Flashcards Deluxe round-trip is lossless. Add optional `::` hierarchy.
 - **Tag manager:** lists every category with note counts; renames, merges and deletes across the whole collection in one batch of events.
@@ -560,7 +560,7 @@ Goal: at least Flashcards Deluxe parity for organizing and filtering cards.
 - **Custom study:** review ahead, extra new cards today, and cram/practice mode for a filter. Cram records a `PracticeRecorded` event that does **not** change FSRS state.
 - **Suspend/unsuspend** cards and notes (`CardSuspended` / `CardUnsuspended` events). **Leeches:** at N lapses (default 8) tag `leech` and optionally auto-suspend.
 
-### Phase 10 — Korean Dictionary Excellence — *Planned (top priority)*
+### Phase 10 — Korean Dictionary Excellence — *First slice implemented; remainder under audit (`docs/follow-ups.md`)*
 Goal: the best offline Korean↔English lookup in any flashcard app, built on open data that permits commercial use.
 - **Primary source: NIKL 한국어기초사전 (KRDict), English edition** (full XML download, CC BY-SA 2.0 KR). Keep per-sense English equivalents and definitions, part of speech, learner level (초급/중급/고급), standard pronunciation, conjugated forms, Hanja origin, example sentences, and related, synonym and antonym links.
 - **Coverage sources:** 우리말샘 and 표준국어대사전 (CC BY-SA 2.0 KR, Korean–Korean) for headwords KRDict lacks, the Kaikki Wiktionary Korean extract (CC BY-SA 4.0) for extra English glosses, slang and etymology, and kengdic only after its license is confirmed. Every sense shows a source badge.
@@ -577,7 +577,7 @@ Goal: the best offline Korean↔English lookup in any flashcard app, built on op
 - **Licensing decision point:** evaluate licensing a commercial publisher's Korean–English dataset as an optional premium pack if the open-data quality bar is not met. Attribution for every source appears in About.
 - **Follow-on:** bring the same search treatment (deinflection, reverse index) to `ja` (JMdict) and `zh-Hans` (CC-CEDICT).
 
-### Phase 11 — Statistics & FSRS Optimizer — *Planned*
+### Phase 11 — Statistics & FSRS Optimizer — *Implemented*
 - **Stats screen:** reviews per day, time spent, true retention vs. target, due forecast, a calendar heatmap with streaks, maturity breakdown, and the hardest cards. Filterable by deck and category (Phase 9 filter). Computed from the event log, offline.
 - **On-device FSRS optimizer:** `fsrs-browser` WASM (verified in ADR 0001) runs in a Worker per deck or preset. It emits `DeckFSRSParamsChanged`, with an optional "Reschedule existing cards".
 - The MCP `get_stats` output matches the screen.
@@ -589,7 +589,7 @@ Goal: the best offline Korean↔English lookup in any flashcard app, built on op
   - token-helper `/ms/exchange` and `/ms/refresh` routes for web, MSAL on native
   - optional OneDrive file picker as a content source for `.csv` / `.xlsx` / `.flashpkg`
 
-### Phase 13 — Launch Polish — *Implemented (onboarding pending the Phase 14 review)*
+### Phase 13 — Launch Polish — *Implemented*
 - **Study reminders:** native local notifications on Capacitor and Tauri at a user-chosen time with the due count. The PWA gets an in-app badge only.
 - **MCP server upgrades:**
   - `search_notes` with the Phase 9 filter
@@ -607,7 +607,7 @@ Goal: the best offline Korean↔English lookup in any flashcard app, built on op
   - **Accessibility scaling:** an in-app card text-size setting; respect OS text size (iOS Dynamic Type and the Android font scale inside the native WebViews; to be verified); `prefers-reduced-motion`.
   - **Test matrix:** Playwright projects for a small phone (320×568), a regular phone (390×844), a landscape phone (844×390), a foldable cover screen, a tablet (820×1180 portrait/landscape) and a desktop (1920×1080). The e2e suite currently runs only Desktop Chrome plus one 390×844 test.
 
-### Phase 14 — Onboarding & Setup Review (Store-Launch Gate) — *Planned*
+### Phase 14 — Onboarding & Setup Review (Store-Launch Gate) — *Implemented in code; real-device tester audit pending (`docs/onboarding-review.md`)*
 Goal: an aggressive end-to-end review that removes every unnecessary step between install and studying, and between a second device and synced data. **The app doesn't go to the stores until this review passes.**
 
 - **Audit:** walk every first-run path on a fresh Android phone, iPhone and Windows PC, plus a tablet and a foldable:

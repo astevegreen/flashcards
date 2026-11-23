@@ -1,5 +1,6 @@
 import { SyncTransportError } from '@flash/core';
 import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
+import { ONEDRIVE_NATIVE_SESSION_KV_KEY } from './microsoft-native-session-key.ts';
 import { MICROSOFT_PICKER_SCOPE, MICROSOFT_SYNC_SCOPES } from './microsoft-oauth-web.ts';
 
 /** Tokens returned by a native Microsoft public-client sign-in or refresh. */
@@ -42,7 +43,7 @@ function isRefreshRejected(err: unknown): boolean {
   return err instanceof Error && err.name === 'MicrosoftRefreshRejectedError';
 }
 
-const SESSION_KV_KEY = 'onedrive_native_session_v1';
+const SESSION_KV_KEY = ONEDRIVE_NATIVE_SESSION_KV_KEY;
 const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
 function scopeList(scope: string): string[] {

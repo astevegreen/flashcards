@@ -4,7 +4,8 @@
  *
  * Compiles downloadable offline dictionary packs (Unihan Hanja, KANJIDIC2, CC-CEDICT, JMdict, KRDict)
  * and separate stroke packs (KanjiVG JA, Make Me a Hanzi ZH/Hanja) into gzipped static assets
- * plus a unified `packs.json` manifest and Cloudflare Pages CORS `_headers`.
+ * plus a unified `packs.json` manifest. (CORS for the packs CDN comes from the root `_headers` that
+ * `.github/workflows/publish-packs.yml` writes: Cloudflare Pages ignores `_headers` in a subfolder.)
  *
  * Usage:
  *   node scripts/build-packs.mjs --starter [--out <dir>] [--base-url <https-url>]
@@ -1210,7 +1211,7 @@ function buildLicensesText(versions = {}) {
 }
 
 /**
- * Writes every pack, optional per-character stroke files, `packs.json`, `_headers` and `LICENSES.txt`.
+ * Writes every pack, optional per-character stroke files, `packs.json` and `LICENSES.txt`.
  * `urlPrefix` is either a same-origin path (`/packs`) or an absolute https base URL.
  */
 function emitPacks({ outDir, urlPrefix, packs, catalogName, updatedAt, writeCharFiles, versions }) {
@@ -1266,11 +1267,6 @@ function emitPacks({ outDir, urlPrefix, packs, catalogName, updatedAt, writeChar
   };
 
   writeFileSync(join(outDir, 'packs.json'), JSON.stringify(catalog, null, 2) + '\n', 'utf8');
-  writeFileSync(
-    join(outDir, '_headers'),
-    '/*\n  Access-Control-Allow-Origin: *\n  Cache-Control: public, max-age=3600\n',
-    'utf8',
-  );
   writeFileSync(join(outDir, 'LICENSES.txt'), buildLicensesText(versions), 'utf8');
   return catalog;
 }

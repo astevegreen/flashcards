@@ -80,9 +80,9 @@ Only Chromium Playwright with faked endpoints has covered these.
 
 ### Small code follow-ups
 
-- [ ] Export the OneDrive session KV key from `packages/platform-web/src/auth/microsoft-native-auth.ts` and import it in `secure-store.ts`. Today it is duplicated, and a test guards the duplicate.
-- [ ] Scrub SQLite free pages after the secure-store migration (`PRAGMA secure_delete` or a one-time `VACUUM`).
-- [ ] `apps/web/public/packs/_headers` has a `/*` block that Cloudflare Pages ignores, because only the root `_headers` file applies. Check whether it is meant only for the packs CDN.
+- [x] The OneDrive session KV key is defined once (`ONEDRIVE_NATIVE_SESSION_KV_KEY` in `packages/platform-web/src/auth/microsoft-native-session-key.ts`, exported from `@flash/platform-web/native-support`), and `secure-store.ts` imports it.
+- [x] SQLite free pages are scrubbed: the phone database opens with `PRAGMA secure_delete = ON`, and the launch that first runs the secure-store migration sweep also runs `VACUUM` once (`prepareSecureStorageAtLaunch`). Not run on a device yet.
+- [x] `packs/_headers` was dead in both places `scripts/build-packs.mjs` wrote it (the app's `public/packs` and the CDN's `dist-static/packs`), because Cloudflare Pages applies only the root `_headers`. The packs CDN gets its CORS headers from the root `_headers` that `publish-packs.yml` writes, and the app loads its own packs from the same origin. The file and its generator are removed.
 - [ ] The byte-identical starter-deck rebuild is checked only where the upstream cache exists. Run `node scripts/build-starter-decks.mjs --check` before changing the generated decks.
 
 ### Anki extras (owner: no preference; proposed defaults)

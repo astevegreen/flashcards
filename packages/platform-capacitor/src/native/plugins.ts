@@ -45,6 +45,9 @@ export async function openCapacitorSqliteDriver(dbName = 'flashcards'): Promise<
     ? await sqlite.retrieveConnection(dbName, false)
     : await sqlite.createConnection(dbName, false, 'no-encryption', 1, false);
   await db.open();
+  // Deleted rows are overwritten with zeros, so a secret moved out of SQLite (or any deleted card)
+  // does not linger in free pages. Per connection, so it is set on every open.
+  await db.execute('PRAGMA secure_delete = ON;', false);
   return {
     execute: async (sql, params) => {
       // `transaction: false` — `CapacitorSqliteStorage` issues its own BEGIN/COMMIT when needed.

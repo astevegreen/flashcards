@@ -11,6 +11,8 @@ import type {
   SyncTransport,
 } from '@flash/platform';
 
+export { ONEDRIVE_NATIVE_SESSION_KV_KEY } from './auth/microsoft-native-session-key.ts';
+
 /**
  * Helpers shared by the Capacitor and Tauri native shells (§10.1, §15 Phase 8).
  *
