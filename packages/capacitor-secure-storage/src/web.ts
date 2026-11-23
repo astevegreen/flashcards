@@ -13,7 +13,7 @@ export class FlashSecureStorageWeb extends WebPlugin implements FlashSecureStora
     throw this.unavailable(UNAVAILABLE_MESSAGE);
   }
 
-  async set(_options: { key: string; value: string }): Promise<void> {
+  async set(_options: { key: string; value: string }): Promise<{ lost?: boolean } | undefined> {
     throw this.unavailable(UNAVAILABLE_MESSAGE);
   }
 

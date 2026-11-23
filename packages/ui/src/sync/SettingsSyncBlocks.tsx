@@ -1,14 +1,30 @@
 import { useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { peekAddDeviceExpectation } from './addDeviceExpectation.ts';
 import { AddDeviceCollectionNotice } from './AddDeviceCollectionNotice.tsx';
-import { isAddDeviceProvider } from './addDeviceLink.ts';
+import { isAddDeviceProvider, type AddDeviceProvider } from './addDeviceLink.ts';
 import { AddDevicePanel } from './AddDevicePanel.tsx';
 import { SyncMyDevicesPanel } from './SyncMyDevicesPanel.tsx';
+import { planSyncMyDevices } from './syncProviders.ts';
 
 /**
  * Phase 14 pieces of Settings > Cloud Sync, kept out of SettingsScreen so its own logic stays
  * small. They ship in the Settings chunk (never the initial study bundle, §8).
  */
+
+/**
+ * The provider the "Sync my devices" button at the top of Cloud Sync is about to connect, or
+ * `undefined` while that button is not shown. That provider's own Connect button below is hidden,
+ * so no service is offered twice.
+ */
+export function useActiveSyncChoice(): AddDeviceProvider | undefined {
+  const { platform, syncState, addDeviceLink } = useApp();
+  if (syncState.provider !== 'none' && addDeviceLink === undefined) return undefined;
+  const link =
+    addDeviceLink ??
+    (syncState.provider === 'none' ? peekAddDeviceExpectation(platform.storage) : undefined);
+  return planSyncMyDevices(platform, link).primary;
+}
 
 /** The one "Sync my devices" button while nothing syncs (or an add-device link names a provider). */
 export function SettingsSyncMyDevices() {

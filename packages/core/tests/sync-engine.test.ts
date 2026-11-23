@@ -420,6 +420,91 @@ describe('SyncEngine & Codec unit tests (§4.2 & §13)', () => {
     expect(transport.writeLog).toHaveLength(0);
   });
 
+  describe('expected collection (add-device link)', () => {
+    const t0 = Date.UTC(2026, 4, 1, 9, 0, 0);
+    const remoteId = 'col-remote-999';
+
+    async function seedRemote(transport: RecordingMemoryTransport) {
+      await transport.write(
+        manifestPath(),
+        encodeManifest({
+          collection_id: remoteId,
+          format_version: 1,
+          min_app_version: '0.2.0',
+          created_at: t0,
+        }),
+      );
+      transport.writeLog.length = 0;
+    }
+
+    const localEv = createEventFactory('dev-a', 0, createHlcState('dev-a', t0)).create(
+      'PreferencesChanged',
+      { preferences: { day_start_hour: 5 } },
+      t0,
+    );
+
+    it('stops before binding, pulling or pushing when the remote collection differs', async () => {
+      const transport = new RecordingMemoryTransport();
+      await seedRemote(transport);
+      const cursor = createInitialSyncCursor();
+      const res = await runSync({
+        transport,
+        deviceId: 'dev-a',
+        cursor,
+        localOwnSeq: 1,
+        expectedCollectionId: 'col-expected-111',
+        getLocalEventsAfterSeq: async () => [localEv],
+      });
+      expect(res.status).toBe('collection_choice_required');
+      expect(res.collectionId).toBe(remoteId);
+      expect(res.pulledEvents).toHaveLength(0);
+      expect(res.pushedEventCount).toBe(0);
+      expect(res.cursor.collectionId).toBeUndefined();
+      expect(transport.writeLog).toHaveLength(0);
+    });
+
+    it('choosing the synced collection later keeps and pushes every local event', async () => {
+      const transport = new RecordingMemoryTransport();
+      await seedRemote(transport);
+      const res = await runSync({
+        transport,
+        deviceId: 'dev-a',
+        cursor: createInitialSyncCursor(),
+        localOwnSeq: 1,
+        nowMs: () => t0 + 10,
+        getLocalEventsAfterSeq: async () => [localEv],
+      });
+      expect(res.status).toBe('ok');
+      expect(res.cursor.collectionId).toBe(remoteId);
+      expect(res.pushedEventCount).toBe(1);
+    });
+
+    it('does not ask when the collection matches, the device is bound, or the store is empty', async () => {
+      const transport = new RecordingMemoryTransport();
+      await seedRemote(transport);
+      const matching = await runSync({
+        transport,
+        deviceId: 'dev-a',
+        cursor: createInitialSyncCursor(),
+        localOwnSeq: 0,
+        expectedCollectionId: remoteId,
+        getLocalEventsAfterSeq: async () => [],
+      });
+      expect(matching.status).toBe('ok');
+
+      const empty = new RecordingMemoryTransport();
+      const fresh = await runSync({
+        transport: empty,
+        deviceId: 'dev-b',
+        cursor: createInitialSyncCursor(),
+        localOwnSeq: 0,
+        expectedCollectionId: 'col-expected-111',
+        getLocalEventsAfterSeq: async () => [],
+      });
+      expect(fresh.status).toBe('ok');
+    });
+  });
+
   it('blocks gzip bombs, oversized segments, and unsafe device IDs (§13)', () => {
     // 2 MiB of zeros compresses to ~2 KB -> exceeds a 64 KB uncompressed cap immediately
     const bombPayload = new Uint8Array(2 * 1024 * 1024);

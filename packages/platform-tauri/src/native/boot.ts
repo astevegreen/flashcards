@@ -12,6 +12,7 @@ import {
   createFsBridge,
   createLoopbackOAuthPlugin,
   createSecureSecretBackend,
+  createAddDeviceUrlSource,
   createSystemBrowserLauncher,
   openTauriDatabase,
 } from './plugins.ts';
@@ -126,6 +127,7 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
 
   const platform: PlatformServices = {
     ...composeNativePlatform(native, base),
+    onAddDeviceUrl: createAddDeviceUrlSource(),
     ...oneDrive,
     // Phase 13 study reminders: desktop notifications while the app runs. The notification
     // plugin cannot schedule on desktop, so nothing fires after the app quits (Settings says so).

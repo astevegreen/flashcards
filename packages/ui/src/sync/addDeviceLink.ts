@@ -91,6 +91,45 @@ export function buildAddDeviceUrl(base: string, link: AddDeviceLink): string {
   return url.toString();
 }
 
+/** Scheme and host of the native add-device deep link (`flashcards://add-device?...`). */
+export const ADD_DEVICE_DEEP_LINK_BASE = 'flashcards://add-device';
+
+/** The link a native shell shows as QR code and copyable text; the same two values as the web link. */
+export function buildAddDeviceDeepLink(link: AddDeviceLink): string {
+  const params = new URLSearchParams();
+  params.set(ADD_DEVICE_PROVIDER_PARAM, PROVIDER_TO_CODE.get(link.provider) ?? '');
+  if (link.collectionId !== undefined && isShareableCollectionId(link.collectionId)) {
+    params.set(ADD_DEVICE_COLLECTION_PARAM, link.collectionId);
+  }
+  return `${ADD_DEVICE_DEEP_LINK_BASE}?${params.toString()}`;
+}
+
+/**
+ * Reads a `flashcards://add-device?...` link the OS opened the app with. Plain string checks, not
+ * `new URL`: older Android System WebViews parse custom schemes non-standardly. The query goes
+ * through the same allow-list as the web link, so anything else (another host, a path, an unknown
+ * provider, a bad or repeated value) is `undefined`. Unrelated extra params are ignored, as on the web.
+ */
+export function parseAddDeviceDeepLink(url: string): AddDeviceLink | undefined {
+  if (url.length > 2200) return undefined;
+  // Some desktop OSes add a trailing slash to an empty path: `flashcards://add-device/?...`.
+  const prefix = url.slice(0, ADD_DEVICE_DEEP_LINK_BASE.length).toLowerCase();
+  if (prefix !== ADD_DEVICE_DEEP_LINK_BASE) return undefined;
+  let rest = url.slice(ADD_DEVICE_DEEP_LINK_BASE.length);
+  if (rest.startsWith('/')) rest = rest.slice(1);
+  if (!rest.startsWith('?')) return undefined;
+  const hash = rest.indexOf('#');
+  return parseAddDeviceParams(hash === -1 ? rest : rest.slice(0, hash));
+}
+
+/** The same link again keeps the current object, so a repeated scan or tap re-routes nothing. */
+export function mergeOpenedAddDeviceLink(
+  prev: AddDeviceLink | undefined,
+  next: AddDeviceLink,
+): AddDeviceLink {
+  return prev?.provider === next.provider && prev.collectionId === next.collectionId ? prev : next;
+}
+
 interface LocationLike {
   readonly href: string;
   readonly search: string;

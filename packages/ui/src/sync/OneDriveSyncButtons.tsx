@@ -9,9 +9,12 @@ import { useApp } from '../state/AppContext.tsx';
  */
 export function OneDriveSyncButtons({
   busy,
+  hideConnect = false,
   onError,
 }: Readonly<{
   busy: boolean;
+  /** "Sync my devices" already offers OneDrive as its choice: no second Connect button. */
+  hideConnect?: boolean;
   onError: (message: string | null) => void;
 }>) {
   const { platform, entitlement, syncState, connectOneDrive } = useApp();
@@ -38,6 +41,7 @@ export function OneDriveSyncButtons({
   };
 
   if (syncState.provider !== 'onedrive') {
+    if (hideConnect) return null;
     return (
       <button
         type="button"
