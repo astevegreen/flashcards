@@ -24,6 +24,7 @@ import { createGoogleSignIn, type GoogleSignInOptions } from '../auth/google-soc
 import type { NativeGoogleSignInPlugin } from '../auth/native-google-auth.ts';
 import type { MlKitDigitalInkPlugin } from '../drawing/mlkit-ink-recognizer.ts';
 import type { CapacitorFileBridge } from '../files/capacitor-files.ts';
+import { createCapacitorSaveStream } from '../files/capacitor-stream.ts';
 import type { StoreBillingPlugin } from '../purchase/store-purchase.ts';
 import type { LocalNotificationsBridge } from '../reminders/local-notification-reminders.ts';
 import type { SystemBrowserLauncher } from '../sources/native-picker-bridge.ts';
@@ -267,6 +268,18 @@ export function createFileBridge(): CapacitorFileBridge {
       });
       await Share.share({ title: filename, files: [written.uri] });
     },
+    openSaveStream: (filename) =>
+      createCapacitorSaveStream(
+        {
+          writeFile: ({ path, data }) =>
+            Filesystem.writeFile({ path, data, directory: Directory.Cache }),
+          appendFile: ({ path, data }) =>
+            Filesystem.appendFile({ path, data, directory: Directory.Cache }),
+          deleteFile: ({ path }) => Filesystem.deleteFile({ path, directory: Directory.Cache }),
+          share: ({ title, uri }) => Share.share({ title, files: [uri] }).then(() => undefined),
+        },
+        filename,
+      ),
   };
 }
 

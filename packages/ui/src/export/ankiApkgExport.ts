@@ -14,13 +14,33 @@ function notesText(n: number): string {
 /**
  * Streams a zip into Blob parts and saves it. Each chunk is copied into its own Blob as it
  * arrives, so the media read for the zip can be freed file by file; the browser keeps large
- * Blobs out of the JS heap. Platforms without `downloadBlob` get one array at the end.
+ * Blobs out of the JS heap. Native platforms with `saveStream` write chunks to a file; others get one array at the end.
  */
 async function saveStreamedZip<R extends { fileName: string }>(
   platform: PlatformServices,
   mimeType: string,
+  fileName: string,
   write: (emit: (chunk: Uint8Array) => void) => Promise<R>,
 ): Promise<R> {
+  if (!platform.files.downloadBlob && platform.files.saveStream) {
+    const sink = await platform.files.saveStream(fileName, mimeType);
+    if (!sink) throw new Error('Export cancelled.');
+    // Chunks are written in order; `queue` keeps `emit` synchronous for the zip writer.
+    let queue: Promise<void> = Promise.resolve();
+    try {
+      const result = await write((chunk) => {
+        const copy = chunk.slice();
+        queue = queue.then(() => sink.write(copy));
+        queue.catch(() => undefined);
+      });
+      await queue;
+      await sink.close();
+      return result;
+    } catch (err) {
+      await sink.abort().catch(() => undefined);
+      throw err;
+    }
+  }
   const parts: Blob[] = [];
   const result = await write((chunk) => parts.push(new Blob([chunk as Uint8Array<ArrayBuffer>])));
   const blob = new Blob(parts, { type: mimeType });
@@ -72,8 +92,11 @@ export async function exportAnkiApkg(
   });
   const collection = await reader.writeCollection(plan.collection);
   const readMedia = async (hash: string) => (await platform.storage.getMedia(hash))?.bytes;
-  const result = await saveStreamedZip(platform, 'application/octet-stream', (emit) =>
-    writeApkg(collection, plan, readMedia, emit, { modifiedMs: Date.now() }),
+  const result = await saveStreamedZip(
+    platform,
+    'application/octet-stream',
+    plan.fileName,
+    (emit) => writeApkg(collection, plan, readMedia, emit, { modifiedMs: Date.now() }),
   );
   const files = result.mediaCount > 0 ? ` and ${result.mediaCount} media file(s)` : '';
   const warnings = plan.warnings.length > 0 ? ` ${plan.warnings.join(' ')}` : '';

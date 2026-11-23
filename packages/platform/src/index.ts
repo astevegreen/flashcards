@@ -191,6 +191,15 @@ export interface DownloadableBlob {
   arrayBuffer(): Promise<ArrayBuffer>;
 }
 
+/** Where a streamed export goes: chunks are written in order, then `close` or `abort`. */
+export interface FileSink {
+  write(chunk: Uint8Array): Promise<void>;
+  /** Finishes the file (the native share sheet opens, or the saved file is complete). */
+  close(): Promise<void>;
+  /** Stops and deletes the partial file. Safe to call after a failed `write`. */
+  abort(): Promise<void>;
+}
+
 export interface Files {
   pickFile(options?: PickFileOptions): Promise<PickedFile | null>;
   downloadFile(filename: string, data: Uint8Array, mimeType: string): Promise<void>;
@@ -199,6 +208,12 @@ export interface Files {
    * array first, for large exports. Without it, callers read the Blob and use `downloadFile`.
    */
   downloadBlob?(filename: string, blob: DownloadableBlob): Promise<void>;
+  /**
+   * Optional (native builds): opens a file to write in chunks, so a large export never sits in
+   * memory as one array. Resolves to `null` when the user cancels the save dialog. Without it,
+   * callers build the whole file and use `downloadFile`.
+   */
+  saveStream?(filename: string, mimeType: string): Promise<FileSink | null>;
   /** Optional PC local folder picker (Phase 3). */
   pickDirectory?(): Promise<unknown>;
 }
