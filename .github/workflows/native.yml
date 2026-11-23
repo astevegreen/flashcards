@@ -1,0 +1,130 @@
+name: Native builds
+
+# Compiles the Capacitor Android and iOS shells, including the app's own native code
+# (`@flash/capacitor-secure-storage`, `ICloudDocumentsPlugin.swift`), which no developer machine
+# here can build. It only proves that the code compiles and links; it does not run it on a device
+# (see docs/native-shells.md "Native build CI").
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/capacitor-secure-storage/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/native.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/capacitor-secure-storage/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/native.yml'
+  # Weekly, to catch runner image changes (Xcode, Android SDK) before they block a release.
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android (Gradle assembleDebug)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the web bundle (copied into the shell)
+        run: pnpm --filter @flash/web build
+
+      - name: Capacitor sync
+        run: pnpm --filter @flash/mobile exec cap sync android
+
+      - name: Generated Capacitor files match the committed ones
+        run: |
+          if ! git diff --exit-code -- apps/mobile/android; then
+            echo "::error::'cap sync android' changed checked-in files. Run it locally and commit the result."
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Gradle assembleDebug
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-debug-apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+  ios:
+    name: iOS (xcodebuild, Simulator, unsigned)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      # Capacitor 8 needs Xcode 26 or newer.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the web bundle (copied into the shell)
+        run: pnpm --filter @flash/web build
+
+      - name: Capacitor sync
+        run: pnpm --filter @flash/mobile exec cap sync ios
+
+      - name: Generated Capacitor files match the committed ones
+        run: |
+          if ! git diff --exit-code -- apps/mobile/ios; then
+            echo "::error::'cap sync ios' changed checked-in files. Run it locally and commit the result."
+            exit 1
+          fi
+
+      - name: xcodebuild (iOS Simulator, no code signing)
+        working-directory: apps/mobile/ios/App
+        run: |
+          xcodebuild -version
+          xcodebuild build \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet

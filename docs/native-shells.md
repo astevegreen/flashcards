@@ -199,6 +199,25 @@ when upgrading `@capgo/capacitor-social-login` (`SOCIAL_LOGIN_GOOGLE_ANDROID_COP
 `socialLoginOAuth2Copy` in `src/secure/secure-store.ts`). The Microsoft migration itself uses only
 the plugin's public API.
 
+## Native build CI
+
+`.github/workflows/native.yml` compiles both phone shells on GitHub's runners, because no
+development machine here has a JDK, an Android SDK or Xcode:
+
+- **Android** (`ubuntu-latest`, JDK 21): builds the web bundle, runs `cap sync android`, then
+  `gradlew assembleDebug`. The debug APK is kept as a run artifact for 7 days.
+- **iOS** (`macos-latest`, latest stable Xcode): `cap sync ios`, then `xcodebuild` for the iOS
+  Simulator with code signing off, so no Apple account or certificate is needed.
+- Both jobs fail if `cap sync` changes a checked-in file (`capacitor.settings.gradle`,
+  `CapApp-SPM/Package.swift`, …). After adding or upgrading a Capacitor plugin, run `cap sync`
+  locally and commit what it changes.
+
+It runs on pull requests and pushes to `main` that touch `apps/mobile/`,
+`packages/capacitor-secure-storage/` or `pnpm-lock.yaml`, weekly on Monday (to catch runner image
+changes), and on demand from the Actions tab (**Run workflow**). It proves that the native code
+compiles and links. It does not run it: the Keychain/Keystore round trip, the OneDrive redirect and
+the rest of `docs/follow-ups.md` "Not verified on real devices" still need a device.
+
 ## Desktop (Tauri 2): Windows, macOS or Linux
 
 Prerequisites:
