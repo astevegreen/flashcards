@@ -1,6 +1,11 @@
 import type { Storage } from '@flash/platform';
 import { use, useState } from 'react';
-import { planEmptyCollection, syncsWithRealProvider } from '../onboarding/emptyCollectionPlan.ts';
+import {
+  isJoiningCollection,
+  isSyncStalled,
+  planEmptyCollection,
+  syncsWithRealProvider,
+} from '../onboarding/emptyCollectionPlan.ts';
 import { FirstRunOnboarding } from '../onboarding/FirstRunOnboarding.tsx';
 import { onboardingRecordResource, saveOnboardingRecord } from '../onboarding/onboardingState.ts';
 import type { OnboardingDeckInfo } from '../onboarding/starterDecks.ts';
@@ -60,6 +65,7 @@ export function EmptyCollection({
   const storedLink = use(addDeviceExpectationResource(storage));
   const { syncState, meta } = useApp();
   const [linkPending, setLinkPending] = useState(storedLink !== undefined);
+  const [joinGivenUp, setJoinGivenUp] = useState(false);
   const plan = planEmptyCollection({
     record,
     collectionEmpty,
@@ -67,6 +73,7 @@ export function EmptyCollection({
     collectionId: meta?.collectionId,
     openedFromAddDeviceLink,
     addDeviceLinkPending: linkPending,
+    joinGivenUp,
   });
   const [skipped, setSkipped] = useState(false);
   const [syncOpen, setSyncOpen] = useState(plan.syncOpen);
@@ -91,9 +98,15 @@ export function EmptyCollection({
 
   // Closing "Sync my devices" before this device syncs anywhere turns away from the add-device
   // link it was opened with: the link is forgotten, so this is an ordinary new device again.
+  // Closing it while this device's first sync is stuck (it needs a reconnect, or failed) lets the
+  // user start here instead: onboarding is offered from this tap on (see `planEmptyCollection`).
   const toggleSync = () => {
     const turningAway = syncOpen && !syncsWithRealProvider(syncState.provider);
     if (turningAway && (linkPending || openedFromAddDeviceLink)) forgetLink();
+    const stuck =
+      (isJoiningCollection(syncState.provider, meta?.collectionId) || linkPending) &&
+      isSyncStalled(syncState.status);
+    if (syncOpen && stuck) setJoinGivenUp(true);
     setSyncOpen(!syncOpen);
   };
 

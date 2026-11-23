@@ -58,6 +58,7 @@ Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). Tick an it
 Only Chromium Playwright with faked endpoints has covered these.
 
 - [ ] **First Gradle and Xcode builds of `@flash/capacitor-secure-storage`.** The Java and Swift code has never been compiled: the build machine has no JDK, Android SDK or Xcode. Then on devices: the Keychain/Keystore round trip, the Custom Tabs OneDrive redirect (including a WebView older than Chromium M130), migration of an existing plaintext token on upgrade, backup exclusions, and the CapacitorHttp refresh against real Entra.
+- [ ] Capacitor `pickFile({ maxBytes })`: `@capawesome/capacitor-file-picker` with `readData: false`, then `Filesystem.readFile` on the returned path (an Android `content://` URI or an iOS temporary file). Never run on a device.
 - [ ] Recheck the capgo plugin's internal plaintext key names (`packages/platform-capacitor/src/secure/secure-store.ts` and the native allowlists) on every `@capgo/capacitor-social-login` upgrade. They are pinned for 8.7.x.
 - [ ] Add-device QR codes scanned with a real phone camera.
 - [ ] Second device fully synced within 2 minutes with one sign-in (the Phase 14 target). It has not been measured, because the e2e sign-in is faked.
@@ -84,6 +85,13 @@ Only Chromium Playwright with faked endpoints has covered these.
 - [ ] Scrub SQLite free pages after the secure-store migration (`PRAGMA secure_delete` or a one-time `VACUUM`).
 - [ ] `apps/web/public/packs/_headers` has a `/*` block that Cloudflare Pages ignores, because only the root `_headers` file applies. Check whether it is meant only for the packs CDN.
 - [ ] The byte-identical starter-deck rebuild is checked only where the upstream cache exists. Run `node scripts/build-starter-decks.mjs --check` before changing the generated decks.
+
+### Final review nits from the Phase 14 batch (PR #9), resolved 2026-11-22
+
+- [x] **Anki media past the 20-per-field cap:** not a bug. `capMedia` (`model-plan.ts`) cuts each field's references to the cap before any file is resolved or stored, and every field gets as many media keys as its largest note needs. A regression test now guards it (`media past the per-field cap is dropped and never stored`).
+- [x] **A failed first sync hid onboarding until a reset.** Closing "Sync my devices" while the first sync is stuck (`error`, `reconnect_required`, `upgrade_required` or `offline`) now offers onboarding (`joinGivenUp` in `emptyCollectionPlan.ts`). It is latched on that tap, never on a sync result, so nothing swaps under the pointer. Covered by an e2e test with OneDrive answering 500.
+- [x] **A stale refresh token could survive a new sign-in.** A sign-in that returns no refresh token now deletes the stored one, on phones (`microsoft-secure-bridge.ts`) and on desktop (Tauri OneDrive loopback and Google loopback). A refresh that rotates nothing still keeps the current token.
+- [x] **Bring my cards read oversized files before checking them.** `Files.pickFile` takes `maxBytes`. Web and Tauri check the size first, and Capacitor picks with `readData: false`, checks the size, then reads the path with `Filesystem.readFile`. A file over 300 MB is never loaded. Files under the limit are still read in full, because the importers need the bytes (the drag-and-drop path already checked `file.size`).
 
 ### Anki extras (owner: no preference; proposed defaults)
 

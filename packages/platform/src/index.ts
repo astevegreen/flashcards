@@ -120,8 +120,22 @@ export interface Storage {
 
 export interface PickedFile {
   name: string;
+  /** The file's content; empty when `tooLarge` is set. */
   bytes: Uint8Array;
   mime?: string;
+  /** Size in bytes, when the platform reports it before reading. */
+  size?: number;
+  /** The file is larger than the `maxBytes` passed to `pickFile`, so it was not read at all. */
+  tooLarge?: true;
+}
+
+export interface PickFileOptions {
+  accept?: string;
+  /**
+   * Largest file to read. A bigger one is never loaded into memory: `pickFile` resolves to it with
+   * empty `bytes` and `tooLarge: true`, so the caller can say so without risking a crash.
+   */
+  maxBytes?: number;
 }
 
 export interface ProcessedImage {
@@ -139,7 +153,7 @@ export interface ImageProcessOptions {
 }
 
 export interface Files {
-  pickFile(options?: { accept?: string }): Promise<PickedFile | null>;
+  pickFile(options?: PickFileOptions): Promise<PickedFile | null>;
   downloadFile(filename: string, data: Uint8Array, mimeType: string): Promise<void>;
   /** Optional PC local folder picker (Phase 3). */
   pickDirectory?(): Promise<unknown>;

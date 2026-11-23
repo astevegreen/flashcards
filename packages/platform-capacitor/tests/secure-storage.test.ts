@@ -364,6 +364,23 @@ describe('Microsoft refresh token lives only in the secure store', () => {
     expect(secure.values.get(MICROSOFT_REFRESH_TOKEN_KEY)).toBe('nested-refresh');
   });
 
+  it('a sign-in that returns no refresh token forgets the old one (it may be another account)', async () => {
+    const secure = new FakeSecureStorage();
+    await secure.set(MICROSOFT_REFRESH_TOKEN_KEY, 'old-account-refresh');
+    const socialLogin = new FakeSocialLogin();
+    socialLogin.nextLogin = { accessToken: { token: 'a' }, refreshToken: null, expiresIn: 3600 };
+    const bridge = createSecureMicrosoftBridge({
+      clientId: 'c',
+      socialLogin,
+      secureStore: secure,
+      postToken: tokenEndpoint(() => ({ status: 500, data: {} })),
+    });
+    const tokens = await bridge.authorize(['offline_access']);
+    expect(tokens.accessToken).toBe('a');
+    expect(secure.values.has(MICROSOFT_REFRESH_TOKEN_KEY)).toBe(false);
+    await expect(bridge.refresh(['offline_access'])).rejects.toThrow('Not signed in');
+  });
+
   it('still clears the plugin copy when the secure write fails', async () => {
     const secure = new FakeSecureStorage();
     secure.failWrites = true;

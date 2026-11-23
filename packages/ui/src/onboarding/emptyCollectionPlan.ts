@@ -1,4 +1,5 @@
 import type { SyncProviderKind } from '@flash/platform';
+import type { SyncUiStatus } from '../state/useSyncController.ts';
 import type { OnboardingRecord } from './onboardingState.ts';
 
 /**
@@ -11,6 +12,12 @@ import type { OnboardingRecord } from './onboardingState.ts';
  * store's collection id (its first sync with that provider has not finished: the sign-in redirect
  * has just returned, or the pull is still running), or while an add-device link it was opened
  * with is still waiting to be confirmed.
+ *
+ * If that first sync fails instead (the provider needs a reconnect, the device is offline, or the
+ * sync store needs a newer app), the device would wait forever. Closing "Sync my devices" while it
+ * is stuck like that is the user's own choice to start here instead, so onboarding is offered from
+ * then on (`joinGivenUp`). It is latched on that tap, never on a sync result, so nothing swaps under
+ * the pointer; anything studied meanwhile merges into the shared collection once sync works.
  */
 
 export interface EmptyCollectionInput {
@@ -24,6 +31,8 @@ export interface EmptyCollectionInput {
   openedFromAddDeviceLink: boolean;
   /** An add-device link (with a collection id) is stored on this device and not yet confirmed. */
   addDeviceLinkPending: boolean;
+  /** The user closed "Sync my devices" while this device's first sync had failed. */
+  joinGivenUp: boolean;
 }
 
 export interface EmptyCollectionStart {
@@ -46,10 +55,20 @@ export function isJoiningCollection(
   return syncsWithRealProvider(syncProvider) && collectionId === undefined;
 }
 
+/** Sync statuses in which a first sync cannot land until the user acts (or the network returns). */
+export function isSyncStalled(status: SyncUiStatus): boolean {
+  return (
+    status === 'error' ||
+    status === 'reconnect_required' ||
+    status === 'upgrade_required' ||
+    status === 'offline'
+  );
+}
+
 export function planEmptyCollection(input: EmptyCollectionInput): EmptyCollectionStart {
   const joining = isJoiningCollection(input.syncProvider, input.collectionId);
   const syncOpen = input.openedFromAddDeviceLink || input.addDeviceLinkPending || joining;
-  const offerOnboarding =
-    input.record === undefined && input.collectionEmpty && !joining && !input.addDeviceLinkPending;
+  const waitingToJoin = (joining || input.addDeviceLinkPending) && !input.joinGivenUp;
+  const offerOnboarding = input.record === undefined && input.collectionEmpty && !waitingToJoin;
   return { offerOnboarding, syncOpen };
 }

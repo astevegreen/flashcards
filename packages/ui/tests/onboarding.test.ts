@@ -15,6 +15,7 @@ import {
 import { DexieStorage } from '../../platform-web/src/storage/dexie-storage.ts';
 import {
   isJoiningCollection,
+  isSyncStalled,
   planEmptyCollection,
   type EmptyCollectionInput,
 } from '../src/onboarding/emptyCollectionPlan.ts';
@@ -227,6 +228,7 @@ describe('the empty-collection screen: existing users never see onboarding', () 
     collectionId: undefined,
     openedFromAddDeviceLink: false,
     addDeviceLinkPending: false,
+    joinGivenUp: false,
   };
 
   it('offers onboarding on a fresh, empty device that syncs nowhere', () => {
@@ -262,6 +264,26 @@ describe('the empty-collection screen: existing users never see onboarding', () 
     expect(
       planEmptyCollection({ ...fresh, syncProvider: 'onedrive', collectionId: COLLECTION }),
     ).toEqual({ offerOnboarding: true, syncOpen: false });
+  });
+
+  it('offers it after the user closes Sync my devices on a stuck first sync, but keeps sync open first', () => {
+    const stuck = { ...fresh, syncProvider: 'onedrive' as const, addDeviceLinkPending: true };
+    expect(planEmptyCollection(stuck)).toEqual({ offerOnboarding: false, syncOpen: true });
+    expect(planEmptyCollection({ ...stuck, joinGivenUp: true })).toEqual({
+      offerOnboarding: true,
+      syncOpen: true,
+    });
+    expect(
+      planEmptyCollection({ ...stuck, joinGivenUp: true, record: { status: 'skipped', at: 1 } })
+        .offerOnboarding,
+    ).toBe(false);
+  });
+
+  it('a first sync is stuck only in states that need the user or the network', () => {
+    for (const status of ['error', 'reconnect_required', 'upgrade_required', 'offline'] as const)
+      expect(isSyncStalled(status)).toBe(true);
+    for (const status of ['idle', 'syncing', 'synced'] as const)
+      expect(isSyncStalled(status)).toBe(false);
   });
 
   it('the dev-only channel does not count as joining a collection', () => {

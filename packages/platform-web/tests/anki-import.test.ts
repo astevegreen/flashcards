@@ -23,6 +23,7 @@ import {
   ankiReviewId,
   AnkiImportError,
   importAnkiPackage,
+  MAX_MEDIA_PER_FIELD,
   type AnkiImportOptions,
   type AnkiRawPackage,
 } from '@flash/core/anki';
@@ -592,6 +593,39 @@ describe('Anki .apkg import: Phase 14 follow-ups', () => {
     expect(result.warnings).toEqual([
       '1 media file(s) referenced by notes are not in the package.',
     ]);
+  });
+
+  it('media past the per-field cap is dropped and never stored', async () => {
+    const state = createEmptyState();
+    const raw = await read('media.apkg');
+    const extra = 3;
+    const names = Array.from({ length: MAX_MEDIA_PER_FIELD + extra }, (_, i) => `cap-${i}.png`);
+    mapColumn(raw, 'notes', 'flds', (flds) => {
+      const [front = '', ...rest] = String(flds).split('');
+      if (!front.includes('猫')) return flds;
+      return [front + names.map((n) => `<img src="${n}">`).join(''), ...rest].join('');
+    });
+    names.forEach((name, i) => raw.media.push({ name, bytes: new Uint8Array([0xca, 0xfe, i]) }));
+    const result = importInto(state, raw);
+    const referenced = new Set(
+      activeNotes(state).flatMap((n) =>
+        Object.values(n.fields).filter((v) => v.startsWith('media:')),
+      ),
+    );
+    const added = eventsOfType(result.events, 'MediaAdded').map(
+      (e) => `media:${e.payload.media.hash}`,
+    );
+    expect(added.every((ref) => referenced.has(ref))).toBe(true);
+    expect(result.extractedMedia.every((m) => referenced.has(`media:${m.hash}`))).toBe(true);
+    const dropped = names.slice(MAX_MEDIA_PER_FIELD).map((n) => {
+      const bytes = raw.media.find((m) => m.name === n)?.bytes ?? new Uint8Array();
+      return `media:${sha256Hex(bytes)}`;
+    });
+    expect(dropped.some((ref) => added.includes(ref))).toBe(false);
+    expect(result.summary.media).toBe(result.extractedMedia.length);
+    expect(
+      result.warnings.some((w) => w.includes(`${extra} image or sound reference(s) were dropped`)),
+    ).toBe(true);
   });
 
   it('reports each field with its detected language, and a change becomes events', async () => {

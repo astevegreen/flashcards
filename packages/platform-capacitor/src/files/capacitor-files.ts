@@ -1,7 +1,7 @@
-import type { Files, PickedFile } from '@flash/platform';
+import type { Files, PickedFile, PickFileOptions } from '@flash/platform';
 
 export interface CapacitorFileBridge {
-  pickFile(opts?: { accept?: string }): Promise<PickedFile | null>;
+  pickFile(opts?: PickFileOptions): Promise<PickedFile | null>;
   saveAndShareFile(opts: { filename: string; data: Uint8Array; mimeType: string }): Promise<void>;
 }
 
@@ -12,7 +12,7 @@ export class CapacitorFiles implements Files {
     if (bridge) this.bridge = bridge;
   }
 
-  async pickFile(options?: { accept?: string }): Promise<PickedFile | null> {
+  async pickFile(options?: PickFileOptions): Promise<PickedFile | null> {
     if (this.bridge) {
       return this.bridge.pickFile(options);
     }

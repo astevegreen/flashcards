@@ -101,7 +101,10 @@ export function createSecureMicrosoftBridge(options: {
       const result = await socialLogin.login(scopes);
       try {
         const refreshToken = result.refreshToken ?? result.accessToken?.refreshToken;
+        // A sign-in without a refresh token must not leave an older one behind: it may belong to
+        // another account, and later refreshes would silently switch back to it.
         if (refreshToken) await secureStore.set(MICROSOFT_REFRESH_TOKEN_KEY, refreshToken);
+        else await secureStore.remove(MICROSOFT_REFRESH_TOKEN_KEY);
         return loginToTokenSet(result, nowMs());
       } finally {
         // Runs even when the secure write fails: the token must not stay in plaintext storage.
