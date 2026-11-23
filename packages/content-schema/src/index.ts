@@ -43,6 +43,7 @@ export const LayoutDefSchema = z.object({
   enabled: z.boolean().default(true),
   cloze_typed: z.boolean().optional(),
   answer_field: z.string().min(1).optional(),
+  required_field: z.string().min(1).optional(),
 });
 export type LayoutDef = z.infer<typeof LayoutDefSchema>;
 

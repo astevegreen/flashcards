@@ -299,6 +299,7 @@ export function exportFlashpkg(
           enabled: layout.enabled,
           ...(layout.cloze_typed !== undefined ? { cloze_typed: layout.cloze_typed } : {}),
           ...(layout.answer_field !== undefined ? { answer_field: layout.answer_field } : {}),
+          ...(layout.required_field !== undefined ? { required_field: layout.required_field } : {}),
         });
       }
     }
@@ -564,6 +565,9 @@ export function importFlashpkg(
               enabled: layout.enabled,
               ...(layout.cloze_typed !== undefined ? { cloze_typed: layout.cloze_typed } : {}),
               ...(layout.answer_field !== undefined ? { answer_field: layout.answer_field } : {}),
+              ...(layout.required_field !== undefined
+                ? { required_field: layout.required_field }
+                : {}),
             },
           },
           nowMs,
