@@ -1,4 +1,5 @@
 import type { CollectionState, EventFactory } from '../../events/replay.ts';
+import { suspendRegisterKey, unsuspendRegisterKey } from '../../events/suspension.ts';
 import type { EventPayloadMap, KnownEvent, KnownEventType } from '../../events/types.ts';
 import { deriveCardId, deriveNoteId, FLASH_NAMESPACE_UUID, uuidv5 } from '../../ids.ts';
 import type { Layout, NoteType, ReviewRating } from '../../model/types.ts';
@@ -9,8 +10,10 @@ import { safeMediaMimeForExt } from '../media-types.ts';
 import { normalizeAnkiPackage } from './collection.ts';
 import {
   collectionUsesKana,
+  MAX_MEDIA_PER_FIELD,
   planAnkiModel,
   type ConvertedNote,
+  type FieldPlan,
   type ModelPlan,
 } from './model-plan.ts';
 import {
@@ -32,6 +35,10 @@ import {
  * - note: `uuidv5(deck, "anki:<guid>")`; note type `anki:nt:<model id>`; layout
  *   `anki:layout:<model id>:<template ord>`;
  * - review (optional history): `uuidv5(ns, "anki:revlog:<revlog id>:<card id>")`.
+ *
+ * Cards suspended in Anki (`queue = -1`) get a `CardSuspended` unless this collection already
+ * has a suspend or unsuspend for that card, so a re-import never undoes an unsuspend made here.
+ * Buried cards import as normal cards.
  */
 
 export interface AnkiImportOptions {
@@ -70,14 +77,38 @@ export interface AnkiImportSummary {
   changedNotes: number;
   noteTypes: number;
   media: number;
+  /** Cards newly suspended because they were suspended in Anki. */
+  suspended: number;
   reviews: number;
   skippedReviews: AnkiSkippedReviews;
+}
+
+/** One text field of an imported note type, with the language detection picked for it. */
+export interface AnkiImportedField {
+  key: string;
+  /** The Anki field name. */
+  name: string;
+  /** Detected language (or the one the template's TTS tag names). */
+  lang: string;
+  /** Companion image / audio fields that share the field's language. */
+  mediaKeys: string[];
+}
+
+/** An imported note type and its decks, for the import summary's field-language editor. */
+export interface AnkiImportedNoteType {
+  noteTypeId: string;
+  name: string;
+  deckIds: string[];
+  /** The field a new deck's language came from (the first enabled layout's front). */
+  languageFieldKey: string;
+  fields: AnkiImportedField[];
 }
 
 export interface AnkiImportResult {
   events: KnownEvent[];
   extractedMedia: ExtractedAnkiMedia[];
   deckIds: string[];
+  noteTypes: AnkiImportedNoteType[];
   summary: AnkiImportSummary;
   warnings: string[];
 }
@@ -111,13 +142,23 @@ class MediaIndex {
     }
   }
 
-  /** `media:<sha256>` for a referenced file, or `undefined` (missing / unsupported type). */
-  ref(name: string): string | undefined {
+  private lookup(name: string): ResolvedMedia | null {
     let entry = this.resolved.get(name);
     if (entry === undefined) {
       entry = this.resolve(name);
       this.resolved.set(name, entry);
     }
+    return entry;
+  }
+
+  /** True when `name` is in the package with a supported type (nothing is marked as used). */
+  usable(name: string): boolean {
+    return this.lookup(name) !== null;
+  }
+
+  /** `media:<sha256>` for a referenced file, or `undefined` (missing / unsupported type). */
+  ref(name: string): string | undefined {
+    const entry = this.lookup(name);
     if (!entry) return undefined;
     this.used.set(entry.hash, entry);
     return `media:${entry.hash}`;
@@ -215,13 +256,25 @@ function deckName(
   return shared ? `${base} (${group.plan.model.name})` : base;
 }
 
-/** First reference in `names` that resolves to a usable media file. */
-function firstMediaRef(names: readonly string[], media: MediaIndex): string | undefined {
+/**
+ * Puts every usable reference of `names` into `keys`, in order (missing or unsupported files are
+ * skipped, and the same file twice fills one field).
+ */
+function assignMedia(
+  fields: Record<string, string>,
+  keys: readonly string[],
+  names: readonly string[],
+  media: MediaIndex,
+): void {
+  const refs = new Set<string>();
   for (const name of names) {
     const ref = media.ref(name);
-    if (ref) return ref;
+    if (ref) refs.add(ref);
   }
-  return undefined;
+  [...refs].forEach((ref, i) => {
+    const key = keys[i];
+    if (key) fields[key] = ref;
+  });
 }
 
 function noteFields(
@@ -234,10 +287,8 @@ function noteFields(
     const text = converted.texts[i];
     if (!text) return;
     if (text.text) fields[field.key] = text.text;
-    const imageRef = field.imageKey ? firstMediaRef(text.images, media) : undefined;
-    if (field.imageKey && imageRef) fields[field.imageKey] = imageRef;
-    const soundRef = field.audioKey ? firstMediaRef(text.sounds, media) : undefined;
-    if (field.audioKey && soundRef) fields[field.audioKey] = soundRef;
+    assignMedia(fields, field.imageKeys, text.images, media);
+    assignMedia(fields, field.audioKeys, text.sounds, media);
   });
   return fields;
 }
@@ -271,11 +322,15 @@ function emitModel(e: Emitter, state: CollectionState, plan: ModelPlan): boolean
   return noteType !== undefined;
 }
 
-function deckLanguage(plan: ModelPlan): string {
+/** The field a deck's language follows: the first enabled layout's first front field. */
+function languageField(plan: ModelPlan): FieldPlan | undefined {
   const firstLayout: Layout | undefined = plan.layouts.find((l) => l.layout.enabled)?.layout;
   const frontKey = firstLayout?.front_fields[0];
-  const field = plan.fields.find((f) => f.key === frontKey) ?? plan.fields[0];
-  return field?.lang ?? 'en';
+  return plan.fields.find((f) => f.key === frontKey) ?? plan.fields[0];
+}
+
+function deckLanguage(plan: ModelPlan): string {
+  return languageField(plan)?.lang ?? 'en';
 }
 
 function emitDeck(e: Emitter, state: CollectionState, group: DeckGroup, name: string): boolean {
@@ -383,6 +438,33 @@ function cardTargets(
     });
   }
   return out;
+}
+
+function hasSuspensionHistory(state: CollectionState, cardId: string): boolean {
+  return (
+    state.fieldHlcs.has(suspendRegisterKey(cardId)) ||
+    state.fieldHlcs.has(unsuspendRegisterKey(cardId))
+  );
+}
+
+/** `CardSuspended` for cards suspended in Anki; returns how many were emitted. */
+function emitSuspensions(
+  e: Emitter,
+  state: CollectionState,
+  cards: readonly AnkiCard[],
+  targets: ReadonlyMap<string, CardTarget>,
+): number {
+  const done = new Set<string>();
+  let count = 0;
+  for (const card of cards.toSorted(byNumericId)) {
+    const target = card.suspended ? targets.get(card.id) : undefined;
+    if (!target || done.has(target.cardId)) continue;
+    done.add(target.cardId);
+    if (hasSuspensionHistory(state, target.cardId)) continue;
+    emit(e, 'CardSuspended', { card_id: target.cardId, reason: 'manual' });
+    count += 1;
+  }
+  return count;
 }
 
 type ReviewVerdict = keyof AnkiSkippedReviews | 'import';
@@ -498,7 +580,7 @@ function collectWarnings(
   const extra = plans.reduce((n, p) => n + p.extraMediaRefs, 0);
   if (extra > 0)
     warnings.push(
-      `${extra} field(s) had several images or sounds; only the first usable one of each was kept.`,
+      `${extra} image or sound reference(s) were dropped: a field keeps at most ${MAX_MEDIA_PER_FIELD} of each.`,
     );
   const dropped = plans.reduce((n, p) => n + p.droppedActiveContent, 0);
   if (dropped > 0)
@@ -536,7 +618,7 @@ function groupNotesByModel(notes: readonly AnkiNote[]): Map<string, AnkiNote[]> 
 }
 
 /** One import plan per note type that has fields and at least one note. */
-function buildModelPlans(collection: AnkiCollection): ModelPlan[] {
+function buildModelPlans(collection: AnkiCollection, media: MediaIndex): ModelPlan[] {
   const notesByModel = groupNotesByModel(collection.notes);
   const ordsByModel = templateOrdsWithCards(collection);
   const usesKana = collectionUsesKana(collection.notes);
@@ -544,7 +626,13 @@ function buildModelPlans(collection: AnkiCollection): ModelPlan[] {
   for (const model of [...collection.models].sort(byNumericId)) {
     const notes = notesByModel.get(model.id);
     if (model.fields.length === 0 || !notes || notes.length === 0) continue;
-    plans.push(planAnkiModel(model, notes, ordsByModel.get(model.id) ?? new Set(), usesKana));
+    plans.push(
+      planAnkiModel(model, notes, {
+        templateOrdsWithCards: ordsByModel.get(model.id) ?? new Set(),
+        collectionUsesKana: usesKana,
+        isUsableMedia: (name) => media.usable(name),
+      }),
+    );
   }
   return plans;
 }
@@ -591,6 +679,31 @@ function emitMedia(e: Emitter, state: CollectionState, media: MediaIndex): Resol
   return used;
 }
 
+function importedNoteTypes(groups: readonly DeckGroup[]): AnkiImportedNoteType[] {
+  const byType = new Map<string, AnkiImportedNoteType>();
+  for (const group of groups) {
+    const existing = byType.get(group.plan.noteTypeId);
+    if (existing) {
+      existing.deckIds.push(group.deckId);
+      continue;
+    }
+    const plan = group.plan;
+    byType.set(plan.noteTypeId, {
+      noteTypeId: plan.noteTypeId,
+      name: plan.model.name,
+      deckIds: [group.deckId],
+      languageFieldKey: languageField(plan)?.key ?? '',
+      fields: plan.fields.map((f) => ({
+        key: f.key,
+        name: f.name,
+        lang: f.lang,
+        mediaKeys: [...f.imageKeys, ...f.audioKeys],
+      })),
+    });
+  }
+  return [...byType.values()];
+}
+
 function noReviewHistory(): { imported: number; skipped: AnkiSkippedReviews } {
   return {
     imported: 0,
@@ -608,7 +721,7 @@ export function convertAnkiCollection(
 ): AnkiImportResult {
   const e: Emitter = { factory, nowMs: options.nowMs ?? Date.now(), events: [] };
   const media = new MediaIndex(mediaFiles);
-  const plans = buildModelPlans(collection);
+  const plans = buildModelPlans(collection, media);
   const knownModels = new Set(plans.map((p) => p.model.id));
   const skippedNotes = collection.notes.filter((n) => !knownModels.has(n.modelId)).length;
   const cardsByNote = groupCardsByNote(collection.cards);
@@ -616,25 +729,23 @@ export function convertAnkiCollection(
 
   const counts = emitContent(e, state, collection, plans, groups, media);
   const mediaEvents = emitMedia(e, state, media);
+  const targets = cardTargets(groups, collection.cards);
+  const suspended = emitSuspensions(e, state, collection.cards, targets);
   const history = options.includeReviewHistory
-    ? emitReviews(
-        e,
-        state,
-        collection,
-        cardTargets(groups, collection.cards),
-        options.tzOffsetMinutes ?? 0,
-      )
+    ? emitReviews(e, state, collection, targets, options.tzOffsetMinutes ?? 0)
     : noReviewHistory();
 
   return {
     events: e.events,
     extractedMedia: mediaEvents,
     deckIds: groups.map((g) => g.deckId),
+    noteTypes: importedNoteTypes(groups),
     summary: {
       decks: groups.length,
       ...counts,
       notes: groups.reduce((n, g) => n + g.notes.length, 0),
       media: mediaEvents.length,
+      suspended,
       reviews: history.imported,
       skippedReviews: history.skipped,
     },

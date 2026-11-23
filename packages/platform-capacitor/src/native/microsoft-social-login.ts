@@ -1,20 +1,32 @@
 /**
- * OneDrive sign-in on Android / iOS (§4.3, §15 Phase 12).
+ * OneDrive sign-in on Android / iOS (§4.3, §15 Phase 12, §16).
  *
- * No MSAL Capacitor plugin with verified Capacitor 8 support was found, so this uses the generic
- * OAuth2 provider of `@capgo/capacitor-social-login` (already a dependency; Capacitor 8). It runs
- * the same Microsoft identity platform public-client flow MSAL uses: authorization code + PKCE in
- * `ASWebAuthenticationSession` (iOS) / an in-app browser (Android), no client secret, and rolling
- * refresh tokens kept by the plugin. Loaded only when the user connects OneDrive.
+ * No MSAL Capacitor plugin with verified Capacitor 8 support was found, so the sign-in itself uses
+ * the generic OAuth2 provider of `@capgo/capacitor-social-login` (already a dependency; Capacitor 8):
+ * the Microsoft identity platform public-client flow MSAL uses, authorization code + PKCE with no
+ * client secret, in `ASWebAuthenticationSession` (iOS) or Chrome Custom Tabs (Android, redirect
+ * `flashcards://oauth/microsoft` caught by the intent filter in `AndroidManifest.xml`).
+ *
+ * The plugin always saves the tokens it gets in UserDefaults / SharedPreferences, so
+ * `createSecureMicrosoftBridge` moves the refresh token to the Keychain / Keystore right after
+ * sign-in, deletes the plugin's copy, and refreshes over native HTTP itself. Loaded only when the
+ * user connects OneDrive (or at launch, when OneDrive is already connected, to migrate old copies).
  */
+import { CapacitorHttp } from '@capacitor/core';
 import { SocialLogin } from '@capgo/capacitor-social-login';
+import type { MicrosoftPublicClientBridge } from '@flash/platform-web/onedrive';
 import {
-  MicrosoftRefreshRejectedError,
-  type MicrosoftPublicClientBridge,
-  type MicrosoftTokenSet,
-} from '@flash/platform-web/onedrive';
+  createSecureMicrosoftBridge,
+  migrateMicrosoftRefreshToken,
+  type MicrosoftOAuth2LoginResult,
+  type MicrosoftSocialLoginPort,
+} from '../auth/microsoft-secure-bridge.ts';
+import {
+  MICROSOFT_SOCIAL_LOGIN_PROVIDER_ID as MICROSOFT_PROVIDER_ID,
+  type SecureStore,
+} from '../secure/secure-store.ts';
+import { assertNativeOAuthRedirect } from './deep-links.ts';
 
-const PROVIDER_ID = 'microsoft';
 /** Registered in Entra under "Mobile and desktop applications" (custom scheme already claimed). */
 export const DEFAULT_MICROSOFT_NATIVE_REDIRECT = 'flashcards://oauth/microsoft';
 
@@ -22,32 +34,35 @@ export interface MicrosoftSocialLoginConfig {
   clientId: string;
   tenant?: string;
   redirectUrl?: string;
+  secureStore: SecureStore;
 }
 
-interface OAuth2Result {
-  accessToken: { token: string; expires?: string } | null;
-  expiresIn: number | null;
-}
-
-function toTokenSet(result: OAuth2Result): MicrosoftTokenSet {
-  const token = result.accessToken?.token;
-  if (!token) throw new Error('Microsoft sign-in returned no access token.');
-  const expiresAt = result.accessToken?.expires
-    ? Date.parse(result.accessToken.expires)
-    : Number.NaN;
-  const fromExpiry = Number.isNaN(expiresAt) ? null : Math.round((expiresAt - Date.now()) / 1000);
+function createSocialLoginPort(): MicrosoftSocialLoginPort {
   return {
-    accessToken: token,
-    expiresInSeconds: Math.max(60, result.expiresIn ?? fromExpiry ?? 3600),
+    login: async (scopes) => {
+      const res = await SocialLogin.login({
+        provider: 'oauth2',
+        options: { providerId: MICROSOFT_PROVIDER_ID, scope: [...scopes] },
+      });
+      return res.result as MicrosoftOAuth2LoginResult;
+    },
+    readStoredTokens: async () => {
+      try {
+        const stored = (await SocialLogin.getAuthorizationCode({
+          provider: 'oauth2',
+          providerId: MICROSOFT_PROVIDER_ID,
+        })) as { refreshToken?: string };
+        return stored.refreshToken ? { refreshToken: stored.refreshToken } : {};
+      } catch {
+        // The plugin rejects when it holds no tokens for the provider.
+        return null;
+      }
+    },
+    clearStoredTokens: async () => {
+      // No `logoutUrl` is configured, so this only deletes the plugin's stored tokens.
+      await SocialLogin.logout({ provider: 'oauth2', providerId: MICROSOFT_PROVIDER_ID });
+    },
   };
-}
-
-/** Errors that mean the refresh token is no longer valid (vs. being offline). */
-function isGrantRejection(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return /invalid_grant|interaction_required|AADSTS(?:50173|70000|70008|700082|54005)/.test(
-    message,
-  );
 }
 
 export async function createMicrosoftSocialLoginBridge(
@@ -56,45 +71,41 @@ export async function createMicrosoftSocialLoginBridge(
   const authority = `https://login.microsoftonline.com/${encodeURIComponent(config.tenant || 'consumers')}/oauth2/v2.0`;
   await SocialLogin.initialize({
     oauth2: {
-      [PROVIDER_ID]: {
+      [MICROSOFT_PROVIDER_ID]: {
         appId: config.clientId,
         authorizationBaseUrl: `${authority}/authorize`,
         accessTokenEndpoint: `${authority}/token`,
-        redirectUrl: config.redirectUrl ?? DEFAULT_MICROSOFT_NATIVE_REDIRECT,
+        redirectUrl: assertNativeOAuthRedirect(
+          config.redirectUrl ?? DEFAULT_MICROSOFT_NATIVE_REDIRECT,
+        ),
         responseType: 'code',
         pkceEnabled: true,
         scope: 'Files.ReadWrite.AppFolder offline_access',
+        // RFC 8252: the system browser, not an embedded WebView. The plugin checks `state` and keeps
+        // the PKCE verifier while the redirect comes back through the intent filter.
+        androidUseCustomTabs: true,
         // Keep the Microsoft session cookie so a second sign-in (e.g. adding Files.Read) is one tap.
         iosPrefersEphemeralWebBrowserSession: false,
       },
     },
   });
 
-  return {
-    authorize: async (scopes) => {
-      const res = await SocialLogin.login({
-        provider: 'oauth2',
-        options: { providerId: PROVIDER_ID, scope: [...scopes] },
+  const socialLogin = createSocialLoginPort();
+  const bridge = createSecureMicrosoftBridge({
+    clientId: config.clientId,
+    socialLogin,
+    secureStore: config.secureStore,
+    // Native HTTP sends no `Origin` header: Entra refuses cross-origin (WebView) token redemption
+    // for "Mobile and desktop" redirect URIs.
+    postToken: async (form) => {
+      const res = await CapacitorHttp.post({
+        url: `${authority}/token`,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        data: { ...form },
       });
-      return toTokenSet(res.result as OAuth2Result);
+      return { status: res.status, data: res.data as unknown };
     },
-    refresh: async (scopes) => {
-      try {
-        const res = await SocialLogin.refreshToken({
-          provider: 'oauth2',
-          providerId: PROVIDER_ID,
-          additionalParameters: { scope: scopes.join(' ') },
-        });
-        return toTokenSet(res as OAuth2Result);
-      } catch (err) {
-        if (isGrantRejection(err)) {
-          throw new MicrosoftRefreshRejectedError(err instanceof Error ? err.message : String(err));
-        }
-        throw err;
-      }
-    },
-    signOut: async () => {
-      await SocialLogin.logout({ provider: 'oauth2', providerId: PROVIDER_ID });
-    },
-  };
+  });
+  await migrateMicrosoftRefreshToken({ socialLogin, secureStore: config.secureStore });
+  return bridge;
 }

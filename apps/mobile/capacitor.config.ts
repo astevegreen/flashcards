@@ -5,9 +5,10 @@ import type { CapacitorConfig } from '@capacitor/cli';
  * Wraps the identical static SPA output in `../web/dist`; `apps/web` detects the native
  * runtime and lazily boots `@flash/platform-capacitor/native`.
  *
- * The `flashcards://picker-callback` deep link is registered natively:
- * Android — intent-filter in `android/app/src/main/AndroidManifest.xml`;
- * iOS — `CFBundleURLTypes` in `ios/App/App/Info.plist` (see docs/native-shells.md).
+ * The `flashcards://picker-callback` and `flashcards://oauth/microsoft` deep links are registered
+ * natively: Android — intent-filters in `android/app/src/main/AndroidManifest.xml`;
+ * iOS — the `flashcards` scheme in `CFBundleURLTypes` in `ios/App/App/Info.plist`
+ * (see docs/native-shells.md).
  */
 const config: CapacitorConfig = {
   appId: 'app.flashcards.localfirst',

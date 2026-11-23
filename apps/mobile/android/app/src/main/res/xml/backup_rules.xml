@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup on Android 6-11 (android:fullBackupContent). Keeps sign-in secrets out of backups (§13, §16):
+     - CapgoOAuth2ProviderPrefs: @capgo/capacitor-social-login's plaintext OAuth2 tokens and, during a
+       Custom Tabs sign-in, the PKCE verifier and state. The app deletes the tokens right after sign-in.
+     - GOOGLE_LOGIN_F13oz0I_SHARED_PERF: the same plugin's plaintext Google ID and access tokens.
+     - app.flashcards.securestorage: Keystore ciphertext, useless anywhere else because the key never
+       leaves this device's AndroidKeyStore.
+     Everything else (the flashcards database included) is still backed up. Keep in sync with
+     data_extraction_rules.xml. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="CapgoOAuth2ProviderPrefs.xml" />
+    <exclude domain="sharedpref" path="GOOGLE_LOGIN_F13oz0I_SHARED_PERF.xml" />
+    <exclude domain="sharedpref" path="app.flashcards.securestorage.xml" />
+</full-backup-content>

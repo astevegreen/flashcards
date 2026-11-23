@@ -48,6 +48,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { consumeAddDeviceLinkFromLocation, type AddDeviceLink } from '../sync/addDeviceLink.ts';
 import { useAudioController, type AudioController } from './useAudioController.ts';
 import { isLeechBackfillReady } from './leechBackfillGate.ts';
 import { useSyncController, type SyncUiState } from './useSyncController.ts';
@@ -67,6 +68,11 @@ export interface UndoEntry {
 
 export interface AppContextValue {
   platform: PlatformServices;
+  /**
+   * The add-device link (provider + collection id, never a secret) this page load was opened
+   * with, until this device syncs with that provider. "Sync my devices" preselects its provider.
+   */
+  addDeviceLink: AddDeviceLink | undefined;
   state: CollectionState;
   stateVersion: number;
   ready: boolean;
@@ -227,6 +233,27 @@ export function AppProvider({
   useEffect(() => {
     void platform.storage.requestPersistence();
   }, [platform.storage]);
+
+  // Phase 14 add-device link (`?sync=<provider>&col=<collection id>`): read and stripped from
+  // the address bar once per page load. Its collection id is kept on this device until the first
+  // sync confirms the new device reached that collection (it survives the sign-in redirect).
+  const [openedAddDeviceLink, setOpenedAddDeviceLink] = useState(consumeAddDeviceLinkFromLocation);
+  useEffect(() => {
+    const storage = platform.storage;
+    const persist = async (): Promise<void> => {
+      const m = await import('../sync/addDeviceExpectation.ts');
+      if (openedAddDeviceLink?.collectionId !== undefined) {
+        await m.saveAddDeviceExpectation(storage, openedAddDeviceLink);
+      } else if (openedAddDeviceLink) {
+        await m.clearAddDeviceExpectation(storage);
+      } else {
+        await m.addDeviceExpectationResource(storage);
+      }
+    };
+    persist().catch(() => {
+      // Optional: without it the app just cannot confirm the collection after sign-in.
+    });
+  }, [openedAddDeviceLink, platform.storage]);
 
   const enqueuePersist = useCallback((task: () => Promise<void>): Promise<void> => {
     const invoke = (): Promise<void> => {
@@ -831,6 +858,18 @@ export function AppProvider({
       hlc: createHlcState(nextDeviceId, 0),
       seeded: true,
     };
+    // A reset behaves like a fresh install: onboarding is offered again on the empty collection
+    // and no add-device expectation survives. Both modules load first (off the initial bundle,
+    // §8), so their caches are dropped before the empty collection renders; clearAll() below
+    // wipes the whole key-value store as well.
+    const [onboarding, addDevice] = await Promise.all([
+      import('../onboarding/onboardingState.ts').catch(() => undefined),
+      import('../sync/addDeviceExpectation.ts').catch(() => undefined),
+    ]);
+    void onboarding?.forgetOnboardingRecord(platform.storage);
+    void addDevice?.clearAddDeviceExpectation(platform.storage);
+    // The link this page load was opened with is forgotten too (it was read once and stripped).
+    setOpenedAddDeviceLink(undefined);
     metaRef.current = freshMeta;
     stateRef.current = createEmptyState();
     factoryRef.current = createEventFactory(freshMeta.deviceId, 0, freshMeta.hlc);
@@ -889,8 +928,15 @@ export function AppProvider({
     syncController.syncState.status,
   ]);
 
+  // Once this device syncs with the link's provider, the link has done its job.
+  const addDeviceLink =
+    openedAddDeviceLink && syncController.syncState.provider !== openedAddDeviceLink.provider
+      ? openedAddDeviceLink
+      : undefined;
+
   const value: AppContextValue = {
     platform,
+    addDeviceLink,
     state: stateRef.current ?? collectionState,
     stateVersion,
     ready: true,

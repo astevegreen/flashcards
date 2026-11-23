@@ -11,12 +11,15 @@ export interface NativeGoogleSignInPlugin {
   signOut(): Promise<void>;
 }
 
-const NATIVE_SESSION_KV_KEY = 'capacitor_google_session_v1';
+/** App database key of the cached Google access token; routed to the secure store on phones. */
+export const CAPACITOR_GOOGLE_SESSION_KV_KEY = 'capacitor_google_session_v1';
 
 /**
- * Native Capacitor Google Sign-In adapter (§4.3, §11, §15 Phase 8).
- * Uses Android/iOS native Google OAuth clients storing long-lived tokens directly in
- * Keychain/Keystore — **no Cloudflare Worker token helper needed**.
+ * Native Capacitor Google Sign-In adapter (§4.3, §11, §15 Phase 8), with **no Cloudflare Worker
+ * token helper**. The long-lived Google credential stays with the OS (Google Play services on
+ * Android, the GoogleSignIn SDK's Keychain items on iOS); "refresh" is a silent sign-in. The
+ * short-lived access token cached under `CAPACITOR_GOOGLE_SESSION_KV_KEY` is one of
+ * `SECURE_KV_KEYS`, so the native boot keeps it in the Keychain / Keystore rather than SQLite.
  */
 export class CapacitorGoogleAuth implements Auth {
   private readonly plugin?: NativeGoogleSignInPlugin;
@@ -48,7 +51,7 @@ export class CapacitorGoogleAuth implements Auth {
   }
 
   async getSession(): Promise<AuthSession | null> {
-    const saved = await this.storage.getKv<AuthSession>(NATIVE_SESSION_KV_KEY);
+    const saved = await this.storage.getKv<AuthSession>(CAPACITOR_GOOGLE_SESSION_KV_KEY);
     return saved ?? null;
   }
 
@@ -69,7 +72,7 @@ export class CapacitorGoogleAuth implements Auth {
       ...(session?.scope ? { scope: session.scope } : {}),
       ...(session?.intent ? { intent: session.intent } : {}),
     };
-    await this.storage.setKv(NATIVE_SESSION_KV_KEY, next);
+    await this.storage.setKv(CAPACITOR_GOOGLE_SESSION_KV_KEY, next);
     return next.accessToken;
   }
 
@@ -88,7 +91,7 @@ export class CapacitorGoogleAuth implements Auth {
       ...(res.scope ? { scope: res.scope } : {}),
       ...(opts?.intent ? { intent: opts.intent } : {}),
     };
-    await this.storage.setKv(NATIVE_SESSION_KV_KEY, session);
+    await this.storage.setKv(CAPACITOR_GOOGLE_SESSION_KV_KEY, session);
     return session;
   }
 
@@ -105,6 +108,6 @@ export class CapacitorGoogleAuth implements Auth {
         // Ignore signOut errors if already signed out
       }
     }
-    await this.storage.deleteKv(NATIVE_SESSION_KV_KEY);
+    await this.storage.deleteKv(CAPACITOR_GOOGLE_SESSION_KV_KEY);
   }
 }

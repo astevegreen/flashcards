@@ -224,6 +224,9 @@ function notesOf(raw: AnkiRawPackage): AnkiNote[] {
   }));
 }
 
+/** `cards.queue` of a suspended card (buried cards use -2 / -3 and import as normal cards). */
+const ANKI_QUEUE_SUSPENDED = -1;
+
 function cardsOf(raw: AnkiRawPackage): AnkiCard[] {
   return rowsOf(raw.tables.cards).map((row) => ({
     id: str(row, 'id'),
@@ -231,6 +234,7 @@ function cardsOf(raw: AnkiRawPackage): AnkiCard[] {
     deckId: str(row, 'did'),
     originalDeckId: str(row, 'odid') || '0',
     ord: num(row, 'ord'),
+    suspended: num(row, 'queue') === ANKI_QUEUE_SUSPENDED,
   }));
 }
 

@@ -152,7 +152,44 @@ describe('Anki furigana -> ruby syntax', () => {
   });
 });
 
+describe('Anki kana: / kanji: output (reading or base only, as Anki displays them)', () => {
+  it('kana keeps the readings and kanji keeps the bases, with the same word boundaries', () => {
+    const run = '私[わたし]は 日本語[にほんご]を 勉強[べんきょう]します';
+    expect(convertAnkiFuriganaRun(run, 'kana')).toBe('わたしはにほんごをべんきょうします');
+    expect(convertAnkiFuriganaRun(run, 'kanji')).toBe('私は日本語を勉強します');
+    expect(convertAnkiFuriganaRun('漢字[かんじ]', 'kana')).toBe('かんじ');
+    expect(convertAnkiFuriganaRun(' 食べる[たべる]', 'kana')).toBe('たべる');
+  });
+
+  it('leaves sound tags and non-furigana brackets alone in every mode', () => {
+    for (const mode of ['kana', 'kanji'] as const) {
+      expect(convertAnkiFuriganaRun('x[sound:a.mp3]', mode)).toBe('x[sound:a.mp3]');
+      expect(convertAnkiFuriganaRun('a|b[c]', mode)).toBe('a|b[c]');
+      expect(convertAnkiFuriganaRun('word [ ]', mode)).toBe('word [ ]');
+    }
+  });
+
+  it('applies through the HTML converter per text run', () => {
+    const out = ankiHtmlToText('<b>日本[にほん]</b>語[ご]<br>[sound:x.mp3]', {
+      furigana: true,
+      furiganaOutput: 'kana',
+    });
+    expect(out.text).toBe('にほんご');
+    expect(out.sounds).toEqual(['x.mp3']);
+  });
+});
+
 describe('parseAnkiTemplate', () => {
+  it('records every use of a field, duplicates included', () => {
+    const side = parseAnkiTemplate('{{Reading}}{{kana:Reading}}{{Meaning}}');
+    expect(side.refs.map((r) => r.field)).toEqual(['Reading', 'Meaning']);
+    expect(side.uses).toEqual([
+      { field: 'Reading', filters: [] },
+      { field: 'Reading', filters: ['kana'] },
+      { field: 'Meaning', filters: [] },
+    ]);
+  });
+
   it('collects fields with filters, FrontSide, type:, tts and conditionals', () => {
     const side = parseAnkiTemplate(
       '{{FrontSide}}<hr id=answer>{{#Notes}}{{furigana:Reading}}{{/Notes}}{{Meaning}}{{ type:Answer }}{{type:cloze:Text}}{{tts ja_JP voices=Apple:Word}}{{Tags}}{{!comment}}{{Meaning}}{{text:kanji:Reading}}',

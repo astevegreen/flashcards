@@ -280,8 +280,9 @@ function legacyDeck(id, name, dyn = 0) {
 }
 
 /**
+ * Cards are `[id, nid, did, ord, odid = 0, queue = 0]` (queue -1 = suspended, -2/-3 = buried).
  * @param {{ models: object[], decks: object[], notes: Array<[number, string, number, string, string[]]>,
- *   cards: Array<[number, number, number, number, number?]>, revlog?: number[][], schedVer?: number }} spec
+ *   cards: Array<[number, number, number, number, number?, number?]>, revlog?: number[][], schedVer?: number }} spec
  */
 async function legacyCollection(spec) {
   const SQL = await sqlJs();
@@ -321,13 +322,14 @@ function insertNotesCards(db, spec) {
       '',
     ]);
   }
-  for (const [id, nid, did, ord, odid = 0] of spec.cards) {
-    db.run('INSERT INTO cards VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?, 0, 0, 0, 0, 0, 0, ?, 0, ?)', [
+  for (const [id, nid, did, ord, odid = 0, queue = 0] of spec.cards) {
+    db.run('INSERT INTO cards VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, 0, 0, 0, 0, ?, 0, ?)', [
       id,
       nid,
       did,
       ord,
       CRT,
+      queue,
       id,
       odid,
       '',
@@ -616,6 +618,140 @@ async function htmlScript() {
   ]);
 }
 
+/** Phase 14: a field shown only through `{{kana:…}}` and one shown only through `{{kanji:…}}`. */
+const JAPANESE_KANA = legacyModel(
+  1_600_000_000_006,
+  'Japanese (kana reading)',
+  0,
+  ['Expression', 'Reading', 'Meaning'],
+  [
+    ['Reading', '{{kana:Reading}}', '{{FrontSide}}<hr id=answer>{{Meaning}}'],
+    [
+      'Kanji',
+      '{{kanji:Expression}}',
+      '{{FrontSide}}<hr id=answer>{{kanji:Expression}}<br>{{Meaning}}',
+    ],
+  ],
+);
+
+async function kana() {
+  const collection = await legacyCollection({
+    models: [JAPANESE_KANA],
+    decks: [legacyDeck(1, 'Default'), legacyDeck(1_600_000_000_600, 'Japanese::Kana')],
+    notes: [
+      [
+        1_600_000_015_000,
+        'guidKana15',
+        JAPANESE_KANA.id,
+        ['kana'],
+        [
+          '日本語[にほんご]を 話[はな]す',
+          '私[わたし]は 日本語[にほんご]を 話[はな]します',
+          'I speak Japanese',
+        ],
+      ],
+      [
+        1_600_000_016_000,
+        'guidKana16',
+        JAPANESE_KANA.id,
+        ['kana'],
+        [' 食[た]べる', ' 食[た]べる [sound:taberu.mp3]', 'to eat'],
+      ],
+    ],
+    cards: [
+      [1_600_000_015_001, 1_600_000_015_000, 1_600_000_000_600, 0],
+      [1_600_000_015_002, 1_600_000_015_000, 1_600_000_000_600, 1],
+      [1_600_000_016_001, 1_600_000_016_000, 1_600_000_000_600, 0],
+      [1_600_000_016_002, 1_600_000_016_000, 1_600_000_000_600, 1],
+    ],
+  });
+  return buildZip([
+    { name: 'collection.anki2', data: collection, deflate: true },
+    { name: 'media', data: enc.encode('{}') },
+  ]);
+}
+
+/** Phase 14: suspended (`queue = -1`) and buried (`-2`, `-3`) cards on a two-template model. */
+async function suspended() {
+  const collection = await legacyCollection({
+    models: [BASIC_REVERSED],
+    decks: [legacyDeck(1, 'Default'), legacyDeck(1_600_000_000_700, 'Korean::Fruit')],
+    notes: [
+      [1_600_000_017_000, 'guidSusp17', BASIC_REVERSED.id, ['fruit'], ['사과', 'apple']],
+      [1_600_000_018_000, 'guidSusp18', BASIC_REVERSED.id, ['fruit'], ['바나나', 'banana']],
+      [1_600_000_019_000, 'guidSusp19', BASIC_REVERSED.id, ['fruit'], ['포도', 'grape']],
+    ],
+    cards: [
+      // 사과: forward card suspended, reverse card normal.
+      [1_600_000_017_001, 1_600_000_017_000, 1_600_000_000_700, 0, 0, -1],
+      [1_600_000_017_002, 1_600_000_017_000, 1_600_000_000_700, 1, 0, 0],
+      // 바나나: buried by the user and as a sibling; neither is imported as suspended.
+      [1_600_000_018_001, 1_600_000_018_000, 1_600_000_000_700, 0, 0, -3],
+      [1_600_000_018_002, 1_600_000_018_000, 1_600_000_000_700, 1, 0, -2],
+      // 포도: reverse card suspended.
+      [1_600_000_019_001, 1_600_000_019_000, 1_600_000_000_700, 0, 0, 0],
+      [1_600_000_019_002, 1_600_000_019_000, 1_600_000_000_700, 1, 0, -1],
+    ],
+  });
+  return buildZip([
+    { name: 'collection.anki2', data: collection, deflate: true },
+    { name: 'media', data: enc.encode('{}') },
+  ]);
+}
+
+/** A second 1x1 PNG and a second tiny MP3 with different bytes, so their hashes differ. */
+const PNG_1X1_B = new Uint8Array([...PNG_1X1, 0x00]); // decoders ignore bytes after IEND
+const MP3_TINY_B = new Uint8Array([...MP3_TINY.subarray(0, -1), 0x01]);
+
+/** Phase 14: several images and sounds in one field (all are kept, duplicates once). */
+async function multiMedia() {
+  const collection = await legacyCollection({
+    models: [BASIC],
+    decks: [legacyDeck(1, 'Default'), legacyDeck(1_600_000_000_800, 'Korean::Media')],
+    notes: [
+      [
+        1_600_000_020_000,
+        'guidMulti20',
+        BASIC.id,
+        ['media'],
+        [
+          '<img src="apple.png"><img src="apple-2.png">사과 <img src="apple.png"><img src="gone.png">',
+          'apple [sound:apple.mp3] [sound:apple-slow.mp3]',
+        ],
+      ],
+      [
+        1_600_000_021_000,
+        'guidMulti21',
+        BASIC.id,
+        ['media'],
+        ['<img src="apple-2.png">배', 'pear'],
+      ],
+    ],
+    cards: [
+      [1_600_000_020_001, 1_600_000_020_000, 1_600_000_000_800, 0],
+      [1_600_000_021_001, 1_600_000_021_000, 1_600_000_000_800, 0],
+    ],
+  });
+  return buildZip([
+    { name: 'collection.anki2', data: collection, deflate: true },
+    {
+      name: 'media',
+      data: enc.encode(
+        JSON.stringify({
+          0: 'apple.png',
+          1: 'apple-2.png',
+          2: 'apple.mp3',
+          3: 'apple-slow.mp3',
+        }),
+      ),
+    },
+    { name: '0', data: PNG_1X1 },
+    { name: '1', data: PNG_1X1_B },
+    { name: '2', data: MP3_TINY },
+    { name: '3', data: MP3_TINY_B },
+  ]);
+}
+
 /** Review log: learn, review, lapse, relearn, cram, manual, rescheduled, unknown card, bad ease. */
 const DAY = 86_400_000;
 const T0 = 1_700_000_000_000;
@@ -791,6 +927,9 @@ export async function buildAnkiFixtures() {
     'html-script.apkg': await htmlScript(),
     'review-history.apkg': await reviewHistory(),
     'anki21b.apkg': await anki21b(),
+    'kana.apkg': await kana(),
+    'suspended.apkg': await suspended(),
+    'multi-media.apkg': await multiMedia(),
     ...(await malicious()),
   };
 }

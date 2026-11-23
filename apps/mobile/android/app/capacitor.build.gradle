@@ -19,6 +19,7 @@ dependencies {
     implementation project(':capawesome-capacitor-file-picker')
     implementation project(':capgo-capacitor-social-login')
     implementation project(':capgo-native-purchases')
+    implementation project(':flash-capacitor-secure-storage')
 
 }
 

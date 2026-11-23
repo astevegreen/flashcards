@@ -53,6 +53,8 @@ const LazyEmptyCollection = lazy(() =>
 // remount (back from Settings) has it synchronously.
 type DeferredSyncPromptModule = typeof DeferredSyncPromptModuleType;
 let loadedDeferredSyncPrompt: DeferredSyncPromptModule | undefined;
+/** An add-device link sends a device with cards to Settings once per page load. */
+let addDeviceLinkRouted = false;
 
 function useDeferredSyncPromptModule(
   storage: Parameters<DeferredSyncPromptModule['preloadDeferredSyncPrompt']>[0],
@@ -309,18 +311,13 @@ function CaughtUpPanel({
  * Rejects when the samples chunk cannot load (stale deploy, offline cache miss), so the caller
  * can keep onboarding open and let the user retry.
  */
-async function startWithSampleDeck(
+// Onboarding decks live behind one seam (`onboarding/starterDecks.ts`), loaded only on demand.
+async function startOnboardingDeck(
   slug: string,
   app: Pick<AppContextValue, 'getEventFactory' | 'setActiveDeckId' | 'emitEvents'>,
 ): Promise<void> {
-  const samples = await import('@flash/core/samples');
-  const events = samples.buildSampleDeckEvents(
-    app.getEventFactory(),
-    samples.SAMPLE_SEED_EPOCH_MS,
-    { deckSlugs: [slug] },
-  );
-  app.setActiveDeckId(samples.sampleDeckId(slug));
-  app.emitEvents(events);
+  const decks = await import('../onboarding/starterDecks.ts');
+  await decks.startOnboardingDeck(slug, app);
 }
 
 export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps) {
@@ -336,10 +333,10 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     undoLastReview,
     updateNote,
     markNoteReviewed,
-    loadSampleDecks,
     emitEvents,
     getEventFactory,
     syncState,
+    addDeviceLink,
   } = useApp();
 
   const [revealStep, setRevealStep] = useState(0);
@@ -372,6 +369,16 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
+
+  // Opened from another device's add-device link on a device that already has cards: "Sync my
+  // devices" (with that provider preselected) is in Settings here, so go there, once per page
+  // load. An empty collection shows it in place instead.
+  const hasDecks = decks.length > 0;
+  useEffect(() => {
+    if (addDeviceLinkRouted || !addDeviceLink || !hasDecks || !onOpenSettings) return;
+    addDeviceLinkRouted = true;
+    onOpenSettings();
+  }, [addDeviceLink, hasDecks, onOpenSettings]);
 
   const nowMs = Date.now();
   const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
@@ -760,11 +767,12 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         <LazyEmptyCollection
           storage={platform.storage}
           starterCatalogUrl={platform.starterCatalogUrl}
+          collectionEmpty={state.decks.size === 0}
+          openedFromAddDeviceLink={addDeviceLink !== undefined}
           onOpenLibrary={onOpenLibrary}
           onOpenSettings={onOpenSettings}
-          onLoadSamples={loadSampleDecks}
           onStartWithDeck={(deck) =>
-            startWithSampleDeck(deck.slug, { getEventFactory, setActiveDeckId, emitEvents })
+            startOnboardingDeck(deck.slug, { getEventFactory, setActiveDeckId, emitEvents })
           }
         />
       </Suspense>

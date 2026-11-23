@@ -15,6 +15,12 @@ export interface AnkiFieldRef {
 export interface AnkiTemplateSide {
   /** Field references in document order (duplicates kept once). */
   refs: AnkiFieldRef[];
+  /**
+   * Every field reference with its filters, duplicates included (`{{Reading}}` and
+   * `{{kana:Reading}}` on one side are two uses), so a field's furigana handling can follow how
+   * the templates actually show it.
+   */
+  uses: AnkiFieldRef[];
   /** `{{FrontSide}}` appears (answer side only). */
   includesFrontSide: boolean;
   /** `{{type:Field}}` targets. */
@@ -74,6 +80,7 @@ function addTag(side: AnkiTemplateSide, inner: string): void {
     pushUnique(side.tts, { field, lang }, (t) => t.field === field);
     return;
   }
+  side.uses.push({ field, filters });
   pushUnique(side.refs, { field, filters }, (r) => r.field === field);
 }
 
@@ -81,6 +88,7 @@ function addTag(side: AnkiTemplateSide, inner: string): void {
 export function parseAnkiTemplate(template: string): AnkiTemplateSide {
   const side: AnkiTemplateSide = {
     refs: [],
+    uses: [],
     includesFrontSide: false,
     typed: [],
     typedCloze: [],
