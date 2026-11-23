@@ -7,6 +7,7 @@ export * from './events/types.ts';
 export * from './events/replay.ts';
 export * from './events/snapshot.ts';
 export * from './events/patch.ts';
+export * from './events/media-refs.ts';
 export * from './fsrs/scheduler.ts';
 export * from './events/suspension.ts';
 export * from './events/tag-adds.ts';
@@ -36,6 +37,7 @@ export * from './sync/types.ts';
 // while remaining re-exported here for convenience.
 export * from './import/csv.ts';
 export * from './import/flashpkg.ts';
+export * from './import/media-types.ts';
 export * from './sync/codec.ts';
 export * from './sync/engine.ts';
 export * from './stats/index.ts';

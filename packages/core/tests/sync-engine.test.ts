@@ -290,6 +290,57 @@ describe('SyncEngine & Codec unit tests (§4.2 & §13)', () => {
     expect(stateB.notes.get(deriveNoteId('d1', 'n2'))?.fields['word']).toBe('불');
   });
 
+  it('replays segments instead of a snapshot from a build before media removal', async () => {
+    const transport = new RecordingMemoryTransport();
+    const t0 = Date.UTC(2026, 4, 1, 9, 0, 0);
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const hash = 'e'.repeat(64);
+    const events: FlashEvent[] = [
+      factory.create('MediaAdded', { media: { hash, ext: 'png', mime: 'image/png', size: 3 } }, t0),
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: 'd1',
+          name: 'Snap Deck',
+          note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+          language: 'ko',
+          created_at: t0,
+        },
+        t0 + 1,
+      ),
+    ];
+    const stateA = applyEvents(createEmptyState(), events);
+    // What a build before media removal wrote: version 1, no `media:<hash>:added` register.
+    const old = serializeCollectionState(stateA, { 'dev-a': 2 });
+    old.formatVersion = 1;
+    old.fieldHlcs = Object.fromEntries(
+      Object.entries(old.fieldHlcs).filter(([k]) => k !== `media:${hash}:added`),
+    );
+    await runSync({
+      transport,
+      deviceId: 'dev-a',
+      cursor: createInitialSyncCursor(),
+      localOwnSeq: 2,
+      currentTotalEvents: 2,
+      snapshotThreshold: 2,
+      nowMs: () => t0 + 100,
+      getLocalEventsAfterSeq: async (afterSeq) => events.filter((e) => e.seq > afterSeq),
+      buildSnapshotState: async () => ({ state: old, totalEvents: 2, watermarks: { 'dev-a': 2 } }),
+    });
+
+    const syncB = await runSync({
+      transport,
+      deviceId: 'dev-b',
+      cursor: createInitialSyncCursor(),
+      localOwnSeq: 0,
+      canBootstrapFromSnapshot: true,
+      nowMs: () => t0 + 400,
+      getLocalEventsAfterSeq: async () => [],
+    });
+    expect(syncB.hydratedSnapshot).toBeUndefined();
+    expect(syncB.pulledEvents.map((e) => e.seq)).toEqual([1, 2]);
+  });
+
   it('enforces format_version and min_app_version read-only gate with 0 writes while preserving unknown events/fields', async () => {
     const transport = new RecordingMemoryTransport();
     const t0 = Date.UTC(2026, 4, 1, 9, 0, 0);

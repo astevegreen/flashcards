@@ -27,6 +27,7 @@ import type {
 } from '@flash/platform';
 import type { MutableRefObject } from 'react';
 import type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
+import { snapshotWriteAllowed } from './rebuildSignal.ts';
 
 const LOCAL_SNAPSHOT_EVENT_THRESHOLD = 200;
 
@@ -131,6 +132,8 @@ export interface SyncRunnerContext {
    */
   collectionChoiceEpochRef: MutableRefObject<number>;
   enqueuePersist: (task: () => Promise<void>) => Promise<void>;
+  /** When this tab started: a collection rebuilt since then keeps its snapshot (rebuildSignal.ts). */
+  startedAtMs?: number;
   onStateMutated: (nextMeta?: DeviceMeta) => void;
   onReplaceState: (nextState: CollectionState, nextMeta: DeviceMeta) => void;
   setSyncState: React.Dispatch<React.SetStateAction<SyncUiState>>;
@@ -245,6 +248,12 @@ export async function runSyncCycle(
   const choiceEpoch = ctx.collectionChoiceEpochRef.current;
   try {
     await ctx.enqueuePersist(async () => {});
+    // A Check database rebuild replaced the collection on disk since this tab started: the tab is
+    // stale until it reloads (its reload prompt shows), so it stops syncing.
+    if (!(await snapshotWriteAllowed(ctx.platform.storage, ctx.startedAtMs))) {
+      ctx.setSyncState((prev) => ({ ...prev, status: 'idle' }));
+      return;
+    }
 
     const transport = await resolveActiveTransport(ctx, provider);
     if (!transport) {
@@ -407,6 +416,9 @@ export async function runSyncCycle(
         if (result.pulledEvents.length > 0) {
           await ctx.platform.storage.appendEvents(result.pulledEvents);
         }
+        // The hydrated state only reaches storage through this snapshot. When a rebuild keeps the
+        // snapshot, the cursor must not move past it either: the next sync after reload pulls again.
+        if (!(await snapshotWriteAllowed(ctx.platform.storage, ctx.startedAtMs))) return;
         await ctx.platform.storage.saveMaterializedCards(allCardRows);
         await ctx.platform.storage.setDeviceMeta(nextMeta);
         await ctx.platform.storage.setSyncCursor(result.cursor);
@@ -451,7 +463,10 @@ export async function runSyncCycle(
           await ctx.platform.storage.setDeviceMeta(nextMeta);
         }
         await ctx.platform.storage.setSyncCursor(result.cursor);
-        if (localSnapPayload) {
+        if (
+          localSnapPayload &&
+          (await snapshotWriteAllowed(ctx.platform.storage, ctx.startedAtMs))
+        ) {
           const maxLocalSeq = await ctx.platform.storage.getMaxLocalSeq();
           await ctx.platform.storage.setLocalSnapshot({
             snapshot: localSnapPayload,

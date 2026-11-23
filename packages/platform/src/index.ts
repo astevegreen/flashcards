@@ -125,6 +125,8 @@ export interface Storage {
   putMedia(media: MediaBlob): Promise<void>;
   getMedia(hash: string): Promise<MediaBlob | undefined>;
   listMediaHashes?(): Promise<string[]>;
+  /** Deletes one stored media file (Check media's removal of unused files). */
+  deleteMedia?(hash: string): Promise<void>;
   requestPersistence(): Promise<boolean>;
   /**
    * Rolling backups (`@flash/core/backup`). Optional: a storage without it takes no automatic

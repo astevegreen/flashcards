@@ -33,6 +33,9 @@ const LazyAboutLicensesCard = lazyWithRetry(() =>
 const LazyBackupsPanel = lazyWithRetry(() =>
   import('../backups/BackupsPanel.tsx').then((m) => ({ default: m.BackupsPanel })),
 );
+const LazyCheckPanel = lazyWithRetry(() =>
+  import('../check/CheckPanel.tsx').then((m) => ({ default: m.CheckPanel })),
+);
 const LazyUnlockAndSunsetCard = lazyWithRetry(() =>
   import('../packs/UnlockAndSunsetCard.tsx').then((m) => ({ default: m.UnlockAndSunsetCard })),
 );
@@ -1067,6 +1070,7 @@ export function SettingsScreen() {
 
       <Suspense fallback={null}>
         <LazyBackupsPanel />
+        <LazyCheckPanel />
       </Suspense>
 
       {/* Device / Dev Mode panel */}

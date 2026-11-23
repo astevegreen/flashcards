@@ -93,6 +93,17 @@ describe.each([
     await storage.clearAll();
     expect(await storage.listMediaHashes()).toEqual([kept]);
   });
+
+  it('deletes one media file (Check media)', async () => {
+    const storage = await make();
+    const a = 'a'.repeat(64);
+    const b = 'b'.repeat(64);
+    await storage.putMedia({ hash: a, mime: 'image/png', bytes: new Uint8Array([1]) });
+    await storage.putMedia({ hash: b, mime: 'image/png', bytes: new Uint8Array([2]) });
+    await storage.deleteMedia(a);
+    expect(await storage.listMediaHashes()).toEqual([b]);
+    expect(await storage.getMedia(a)).toBeUndefined();
+  });
 });
 
 /** Fails the `n`th chunk insert, like a disk that fills up halfway through a backup. */

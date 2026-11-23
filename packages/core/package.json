@@ -65,6 +65,10 @@
       "types": "./src/backup/index.ts",
       "default": "./src/backup/index.ts"
     },
+    "./check": {
+      "types": "./src/check/index.ts",
+      "default": "./src/check/index.ts"
+    },
     "./license": {
       "types": "./src/license/index.ts",
       "default": "./src/license/index.ts"

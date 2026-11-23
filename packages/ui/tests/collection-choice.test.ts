@@ -8,6 +8,7 @@ import {
 import { encodeManifest, manifestPath } from '@flash/core/sync';
 import { describe, expect, it } from 'vitest';
 import { answerCollectionChoice } from '../src/state/collectionChoice.ts';
+import { COLLECTION_REBUILT_KV_KEY } from '../src/state/rebuildSignal.ts';
 import { saveAddDeviceExpectation } from '../src/sync/addDeviceExpectation.ts';
 import {
   disconnectActiveSync,
@@ -363,5 +364,22 @@ describe('answerCollectionChoice', () => {
     expect(h.state().collectionChoice).toBeUndefined();
     expect(h.state().errorMessage).toBeUndefined();
     expect(h.state().readOnly).toBe(false);
+  });
+});
+
+describe('a tab that a Check database rebuild left stale', () => {
+  it('stops syncing: no pull, push or cursor move until it reloads', async () => {
+    const t = setup();
+    (t.ctx as { startedAtMs?: number }).startedAtMs = 1_000;
+    await (t.storage as { setKv(k: string, v: unknown): Promise<void> }).setKv(
+      COLLECTION_REBUILT_KV_KEY,
+      2_000,
+    );
+    await runSyncCycle(t.ctx, 'dropbox');
+    expect(t.transport.writes).toEqual([]);
+    expect(t.calls).not.toContain('setSyncCursor');
+    expect(t.calls).not.toContain('setLocalSnapshot');
+    expect(t.ctx.cursorRef.current).toBeUndefined();
+    expect(t.state().status).toBe('idle');
   });
 });

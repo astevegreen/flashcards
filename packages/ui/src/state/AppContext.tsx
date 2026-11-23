@@ -55,6 +55,9 @@ import {
   type AddDeviceLink,
 } from '../sync/addDeviceLink.ts';
 import { SECURE_KEYS_LOST_KV_KEY } from './secureKeysNotice.ts';
+import { priorOfMediaEdits } from './mediaEditPrior.ts';
+import { createMediaReAddQueue, type MediaReAddQueue } from './mediaReAddQueue.ts';
+import { snapshotWriteAllowed } from './rebuildSignal.ts';
 import { useAudioController, type AudioController } from './useAudioController.ts';
 import { isLeechBackfillReady } from './leechBackfillGate.ts';
 import { useSyncController, type SyncUiState } from './useSyncController.ts';
@@ -116,6 +119,8 @@ export interface AppContextValue {
   undoLastReview: () => boolean;
   /** Forgets the study undo history (after a restore changed the collection under it). */
   clearUndoStack: () => void;
+  /** Resolves once queued writes and media re-adds have reached storage (call before a reload). */
+  whenSaved: () => Promise<void>;
   updateNote: (note: Note, fields: Record<string, string>, tags: string[]) => void;
   setNoteArchived: (noteId: string, archived: boolean) => void;
   markNoteReviewed: (note: Note) => void;
@@ -220,6 +225,8 @@ export function AppProvider({
   const persistChainRef = useRef<Promise<void>>(Promise.resolve());
   const persistPendingRef = useRef(0);
   const lastLocalSnapEventsRef = useRef<number>(getTotalAppliedEventCount(collectionState));
+  // A Check database rebuild saved after this start keeps its snapshot (see rebuildSignal.ts).
+  const [startedAtMs] = useState(() => Date.now());
 
   const refreshEntitlement = useCallback(async (): Promise<EntitlementState> => {
     if (!platform.getPurchase) {
@@ -296,12 +303,43 @@ export function AppProvider({
     return next;
   }, []);
 
+  const whenSaved = useCallback(async () => {
+    // Re-adds still being planned emit their events first.
+    await mediaReAddsRef.current?.flush();
+    while (persistPendingRef.current > 0) {
+      // A write queued while waiting extends the chain: wait for that one too.
+      await persistChainRef.current; // NOSONAR (S9382)
+    }
+  }, []);
+
+  // Files an edit starts to use are added again (mediaReAdds.ts, lazy). A batch whose chunk failed
+  // to load stays queued and is retried on the next edit or sync.
+  const mediaReAddsRef = useRef<MediaReAddQueue | null>(null);
+  mediaReAddsRef.current ??= createMediaReAddQueue(
+    () =>
+      retryImport(() => import('./mediaReAdds.ts')).then(
+        (m) => (batch) =>
+          m.planMediaReAdds(
+            batch.prior,
+            batch.events,
+            stateRef.current ?? collectionState,
+            platform.storage,
+          ),
+      ),
+    (entries) => {
+      const f = factoryRef.current ?? eventFactory;
+      const now = Date.now();
+      emitEventsRef.current(entries.map((media) => f.create('MediaAdded', { media }, now)));
+    },
+  );
+
   const handleRemoteStateMutated = useCallback((nextMeta?: DeviceMeta) => {
     if (nextMeta) {
       metaRef.current = nextMeta;
       setMeta(nextMeta);
     }
     setStateVersion((v) => v + 1);
+    void mediaReAddsRef.current?.flush();
   }, []);
 
   const handleReplaceState = useCallback((nextState: CollectionState, nextMeta: DeviceMeta) => {
@@ -322,6 +360,7 @@ export function AppProvider({
     ...(initialSyncCursor !== undefined ? { initialSyncCursor } : {}),
     ...(initialOAuthError !== undefined ? { initialOAuthError } : {}),
     enqueuePersist,
+    startedAtMs,
     onStateMutated: handleRemoteStateMutated,
     onReplaceState: handleReplaceState,
   });
@@ -358,6 +397,11 @@ export function AppProvider({
       if (events.length === 0) return;
       const factory = factoryRef.current ?? eventFactory;
       const st = stateRef.current ?? collectionState;
+      // An edit that starts using a file re-adds it right after, so the newer use beats a Check
+      // media removal another device decided before this edit synced (mediaReAdds.ts).
+      const mediaPrior = priorOfMediaEdits(st, events);
+      if (mediaPrior) mediaReAddsRef.current?.add({ prior: mediaPrior, events });
+      void mediaReAddsRef.current?.flush();
       const diff = applyEventsWithDiff(st, events);
       const nextMeta: DeviceMeta = {
         ...metaRef.current,
@@ -397,7 +441,7 @@ export function AppProvider({
           await platform.storage.deleteMaterializedCards(removedIds);
         }
         await platform.storage.setDeviceMeta(nextMeta);
-        if (watermarksForSnap) {
+        if (watermarksForSnap && (await snapshotWriteAllowed(platform.storage, startedAtMs))) {
           const [{ serializeCollectionState }, maxLocalSeq] = await Promise.all([
             import('@flash/core/snapshot'),
             platform.storage.getMaxLocalSeq(),
@@ -411,7 +455,7 @@ export function AppProvider({
         }
       });
     },
-    [collectionState, enqueuePersist, eventFactory, platform.storage, syncController],
+    [collectionState, enqueuePersist, eventFactory, platform.storage, startedAtMs, syncController],
   );
 
   const getEventFactory = useCallback(() => factoryRef.current ?? eventFactory, [eventFactory]);
@@ -1013,6 +1057,7 @@ export function AppProvider({
     refreshEntitlement,
     undoStack,
     clearUndoStack: () => setUndoStack([]),
+    whenSaved,
     activeDeckId,
     setActiveDeckId,
     showBackupBanner,
