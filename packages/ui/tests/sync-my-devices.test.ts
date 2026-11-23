@@ -24,8 +24,20 @@ const IOS: SyncPlatformFlags = {
   iCloudSyncSupported: true,
   createICloudTransport: unavailable,
 };
-/** The Tauri shell on macOS: there is no macOS iCloud transport today. */
-const MACOS_DESKTOP: SyncPlatformFlags = {
+/** The Tauri shell on macOS when iCloud Drive was available at launch. */
+const MACOS_ICLOUD: SyncPlatformFlags = {
+  googleOAuthConfigured: true,
+  supportsLocalFolderSync: true,
+  iCloudSyncSupported: true,
+  createICloudTransport: unavailable,
+};
+/** The Tauri shell on macOS when iCloud was off or slow at launch: offered, not the default. */
+const MACOS_ICLOUD_OFF_AT_LAUNCH: SyncPlatformFlags = {
+  ...MACOS_ICLOUD,
+  iCloudAvailableAtLaunch: false,
+};
+/** A Tauri build without iCloud support (Windows, Linux). */
+const MACOS_NO_ICLOUD: SyncPlatformFlags = {
   googleOAuthConfigured: true,
   supportsLocalFolderSync: true,
 };
@@ -37,16 +49,31 @@ describe('"Sync my devices" default provider', () => {
       primary: 'icloud',
       alternatives: ['google_drive'],
     });
+    expect(planSyncMyDevices(MACOS_ICLOUD, undefined)).toEqual({
+      primary: 'icloud',
+      alternatives: ['google_drive', 'local_folder'],
+    });
   });
 
   it('uses Google Drive on Android, Windows, web and Apple platforms without iCloud', () => {
-    for (const platform of [WEB, ANDROID, MACOS_DESKTOP]) {
+    for (const platform of [WEB, ANDROID, MACOS_NO_ICLOUD]) {
       expect(pickDefaultSyncProvider(platform)).toBe('google_drive');
     }
     // A flag without the transport (or the reverse) is not an iCloud platform.
     expect(pickDefaultSyncProvider({ ...ANDROID, iCloudSyncSupported: true })).toBe('google_drive');
     expect(pickDefaultSyncProvider({ ...ANDROID, createICloudTransport: unavailable })).toBe(
       'google_drive',
+    );
+  });
+
+  it('keeps iCloud as an alternative on a Mac where it was off at launch', () => {
+    expect(planSyncMyDevices(MACOS_ICLOUD_OFF_AT_LAUNCH, undefined)).toEqual({
+      primary: 'google_drive',
+      alternatives: ['icloud', 'local_folder'],
+    });
+    // An add-device link for iCloud still preselects it.
+    expect(planSyncMyDevices(MACOS_ICLOUD_OFF_AT_LAUNCH, { provider: 'icloud' }).primary).toBe(
+      'icloud',
     );
   });
 

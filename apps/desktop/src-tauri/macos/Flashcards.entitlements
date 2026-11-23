@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  iCloud Drive entitlements for the signed macOS build (see docs/native-shells.md, "macOS iCloud
+  Drive sync"). Not referenced from tauri.conf.json yet: iCloud is a restricted entitlement, and a
+  build signed with it but without a matching provisioning profile is killed at launch. Replace
+  TEAMID with the Apple Developer Team ID before wiring it in.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.application-identifier</key>
+	<string>TEAMID.app.flashcards.localfirst</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>TEAMID</string>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.app.flashcards.localfirst</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudDocuments</string>
+	</array>
+	<key>com.apple.developer.ubiquity-container-identifiers</key>
+	<array>
+		<string>iCloud.app.flashcards.localfirst</string>
+	</array>
+	<!-- Developer ID (outside the Mac App Store) builds must name the production environment. -->
+	<key>com.apple.developer.icloud-container-environment</key>
+	<string>Production</string>
+</dict>
+</plist>

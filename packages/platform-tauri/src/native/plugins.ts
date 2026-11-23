@@ -37,6 +37,7 @@ import type { DesktopNotificationBridge } from '../reminders/desktop-reminders.t
 import { createAddDeviceUrlSourceFrom } from './add-device-url.ts';
 import type { TauriFsBridge, TauriFsDirEntry } from '../sources/tauri-fs-watcher.ts';
 import type { TauriSqlPluginDatabase } from '../storage/tauri-sqlite-storage.ts';
+import { resolveTauriICloudOptions, type TauriICloudOptions } from '../sync/tauri-icloud-bridge.ts';
 
 // ---------------------------------------------------------------------------
 // SQLite (tauri-plugin-sql, `sqlite:flashcards.db` in the app config dir)
@@ -73,6 +74,15 @@ export function createSecureSecretBackend(): SecureSecretBackend {
       await invoke('secure_store_delete', { account });
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// iCloud Drive (app commands in apps/desktop/src-tauri/src/icloud.rs; macOS only)
+// ---------------------------------------------------------------------------
+
+/** The iCloud plugin on macOS (always) and whether iCloud was available at launch. */
+export function createICloudOptions(): Promise<TauriICloudOptions> {
+  return resolveTauriICloudOptions(invoke);
 }
 
 // ---------------------------------------------------------------------------

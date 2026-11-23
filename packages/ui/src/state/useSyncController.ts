@@ -511,7 +511,7 @@ export function useSyncController({
 
   const connectICloud = useCallback(async (): Promise<void> => {
     if (!platform.createICloudTransport) {
-      throw new Error('iCloud Drive sync is only available in the iOS app.');
+      throw new Error('iCloud Drive sync is only available in the iPhone, iPad and Mac apps.');
     }
     // Fails with a clear message when the user is signed out of iCloud or iCloud Drive is off.
     await platform.createICloudTransport();

@@ -254,6 +254,7 @@ Rust plugins registered in `src-tauri/src/lib.rs`, with their permissions in
 | `tauri-plugin-oauth`                         | Loopback `127.0.0.1` redirect server for Google OAuth (PKCE, RFC 8252) |
 | `tauri-plugin-http`                          | Token exchange from Rust (avoids WebView CORS)                         |
 | `keyring` crate (app commands)               | `secure_store_*` commands in `src/secure_store.rs`: OS keychain        |
+| `objc2-foundation` (app commands, macOS)     | `icloud_*` commands in `src/icloud.rs`: iCloud Drive sync              |
 
 Google OAuth on desktop needs a **Desktop app** client
 (`VITE_GOOGLE_DESKTOP_CLIENT_ID` / `_SECRET`).
@@ -267,12 +268,88 @@ KWallet or another Secret Service), the token stays in SQLite and Settings shows
 it is not in a secure store. Linux builds need the D-Bus development package (`libdbus-1-dev`).
 `cargo test -- --ignored` in `src-tauri` round-trips a value through the real keychain.
 
+### macOS iCloud Drive sync
+
+The macOS app syncs through the **same iCloud container and file layout as the iOS app**
+(`iCloud.app.flashcards.localfirst`, sync files at `<container>/<sync path>`, outside
+`Documents/`), so an iPhone, an iPad and a Mac on the same Apple ID share one collection.
+
+- Native side: `src-tauri/src/icloud.rs`, four app commands (`icloud_available`,
+  `icloud_list_files`, `icloud_read_file`, `icloud_write_file`). On macOS it finds the container
+  with `NSFileManager` (`objc2-foundation`), starts downloads of files that are only in iCloud and
+  waits up to 60 s for them, like the iOS plugin. On Windows and Linux `icloud_available` is false.
+  File bytes cross the IPC bridge raw, not as JSON arrays.
+- TypeScript side: `createTauriICloudDocumentPlugin` (`packages/platform-tauri/src/sync/`) adapts
+  the commands to the existing `ICloudDocumentPlugin` interface, and `ICloudDriveSyncTransport`
+  from `@flash/platform-capacitor` does the rest, so path checks and error codes match iOS.
+- Default: on macOS (`icloud_supported`) iCloud Drive is always offered, and each connect checks
+  that it is available, like iOS, so a Mac that already syncs with iCloud keeps syncing even if
+  iCloud was slow or off at launch. At launch `bootTauriPlatform` also asks `icloud_available`
+  (at most 2 s, alongside the database open). That answer only picks the **Sync my devices**
+  default: iCloud Drive when it is true, otherwise Google Drive, with iCloud Drive listed as an
+  alternative. Windows and Linux builds never offer iCloud.
+
+Differences from the iOS plugin, all untested on a Mac:
+
+- Listing walks the container folder instead of running an `NSMetadataQuery`. macOS keeps the
+  metadata of the whole iCloud Drive tree on disk, so files not downloaded yet still show up
+  (as `.<name>.icloud` placeholders on older macOS, as dataless files on newer). A placeholder's
+  size is reported as 0.
+- Reads and writes use plain file I/O, not `NSFileCoordinator`. Overwrites go to a temp file in the
+  hidden .flashcards-tmp/ folder at the container root (outside every sync prefix, so neither app
+  lists it) and are renamed into place; `ifAbsent` writes are an exclusive create (`create_new`) and
+  also fail when only another device's placeholder is present. The `manifest.json` first-connect
+  race described in the iOS section applies here too.
+
+What the owner has to do in the Apple Developer account before iCloud works on a Mac (none of it
+is needed for the unsigned CI build, and none of it has been tried):
+
+1. **App ID.** Register a macOS App ID for `app.flashcards.localfirst` (the Tauri `identifier`)
+   in the same team as the iOS app, and enable **iCloud** (with CloudKit/iCloud Documents) on it.
+2. **Container.** Assign the existing container `iCloud.app.flashcards.localfirst` (the one the iOS
+   App ID uses) to the macOS App ID. Sharing the container is what shares the collection; it only
+   works within one team.
+3. **Certificate and profile.** Create a **Developer ID Application** certificate (or a Mac App
+   Store one) and a macOS provisioning profile for that App ID that includes iCloud. iCloud is a
+   restricted entitlement: macOS kills an app signed with it at launch unless the profile is
+   embedded.
+4. **Entitlements.** `src-tauri/macos/Flashcards.entitlements` holds the iCloud keys. Replace
+   `TEAMID` with the team ID. For a Mac App Store build, drop
+   `com.apple.developer.icloud-container-environment` (it is for Developer ID builds) and add the
+   App Sandbox keys the store requires.
+5. **Wire it into `tauri.conf.json`** (left out on purpose, so unsigned and local builds keep
+   launching):
+
+   ```json
+   "bundle": {
+     "macOS": {
+       "signingIdentity": "Developer ID Application: <Name> (<TEAMID>)",
+       "entitlements": "macos/Flashcards.entitlements",
+       "files": { "embedded.provisionprofile": "macos/embedded.provisionprofile" }
+     }
+   }
+   ```
+
+   Put the downloaded profile at `src-tauri/macos/embedded.provisionprofile` (keep it out of git
+   if the repository is public), then run `pnpm --filter @flash/desktop build` on a Mac. Notarize
+   the Developer ID build (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` environment variables for
+   `tauri build`) before handing it to anyone else.
+
+6. **Check on a Mac** signed in to iCloud with iCloud Drive on: Settings shows **Use iCloud Drive**,
+   Sync my devices defaults to iCloud Drive, and a deck studied on the iPhone appears on the Mac
+   after a sync (and the other way round).
+
+`.github/workflows/desktop.yml` compiles the macOS app on every pull request that touches
+`apps/desktop/` or `packages/platform-tauri/`: an unsigned `tauri build --debug --no-bundle` on
+`macos-latest` with warnings as errors, then `cargo test` (the iCloud file-layout tests also run
+on Windows and Linux against a temp folder). It does not sign, notarize or talk to iCloud.
+
 ## Interfaces still waiting on a native plugin
 
 | Interface               | Status                                                                                                                                                                                                           |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MlKitDigitalInkPlugin` | **Wired** to `@capacitor-mlkit/digital-ink-recognition` (Capawesome). `zh-Hans`/`zh-Hant` map to ML Kit `zh-Hani-CN`/`zh-Hani-TW`. The web stroke matcher is the fallback.                                       |
 | `StoreBillingPlugin`    | **Wired** to `@capgo/native-purchases` (StoreKit 2 / Play Billing 7, non-consumable `INAPP`).                                                                                                                    |
-| `ICloudDocumentPlugin`  | **Wired** to the local Swift plugin `ios/App/App/ICloudDocumentsPlugin.swift` (iOS only; see the iOS section).                                                                                                   |
+| `ICloudDocumentPlugin`  | **Wired** to the local Swift plugin `ios/App/App/ICloudDocumentsPlugin.swift` on iOS (see the iOS section), and to the Rust commands in `src-tauri/src/icloud.rs` on macOS (see macOS iCloud Drive sync).        |
 | Desktop refresh token   | **Done.** Kept in the OS keychain (see the Desktop section).                                                                                                                                                     |
 | Phone sign-in tokens    | **Done.** Kept in the Keychain / Keystore by `@flash/capacitor-secure-storage` (see Phone secure storage). Compiles on Android and iOS in `native.yml` (first green run 2026-11-23); not yet tested on a device. |
