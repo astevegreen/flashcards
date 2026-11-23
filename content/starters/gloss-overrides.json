@@ -58,7 +58,7 @@
     "nikl:아니01:adverb": {
       "word": "아니",
       "upstream": "(literary adverb of negation)",
-      "meaning": "not (variant of 안)"
+      "meaning": "not (full form of 안)"
     },
     "nikl:아니다:adjective": {
       "word": "아니다",
@@ -445,7 +445,7 @@
     "unihan:U+5450": {
       "word": "呐",
       "upstream": "raise voice, yell out loud, shout; stammer",
-      "meaning": "sentence-final particle (exclamation)"
+      "meaning": "(na) sentence-final particle (exclamation); (nà) to shout"
     },
     "unihan:U+4E2A": {
       "word": "个",
@@ -455,7 +455,7 @@
     "unihan:U+5730": {
       "word": "地",
       "upstream": "earth; soil, ground; region",
-      "meaning": "earth; ground; adverb particle (-ly)"
+      "meaning": "earth; ground; (de) adverb particle (-ly)"
     },
     "unihan:U+5F97": {
       "word": "得",
@@ -600,7 +600,7 @@
     "unihan:U+957F": {
       "word": "长",
       "upstream": "long; length; excel in; leader",
-      "meaning": "(cháng) long; (zhǎng) to grow; chief"
+      "meaning": "(zhǎng) to grow; chief; (cháng) long"
     },
     "unihan:U+9AD8": {
       "word": "高",

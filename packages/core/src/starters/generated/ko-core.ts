@@ -610,7 +610,7 @@ const deck: StarterDeckContent = {
       fields: {
         word: '아니',
         hanja: '',
-        meaning: 'not (variant of 안)',
+        meaning: 'not (full form of 안)',
         example: '',
         notes:
           'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742361 (CC0), edited by this app.',

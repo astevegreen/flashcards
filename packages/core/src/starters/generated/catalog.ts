@@ -9,7 +9,7 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
     noteTypeId: 'preset:vocab-ko',
     noteCount: 145,
     version: '1.1.0',
-    contentHash: 'f47888a470ed4cd741e90f65afa2d7fc70c92ff7ad59fcdfc43ea1d59a9d14ca',
+    contentHash: 'ad426ef9a1bb5410ada98073604bdbb8ce735920e8d5444e8ff5ccdb10bb3daa',
     description:
       'Beginner (level A) Korean words from the NIKL learning vocabulary list, most frequent first, with Hanja for Sino-Korean words and English meanings from Wikidata.',
     sources: [
@@ -42,7 +42,7 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
     noteTypeId: 'preset:vocab-zh',
     noteCount: 150,
     version: '1.1.0',
-    contentHash: '8d654f26f7f0f03a713821c4142d86dfab72c1eda8484e46075210e5b50601e6',
+    contentHash: 'bd074cc957f5558757a6ea74a6de2a89a185e07f912f2d3ac3364c786273495a',
     description:
       'The most frequent characters of modern Mandarin, with pinyin and English definitions from the Unicode Unihan database.',
     sources: [

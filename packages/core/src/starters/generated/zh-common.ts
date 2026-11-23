@@ -189,7 +189,7 @@ const deck: StarterDeckContent = {
       fields: {
         word: '地',
         reading: 'dì',
-        meaning: 'earth; ground; adverb particle (-ly)',
+        meaning: 'earth; ground; (de) adverb particle (-ly)',
         example: '',
         notes:
           'Also read: de. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
@@ -1257,7 +1257,7 @@ const deck: StarterDeckContent = {
       fields: {
         word: '长',
         reading: 'zhǎng',
-        meaning: '(cháng) long; (zhǎng) to grow; chief',
+        meaning: '(zhǎng) to grow; chief; (cháng) long',
         example: '',
         notes:
           'Also read: cháng. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
@@ -1749,7 +1749,7 @@ const deck: StarterDeckContent = {
       fields: {
         word: '呐',
         reading: 'nà',
-        meaning: 'sentence-final particle (exclamation)',
+        meaning: '(na) sentence-final particle (exclamation); (nà) to shout',
         example: '',
         notes:
           'Also read: ne. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app.',
