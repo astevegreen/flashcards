@@ -254,4 +254,46 @@ describe('rolling backups on a device', () => {
     expect(await takeBackup(ctx, 'manual')).not.toBeNull();
     expect(await runAutoBackupIfDue(ctx)).toBeNull(); // not blocked: nothing due right after
   });
+
+  it('never stores, prunes or copies a snapshot that was stopped', async () => {
+    const { storage, ctx } = setup();
+    const store = await openBackupStore(storage);
+    if (!store) throw new Error('no store');
+    await takeBackup(ctx, 'manual'); // warm up, so only the write is slow
+    const before = (await store.list()).map((b) => b.backup_id);
+    const realPut = store.put.bind(store);
+    let writeDone: Promise<void> | undefined;
+    // A write that finishes only after the snapshot was given up on.
+    store.put = (info, bytes) => {
+      writeDone = new Promise<void>((resolve) => setTimeout(resolve, 300)).then(() =>
+        realPut(info, bytes),
+      );
+      return writeDone;
+    };
+    await expect(takeBackup(ctx, 'manual', { timeoutMs: 100 })).rejects.toThrow(/too long/);
+    await writeDone;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect((await store.list()).map((b) => b.backup_id)).toEqual(before);
+  });
+
+  it('does not count time the page is hidden, and starts no automatic snapshot while hidden', async () => {
+    const { storage, ctx } = setup();
+    const store = await openBackupStore(storage);
+    if (!store) throw new Error('no store');
+    const page = Object.assign(new EventTarget(), { hidden: true });
+    vi.stubGlobal('document', page);
+    expect(await runAutoBackupIfDue(ctx)).toBeNull();
+    expect(await store.list()).toEqual([]);
+    await takeBackup(ctx, 'manual'); // warm up
+    const realPut = store.put.bind(store);
+    store.put = (info, bytes) =>
+      new Promise<void>((resolve) => setTimeout(resolve, 300)).then(() => realPut(info, bytes));
+    // Hidden for the whole slow write: the 100 ms clock never runs out.
+    const result = await takeBackup(ctx, 'manual', { timeoutMs: 100 });
+    expect((await store.list()).map((b) => b.backup_id)).toContain(result?.info.backup_id);
+    // Visible again: the clock runs.
+    page.hidden = false;
+    page.dispatchEvent(new Event('visibilitychange'));
+    await expect(takeBackup(ctx, 'manual', { timeoutMs: 100 })).rejects.toThrow(/too long/);
+  });
 });

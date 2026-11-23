@@ -193,18 +193,68 @@ function yieldToHost(): Promise<void> {
 
 let inFlight: Promise<TakeBackupResult | null> | null = null;
 
-/** A snapshot that hasn't finished by then is given up on, so `inFlight` always clears. */
+/**
+ * A snapshot still running after this much time with the page visible is stopped, so `inFlight`
+ * always clears. Hidden time doesn't count: hidden tabs throttle the yields to about one a minute.
+ */
 export const BACKUP_TIMEOUT_MS = 10 * 60 * 1000;
 
-function settleWithin<T>(work: Promise<T>, ms: number): Promise<T> {
+const STOPPED_MESSAGE = 'The backup took too long and was stopped.';
+
+/** Set when a snapshot timed out: its next yield throws, and it never stores, prunes or copies. */
+interface StopFlag {
+  stopped: boolean;
+}
+
+/** Calls `onTimeout` once `ms` of visible time has passed; returns a cancel function. */
+function startVisibleClock(ms: number, onTimeout: () => void): () => void {
+  const doc = typeof document === 'undefined' ? undefined : document;
+  let used = 0;
+  let since: number | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
+  const pause = (): void => {
+    clearTimeout(timer);
+    if (since !== null) used += Date.now() - since;
+    since = null;
+  };
+  const resume = (): void => {
+    if (doc?.hidden) return;
+    since = Date.now();
     timer = setTimeout(
-      () => reject(new BackupNotSavedError('The backup took too long and was stopped.')),
-      ms,
+      () => {
+        pause();
+        if (used >= ms) onTimeout();
+        else resume();
+      },
+      Math.max(0, ms - used),
     );
+  };
+  const onVisibility = (): void => {
+    pause();
+    resume();
+  };
+  doc?.addEventListener('visibilitychange', onVisibility);
+  resume();
+  return () => {
+    pause();
+    doc?.removeEventListener('visibilitychange', onVisibility);
+  };
+}
+
+function settleWithin<T>(work: (stop: StopFlag) => Promise<T>, ms: number): Promise<T> {
+  const stop: StopFlag = { stopped: false };
+  let cancel = (): void => undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    cancel = startVisibleClock(ms, () => {
+      stop.stopped = true;
+      reject(new BackupNotSavedError(STOPPED_MESSAGE));
+    });
   });
-  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+  return Promise.race([work(stop), timeout]).finally(() => cancel());
+}
+
+function throwIfStopped(stop: StopFlag): void {
+  if (stop.stopped) throw new BackupNotSavedError(STOPPED_MESSAGE);
 }
 
 async function writeSnapshot(
@@ -212,7 +262,12 @@ async function writeSnapshot(
   store: BackupStore,
   reason: BackupReason,
   opts: { kind?: BackupKind; protect?: readonly string[] },
+  stop: StopFlag = { stopped: false },
 ): Promise<TakeBackupResult> {
+  const pause = async (): Promise<void> => {
+    await yieldToHost();
+    throwIfStopped(stop);
+  };
   const storage = ctx.platform.storage;
   const nowMs = Date.now();
   const state = ctx.getState();
@@ -239,9 +294,9 @@ async function writeSnapshot(
       ...(meta.collectionId !== undefined ? { collectionId: meta.collectionId } : {}),
       ...(mediaBlobs ? { mediaBlobs } : {}),
     },
-    yieldToHost,
+    pause,
   );
-  const packed = await packBackupAsync(built, { withMedia: true }, yieldToHost);
+  const packed = await packBackupAsync(built, { withMedia: true }, pause);
   const info: StoredBackupInfo = { ...packed.manifest, size_bytes: packed.bytes.byteLength };
 
   const free = store.measuredByStorageEstimate ? await freeStorageBytes() : null;
@@ -250,6 +305,7 @@ async function writeSnapshot(
       'Not enough free storage on this device for a backup. Download one, or free up space.',
     );
   }
+  throwIfStopped(stop);
   try {
     await store.put(info, packed.bytes);
   } catch (err) {
@@ -258,23 +314,32 @@ async function writeSnapshot(
       { cause: err },
     );
   }
+  if (stop.stopped) {
+    // Stopped while writing: it was reported as not saved, so it must not stay.
+    await store.delete(info.backup_id).catch(() => undefined);
+    throw new BackupNotSavedError(STOPPED_MESSAGE);
+  }
   // Pruned only once the new snapshot is safely stored.
   const prune = selectBackupsToPrune([...existing, info], {
     nowMs,
     protect: [info.backup_id, ...(opts.protect ?? [])],
   });
-  for (const id of prune) await store.delete(id);
+  for (const id of prune) {
+    if (stop.stopped) break;
+    await store.delete(id);
+  }
 
   const result: TakeBackupResult = { info };
   const settings = await loadBackupSettings(storage);
   const provider = ctx.getSyncProvider();
-  if (settings.syncFolderCopy && provider !== 'none') {
+  if (settings.syncFolderCopy && provider !== 'none' && !stop.stopped) {
     try {
       const transport = await resolveSyncFolderTransport(ctx.platform, provider);
       if (!transport) throw new Error('The sync folder is not available right now.');
       const copy = info.media_included
-        ? (await packBackupAsync(built, { withMedia: false }, yieldToHost)).bytes
+        ? (await packBackupAsync(built, { withMedia: false }, pause)).bytes
         : packed.bytes;
+      throwIfStopped(stop);
       await transport.write(syncFolderBackupPath(meta.deviceId, nowMs), copy);
       result.syncCopyWritten = true;
     } catch (err) {
@@ -300,7 +365,7 @@ export async function takeBackup(
   const run = async (): Promise<TakeBackupResult> => {
     try {
       const result = await settleWithin(
-        writeSnapshot(ctx, store, reason, opts),
+        (stop) => writeSnapshot(ctx, store, reason, opts, stop),
         opts.timeoutMs ?? BACKUP_TIMEOUT_MS,
       );
       await storage.setKv(BACKUP_STATUS_KV_KEY, { at: Date.now() } satisfies BackupStatus);
@@ -327,7 +392,8 @@ export async function takeBackup(
 export async function runAutoBackupIfDue(ctx: BackupContext): Promise<TakeBackupResult | null> {
   const storage = ctx.platform.storage;
   const store = await openBackupStore(storage);
-  if (!store || inFlight) return null;
+  // A hidden tab runs a snapshot about one step a minute; the next visible check takes it.
+  if (!store || inFlight || (typeof document !== 'undefined' && document.hidden)) return null;
   const existing = await store.list();
   if (!isAutoBackupDue(existing, ctx.getState(), Date.now(), ctx.getMeta().collectionId)) {
     return null;
