@@ -78,6 +78,8 @@ export interface UseSyncControllerOptions {
   initialSyncCursor?: SyncCursorState;
   initialOAuthError?: string;
   enqueuePersist: (task: () => Promise<void>) => Promise<void>;
+  /** When this tab started; sync snapshot writes check the rebuild stamp against it. */
+  startedAtMs?: number;
   onStateMutated: (nextMeta?: DeviceMeta) => void;
   onReplaceState: (nextState: CollectionState, nextMeta: DeviceMeta) => void;
 }
@@ -150,6 +152,7 @@ export function useSyncController({
   initialSyncCursor,
   initialOAuthError,
   enqueuePersist,
+  startedAtMs,
   onStateMutated,
   onReplaceState,
 }: UseSyncControllerOptions): SyncController {
@@ -241,11 +244,21 @@ export function useSyncController({
       lastSyncCompletedAtRef,
       collectionChoiceEpochRef,
       enqueuePersist,
+      ...(startedAtMs !== undefined ? { startedAtMs } : {}),
       onStateMutated,
       onReplaceState,
       setSyncState,
     }),
-    [enqueuePersist, factoryRef, metaRef, onReplaceState, onStateMutated, platform, stateRef],
+    [
+      enqueuePersist,
+      factoryRef,
+      metaRef,
+      onReplaceState,
+      onStateMutated,
+      platform,
+      startedAtMs,
+      stateRef,
+    ],
   );
 
   const executeSync = useCallback(async (): Promise<void> => {

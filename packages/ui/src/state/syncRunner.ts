@@ -27,6 +27,7 @@ import type {
 } from '@flash/platform';
 import type { MutableRefObject } from 'react';
 import type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
+import { snapshotWriteAllowed } from './rebuildSignal.ts';
 
 const LOCAL_SNAPSHOT_EVENT_THRESHOLD = 200;
 
@@ -131,6 +132,8 @@ export interface SyncRunnerContext {
    */
   collectionChoiceEpochRef: MutableRefObject<number>;
   enqueuePersist: (task: () => Promise<void>) => Promise<void>;
+  /** When this tab started: a collection rebuilt since then keeps its snapshot (rebuildSignal.ts). */
+  startedAtMs?: number;
   onStateMutated: (nextMeta?: DeviceMeta) => void;
   onReplaceState: (nextState: CollectionState, nextMeta: DeviceMeta) => void;
   setSyncState: React.Dispatch<React.SetStateAction<SyncUiState>>;
@@ -410,13 +413,15 @@ export async function runSyncCycle(
         await ctx.platform.storage.saveMaterializedCards(allCardRows);
         await ctx.platform.storage.setDeviceMeta(nextMeta);
         await ctx.platform.storage.setSyncCursor(result.cursor);
-        const maxLocalSeq = await ctx.platform.storage.getMaxLocalSeq();
-        await ctx.platform.storage.setLocalSnapshot({
-          snapshot: localSnapPayload,
-          localSeq: maxLocalSeq,
-          savedAt: Date.now(),
-        });
-        ctx.lastLocalSnapshotCountRef.current = getTotalAppliedEventCount(hydrated);
+        if (await snapshotWriteAllowed(ctx.platform.storage, ctx.startedAtMs)) {
+          const maxLocalSeq = await ctx.platform.storage.getMaxLocalSeq();
+          await ctx.platform.storage.setLocalSnapshot({
+            snapshot: localSnapPayload,
+            localSeq: maxLocalSeq,
+            savedAt: Date.now(),
+          });
+          ctx.lastLocalSnapshotCountRef.current = getTotalAppliedEventCount(hydrated);
+        }
       });
     } else if (result.pulledEvents.length > 0) {
       const diff = await applyRemoteEventsOffMainThread(ctx, result.pulledEvents, currentCursor);
@@ -451,7 +456,10 @@ export async function runSyncCycle(
           await ctx.platform.storage.setDeviceMeta(nextMeta);
         }
         await ctx.platform.storage.setSyncCursor(result.cursor);
-        if (localSnapPayload) {
+        if (
+          localSnapPayload &&
+          (await snapshotWriteAllowed(ctx.platform.storage, ctx.startedAtMs))
+        ) {
           const maxLocalSeq = await ctx.platform.storage.getMaxLocalSeq();
           await ctx.platform.storage.setLocalSnapshot({
             snapshot: localSnapPayload,

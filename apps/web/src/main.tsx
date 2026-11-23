@@ -204,9 +204,13 @@ async function boot(): Promise<void> {
   // A snapshot from a build before media removal lacks the media add registers. When the log has
   // every event it covers, replay the log instead, so this device agrees with the others.
   let replayedLog: Awaited<ReturnType<typeof platform.storage.getAllEvents>> | undefined;
+  // Such a snapshot whose log is incomplete is kept, and saved again in the current format below,
+  // so later launches don't read the whole log again before first paint.
+  let resaveSnapshot = false;
   if (localSnapshot) {
     const { snapshotLacksMediaRecords } = await import('@flash/core/snapshot');
     if (snapshotLacksMediaRecords(localSnapshot.snapshot)) {
+      resaveSnapshot = true;
       const [{ checkLogCoverage }, all] = await Promise.all([
         import('@flash/core/check'),
         platform.storage.getAllEvents(),
@@ -220,7 +224,8 @@ async function boot(): Promise<void> {
   }
 
   if (localSnapshot) {
-    const { deserializeCollectionState } = await import('@flash/core/snapshot');
+    const { deserializeCollectionState, serializeCollectionState } =
+      await import('@flash/core/snapshot');
     initialState = deserializeCollectionState(localSnapshot.snapshot);
     const delta = await platform.storage.getEventsAfterLocalSeq(localSnapshot.localSeq);
     if (delta.events.length > 0) {
@@ -238,6 +243,16 @@ async function boot(): Promise<void> {
           ? platform.storage.deleteMaterializedCards(diff.removedCardIds)
           : Promise.resolve(),
       ]);
+    }
+    if (resaveSnapshot) {
+      void platform.storage.setLocalSnapshot({
+        snapshot: serializeCollectionState(initialState, {
+          [meta.deviceId]: meta.seq,
+          ...(syncCursor?.remoteWatermarks ?? {}),
+        }),
+        localSeq: Math.max(localSnapshot.localSeq, delta.maxLocalSeq),
+        savedAt: Date.now(),
+      });
     }
   } else {
     let events = replayedLog ?? (await platform.storage.getAllEvents());

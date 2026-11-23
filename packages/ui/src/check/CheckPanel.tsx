@@ -55,7 +55,7 @@ const KIND_LABELS: Record<CollectionDifferenceKind, string> = {
 const SHOWN = 20;
 
 export function CheckPanel() {
-  const { platform, state, emitEvents, getEventFactory, syncState, syncNow } = useApp();
+  const { platform, state, emitEvents, getEventFactory, syncState, syncNow, whenSaved } = useApp();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -136,7 +136,11 @@ export function CheckPanel() {
   const rebuildNow = () =>
     run(async () => {
       if (!database?.rebuilt) return;
+      // Edits still on their way to storage land first, then the rebuild; the reload waits for
+      // anything queued meanwhile (its snapshot writes skip: the rebuild stamp is newer).
+      await whenSaved();
       await saveRebuiltCollection({ ...ctx(), deviceId: platform.deviceId }, database.rebuilt);
+      await whenSaved();
       window.location.reload();
     });
 

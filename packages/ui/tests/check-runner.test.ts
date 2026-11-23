@@ -19,7 +19,11 @@ import {
   saveRebuiltCollection,
   type RemoveMediaContext,
 } from '../src/check/checkRunner.ts';
-import { COLLECTION_REBUILT_KV_KEY, rebuiltSince } from '../src/state/rebuildSignal.ts';
+import {
+  COLLECTION_REBUILT_KV_KEY,
+  rebuiltSince,
+  snapshotWriteAllowed,
+} from '../src/state/rebuildSignal.ts';
 
 const opened: DexieStorage[] = [];
 afterEach(() => {
@@ -132,6 +136,10 @@ describe('check database on a device', () => {
     expect(rebuiltSince(await storage.getKv(COLLECTION_REBUILT_KV_KEY), Date.now() + 1)).toBe(
       false,
     );
+    // Every snapshot write (edits and syncs) asks this first.
+    expect(await snapshotWriteAllowed(storage, before)).toBe(false);
+    expect(await snapshotWriteAllowed(storage, Date.now() + 1)).toBe(true);
+    expect(await snapshotWriteAllowed(storage, undefined)).toBe(true);
     const saved = await storage.getLocalSnapshot();
     expect(saved?.snapshot.cards.some((c) => c.id === card.id)).toBe(true);
     expect((await storage.loadMaterializedCards()).some((c) => c.id === card.id)).toBe(true);
