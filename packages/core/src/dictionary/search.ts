@@ -309,7 +309,8 @@ function japaneseDeinflectionScore(
 /** Order-aware exact English gloss match for entries without per-sense data (ja, zh-Hans). */
 function glossEquivalentScore(entry: DictionaryEntry, ko: KoreanQueryAnalysis): number {
   const english = ko.english;
-  if (!english || entry.senses || entry.packId === 'dict-krdict') return 0;
+  if (!english || entry.senses) return 0;
+  if (entry.packId !== 'dict-jmdict' && entry.packId !== 'dict-cc-cedict') return 0;
   const idx = entry.meanings.findIndex((m) =>
     m.split(/[;,/]+/).some((part) => normalizeEnglishEquivalent(part) === english),
   );
