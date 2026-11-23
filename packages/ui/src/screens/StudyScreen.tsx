@@ -20,6 +20,7 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as DeferredSyncPromptModuleType from '../onboarding/DeferredSyncPromptSlot.tsx';
 import { useApp, type AppContextValue } from '../state/AppContext.tsx';
+import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
 import {
@@ -338,6 +339,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     syncState,
     addDeviceLink,
   } = useApp();
+  const rubyLanguage = useActiveLanguages().hasFeature('ruby');
 
   const [revealStep, setRevealStep] = useState(0);
   const deferredSyncPrompt = useDeferredSyncPromptModule(platform.storage);
@@ -537,6 +539,8 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCard?.id]);
 
+  // Ruby (furigana, Hanja, pinyin) is offered for ja/ko/zh, and always where the layout hides it.
+  const showFuriganaToggle = rubyLanguage || Boolean(currentLayout?.hide_furigana_on_front);
   const hideFrontRuby =
     furiganaOverride ?? (!isRevealed && Boolean(currentLayout?.hide_furigana_on_front));
 
@@ -664,9 +668,9 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   const rubyFlagged =
     currentLayout?.ruby_display === 'readings' || currentLayout?.ruby_display === 'bases';
   const handleToggleFurigana = useCallback(() => {
-    if (rubyFlagged) return;
+    if (rubyFlagged || !showFuriganaToggle) return;
     setFuriganaOverride((prev) => !(prev ?? hideFrontRuby));
-  }, [hideFrontRuby, rubyFlagged]);
+  }, [hideFrontRuby, rubyFlagged, showFuriganaToggle]);
 
   // Desktop keyboard shortcuts (§5.1 & §5.2)
   useEffect(() => {
@@ -867,24 +871,26 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         </div>
 
         <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={handleToggleFurigana}
-            disabled={rubyFlagged}
-            title={
-              rubyFlagged
-                ? 'This layout shows readings or bases only (set in Deck options)'
-                : 'Toggle furigana / reading hints (F)'
-            }
-            aria-pressed={!hideFrontRuby}
-            className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-              !hideFrontRuby
-                ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--fg)]'
-            } disabled:opacity-40`}
-          >
-            {hideFrontRuby ? 'Ruby Off' : 'Ruby On'}
-          </button>
+          {showFuriganaToggle && (
+            <button
+              type="button"
+              onClick={handleToggleFurigana}
+              disabled={rubyFlagged}
+              title={
+                rubyFlagged
+                  ? 'This layout shows readings or bases only (set in Deck options)'
+                  : 'Toggle furigana / reading hints (F)'
+              }
+              aria-pressed={!hideFrontRuby}
+              className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                !hideFrontRuby
+                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                  : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--fg)]'
+              } disabled:opacity-40`}
+            >
+              {hideFrontRuby ? 'Ruby Off' : 'Ruby On'}
+            </button>
+          )}
 
           <button
             type="button"

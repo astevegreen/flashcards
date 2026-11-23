@@ -1,6 +1,8 @@
 import {
   compareCodeUnits,
   decodeUtf8,
+  isLanguageFeatureActive,
+  normalizeLanguage,
   type CollectionState,
   type Deck,
   type NoteType,
@@ -29,6 +31,7 @@ import {
 import { describeImportError } from '../components/describeImportError.ts';
 import { gridToCsv } from '../sources/oneDriveImport.ts';
 import { useApp } from '../state/AppContext.tsx';
+import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import type { PendingAnkiFile } from './AnkiImportPanel.tsx';
 import { BRING_MY_CARDS_PANEL_HEIGHT } from './bring-my-cards-layout.ts';
 import { ColumnMappingView, useColumnMapping } from './ColumnMapping.tsx';
@@ -322,6 +325,8 @@ interface MappedTableImportProps {
   phase: ImportPhase;
   message: string;
   onImport: (columns: ColumnTarget[], hasHeaderRow: boolean, ankiRuby: boolean) => void;
+  /** Japanese is in use or chosen for the new deck (UX #2): offer the Anki furigana switch. */
+  showAnkiRuby: boolean;
 }
 
 /** The mapping, the furigana switch and the Import button for one note type (keyed by it). */
@@ -331,6 +336,7 @@ function MappedTableImport({
   phase,
   message,
   onImport,
+  showAnkiRuby,
 }: Readonly<MappedTableImportProps>) {
   const mapping = useColumnMapping(grid, noteType);
   const [ankiRuby, setAnkiRuby] = useState(false);
@@ -346,25 +352,27 @@ function MappedTableImport({
         {rowCountText(grid, mapping.hasHeaderRow)}
       </p>
       <ColumnMappingView grid={grid} noteType={noteType} mapping={mapping} disabled={locked} />
-      <label
-        className="flex min-w-0 items-center gap-1.5"
-        title="Anki exports put a space before each furigana base, e.g. 私は 日本語[にほんご]"
-      >
-        <input
-          type="checkbox"
-          data-testid="bring-csv-anki-ruby"
-          checked={ankiRuby}
-          disabled={locked}
-          onChange={(e) => setAnkiRuby(e.target.checked)}
-        />
-        <span className="min-w-0 break-words">Anki furigana</span>
-      </label>
+      {showAnkiRuby && (
+        <label
+          className="flex min-w-0 items-center gap-1.5"
+          title="Anki exports put a space before each furigana base, e.g. 私は 日本語[にほんご]"
+        >
+          <input
+            type="checkbox"
+            data-testid="bring-csv-anki-ruby"
+            checked={ankiRuby}
+            disabled={locked}
+            onChange={(e) => setAnkiRuby(e.target.checked)}
+          />
+          <span className="min-w-0 break-words">Anki furigana</span>
+        </label>
+      )}
       <div>
         <button
           type="button"
           data-testid="bring-csv-import-btn"
           disabled={locked || mapping.blocked || empty}
-          onClick={() => onImport(mapping.targets, mapping.hasHeaderRow, ankiRuby)}
+          onClick={() => onImport(mapping.targets, mapping.hasHeaderRow, showAnkiRuby && ankiRuby)}
           className={PRIMARY_BUTTON}
         >
           Import
@@ -403,6 +411,10 @@ function CsvRoute({ name, text, detected, source, onBusyChange }: Readonly<CsvRo
   const [deckName, setDeckName] = useState(baseName(name));
   const [noteTypeId, setNoteTypeId] = useState(() => initialNoteTypeId(state, setup.noteTypeId));
   const [language, setLanguage] = useState(setup.language);
+  const activeLanguages = useActiveLanguages();
+  const showAnkiRuby =
+    activeLanguages.hasFeature('ruby') ||
+    (target === 'new' && isLanguageFeatureActive([normalizeLanguage(language)], 'ruby'));
   const [phase, setPhase] = useState<ImportPhase>('idle');
   const [message, setMessage] = useState('');
   const locked = phase === 'importing' || phase === 'done';
@@ -476,6 +488,7 @@ function CsvRoute({ name, text, detected, source, onBusyChange }: Readonly<CsvRo
           noteType={noteType}
           phase={phase}
           message={message}
+          showAnkiRuby={showAnkiRuby}
           onImport={(c, h, r) => void handleImport(c, h, r)}
         />
       ) : (
