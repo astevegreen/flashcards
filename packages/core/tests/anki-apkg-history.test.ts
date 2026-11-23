@@ -223,6 +223,41 @@ describe('.apkg review history', () => {
     expect(card?.['due']).toBe(Number(card?.['ivl']) - 1);
   });
 
+  it('anchors crt to the export-time offset when one is given (DST change since the review)', () => {
+    // Last review in EDT (UTC-4); export at 03:30 EST (UTC-5) on 25 Nov = 08:30 UTC.
+    // In EST that is still study day 24 Nov (before the 04:00 rollover); in EDT it is
+    // 04:30, study day 25 Nov, one day ahead.
+    const at = Date.UTC(2026, 9, 20, 12, 0);
+    const now = Date.UTC(2026, 10, 25, 8, 30);
+    const fallback = planAnkiApkgExport(oneReviewState(at, -240), {
+      nowMs: now,
+      deckIds: [VOCAB_DECK],
+    });
+    expect(table(fallback, 'col')[0]?.['crt']).toBe(Date.UTC(2026, 10, 25, 8) / 1000);
+    const p = planAnkiApkgExport(oneReviewState(at, -240), {
+      nowMs: now,
+      deckIds: [VOCAB_DECK],
+      tzOffsetMinutes: -300,
+    });
+    const col = table(p, 'col')[0] ?? {};
+    // 04:00 EST on 24 Nov.
+    expect(col['crt']).toBe(Date.UTC(2026, 10, 24, 9) / 1000);
+    const conf = JSON.parse(String(col['conf'])) as Record<string, unknown>;
+    expect(conf['creationOffset']).toBe(300);
+    expect(ankiToday(p, now)).toBe(0);
+  });
+
+  it('ignores a non-finite export offset', () => {
+    const at = Date.UTC(2026, 10, 24, 0, 0);
+    const now = Date.UTC(2026, 10, 25, 0, 0);
+    const p = planAnkiApkgExport(oneReviewState(at, 540), {
+      nowMs: now,
+      deckIds: [VOCAB_DECK],
+      tzOffsetMinutes: Number.NaN,
+    });
+    expect(table(p, 'col')[0]?.['crt']).toBe(Date.UTC(2026, 10, 24, 19) / 1000);
+  });
+
   it('anchors crt in a negative offset before the rollover hour (UTC-5)', () => {
     // 22:00 EST on 23 Nov (study day 23 Nov); export at 03:00 EST on 25 Nov (study day 24 Nov).
     const at = Date.UTC(2026, 10, 24, 3, 0);

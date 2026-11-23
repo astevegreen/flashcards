@@ -60,8 +60,24 @@ export class AnkiZipTooLargeError extends Error {
   }
 }
 
+/**
+ * Receives the archive's bytes in order. It may return a promise that settles once the chunk is
+ * written; `AnkiZipWriter.drain` waits for the latest one, which gives the writers backpressure.
+ */
+export type AnkiZipEmit = (chunk: Uint8Array) => unknown;
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === 'function'
+  );
+}
+
 export class AnkiZipWriter {
-  private readonly emit: (chunk: Uint8Array) => void;
+  private readonly emit: AnkiZipEmit;
+  private pending: Promise<void> | undefined;
+  private failure: { error: unknown } | undefined;
   private readonly entries: ZipEntry[] = [];
   private readonly date: number;
   private readonly time: number;
@@ -70,10 +86,11 @@ export class AnkiZipWriter {
 
   /**
    * @param emit receives the archive's bytes in order; a chunk may be a file's own bytes, so
-   *   copy it (a Blob part does) rather than modify it.
+   *   copy it (a Blob part does) rather than modify it. A returned promise must settle only
+   *   after every chunk emitted before it is written (a write queue does this).
    * @param modifiedMs the files' modification time (defaults to 1980-01-01).
    */
-  constructor(emit: (chunk: Uint8Array) => void, modifiedMs = Date.UTC(1980, 0, 1)) {
+  constructor(emit: AnkiZipEmit, modifiedMs = Date.UTC(1980, 0, 1)) {
     this.emit = emit;
     const { date, time } = dosDateTime(modifiedMs);
     this.date = date;
@@ -123,8 +140,8 @@ export class AnkiZipWriter {
     view.setUint16(26, nameBytes.length, true);
     view.setUint16(28, 0, true);
     header.set(nameBytes, 30);
-    this.emit(header);
-    if (body.length > 0) this.emit(body);
+    this.push(header);
+    if (body.length > 0) this.push(body);
     this.offset += headerSize + body.length;
     this.entries.push(entry);
   }
@@ -160,6 +177,28 @@ export class AnkiZipWriter {
     view.setUint16(p + 10, this.entries.length, true);
     view.setUint32(p + 12, size, true);
     view.setUint32(p + 16, this.offset, true);
-    this.emit(out);
+    this.push(out);
+  }
+
+  /** Waits until the chunks emitted so far are written (a no-op for a synchronous `emit`). */
+  async drain(): Promise<void> {
+    const pending = this.pending;
+    this.pending = undefined;
+    if (pending) await pending;
+    if (this.failure) throw this.failure.error;
+  }
+
+  private push(chunk: Uint8Array): void {
+    if (this.failure) throw this.failure.error;
+    const written = this.emit(chunk);
+    // Every returned promise is observed; the first failure is thrown by `drain` and `add`.
+    if (isPromiseLike(written)) {
+      this.pending = Promise.resolve(written).then(
+        () => undefined,
+        (error: unknown) => {
+          this.failure ??= { error };
+        },
+      );
+    }
   }
 }

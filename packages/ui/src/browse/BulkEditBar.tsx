@@ -10,6 +10,7 @@ import {
 } from '@flash/core';
 import { useMemo, useState, type FormEvent } from 'react';
 import { exportAnkiCsvZip } from '../export/ankiExport.ts';
+import { isExportCancelled } from '../export/saveStreamedZip.ts';
 import { useApp } from '../state/AppContext.tsx';
 
 /** Code-unit order (not localeCompare), like the rest of the collection's sorting. */
@@ -126,6 +127,10 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
         });
         setMessage({ kind: 'ok', text });
       } catch (err) {
+        if (isExportCancelled(err)) {
+          setMessage({ kind: 'ok', text: 'Export cancelled.' });
+          return;
+        }
         setMessage({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
       }
       return;

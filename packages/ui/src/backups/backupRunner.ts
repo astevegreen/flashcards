@@ -9,6 +9,7 @@ import {
   readBackupArchive,
   restoreStepsToEvents,
   selectBackupsToPrune,
+  streamBackupAsync,
   SYNC_FOLDER_BACKUP_PREFIX,
   syncFolderBackupPath,
   verifyBackupMedia,
@@ -120,12 +121,21 @@ async function loadMediaBlobs(
   return blobs;
 }
 
-/** A full backup file (media included) for the user to save off the device; not stored here. */
-export async function buildFullBackupFile(
-  storage: Storage,
+/** The file name of a backup saved off the device on the day of `ms`. */
+export function backupFileName(ms: number): string {
+  return `flashcards-backup-${new Date(ms).toISOString().slice(0, 10)}.flashpkg`;
+}
+
+/**
+ * Builds a full backup (media included) and saves it as a file off the device; it is not stored
+ * here. Native shells with `saveStream` get the archive in chunks as it is zipped, so the whole
+ * file is never one array or one bridge call; web streams into Blob parts. Returns the file name.
+ */
+export async function saveFullBackupFile(
+  platform: PlatformServices,
   state: CollectionState,
   opts: { deviceId: string; collectionId?: string },
-): Promise<Uint8Array> {
+): Promise<string> {
   const nowMs = Date.now();
   const built = await buildBackupAsync(
     state,
@@ -136,11 +146,17 @@ export async function buildFullBackupFile(
       nowMs,
       deviceId: opts.deviceId,
       ...(opts.collectionId !== undefined ? { collectionId: opts.collectionId } : {}),
-      mediaBlobs: await loadMediaBlobs(storage, state.media.keys()),
+      mediaBlobs: await loadMediaBlobs(platform.storage, state.media.keys()),
     },
     yieldToHost,
   );
-  return (await packBackupAsync(built, { withMedia: true }, yieldToHost)).bytes;
+  const fileName = backupFileName(nowMs);
+  const { saveStreamedZip } = await import('../export/saveStreamedZip.ts');
+  await saveStreamedZip(platform, 'application/zip', fileName, async (emit) => {
+    await streamBackupAsync(built, { withMedia: true }, emit, yieldToHost);
+    return { fileName };
+  });
+  return fileName;
 }
 
 export interface TakeBackupResult {

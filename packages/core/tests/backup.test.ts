@@ -16,6 +16,7 @@ import {
   readBackupArchive,
   restoreStepsToEvents,
   selectBackupsToPrune,
+  streamBackupAsync,
   syncFolderBackupPath,
   verifyBackupMedia,
   withBackupMedia,
@@ -362,6 +363,64 @@ describe('backup archive validation and async packing', () => {
     // The synchronous packer reads back the same.
     const sync = readBackupArchive(packBackup(built, { withMedia: true }).bytes);
     expect(activeNotes(sync.state)).toEqual(activeNotes(read.state));
+  });
+
+  it('streams the same archive packBackupAsync builds, waiting for each write', async () => {
+    const { state } = buildCollection();
+    const built = await buildBackupAsync(state, {
+      backupId: 'b-stream',
+      kind: 'full',
+      reason: 'manual',
+      nowMs: T0,
+      deviceId: 'dev-a',
+      mediaBlobs: new Map([[PNG_HASH, PNG]]),
+    });
+    const packed = await packBackupAsync(built, { withMedia: true });
+    const chunks: Uint8Array[] = [];
+    let writing = 0;
+    let overlapped = false;
+    let queue: Promise<void> = Promise.resolve();
+    const manifest = await streamBackupAsync(built, { withMedia: true }, (chunk) => {
+      // A pause runs only after the queue drained, so a new chunk never lands mid-write.
+      if (writing > 0) overlapped = true;
+      const copy = chunk.slice();
+      queue = queue.then(async () => {
+        writing += 1;
+        await new Promise((r) => setTimeout(r, 1));
+        chunks.push(copy);
+        writing -= 1;
+      });
+      return queue;
+    });
+    await queue;
+    expect(overlapped).toBe(false);
+    expect(manifest).toEqual(packed.manifest);
+    const joined = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
+    let at = 0;
+    for (const c of chunks) {
+      joined.set(c, at);
+      at += c.byteLength;
+    }
+    expect(joined).toEqual(packed.bytes);
+  });
+
+  it('stops streaming when a write fails', async () => {
+    const { state } = buildCollection();
+    const built = await buildBackupAsync(state, {
+      backupId: 'b-fail',
+      kind: 'daily',
+      reason: 'manual',
+      nowMs: T0,
+      deviceId: 'dev-a',
+    });
+    let calls = 0;
+    await expect(
+      streamBackupAsync(built, { withMedia: false }, () => {
+        calls += 1;
+        return Promise.reject(new Error('disk full'));
+      }),
+    ).rejects.toThrow('disk full');
+    expect(calls).toBeGreaterThan(0);
   });
 
   it('rejects a malformed state.json before any of it becomes an event', () => {

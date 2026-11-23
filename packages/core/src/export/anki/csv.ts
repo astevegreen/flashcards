@@ -1,7 +1,7 @@
 import type { CollectionState } from '../../events/replay.ts';
 import { encodeUtf8 } from '../../ids.ts';
 import { escapeCsvCell, selectDeckNotes } from './select.ts';
-import { AnkiZipWriter } from './zip-writer.ts';
+import { AnkiZipWriter, type AnkiZipEmit } from './zip-writer.ts';
 import {
   AnkiMediaNamer,
   ankiFieldHtml,
@@ -141,17 +141,19 @@ export interface AnkiCsvZipOptions {
 /**
  * Streams the zip: the CSV, a README for Anki, then each media file as it is read. Media is
  * read one file at a time and handed to `emit` straight away, so the caller never holds all of
- * it (or a finished archive) in memory.
+ * it (or a finished archive) in memory. When `emit` returns promises, the next media file is
+ * read only after the chunks before it are written.
  */
 export async function writeAnkiCsvZip(
   plan: AnkiCsvExportPlan,
   readMedia: AnkiMediaReader,
-  emit: (chunk: Uint8Array) => void,
+  emit: AnkiZipEmit,
   options: AnkiCsvZipOptions = {},
 ): Promise<AnkiCsvExportZip> {
   const zip = new AnkiZipWriter(emit, options.modifiedMs);
   zip.add(`${plan.slug}.csv`, encodeUtf8(plan.text), true);
   zip.add('README.txt', encodeUtf8(README.replace(/\n/g, '\r\n')), true);
+  await zip.drain();
   let mediaCount = 0;
   let missing = 0;
   for (const file of plan.media) {
@@ -162,9 +164,11 @@ export async function writeAnkiCsvZip(
     }
     // Images and audio are already compressed: store them.
     zip.add(`collection.media/${file.name}`, bytes);
+    await zip.drain();
     mediaCount += 1;
   }
   zip.finish();
+  await zip.drain();
   return {
     fileName: `${plan.slug}-anki.zip`,
     mediaCount,

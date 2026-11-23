@@ -8,7 +8,7 @@ import type { Card, Deck, Layout, Note, NoteType, NoteTypeField } from '../../mo
 import { sha256String } from '../../sources/hash.ts';
 import { sha1First32 } from './checksum.ts';
 import { ankiExportSlug, type AnkiMediaReader } from './csv.ts';
-import { AnkiZipWriter } from './zip-writer.ts';
+import { AnkiZipWriter, type AnkiZipEmit } from './zip-writer.ts';
 import {
   AnkiMediaNamer,
   ankiFieldHtml,
@@ -79,6 +79,12 @@ export interface AnkiApkgExportOptions {
   includeArchived?: boolean;
   /** Clock for ids, modification times and due days (core never reads the wall clock). */
   nowMs: number;
+  /**
+   * The device's UTC offset at export, in minutes east (`-new Date(nowMs).getTimezoneOffset()`).
+   * It anchors `crt` and the due days; without it the latest review's offset is used, which is
+   * a day off for an export made near the rollover after a daylight-saving change.
+   */
+  tzOffsetMinutes?: number;
   /** Write `revlog` rows and card scheduling from the review events (default true). */
   includeReviewHistory?: boolean;
   /** File name for the package (default from the single deck's name, else `flashcards`). */
@@ -541,7 +547,7 @@ export function planAnkiApkgExport(
   options: AnkiApkgExportOptions,
 ): AnkiApkgPlan {
   const nowMs = options.nowMs;
-  const clock = ankiSchedulingClock(state, nowMs);
+  const clock = ankiSchedulingClock(state, nowMs, options.tzOffsetMinutes);
   const crt = clock.crt;
   const withHistory = options.includeReviewHistory !== false;
   const revlog: AnkiRevlogDraft[] = [];
@@ -788,17 +794,19 @@ export function planAnkiApkgExport(
  * Streams the `.apkg` zip: the written `collection.anki2`, then each media file as it is read
  * (stored as entries `0`, `1`, …), then the JSON `media` map. Media is read one file at a time
  * and handed to `emit` straight away, so the caller never holds it all (or the finished
- * archive) in memory.
+ * archive) in memory. When `emit` returns promises, the next media file is read only after
+ * the chunks before it are written.
  */
 export async function writeApkg(
   collectionBytes: Uint8Array,
   plan: Pick<AnkiApkgPlan, 'media' | 'unknownMediaCount' | 'fileName'>,
   readMedia: AnkiMediaReader,
-  emit: (chunk: Uint8Array) => void,
+  emit: AnkiZipEmit,
   options: { modifiedMs?: number } = {},
 ): Promise<AnkiApkgResult> {
   const zip = new AnkiZipWriter(emit, options.modifiedMs);
   zip.add('collection.anki2', collectionBytes, true);
+  await zip.drain();
   const map: Record<string, string> = {};
   let index = 0;
   let missing = 0;
@@ -811,9 +819,11 @@ export async function writeApkg(
     const entry = String(index++);
     map[entry] = file.name;
     zip.add(entry, bytes);
+    await zip.drain();
   }
   zip.add('media', encodeUtf8(JSON.stringify(map)), true);
   zip.finish();
+  await zip.drain();
   return {
     fileName: plan.fileName,
     mediaCount: index,

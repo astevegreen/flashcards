@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import {
   applyRestore,
+  backupFileName,
   listSyncFolderBackups,
   loadBackupSettings,
   loadBackupStatus,
@@ -173,7 +174,10 @@ export function BackupsPanel() {
     try {
       await task();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // A closed save dialog (`ExportCancelledError`) is a status, not an error.
+      if (err instanceof Error && err.name === 'ExportCancelledError')
+        setStatus('Export cancelled.');
+      else setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -291,12 +295,8 @@ export function BackupsPanel() {
         bytes = packed.bytes;
         missing = packed.missingMedia;
       }
-      const stamp = new Date(info.created_at).toISOString().slice(0, 10);
-      await platform.files.downloadFile(
-        `flashcards-backup-${stamp}.flashpkg`,
-        bytes,
-        'application/zip',
-      );
+      const { saveBytes } = await import('../export/saveStreamedZip.ts');
+      await saveBytes(platform, backupFileName(info.created_at), bytes, 'application/zip');
       await markBackupCompleted();
       setStatus(
         missing > 0

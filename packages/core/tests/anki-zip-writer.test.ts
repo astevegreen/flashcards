@@ -56,3 +56,59 @@ describe('streaming zip writer', () => {
     expect(() => zip.add('a', new Uint8Array(1))).toThrow();
   });
 });
+
+describe('zip writer backpressure', () => {
+  it('drain waits for the latest emitted promise; a synchronous emit drains at once', async () => {
+    let release: (() => void) | undefined;
+    const zip = new AnkiZipWriter(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    zip.add('a.txt', encodeUtf8('a'));
+    let drained = false;
+    const done = zip.drain().then(() => {
+      drained = true;
+    });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    release?.();
+    await done;
+    expect(drained).toBe(true);
+    const sync = new AnkiZipWriter(() => 1);
+    sync.add('b.txt', encodeUtf8('b'));
+    await expect(sync.drain()).resolves.toBeUndefined();
+  });
+
+  it('writeApkg reads the next media file only after the earlier chunks are written', async () => {
+    const { writeApkg } = await import('../src/export/anki/apkg.ts');
+    const log: string[] = [];
+    let queue: Promise<void> = Promise.resolve();
+    const emit = (chunk: Uint8Array) => {
+      queue = queue.then(async () => {
+        await new Promise((r) => setTimeout(r, 2));
+        log.push(`wrote ${chunk.length}`);
+      });
+      return queue;
+    };
+    const media = ['a', 'b', 'c'].map((h) => ({ hash: h, name: `${h}.png`, mime: 'image/png' }));
+    await writeApkg(
+      encodeUtf8('sqlite'),
+      { media, unknownMediaCount: 0, fileName: 'x.apkg' },
+      async (hash) => {
+        log.push(`read ${hash}`);
+        return new Uint8Array(100);
+      },
+      emit,
+    );
+    // Each read comes after every write emitted before it.
+    for (const hash of ['b', 'c']) {
+      const at = log.indexOf(`read ${hash}`);
+      expect(log.slice(at + 1).some((l) => l.startsWith('wrote'))).toBe(true);
+      const before = log.slice(0, at);
+      expect(before.at(-1)?.startsWith('wrote')).toBe(true);
+    }
+    expect(log.at(-1)?.startsWith('wrote')).toBe(true);
+  });
+});

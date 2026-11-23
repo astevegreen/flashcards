@@ -801,6 +801,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     upsertPage,
     markBackupCompleted,
     syncState,
+    meta,
   } = useApp();
 
   // Opening the Library copies every preset into any member deck that fell behind it (also run
@@ -955,6 +956,12 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       setStatusMessage(await exportAnkiApkg(platform, state, { deckIds: [deck.id] }));
       setErrorMessage(null);
     } catch (err) {
+      // The save dialog was closed (`ExportCancelledError`): a status, not an error.
+      if (err instanceof Error && err.name === 'ExportCancelledError') {
+        setStatusMessage('Export cancelled.');
+        setErrorMessage(null);
+        return;
+      }
       setErrorMessage(err instanceof Error ? err.message : String(err));
     }
   };
@@ -982,22 +989,22 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
 
   const handleExportAll = async () => {
     try {
-      const { exportFlashpkg } = await import('@flash/core/flashpkg');
-      const mediaBlobs = await collectMediaBlobs();
-      const bytes = exportFlashpkg(state, {
-        name: 'Flashcards Collection Backup',
-        mediaBlobs,
+      // The same file as Settings > Export Backup: a `.flashpkg` any build imports, plus the
+      // review history a restore needs, streamed to the file on native shells.
+      const { saveFullBackupFile } = await import('../backups/backupRunner.ts');
+      await saveFullBackupFile(platform, state, {
+        deviceId: meta?.deviceId ?? platform.deviceId,
+        ...(meta?.collectionId !== undefined ? { collectionId: meta.collectionId } : {}),
       });
-      const dateStamp = new Date().toISOString().slice(0, 10);
-      await platform.files.downloadFile(
-        `flashcards-backup-${dateStamp}.flashpkg`,
-        bytes,
-        'application/zip',
-      );
       await markBackupCompleted();
       setStatusMessage(`Exported full collection backup (${decks.length} deck(s)).`);
       setErrorMessage(null);
     } catch (err) {
+      if (err instanceof Error && err.name === 'ExportCancelledError') {
+        setStatusMessage('Export cancelled.');
+        setErrorMessage(null);
+        return;
+      }
       setErrorMessage(err instanceof Error ? err.message : String(err));
     }
   };

@@ -47,6 +47,7 @@ export async function exportAnkiApkg(
   const nowMs = Date.now();
   const plan = planAnkiApkgExport(state, {
     nowMs,
+    tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset(),
     deckIds: options.deckIds,
     ...(options.name ? { name: options.name } : {}),
   });

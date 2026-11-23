@@ -184,3 +184,83 @@ describe('native streamed export: failures and .apkg', () => {
     expect(log).toEqual(['close', 'abort']);
   });
 });
+
+describe('native streamed backup file', () => {
+  it('streams Export Backup to the sink in chunks and it reads back as a backup', async () => {
+    const { saveFullBackupFile } = await import('../src/backups/backupRunner.ts');
+    const { readBackupArchive } = await import('@flash/core/backup');
+    const { state } = sampleState();
+    const chunks: Uint8Array[] = [];
+    const log: string[] = [];
+    const sink: FileSink = {
+      write: async (c) => void chunks.push(c.slice()),
+      close: async () => void log.push('close'),
+      abort: async () => void log.push('abort'),
+    };
+    const downloadFile = async () => {
+      throw new Error('fallback must not run');
+    };
+    const name = await saveFullBackupFile(
+      fakePlatform({ downloadFile, saveStream: async () => sink }),
+      state,
+      { deviceId: 'dev-a' },
+    );
+    expect(name).toMatch(/^flashcards-backup-\d{4}-\d{2}-\d{2}\.flashpkg$/);
+    expect(log).toEqual(['close']);
+    expect(chunks.length).toBeGreaterThan(1);
+    const joined = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+    let at = 0;
+    for (const c of chunks) {
+      joined.set(c, at);
+      at += c.length;
+    }
+    const read = readBackupArchive(joined);
+    expect(read.state.notes.size).toBe(state.notes.size);
+  });
+
+  it('a cancelled save dialog throws ExportCancelledError', async () => {
+    const { saveFullBackupFile } = await import('../src/backups/backupRunner.ts');
+    const { isExportCancelled } = await import('../src/export/saveStreamedZip.ts');
+    const { state } = sampleState();
+    const err = await saveFullBackupFile(
+      fakePlatform({ downloadFile: noDownload, saveStream: async () => null }),
+      state,
+      { deviceId: 'dev-a' },
+    ).catch((e: unknown) => e);
+    expect(isExportCancelled(err)).toBe(true);
+  });
+
+  it('saveBytes slices a finished array for a native sink; web keeps downloadFile', async () => {
+    const { saveBytes } = await import('../src/export/saveStreamedZip.ts');
+    const bytes = new Uint8Array(1_200_000).map((_, i) => i & 0xff);
+    const sizes: number[] = [];
+    const sink: FileSink = {
+      write: async (c) => void sizes.push(c.length),
+      close: async () => undefined,
+      abort: async () => undefined,
+    };
+    await saveBytes(
+      fakePlatform({ downloadFile: noDownload, saveStream: async () => sink }),
+      'b.flashpkg',
+      bytes,
+      'application/zip',
+    );
+    expect(sizes).toEqual([524_288, 524_288, 151_424]);
+    const saved: number[] = [];
+    await saveBytes(
+      fakePlatform({
+        downloadFile: async (_n: string, d: Uint8Array) => void saved.push(d.length),
+        downloadBlob: async () => {
+          throw new Error('not for finished arrays');
+        },
+        saveStream: async () => {
+          throw new Error('must not stream on web');
+        },
+      }),
+      'b.flashpkg',
+      bytes,
+      'application/zip',
+    );
+    expect(saved).toEqual([1_200_000]);
+  });
+});

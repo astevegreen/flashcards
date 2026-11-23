@@ -232,16 +232,62 @@ export async function packBackupAsync(
   opts: { withMedia: boolean },
   pause: () => Promise<void> = () => Promise.resolve(),
 ): Promise<{ manifest: BackupManifest; bytes: Uint8Array }> {
+  const parts: Uint8Array[] = [];
+  const manifest = await streamBackupAsync(built, opts, (chunk) => void parts.push(chunk), pause);
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.byteLength;
+  }
+  return { manifest, bytes: out };
+}
+
+/**
+ * {@link packBackupAsync} without the final array: the archive's bytes go to `emit` in order as
+ * they are zipped, so a caller can write them to a file and never hold the whole archive. When
+ * `emit` returns a promise, zipping waits for the latest one before the next piece (it must
+ * settle only once every earlier chunk is written, as a write queue does). Returns the manifest.
+ */
+export async function streamBackupAsync(
+  built: BuiltBackup,
+  opts: { withMedia: boolean },
+  emit: (chunk: Uint8Array) => unknown,
+  pause: () => Promise<void> = () => Promise.resolve(),
+): Promise<BackupManifest> {
   const withMedia = opts.withMedia && built.manifest.media_included;
   const manifest = packedManifest(built, withMedia);
-  const parts: Uint8Array[] = [];
-  let failure: Error | null = null;
+  let failure: unknown = null;
   let done = false;
+  let pending: Promise<void> | undefined;
   const archive = new Zip((err, chunk, final) => {
-    if (err) failure = err;
-    else parts.push(chunk);
+    if (err) {
+      failure = err;
+      return;
+    }
+    if (failure) return;
+    try {
+      const written = emit(chunk);
+      // Every returned promise is observed; the first failure stops the archive.
+      if (isPromiseLike(written)) {
+        pending = Promise.resolve(written).then(
+          () => undefined,
+          (writeErr: unknown) => {
+            failure ??= writeErr;
+          },
+        );
+      }
+    } catch (emitErr) {
+      failure = emitErr;
+    }
     if (final) done = true;
   });
+  const settle = async () => {
+    const waiting = pending;
+    pending = undefined;
+    if (waiting) await waiting;
+    if (failure) throw failure;
+  };
   const files = archiveFiles(built, withMedia, manifest);
   for (const [path, value] of Object.entries(files)) {
     const stored = Array.isArray(value);
@@ -252,20 +298,23 @@ export async function packBackupAsync(
     for (let at = 0; at < bytes.byteLength; at += PACK_STEP_BYTES) {
       const end = Math.min(at + PACK_STEP_BYTES, bytes.byteLength);
       file.push(bytes.subarray(at, end), end === bytes.byteLength);
+      await settle();
       await pause();
     }
-    if (failure) throw failure;
+    await settle();
   }
   archive.end();
-  if (failure) throw failure;
+  await settle();
   if (!done) throw new Error('The backup archive did not finish.');
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.byteLength;
-  }
-  return { manifest, bytes: out };
+  return manifest;
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === 'function'
+  );
 }
 
 /** A media file packed in a backup archive (hash not verified yet: see {@link verifyBackupMedia}). */

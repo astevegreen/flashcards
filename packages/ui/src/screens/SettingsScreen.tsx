@@ -384,21 +384,21 @@ export function SettingsScreen() {
   const handleExportBackup = async () => {
     try {
       // A `.flashpkg` any build can import, plus the review history a restore needs.
-      const { buildFullBackupFile } = await import('../backups/backupRunner.ts');
-      const bytes = await buildFullBackupFile(platform.storage, state, {
+      const { saveFullBackupFile } = await import('../backups/backupRunner.ts');
+      await saveFullBackupFile(platform, state, {
         deviceId: meta?.deviceId ?? platform.deviceId,
         ...(meta?.collectionId !== undefined ? { collectionId: meta.collectionId } : {}),
       });
-      const dateStamp = new Date().toISOString().slice(0, 10);
-      await platform.files.downloadFile(
-        `flashcards-backup-${dateStamp}.flashpkg`,
-        bytes,
-        'application/zip',
-      );
       await markBackupCompleted();
       setStatus('Backup exported successfully.');
       setError(null);
     } catch (err) {
+      // The save dialog was closed (`ExportCancelledError`): a status, not an error.
+      if (err instanceof Error && err.name === 'ExportCancelledError') {
+        setStatus('Export cancelled.');
+        setError(null);
+        return;
+      }
       setError(err instanceof Error ? err.message : String(err));
     }
   };
