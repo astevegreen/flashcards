@@ -449,6 +449,7 @@ export function AppProvider({
           const saved = await platform.storage.getKv<SourcesRegistry>('linked_sources_v1');
           const hasAny =
             Boolean(saved?.googleSources?.length) ||
+            Boolean(saved?.oneDriveSources?.length) ||
             Boolean(saved?.localFolders?.length) ||
             Boolean(saved?.packageSubscriptions?.length) ||
             Boolean(saved?.catalogs?.length);

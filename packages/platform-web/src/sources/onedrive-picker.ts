@@ -1,5 +1,11 @@
 import { compareCodeUnits, SyncTransportError } from '@flash/core';
-import type { Auth, OneDriveBrowseItem, OneDriveFilePicker, PickedFile } from '@flash/platform';
+import type {
+  Auth,
+  OneDriveBrowseItem,
+  OneDriveFileInfo,
+  OneDriveFilePicker,
+  PickedFile,
+} from '@flash/platform';
 import {
   codeForGraphStatus,
   GraphClient,
@@ -150,34 +156,57 @@ export class GraphOneDriveFilePicker implements OneDriveFilePicker {
         `"${item.name}" is not a .csv, .tsv, .xlsx or .flashpkg file.`,
       );
     }
-    if (item.size > this.maxBytes) {
+    return this.downloadById(item.id, item.size);
+  }
+
+  async getFileInfo(itemId: string): Promise<OneDriveFileInfo> {
+    const meta = await this.fetchMeta(itemId);
+    return {
+      id: meta.id ?? itemId,
+      name: meta.name ?? '',
+      size: meta.size ?? 0,
+      ...(meta.cTag || meta.eTag ? { contentTag: meta.cTag ?? meta.eTag ?? '' } : {}),
+      ...(meta.lastModifiedDateTime && !Number.isNaN(Date.parse(meta.lastModifiedDateTime))
+        ? { lastModifiedAt: Date.parse(meta.lastModifiedDateTime) }
+        : {}),
+      ...(meta.webUrl ? { webUrl: meta.webUrl } : {}),
+    };
+  }
+
+  async downloadById(itemId: string, knownSize?: number): Promise<PickedFile> {
+    if (knownSize !== undefined && knownSize > this.maxBytes) {
+      throw new SyncTransportError('UNKNOWN', 'This file is larger than the 50 MB import limit.');
+    }
+    const meta = await this.fetchMeta(itemId);
+    const name = meta.name ?? itemId;
+    if (!meta.file || !isPickableOneDriveFile(name)) {
       throw new SyncTransportError(
         'UNKNOWN',
-        `"${item.name}" is larger than the 50 MB import limit.`,
+        `"${name}" is not a .csv, .tsv, .xlsx or .flashpkg file.`,
       );
     }
-    const metaRes = await this.client.send(
-      `${this.client.base}/me/drive/items/${encodeURIComponent(item.id)}`,
-    );
-    if (!metaRes.ok) throw await graphFailure(metaRes, `download of "${item.name}"`);
-    const meta = (await metaRes.json()) as GraphDriveItem;
+    if ((meta.size ?? 0) > this.maxBytes) {
+      throw new SyncTransportError('UNKNOWN', `"${name}" is larger than the 50 MB import limit.`);
+    }
     const downloadUrl = meta['@microsoft.graph.downloadUrl'];
     if (!downloadUrl) {
-      throw new SyncTransportError(
-        'UNKNOWN',
-        `OneDrive returned no download link for "${item.name}".`,
-      );
+      throw new SyncTransportError('UNKNOWN', `OneDrive returned no download link for "${name}".`);
     }
     const res = await this.client.sendUnauthenticated(downloadUrl);
-    if (!res.ok) throw await graphFailure(res, `download of "${item.name}"`);
+    if (!res.ok) throw await graphFailure(res, `download of "${name}"`);
     const bytes = new Uint8Array(await res.arrayBuffer());
     if (bytes.byteLength > this.maxBytes) {
-      throw new SyncTransportError(
-        'UNKNOWN',
-        `"${item.name}" is larger than the 50 MB import limit.`,
-      );
+      throw new SyncTransportError('UNKNOWN', `"${name}" is larger than the 50 MB import limit.`);
     }
-    const mime = MIME_BY_EXTENSION[extensionOf(item.name)];
-    return { name: item.name, bytes, ...(mime ? { mime } : {}) };
+    const mime = MIME_BY_EXTENSION[extensionOf(name)];
+    return { name, bytes, ...(mime ? { mime } : {}) };
+  }
+
+  private async fetchMeta(itemId: string): Promise<GraphDriveItem> {
+    const res = await this.client.send(
+      `${this.client.base}/me/drive/items/${encodeURIComponent(itemId)}`,
+    );
+    if (!res.ok) throw await graphFailure(res, 'file lookup');
+    return (await res.json()) as GraphDriveItem;
   }
 }

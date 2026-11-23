@@ -33,8 +33,10 @@ import type {
   GooglePickedFile,
   LinkedGoogleSource,
   LinkedLocalFolder,
+  LinkedOneDriveSource,
   PackageSubscription,
   PendingXlsxReconciliation,
+  PickedFile,
   PlatformServices,
   SourcesRegistry,
   SourceWarning,
@@ -66,6 +68,7 @@ export interface SourceRefreshSummary {
 export function createEmptySourcesRegistry(): SourcesRegistry {
   return {
     googleSources: [],
+    oneDriveSources: [],
     localFolders: [],
     packageSubscriptions: [],
     catalogs: [],
@@ -89,6 +92,15 @@ export async function loadSourcesRegistry(
           ...(s.localizedAudio ? { localizedAudio: { ...s.localizedAudio } } : {}),
         }))
       : [],
+    ...(saved?.unlinkedOneDriveIds?.length
+      ? { unlinkedOneDriveIds: [...saved.unlinkedOneDriveIds] }
+      : {}),
+    oneDriveSources: saved?.oneDriveSources
+      ? saved.oneDriveSources.map((o) => ({
+          ...o,
+          ...(o.columnMap ? { columnMap: [...o.columnMap] } : {}),
+        }))
+      : [],
     localFolders: saved?.localFolders
       ? saved.localFolders.map((f) => ({
           ...f,
@@ -108,6 +120,11 @@ export async function loadSourcesRegistry(
     // Merge synced Google Sheet & package_url decks not yet in local registry
     const knownGoogleIds = new Set(registry.googleSources.map((s) => s.fileId));
     const knownPkgUrls = new Set(registry.packageSubscriptions.map((p) => p.url));
+    // Files the user unlinked on this device stay unlinked even though their decks still say so.
+    const knownOneDriveIds = new Set([
+      ...(registry.oneDriveSources ?? []).map((o) => o.itemId),
+      ...(registry.unlinkedOneDriveIds ?? []),
+    ]);
 
     for (const deck of state.decks.values()) {
       if (deck.archived || !deck.source) continue;
@@ -127,6 +144,24 @@ export async function loadSourcesRegistry(
             language: deck.language,
             ...(deck.source.sheet_tab !== undefined ? { sheetTab: deck.source.sheet_tab } : {}),
             ...(deck.source.read_only !== undefined ? { readOnly: deck.source.read_only } : {}),
+            ...(deck.source.last_synced_at !== undefined
+              ? { lastSyncedAt: deck.source.last_synced_at }
+              : {}),
+            lastStatus: 'idle',
+          });
+        }
+      } else if (deck.source.kind === 'onedrive_file' && deck.source.external_id) {
+        if (!knownOneDriveIds.has(deck.source.external_id)) {
+          knownOneDriveIds.add(deck.source.external_id);
+          registry.oneDriveSources ??= [];
+          registry.oneDriveSources.push({
+            id: `onedrive:${deck.source.external_id}`,
+            itemId: deck.source.external_id,
+            name: deck.name,
+            ...(deck.source.uri !== undefined ? { uri: deck.source.uri } : {}),
+            deckId: deck.id,
+            noteTypeId: deck.note_type_id,
+            language: deck.language,
             ...(deck.source.last_synced_at !== undefined
               ? { lastSyncedAt: deck.source.last_synced_at }
               : {}),
@@ -880,6 +915,318 @@ export async function refreshSingleGoogleSource(
   };
 }
 
+const ONEDRIVE_TABLE_EXTENSION = /\.(csv|tsv|xlsx)$/i;
+
+/** Prefix of `PendingXlsxReconciliation.folderId` for a linked OneDrive file (then the item id). */
+export const ONEDRIVE_RECONCILE_PREFIX = 'onedrive:';
+
+/**
+ * Links one OneDrive `.csv` / `.tsv` / `.xlsx` file as a source and runs the first pull. The file
+ * is read-only (the app never writes to the user's OneDrive), so rows are matched by their first
+ * field, like a linked `.xlsx` in a local folder. If the pull finds rows that may have been
+ * renamed (a changed first field), nothing is applied and `pending` asks the user to match them.
+ */
+export async function linkOneDriveFile(
+  file: { id: string; name: string },
+  ctx: SourceRunContext,
+  options?: { noteTypeId?: string; language?: string; columnMap?: SourceColumnMapping[] },
+): Promise<{
+  source: LinkedOneDriveSource;
+  registry: SourcesRegistry;
+  notesTouched: number;
+  pending?: PendingXlsxReconciliation;
+}> {
+  if (!ONEDRIVE_TABLE_EXTENSION.test(file.name)) {
+    throw new Error(`"${file.name}" is not a .csv, .tsv or .xlsx file.`);
+  }
+  const state = ctx.getState();
+  const deterministicDeckId = uuidv5(FLASH_NAMESPACE_UUID, `onedrive:${file.id}`);
+  const registry = await loadSourcesRegistry(ctx.platform, state);
+  const list = (registry.oneDriveSources ??= []);
+  let source = list.find((s) => s.itemId === file.id);
+  const archived = state.decks.get(source?.deckId ?? deterministicDeckId);
+  if (archived?.archived) {
+    throw new Error(
+      `The deck "${archived.name}" from this file is archived. Restore it in the Library first.`,
+    );
+  }
+  // Linking again after an unlink is deliberate: stop hiding the file's synced deck.
+  registry.unlinkedOneDriveIds = (registry.unlinkedOneDriveIds ?? []).filter(
+    (id) => id !== file.id,
+  );
+  if (!source) {
+    source = {
+      id: `onedrive:${file.id}`,
+      itemId: file.id,
+      name: file.name.replace(ONEDRIVE_TABLE_EXTENSION, ''),
+      ...(options?.noteTypeId !== undefined ? { noteTypeId: options.noteTypeId } : {}),
+      ...(options?.language !== undefined ? { language: options.language } : {}),
+      lastStatus: 'idle',
+    };
+    list.push(source);
+  }
+  if (options?.columnMap) source.columnMap = [...options.columnMap];
+  try {
+    const res = await refreshSingleOneDriveSource(source, ctx, {
+      force: true,
+      ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
+    });
+    if (res.unreadable) throw new Error(source.lastError ?? 'This file cannot be read here.');
+    await saveSourcesRegistry(ctx.platform, registry);
+    return {
+      source,
+      registry,
+      notesTouched: res.notesTouched,
+      ...(res.pending ? { pending: res.pending } : {}),
+    };
+  } catch (err) {
+    // A first pull that failed leaves nothing to refresh, so don't keep a source without a deck.
+    if (source.deckId) {
+      source.lastStatus = 'error';
+      source.lastError = err instanceof Error ? err.message : String(err);
+      // The chosen mapping was already written to this device's copy: keep it winning.
+      if (options?.columnMap) source.columnMapUnsaved = true;
+    } else {
+      registry.oneDriveSources = list.filter((s) => s !== source);
+    }
+    await saveSourcesRegistry(ctx.platform, registry);
+    throw err;
+  }
+}
+
+function excelUnreadableMessage(name: string): string {
+  return `Excel files can't be read on this device. Save "${name}" as CSV in Excel and link that instead.`;
+}
+
+/** True when this device can read `.xlsx` (the web and PC shells; not the phone shells yet). */
+async function canReadExcel(platform: PlatformServices): Promise<boolean> {
+  try {
+    const adapter = await platform.getLocalFolderSources();
+    return adapter.canParseXlsx ? adapter.canParseXlsx() : true;
+  } catch {
+    return false;
+  }
+}
+
+/** Reads a downloaded OneDrive `.csv` / `.tsv` / `.xlsx` into a grid whose first row is the headers. */
+export async function readOneDriveTable(
+  platform: PlatformServices,
+  picked: PickedFile,
+): Promise<string[][]> {
+  const lower = picked.name.toLowerCase();
+  let grid: string[][];
+  if (lower.endsWith('.xlsx')) {
+    try {
+      grid = await (await platform.getLocalFolderSources()).parseXlsxBytes(picked.bytes);
+    } catch {
+      // Native shells have no Excel reader (the phone folder adapter is PC-only, Tauri has no parser).
+      throw new Error(excelUnreadableMessage(picked.name));
+    }
+  } else if (lower.endsWith('.csv') || lower.endsWith('.tsv')) {
+    const parsed = parseDelimitedText(decodeUtf8(picked.bytes), {
+      delimiter: lower.endsWith('.tsv') ? '\t' : ',',
+    });
+    grid = parsed.headers.length > 0 ? [parsed.headers, ...parsed.rows] : [];
+  } else {
+    throw new Error(`"${picked.name}" is not a .csv, .tsv or .xlsx file.`);
+  }
+  if ((grid[0] ?? []).every((cell) => cell.trim() === '')) {
+    throw new Error(`"${picked.name}" has no column names in its first row.`);
+  }
+  return grid;
+}
+
+/**
+ * Refreshes one linked OneDrive file. A cheap metadata call compares the content tag first; the
+ * file is downloaded and diffed only when it changed (or `force`). Rows are matched by their first
+ * field. When some rows went missing and new ones appeared (a likely rename), nothing is applied
+ * and `pending` carries the same reconciliation prompt a linked local `.xlsx` uses; pass its
+ * answer back as `renameMap` to apply the pull.
+ */
+export async function refreshSingleOneDriveSource(
+  source: LinkedOneDriveSource,
+  ctx: SourceRunContext,
+  opts?: {
+    force?: boolean;
+    columnMap?: SourceColumnMapping[];
+    /** existing note id -> new first-field value, from the reconciliation prompt. */
+    renameMap?: Readonly<Record<string, string>>;
+  },
+): Promise<{
+  updated: boolean;
+  notesTouched: number;
+  warnings: SourceWarning[];
+  pending?: PendingXlsxReconciliation;
+  /** An `.xlsx` this device cannot read: nothing was downloaded or changed. */
+  unreadable?: true;
+}> {
+  const unchanged = { updated: false, notesTouched: 0, warnings: source.warnings ?? [] };
+  if (!isOnline()) {
+    source.lastStatus = 'offline';
+    return unchanged;
+  }
+  if (!ctx.platform.getOneDrivePicker) throw new Error('OneDrive is not available in this build.');
+  const picker = await ctx.platform.getOneDrivePicker();
+  if (!(await picker.hasFileAccess())) {
+    source.lastStatus = 'permission_required';
+    source.lastError = 'Allow OneDrive file access to refresh this source.';
+    return unchanged;
+  }
+
+  const nowMs = Date.now();
+  const info = await picker.getFileInfo(source.itemId);
+  if (
+    !opts?.force &&
+    source.deckId &&
+    source.contentTag &&
+    !source.columnMapUnsaved &&
+    info.contentTag === source.contentTag
+  ) {
+    source.lastSyncedAt = nowMs;
+    source.lastStatus = 'synced';
+    delete source.lastError;
+    return unchanged;
+  }
+  // Decide from the name before fetching up to 50 MB this device could not read anyway.
+  if (info.name.toLowerCase().endsWith('.xlsx') && !(await canReadExcel(ctx.platform))) {
+    source.lastStatus = 'idle';
+    source.lastError = excelUnreadableMessage(info.name);
+    return { ...unchanged, unreadable: true };
+  }
+
+  const picked = await picker.downloadById(source.itemId);
+  const grid = await readOneDriveTable(ctx.platform, picked);
+
+  const state = ctx.getState();
+  const factory = ctx.getEventFactory();
+  const deckId = source.deckId ?? uuidv5(FLASH_NAMESPACE_UUID, `onedrive:${source.itemId}`);
+  const existingDeck = state.decks.get(deckId);
+  if (existingDeck?.archived) {
+    source.lastStatus = 'idle';
+    source.lastError = `The deck "${existingDeck.name}" is archived. Restore it to refresh this source.`;
+    return unchanged;
+  }
+  const inferred = inferPresetNoteTypeId(
+    grid[0] ?? [],
+    source.noteTypeId ?? BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+  );
+  const noteType = resolveNoteType(
+    state,
+    existingDeck?.note_type_id ?? source.noteTypeId ?? inferred.noteTypeId,
+  );
+  const language = existingDeck?.language ?? source.language ?? inferred.language;
+  // A mapping chosen now, else one chosen here that hasn't reached the deck yet, else the deck's
+  // synced one, else the copy kept when it was linked.
+  const columnMap =
+    opts?.columnMap ??
+    (source.columnMapUnsaved ? source.columnMap : undefined) ??
+    existingDeck?.source?.column_map ??
+    source.columnMap;
+
+  // Read-only, so rows are matched by their first field (like a linked local `.xlsx`).
+  const diff = diffTabularSource({
+    deckId,
+    noteType,
+    state,
+    eventFactory: factory,
+    grid,
+    identityMode: 'sort_key',
+    canWriteBack: false,
+    ...(opts?.renameMap ? { renameMap: opts.renameMap } : {}),
+    ...(columnMap ? { columnMap } : {}),
+    nowMs,
+  });
+
+  if (existingDeck && diff.reconciliationCandidates && !opts?.renameMap) {
+    // Applying now would archive the old note (and its review history) and add a new one.
+    // Hold the pull; the content tag stays old, so the next refresh asks again. A mapping chosen
+    // for this pull is kept on the source until it lands on the deck.
+    if (opts?.columnMap) {
+      source.columnMap = [...opts.columnMap];
+      source.columnMapUnsaved = true;
+    }
+    return {
+      ...unchanged,
+      pending: {
+        folderId: `${ONEDRIVE_RECONCILE_PREFIX}${source.itemId}`,
+        relativePath: picked.name,
+        deckId,
+        deckName: existingDeck.name,
+        missingNotes: diff.reconciliationCandidates.missingNotes,
+        addedRows: diff.reconciliationCandidates.addedRows,
+      },
+    };
+  }
+
+  const uri = info.webUrl ?? source.uri;
+  const contentHash = sha256Hex(picked.bytes);
+  const sourceRef = {
+    kind: 'onedrive_file' as const,
+    ...(uri ? { uri } : {}),
+    external_id: source.itemId,
+    read_only: true,
+    content_hash: contentHash,
+    last_synced_at: nowMs,
+    ...(columnMap ? { column_map: [...columnMap] } : {}),
+  };
+  const events: KnownEvent[] = [];
+  if (existingDeck) {
+    const prev = existingDeck.source;
+    const sameRef =
+      prev?.kind === 'onedrive_file' &&
+      prev.content_hash === contentHash &&
+      prev.uri === uri &&
+      JSON.stringify(prev.column_map ?? null) === JSON.stringify(columnMap ?? null);
+    if (!sameRef) {
+      events.push(
+        factory.create(
+          'SourceLinked',
+          { target_kind: 'deck', target_id: deckId, source: sourceRef },
+          nowMs,
+        ),
+      );
+    }
+  } else {
+    events.push(
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: deckId,
+          name: source.name,
+          note_type_id: noteType.id,
+          language,
+          source: sourceRef,
+          created_at: nowMs,
+        },
+        nowMs,
+      ),
+    );
+  }
+  events.push(...diff.events);
+  if (events.length > 0) ctx.emitEvents(events);
+
+  source.deckId = deckId;
+  source.noteTypeId = noteType.id;
+  source.language = language;
+  if (columnMap) source.columnMap = [...columnMap];
+  delete source.columnMapUnsaved;
+  if (uri) source.uri = uri;
+  if (info.contentTag) source.contentTag = info.contentTag;
+  source.lastSyncedAt = nowMs;
+  source.lastStatus = 'synced';
+  delete source.lastError;
+  source.warnings = diff.warnings.map((w) => ({
+    code: w.code,
+    message: w.message,
+    ...(w.row !== undefined ? { row: w.row } : {}),
+    ...(w.header !== undefined ? { header: w.header } : {}),
+  }));
+
+  const notesTouched =
+    diff.stats.added + diff.stats.updated + diff.stats.archived + diff.stats.restored;
+  return { updated: !existingDeck || notesTouched > 0, notesTouched, warnings: source.warnings };
+}
+
 /**
  * Links a new PC local folder via File System Access API and immediately scans it (§3.2).
  */
@@ -1620,7 +1967,27 @@ export async function refreshAllSources(
     }
   }
 
-  // 3. Family Library Catalogs & Subscribed .flashpkg URLs (online)
+  // 3. Linked OneDrive files (online; skipped until the user has allowed OneDrive file access)
+  if (isOnline() && ctx.platform.oneDriveConfigured) {
+    for (const src of registry.oneDriveSources ?? []) {
+      try {
+        const res = await refreshSingleOneDriveSource(src, ctx, {
+          ...(opts?.force !== undefined ? { force: opts.force } : {}),
+        });
+        if (res.pending) pendingReconciliations.push(res.pending);
+        if (res.updated) updatedSources += 1;
+        importedNotes += res.notesTouched;
+        warningsCount += res.warnings.length;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        src.lastStatus = 'error';
+        src.lastError = msg;
+        errors.push(`${src.name}: ${msg}`);
+      }
+    }
+  }
+
+  // 4. Family Library Catalogs & Subscribed .flashpkg URLs (online)
   if (isOnline()) {
     const fetcher =
       registry.catalogs.length > 0 || registry.packageSubscriptions.length > 0

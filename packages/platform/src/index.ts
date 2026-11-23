@@ -247,6 +247,34 @@ export interface LinkedGoogleSource {
   localizedAudio?: Record<string, string>;
 }
 
+/**
+ * A `.csv` / `.tsv` / `.xlsx` file in the user's personal OneDrive, linked like a Google Sheet:
+ * it refreshes into one deck. Read-only: the app never writes to the user's OneDrive files.
+ */
+export interface LinkedOneDriveSource {
+  id: string;
+  /** Graph drive-item id. */
+  itemId: string;
+  name: string;
+  uri?: string;
+  deckId?: string;
+  noteTypeId?: string;
+  language?: string;
+  /** The mapping chosen when linked; the deck's synced `source.column_map` wins once it exists. */
+  columnMap?: SourceColumnMapping[];
+  /**
+   * `columnMap` was chosen on this device but has not reached the deck yet (the pull was held
+   * for a rename review). While set, it wins over the deck's older mapping.
+   */
+  columnMapUnsaved?: true;
+  /** Content tag at the last pull; an unchanged tag skips the download. */
+  contentTag?: string;
+  lastSyncedAt?: number;
+  lastStatus?: SourceSyncStatus;
+  lastError?: string;
+  warnings?: SourceWarning[];
+}
+
 export interface CachedLocalFileEntry {
   relativePath: string;
   kind: 'csv' | 'tsv' | 'xlsx' | 'md' | 'flashpkg';
@@ -331,6 +359,10 @@ export interface FamilyCatalogSubscription {
 
 export interface SourcesRegistry {
   googleSources: LinkedGoogleSource[];
+  /** Absent in registries saved before linked OneDrive sources existed. */
+  oneDriveSources?: LinkedOneDriveSource[];
+  /** OneDrive item ids unlinked on this device; their synced decks are not re-listed as sources. */
+  unlinkedOneDriveIds?: string[];
   localFolders: LinkedLocalFolder[];
   packageSubscriptions: PackageSubscription[];
   catalogs: FamilyCatalogSubscription[];
@@ -359,6 +391,18 @@ export interface OneDriveBrowseItem {
   lastModifiedAt?: number;
 }
 
+/** Metadata of one OneDrive file: enough to tell cheaply whether its content changed. */
+export interface OneDriveFileInfo {
+  id: string;
+  name: string;
+  size: number;
+  /** Content tag: changes only when the file's bytes change (falls back to `eTag`). */
+  contentTag?: string;
+  lastModifiedAt?: number;
+  /** The file's OneDrive web address (display and "Open" link only). */
+  webUrl?: string;
+}
+
 /**
  * Optional OneDrive file picker (§15 Phase 12): browses the user's OneDrive with the optional
  * `Files.Read` scope and downloads one `.csv` / `.xlsx` / `.flashpkg` file for import.
@@ -373,6 +417,10 @@ export interface OneDriveFilePicker {
   listFolder(folderId?: string): Promise<OneDriveBrowseItem[]>;
   /** Downloads a file picked from `listFolder` (size-capped). */
   downloadFile(item: OneDriveBrowseItem): Promise<PickedFile>;
+  /** Reads one file's metadata by item id (a linked source's cheap "did it change?" check). */
+  getFileInfo(itemId: string): Promise<OneDriveFileInfo>;
+  /** Downloads one file by item id (size-capped), for refreshing a linked source. */
+  downloadById(itemId: string): Promise<PickedFile>;
 }
 
 export interface GoogleDriveFileMeta {
@@ -432,6 +480,8 @@ export interface LocalFolderSourcesAdapter {
   listFolderFiles(folderId: string): Promise<ScannedLocalFileDescriptor[]>;
   readFileBytes(folderId: string, relativePath: string, maxBytes?: number): Promise<Uint8Array>;
   parseXlsxBytes(bytes: Uint8Array): Promise<string[][]>;
+  /** False when this adapter has no Excel reader (omitted means it can read `.xlsx`). */
+  canParseXlsx?(): boolean;
   readRelativeMedia(
     folderId: string,
     baseFileRelativePath: string,

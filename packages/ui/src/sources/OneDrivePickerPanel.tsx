@@ -1,7 +1,17 @@
-import type { OneDriveBrowseItem, OneDriveFilePicker } from '@flash/platform';
-import { useEffect, useMemo, useState } from 'react';
+import type { SourceColumnMapping } from '@flash/core';
+import { canCreateOrImportDeck } from '@flash/core/license';
+import type {
+  OneDriveBrowseItem,
+  OneDriveFilePicker,
+  PendingXlsxReconciliation,
+} from '@flash/platform';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { linkedOneDriveDeck } from './oneDriveLinkedDeck.ts';
 import { importPickedOneDriveFile } from './oneDriveImport.ts';
+
+const LazyOneDriveLinkMapping = lazy(() => import('./OneDriveLinkMapping.tsx'));
+const LINKABLE = /\.(csv|tsv|xlsx)$/i;
 
 type AccessState = 'checking' | 'needed' | 'ready' | 'error';
 
@@ -14,6 +24,12 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function activeDeckCount(state: { decks: ReadonlyMap<string, { archived: boolean }> }): number {
+  let count = 0;
+  for (const deck of state.decks.values()) if (!deck.archived) count += 1;
+  return count;
 }
 
 function errorText(err: unknown): string {
@@ -48,10 +64,13 @@ export default function OneDrivePickerPanel({
   onStatusMessage,
   onErrorMessage,
   onClose,
+  onPendingReconciliation,
 }: Readonly<{
   onStatusMessage: (msg: string) => void;
   onErrorMessage: (msg: string) => void;
   onClose: () => void;
+  /** Hands a held rename review to the Sources panel, which shows the prompt. */
+  onPendingReconciliation?: (rec: PendingXlsxReconciliation) => void;
 }>) {
   const { platform, state, stateVersion, entitlement, getEventFactory, emitEvents, createDeck } =
     useApp();
@@ -63,6 +82,11 @@ export default function OneDrivePickerPanel({
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<string | null>(null);
   const [language, setLanguage] = useState('ko');
+  const [linking, setLinking] = useState<{
+    item: OneDriveBrowseItem;
+    grid: string[][];
+    busy: boolean;
+  } | null>(null);
 
   const noteTypes = useMemo(
     () => [...state.noteTypes.values()],
@@ -155,13 +179,65 @@ export default function OneDrivePickerPanel({
     }
   };
 
+  /** Downloads a spreadsheet and opens the column-mapping step to link it as a source. */
+  const handleStartLink = async (item: OneDriveBrowseItem) => {
+    if (!picker) return;
+    setBusyItemId(item.id);
+    setPanelError(null);
+    try {
+      const picked = await picker.downloadFile(item);
+      const { readOneDriveTable } = await import('./sourceRunner.ts');
+      setLinking({ item, grid: await readOneDriveTable(platform, picked), busy: false });
+    } catch (err) {
+      setPanelError(errorText(err));
+    } finally {
+      setBusyItemId(null);
+    }
+  };
+
+  const handleConfirmLink = async (choice: {
+    noteTypeId: string;
+    language: string;
+    columnMap: SourceColumnMapping[];
+  }) => {
+    if (!linking) return;
+    const { item } = linking;
+    if (!linkedOneDriveDeck(state, item.id)) {
+      const gate = canCreateOrImportDeck(activeDeckCount(state), entitlement);
+      if (!gate.allowed) {
+        setPanelError(gate.reason ?? 'Free tier deck limit reached.');
+        return;
+      }
+    }
+    setLinking({ ...linking, busy: true });
+    setPanelError(null);
+    try {
+      const { linkOneDriveFile } = await import('./sourceRunner.ts');
+      const res = await linkOneDriveFile(
+        { id: item.id, name: item.name },
+        { platform, getState: () => state, getEventFactory, emitEvents },
+        choice,
+      );
+      if (res.pending) onPendingReconciliation?.(res.pending);
+      onStatusMessage(
+        res.pending
+          ? `Linked "${item.name}", but some rows look renamed. Match them in the prompt below to keep review history.`
+          : `Linked "${item.name}" from OneDrive: ${res.notesTouched} note change(s). It refreshes with your other sources.`,
+      );
+      setLinking(null);
+    } catch (err) {
+      setPanelError(errorText(err));
+      setLinking({ ...linking, busy: false });
+    }
+  };
+
   return (
     <div
       data-testid="onedrive-picker-panel"
       className={`flex ${ONEDRIVE_PICKER_PANEL_HEIGHT} flex-col gap-2 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 text-xs`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="font-semibold">Import from OneDrive</div>
+        <div className="font-semibold">Import or link a OneDrive file</div>
         <button
           type="button"
           onClick={onClose}
@@ -228,7 +304,20 @@ export default function OneDrivePickerPanel({
           </div>
         )}
 
-        {access === 'ready' && (
+        {access === 'ready' && linking && (
+          <Suspense fallback={null}>
+            <LazyOneDriveLinkMapping
+              itemId={linking.item.id}
+              fileName={linking.item.name}
+              grid={linking.grid}
+              busy={linking.busy}
+              onLink={(c) => void handleConfirmLink(c)}
+              onCancel={() => setLinking(null)}
+            />
+          </Suspense>
+        )}
+
+        {access === 'ready' && !linking && (
           <ul className="flex h-full flex-col gap-1 overflow-y-auto">
             {path.length > 1 && (
               <li>
@@ -259,18 +348,32 @@ export default function OneDrivePickerPanel({
                     {item.name}/
                   </button>
                 ) : (
-                  <button
-                    type="button"
-                    data-testid={`onedrive-file-${item.name}`}
-                    disabled={busyItemId !== null}
-                    onClick={() => void handleImport(item)}
-                    className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--surface-2)] disabled:opacity-50"
-                  >
-                    <span className="truncate">{item.name}</span>
-                    <span className="shrink-0 text-[var(--muted)]">
-                      {busyItemId === item.id ? 'Importing…' : formatSize(item.size)}
-                    </span>
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      data-testid={`onedrive-file-${item.name}`}
+                      disabled={busyItemId !== null}
+                      onClick={() => void handleImport(item)}
+                      className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--surface-2)] disabled:opacity-50"
+                    >
+                      <span className="truncate">{item.name}</span>
+                      <span className="shrink-0 text-[var(--muted)]">
+                        {busyItemId === item.id ? 'Working…' : formatSize(item.size)}
+                      </span>
+                    </button>
+                    {LINKABLE.test(item.name) && (
+                      <button
+                        type="button"
+                        data-testid={`onedrive-link-${item.name}`}
+                        disabled={busyItemId !== null}
+                        title="Link this file so it refreshes like a Google Sheet"
+                        onClick={() => void handleStartLink(item)}
+                        className="shrink-0 rounded-lg border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)] disabled:opacity-50"
+                      >
+                        Link
+                      </button>
+                    )}
+                  </div>
                 )}
               </li>
             ))}
