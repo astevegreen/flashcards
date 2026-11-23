@@ -1,5 +1,6 @@
 import type { AnswerMode } from '@flash/core';
-import { createElement, Fragment, lazy, Suspense, type ComponentType } from 'react';
+import { createElement, Fragment, Suspense, type ComponentType } from 'react';
+import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
 import { flipAnswerMode } from './FlipMode.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 
@@ -9,7 +10,7 @@ function createLazyAnswerModePlugin(
   loader: () => Promise<AnswerModePlugin>,
   loadingLabel: string,
 ): AnswerModePlugin {
-  const LazyView = lazy<ComponentType<AnswerModeRenderProps>>(async () => {
+  const LazyView = lazyWithRetry<ComponentType<AnswerModeRenderProps>>(async () => {
     const plugin = await loader();
     return {
       default: (props: AnswerModeRenderProps) =>

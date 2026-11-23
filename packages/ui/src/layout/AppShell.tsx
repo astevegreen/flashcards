@@ -1,12 +1,14 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { SECURE_KEYS_LOST_MESSAGE } from '../state/secureKeysNotice.ts';
 import { applyCardTextSize, readCardTextSize } from '../study/cardTextSize.ts';
 import { getSidebarBadge, sidebarBadgeOpensSettings, sidebarBadgeTitle } from './sidebarBadge.ts';
 
 // Phase 13 study reminders (native notifications / PWA badge): lazy, renders nothing.
-const LazyReminderRuntime = lazy(() =>
-  import('../reminders/ReminderRuntime.tsx').then((m) => ({ default: m.ReminderRuntime })),
+const LazyReminderRuntime = lazyWithRetry(
+  () => import('../reminders/ReminderRuntime.tsx').then((m) => ({ default: m.ReminderRuntime })),
+  { quiet: true },
 );
 
 /**

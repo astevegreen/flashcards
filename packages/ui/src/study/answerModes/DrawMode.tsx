@@ -4,13 +4,14 @@ import {
   resolveStrokeScriptForLang,
 } from '@flash/core/drawing';
 import type { HandwritingCandidate } from '@flash/platform';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
 import { DrawLookupPanel } from '../../drawing/DrawLookupPanel.tsx';
 import { CardFieldValue, RevealedBackSteps } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 import { cardTextFitClass } from '../fitText.ts';
 
-const LazyDrawQuizPanel = lazy(() => import('../../drawing/DrawQuizPanel.tsx'));
+const LazyDrawQuizPanel = lazyWithRetry(() => import('../../drawing/DrawQuizPanel.tsx'));
 
 function DrawModeView({
   state,

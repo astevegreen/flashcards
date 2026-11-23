@@ -7,12 +7,14 @@ import {
   type TagOperation,
   type TagOperationError,
 } from '@flash/core';
-import { lazy, Suspense, useMemo, useState, type FormEvent } from 'react';
+import { Suspense, useMemo, useState, type FormEvent } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { readTagsGuideDismissed, storeTagsGuideDismissed } from './tagsGuide.ts';
 
-const LazyTagsGuidePanel = lazy(() =>
-  import('./TagsGuidePanel.tsx').then((m) => ({ default: m.TagsGuidePanel })),
+const LazyTagsGuidePanel = lazyWithRetry(
+  () => import('./TagsGuidePanel.tsx').then((m) => ({ default: m.TagsGuidePanel })),
+  { closeWith: 'onDismiss' },
 );
 
 /** Stable callback ref: focuses the rename input once, when it mounts. */

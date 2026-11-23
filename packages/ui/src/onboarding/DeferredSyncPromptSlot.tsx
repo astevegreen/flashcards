@@ -1,5 +1,6 @@
 import type { Storage, SyncProviderKind } from '@flash/platform';
-import { lazy, Suspense, useState } from 'react';
+import { Suspense, useState } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import {
   isOnboardingRecordSettled,
   onboardingRecordResource,
@@ -14,7 +15,7 @@ import { SyncPrompt } from './SyncPrompt.tsx';
 type KvStore = Pick<Storage, 'getKv' | 'setKv'>;
 
 // "Sync my devices" opens in place, below every study control (§8: its own chunk).
-const LazySyncMyDevicesPanel = lazy(() =>
+const LazySyncMyDevicesPanel = lazyWithRetry(() =>
   import('../sync/SyncMyDevicesPanel.tsx').then((m) => ({ default: m.SyncMyDevicesPanel })),
 );
 

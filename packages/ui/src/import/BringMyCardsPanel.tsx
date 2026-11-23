@@ -19,15 +19,8 @@ import {
   type ColumnTarget,
 } from '@flash/core/import-mapping';
 import type { GooglePickedFile } from '@flash/platform';
-import {
-  lazy,
-  Suspense,
-  useEffect,
-  useMemo,
-  useState,
-  type DragEvent,
-  type SyntheticEvent,
-} from 'react';
+import { Suspense, useEffect, useMemo, useState, type DragEvent, type SyntheticEvent } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
 import { gridToCsv } from '../sources/oneDriveImport.ts';
 import { useApp } from '../state/AppContext.tsx';
@@ -42,7 +35,7 @@ import {
   type LibraryImportContext,
 } from './libraryImports.ts';
 
-const LazyAnkiImportPanel = lazy(() => import('./AnkiImportPanel.tsx'));
+const LazyAnkiImportPanel = lazyWithRetry(() => import('./AnkiImportPanel.tsx'));
 
 /** Same cap as the largest importer accepts (Anki packages, §13). */
 const MAX_IMPORT_BYTES = 300 * 1024 * 1024;
