@@ -216,11 +216,15 @@ const MAX_RELATIONS_PER_SENSE = 12;
 function decodeRelations(val: unknown): DictionaryRelation[] {
   if (!Array.isArray(val)) return [];
   const out: DictionaryRelation[] = [];
+  const seen = new Set<string>();
   for (const raw of val) {
     if (out.length >= MAX_RELATIONS_PER_SENSE) break;
     const r = asRecord(raw);
     const word = r ? cleanString(r['word']) : undefined;
     if (!r || !word || typeof r['type'] !== 'string' || !RELATION_TYPES.has(r['type'])) continue;
+    const key = `${r['type']}:${word}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push({ type: r['type'] as DictionaryRelation['type'], word });
   }
   return out;

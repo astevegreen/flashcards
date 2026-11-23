@@ -408,6 +408,7 @@ describe('Phase 10 pack codec (backwards compatible optional fields)', () => {
                 { type: 'antonym', word: '' },
                 { type: 'bogus', word: 'x' },
                 { type: 'related', word: '식사' },
+                { type: 'synonym', word: '드시다' },
                 'junk',
               ],
               source: 'krdict',

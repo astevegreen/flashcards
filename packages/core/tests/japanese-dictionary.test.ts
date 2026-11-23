@@ -112,14 +112,53 @@ describe('Japanese search planning and ranking', () => {
     expect(ranked[0]?.headword).toBe('食べる');
   });
 
+  it('keeps the exact match on top for a kana dictionary form', () => {
+    const e = (hw: string, reading: string, gloss: string) =>
+      entry('dict-jmdict', hw, [reading], [gloss]);
+    const pool = [
+      e('買う', 'かう', 'to buy'),
+      e('書く', 'かく', 'to write'),
+      e('来る', 'くる', 'to come'),
+      e('鱒', 'ます', 'trout'),
+      e('蛙', 'かえる', 'frog'),
+      e('北', 'きた', 'north'),
+      e('鯛', 'たい', 'sea bream'),
+      e('掛ける', 'かける', 'to hang'),
+      e('見せる', 'みせる', 'to show'),
+      e('開ける', 'あける', 'to open'),
+      e('開く', 'あく', 'to open'),
+      e('ミス', 'みす', 'miss'),
+    ];
+    const probes: Array<[string, string]> = [
+      ['かえる', '蛙'],
+      ['たい', '鯛'],
+      ['きた', '北'],
+      ['かける', '掛ける'],
+      ['みせる', '見せる'],
+      ['あける', '開ける'],
+    ];
+    for (const [query, expected] of probes) {
+      expect(rankDictionaryResults(pool, query)[0]?.headword, query).toBe(expected);
+    }
+  });
+
   it('ranks an earlier exact English gloss above a later one (ja, zh-Hans)', () => {
-    const primary = entry('dict-jmdict', '犬', ['いぬ'], ['dog', 'cur']);
-    const secondary = entry('dict-jmdict', '野郎', ['やろう'], ['guy', 'bastard', 'dog']);
-    const ranked = rankDictionaryResults([secondary, primary], 'dog');
-    expect(ranked.map((e) => e.headword)).toEqual(['犬', '野郎']);
+    // Same-length headwords, the later-gloss entry sorting first by id: only gloss order decides.
+    const primary = entry('dict-jmdict', '猫', ['ねこ'], ['dog', 'cur']);
+    const secondary = entry('dict-jmdict', '犬', ['いぬ'], ['guy', 'bastard', 'dog']);
+    expect(rankDictionaryResults([secondary, primary], 'dog').map((e) => e.headword)).toEqual([
+      '猫',
+      '犬',
+    ]);
 
     const zhPrimary = entry('dict-cc-cedict', '狗', ['gou3'], ['dog']);
-    const zhLater = entry('dict-cc-cedict', '走狗', ['zou3 gou3'], ['lackey', 'running dog']);
+    const zhLater = entry('dict-cc-cedict', '犬', ['quan3'], ['lackey', 'running dog']);
     expect(rankDictionaryResults([zhLater, zhPrimary], 'dog')[0]?.headword).toBe('狗');
+  });
+
+  it('caps the deinflected prefix tokens', () => {
+    const plan = planDictionarySearch('食べさせられなかった');
+    const guessed = plan.prefixTokens.filter((t) => t.startsWith('食べ'));
+    expect(guessed.length).toBeLessThanOrEqual(10 + 2);
   });
 });

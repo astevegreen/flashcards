@@ -233,19 +233,19 @@ export const KRDICT_STARTER_TOPICS = {
 
 /**
  * Hand-written Korean definitions (뜻풀이) and related-word links for the first sense of a few
- * starter words, in the shape of KRDict's `Sense/definition` and `SenseRelation` (original text).
+ * starter words, in the shape of KRDict's `Sense/definition` and `SenseRelation` (written for this project, not copied from any dictionary).
  * `relations` is `[유의어 | 반의어 | 참고어, word]`.
  */
 export const KRDICT_STARTER_EXTRAS = {
   먹다: {
-    native: '음식 따위를 입으로 삼켜 배 속으로 보내다.',
+    native: '밥이나 과일 같은 것을 입에 넣고 씹어서 넘기다.',
     relations: [
       ['유의어', '드시다'],
       ['참고어', '식사'],
     ],
   },
   춥다: {
-    native: '대기의 온도가 낮다.',
+    native: '바깥이나 방 안이 차서 몸이 움츠러들 만큼 서늘하다.',
     relations: [['반의어', '덥다']],
   },
 };

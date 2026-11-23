@@ -163,6 +163,7 @@ export interface DictionarySearchPlan {
 }
 
 const MAX_HEADWORD_CANDIDATES = 400;
+const MAX_JAPANESE_PREFIX_TOKENS = 10;
 
 /** Code-unit order (not localeCompare) so results are identical on every machine and locale. */
 function compareCodeUnits(a: string, b: string): number {
@@ -194,7 +195,9 @@ function planPrefixTokens(
   if (ko.jamoKey && ko.jamoKey.length >= 2) add(ko.jamoKey);
   for (const p of ko.romanizedJamoPrefixes) add(p);
   // Deinflected Japanese lemmas, so a kana-only query reaches the lemma's reading (たべた → たべる).
-  for (const lemma of ja.keys()) add(foldKatakanaToHiragana(lemma.toLowerCase()));
+  // Guessed prefixes must not exhaust the storage candidate cap: keep the likeliest few.
+  const likeliest = [...ja].sort((a, b) => a[1] - b[1]).slice(0, MAX_JAPANESE_PREFIX_TOKENS);
+  for (const [lemma] of likeliest) add(foldKatakanaToHiragana(lemma.toLowerCase()));
   return [...tokens];
 }
 
@@ -284,26 +287,52 @@ function foldReading(r: string): string {
   return foldKatakanaToHiragana(r.normalize('NFC').toLowerCase()).replace(/[.・\-\s]+/g, '');
 }
 
+/** A deinflected Japanese query, prepared once per ranking (not per entry). */
+interface JapaneseQuery {
+  lemmas: ReadonlyMap<string, number>;
+  /** Kana-folded lemma → steps, for matching readings. */
+  folded: ReadonlyMap<string, number>;
+  /**
+   * Ceiling for deinflection hits. Set below an exact headword / reading match when some
+   * candidate already is one, so a dictionary-form query (`かえる`) keeps its exact words on top
+   * and guessed lemmas (`買う`) only follow.
+   */
+  cap: number;
+}
+
+const JAPANESE_CAP_WHEN_EXACT_HIT = 780;
+
+function buildJapaneseQuery(
+  candidates: readonly DictionaryEntry[],
+  q: NormalizedQuery,
+  lemmas: ReadonlyMap<string, number>,
+): JapaneseQuery {
+  const folded = new Map<string, number>();
+  for (const [lemma, steps] of lemmas) folded.set(foldReading(lemma), steps);
+  const hasExact =
+    lemmas.size > 0 &&
+    candidates.some((e) => {
+      const hw = e.headword.normalize('NFC').toLowerCase();
+      return hw === q.lower || readingMatchesExactly(e, q);
+    });
+  return { lemmas, folded, cap: hasExact ? JAPANESE_CAP_WHEN_EXACT_HIT : Number.POSITIVE_INFINITY };
+}
+
 /**
  * Japanese deinflection (`食べた` → 食べる): the entry's headword, or one of its readings, is a
- * deinflected lemma of the query. Slightly below a Korean lemma hit for the same step count,
- * because kana readings are shared by many unrelated words.
+ * deinflected lemma of the query. Reading hits rank below headword hits (kana readings are shared
+ * by many unrelated words), and both stay under `cap`.
  */
-function japaneseDeinflectionScore(
-  entry: DictionaryEntry,
-  ja: ReadonlyMap<string, number>,
-): number {
-  if (ja.size === 0) return 0;
+function japaneseDeinflectionScore(entry: DictionaryEntry, ja: JapaneseQuery): number {
+  if (ja.lemmas.size === 0) return 0;
   let best = 0;
-  const hwSteps = ja.get(entry.headword);
+  const hwSteps = ja.lemmas.get(entry.headword);
   if (hwSteps !== undefined) best = 950 - hwSteps * 5;
-  const foldedLemmas = new Map<string, number>();
-  for (const [lemma, steps] of ja) foldedLemmas.set(foldReading(lemma), steps);
   for (const r of entry.readings) {
-    const steps = foldedLemmas.get(foldReading(r));
+    const steps = ja.folded.get(foldReading(r));
     if (steps !== undefined) best = Math.max(best, 930 - steps * 5);
   }
-  return best;
+  return Math.min(best, ja.cap);
 }
 
 /** Order-aware exact English gloss match for entries without per-sense data (ja, zh-Hans). */
@@ -356,7 +385,7 @@ function hangulKeyScore(hw: string, ko: KoreanQueryAnalysis): number {
 function koreanMatchScore(
   entry: DictionaryEntry,
   ko: KoreanQueryAnalysis,
-  ja: ReadonlyMap<string, number>,
+  ja: JapaneseQuery,
   rawQuery: string,
   romanizationCap: number,
 ): number {
@@ -489,7 +518,7 @@ export function rankDictionaryResults(
   const limit = Math.max(1, Math.min(200, opts.limit ?? 50));
   const allowedPacks = opts.packIds && opts.packIds.length > 0 ? new Set(opts.packIds) : null;
   const ko = analyzeKoreanQuery(q.raw, opts.direction);
-  const ja = deinflectJapanese(q.raw);
+  const ja = buildJapaneseQuery(candidates, q, deinflectJapanese(q.raw));
   const romanizationCap = romanizationCapFor(candidates, ko, q.lower, allowedPacks);
 
   const scored: Array<{ entry: DictionaryEntry; score: number }> = [];

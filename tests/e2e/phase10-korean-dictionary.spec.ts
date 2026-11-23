@@ -46,7 +46,9 @@ test.describe('Phase 10 Korean dictionary (KRDict starter pack)', () => {
     await expect(meokda.getByTestId('dict-sense-source').first()).toHaveText('KRDict');
     await expect(meokda.getByTestId('dict-example').first()).toContainText('밥을 먹다.');
     // Korean definition and related-word links; a link looks that word up.
-    await expect(meokda.getByTestId('dict-definition-native').first()).toContainText('입으로 삼켜');
+    await expect(meokda.getByTestId('dict-definition-native').first()).toContainText(
+      '입에 넣고 씹어서',
+    );
     await expect(meokda.getByTestId('dict-relations-synonym').first()).toContainText('드시다');
     // The detail pane (wide layouts) or the inline senses (phones) holds the visible link.
     await page
