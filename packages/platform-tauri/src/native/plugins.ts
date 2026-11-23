@@ -35,6 +35,7 @@ import type { SecureSecretBackend } from '../auth/refresh-token-store.ts';
 import type { TauriLoopbackOAuthPlugin } from '../auth/tauri-google-auth.ts';
 import type { DesktopNotificationBridge } from '../reminders/desktop-reminders.ts';
 import { createAddDeviceUrlSourceFrom } from './add-device-url.ts';
+import { openTauriSaveStream } from '../files/tauri-stream.ts';
 import type { TauriFsBridge, TauriFsDirEntry } from '../sources/tauri-fs-watcher.ts';
 import type { TauriSqlPluginDatabase } from '../storage/tauri-sqlite-storage.ts';
 import { resolveTauriICloudOptions, type TauriICloudOptions } from '../sync/tauri-icloud-bridge.ts';
@@ -222,6 +223,14 @@ export function createDesktopFiles(fsBridge: TauriFsBridge): Files {
       if (!target) return;
       await writeFile(target, data);
     },
+    saveStream: (filename) =>
+      openTauriSaveStream(
+        {
+          save: (o) => saveDialog(o),
+          writeFile: (path, data, o) => writeFile(path, data, o),
+        },
+        filename,
+      ),
     pickDirectory: async () => fsBridge.pickDirectory(),
   };
 }

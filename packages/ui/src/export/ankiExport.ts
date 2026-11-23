@@ -1,5 +1,6 @@
 import type { CollectionState } from '@flash/core';
 import type { PlatformServices } from '@flash/platform';
+import { saveStreamedZip } from './saveStreamedZip.ts';
 
 /**
  * Export to Anki from the UI. Lazily imported by the export buttons, so neither this module nor
@@ -8,29 +9,6 @@ import type { PlatformServices } from '@flash/platform';
 
 function notesText(n: number): string {
   return `${n} note${n === 1 ? '' : 's'}`;
-}
-
-/**
- * Streams a zip into Blob parts and saves it. Each chunk is copied into its own Blob as it
- * arrives, so the media read for the zip can be freed file by file; the browser keeps large
- * Blobs out of the JS heap. Platforms without `downloadBlob` get one array at the end.
- */
-async function saveStreamedZip<R extends { fileName: string }>(
-  platform: PlatformServices,
-  mimeType: string,
-  write: (emit: (chunk: Uint8Array) => void) => Promise<R>,
-): Promise<R> {
-  const parts: Blob[] = [];
-  const result = await write((chunk) => parts.push(new Blob([chunk as Uint8Array<ArrayBuffer>])));
-  const blob = new Blob(parts, { type: mimeType });
-  parts.length = 0;
-  if (platform.files.downloadBlob) {
-    await platform.files.downloadBlob(result.fileName, blob);
-  } else {
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    await platform.files.downloadFile(result.fileName, bytes, mimeType);
-  }
-  return result;
 }
 
 /** Reads one media file (`undefined` when this device doesn't have it). */
@@ -56,8 +34,11 @@ export async function exportAnkiCsvZip(
 ): Promise<string> {
   const { planAnkiCsvExport, writeAnkiCsvZip } = await import('@flash/core/anki-export');
   const plan = planAnkiCsvExport(state, options);
-  const result = await saveStreamedZip(platform, 'application/zip', (emit) =>
-    writeAnkiCsvZip(plan, mediaReader(platform), emit, { modifiedMs: Date.now() }),
+  const result = await saveStreamedZip(
+    platform,
+    'application/zip',
+    `${plan.slug}-anki.zip`,
+    (emit) => writeAnkiCsvZip(plan, mediaReader(platform), emit, { modifiedMs: Date.now() }),
   );
   const files = result.mediaCount > 0 ? ` and ${result.mediaCount} media file(s)` : '';
   return `Exported ${notesText(plan.noteCount)}${files} to ${result.fileName}.${missingText(result.missingMediaCount)}`;
