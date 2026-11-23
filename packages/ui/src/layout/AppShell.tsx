@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useApp, type SyncUiState } from '../state/AppContext.tsx';
+import { SECURE_KEYS_LOST_MESSAGE } from '../state/secureKeysNotice.ts';
 import { applyCardTextSize, readCardTextSize } from '../study/cardTextSize.ts';
 
 // Phase 13 study reminders (native notifications / PWA badge): lazy, renders nothing.
@@ -87,7 +88,15 @@ function getSidebarBadge(syncState: SyncUiState): { label: string; tone: string 
 }
 
 export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
-  const { platform, showBackupBanner, dismissBackupBanner, syncState, syncNow } = useApp();
+  const {
+    platform,
+    showBackupBanner,
+    dismissBackupBanner,
+    secureKeysLostNotice,
+    dismissSecureKeysLostNotice,
+    syncState,
+    syncNow,
+  } = useApp();
   useState(initCardTextSize);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -252,6 +261,36 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
 
       {/* Main viewport */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {secureKeysLostNotice && (
+          <div
+            role="alert"
+            data-testid="secure-keys-lost-notice"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--accent-soft)] px-4 py-2 text-xs text-[var(--fg)]"
+          >
+            <span className="min-w-0 flex-1 basis-48 break-words">{SECURE_KEYS_LOST_MESSAGE}</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  dismissSecureKeysLostNotice();
+                  onSelectTab('settings');
+                }}
+                className="min-h-11 rounded-md bg-[var(--accent)] px-2.5 py-1 font-semibold text-white"
+              >
+                Sign in again
+              </button>
+              <button
+                type="button"
+                data-testid="secure-keys-lost-dismiss"
+                onClick={dismissSecureKeysLostNotice}
+                className="min-h-11 rounded-md px-2 py-1 text-[var(--muted)] hover:bg-[var(--surface-2)]"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
         {showBackupBanner && (
           <div
             role="status"

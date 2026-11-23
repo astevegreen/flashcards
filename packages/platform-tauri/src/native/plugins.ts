@@ -9,7 +9,7 @@ import {
   start as startOAuthServer,
 } from '@fabianlars/tauri-plugin-oauth';
 import { invoke } from '@tauri-apps/api/core';
-import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
+import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import {
   exists,
@@ -34,6 +34,7 @@ import type { SystemBrowserLauncher } from '@flash/platform-capacitor';
 import type { SecureSecretBackend } from '../auth/refresh-token-store.ts';
 import type { TauriLoopbackOAuthPlugin } from '../auth/tauri-google-auth.ts';
 import type { DesktopNotificationBridge } from '../reminders/desktop-reminders.ts';
+import { createAddDeviceUrlSourceFrom } from './add-device-url.ts';
 import type { TauriFsBridge, TauriFsDirEntry } from '../sources/tauri-fs-watcher.ts';
 import type { TauriSqlPluginDatabase } from '../storage/tauri-sqlite-storage.ts';
 
@@ -240,6 +241,15 @@ export function createSystemBrowserLauncher(): SystemBrowserLauncher {
       }
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// `flashcards://add-device?...` (tauri-plugin-deep-link; the scheme is registered for every host)
+// ---------------------------------------------------------------------------
+
+/** Every `flashcards://add-device` URL the OS opens the app with (see `add-device-url.ts`). */
+export function createAddDeviceUrlSource(): (handler: (url: string) => void) => () => void {
+  return createAddDeviceUrlSourceFrom({ getCurrent, onOpenUrl });
 }
 
 // ---------------------------------------------------------------------------

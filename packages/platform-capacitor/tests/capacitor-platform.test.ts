@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { createAddDeviceUrlSource } from '../src/native/plugins.ts';
 import { createEventFactory, createHlcState } from '../../core/src/index.ts';
 import { createInitialSchedule } from '../../core/src/fsrs/scheduler.ts';
 import {
@@ -254,5 +255,46 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
     const android = createCapacitorPlatform({ deviceId: 'cap-android' });
     expect(android.iCloudSyncSupported).toBeUndefined();
     expect(android.createICloudTransport).toBeUndefined();
+  });
+});
+
+describe('createAddDeviceUrlSource (flashcards://add-device)', () => {
+  function fakeApp(launchUrl?: string) {
+    let listener: ((e: { url: string }) => void) | undefined;
+    const remove = vi.fn(async () => undefined);
+    return {
+      app: {
+        getLaunchUrl: vi.fn(async () => (launchUrl ? { url: launchUrl } : undefined)),
+        addListener: vi.fn(async (_name: string, cb: (e: { url: string }) => void) => {
+          listener = cb;
+          return { remove };
+        }),
+      } as never,
+      emit: (url: string) => listener?.({ url }),
+      remove,
+    };
+  }
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it('delivers the launch URL once and later add-device links only', async () => {
+    const f = fakeApp('flashcards://add-device?sync=google');
+    const source = createAddDeviceUrlSource(f.app);
+    const first = vi.fn();
+    const stop = source(first);
+    await tick();
+    f.emit('flashcards://oauth/microsoft');
+    f.emit('flashcards://add-device.evil?sync=google');
+    f.emit('flashcards://add-device?sync=dropbox');
+    expect(first.mock.calls.map((c) => c[0])).toEqual([
+      'flashcards://add-device?sync=google',
+      'flashcards://add-device?sync=dropbox',
+    ]);
+    stop();
+    await tick();
+    expect(f.remove).toHaveBeenCalled();
+    const second = vi.fn();
+    source(second);
+    await tick();
+    expect(second).not.toHaveBeenCalled();
   });
 });

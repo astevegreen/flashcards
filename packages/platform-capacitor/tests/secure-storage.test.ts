@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createHlcState } from '../../core/src/index.ts';
 import { NativeMicrosoftAuth } from '../../platform-web/src/auth/microsoft-native-auth.ts';
+import { SECURE_KEYS_LOST_KV_KEY as UI_SECURE_KEYS_LOST_KV_KEY } from '../../ui/src/state/secureKeysNotice.ts';
 import { TTS_CONFIG_KV_KEY as UI_TTS_CONFIG_KV_KEY } from '../../ui/src/state/useAudioController.ts';
 import { createGoogleSignIn, type GoogleSocialLoginPort } from '../src/auth/google-social-login.ts';
 import {
@@ -25,6 +26,8 @@ import {
   prepareSecureStorageAtLaunch,
 } from '../src/secure/secure-launch.ts';
 import {
+  adaptSecureStoragePlugin,
+  SECURE_KEYS_LOST_KV_KEY,
   MICROSOFT_REFRESH_TOKEN_KEY,
   ONEDRIVE_SESSION_KV_KEY,
   SECURE_KV_KEYS,
@@ -815,5 +818,48 @@ describe('web fallback of @flash/capacitor-secure-storage', () => {
     await expect(web.set({ key: 'k', value: 'v' })).rejects.toMatchObject({ code: 'UNAVAILABLE' });
     await expect(web.remove({ key: 'k' })).rejects.toMatchObject({ code: 'UNAVAILABLE' });
     await expect(web.removeLegacyPreference({ key: 'k' })).resolves.toBeUndefined();
+  });
+});
+
+describe('lost Keystore key notice', () => {
+  const port = (
+    reply: { value: string | null; lost?: boolean },
+    setReply?: { lost?: boolean },
+  ) => ({
+    get: vi.fn(async () => reply),
+    set: vi.fn(async () => setReply),
+    remove: vi.fn(async () => undefined),
+    removeLegacyPreference: vi.fn(async () => undefined),
+  });
+
+  it('tells the app once per loss report, on a read or a write, and still returns the value', async () => {
+    const onLost = vi.fn();
+    const lostRead = adaptSecureStoragePlugin(port({ value: null, lost: true }), onLost);
+    expect(await lostRead.get('k')).toBeNull();
+    expect(onLost).toHaveBeenCalledTimes(1);
+
+    const lostWrite = adaptSecureStoragePlugin(port({ value: null }, { lost: true }), onLost);
+    await lostWrite.set('k', 'v');
+    expect(onLost).toHaveBeenCalledTimes(2);
+  });
+
+  it('stays silent when nothing was lost (a key that was never set, or a normal write)', async () => {
+    const onLost = vi.fn();
+    const quiet = adaptSecureStoragePlugin(port({ value: null }), onLost);
+    expect(await quiet.get('missing')).toBeNull();
+    await quiet.set('k', 'v');
+    await quiet.remove('k');
+    expect(onLost).not.toHaveBeenCalled();
+  });
+
+  it('a failing callback never breaks the read', async () => {
+    const secure = adaptSecureStoragePlugin(port({ value: 'x', lost: true }), () => {
+      throw new Error('disk full');
+    });
+    await expect(secure.get('k')).resolves.toBe('x');
+  });
+
+  it('uses the same flag key as the UI', () => {
+    expect(SECURE_KEYS_LOST_KV_KEY).toBe(UI_SECURE_KEYS_LOST_KV_KEY);
   });
 });
