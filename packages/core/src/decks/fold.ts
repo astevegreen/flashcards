@@ -9,9 +9,11 @@ import { DEFAULT_DECK_SETTINGS } from '../model/types.ts';
  *
  * Every field is a last-writer-wins register ordered by `(hlc, event id)`, so the result depends
  * only on the set of events: any delivery order, chunking, duplication or snapshot hydration gives
- * the same answer on every device. A preset or folder is live while its newest save is newer than
- * its newest delete. A deck that points at a missing or deleted preset is on its own settings; one
- * that points at a missing or deleted folder is unfiled.
+ * the same answer on every device. A delete is final: a preset or folder is live once saved and
+ * until any delete, and a save with a later HLC than the delete (an edit made concurrently on
+ * another device) does not bring it back. Deleting writes nothing per deck: a deck that points at a
+ * missing or deleted preset is on its own settings, and one that points at a missing or deleted
+ * folder is unfiled, so a concurrent move to another folder or preset is never undone.
  *
  * Nothing on the study screen imports this (§8): a preset reaches the queue and FSRS only through
  * ordinary per-deck events (see `./organization.ts`).
@@ -123,7 +125,7 @@ function applyPresetSave(r: GroupRegs, ev: UnknownEvent, p: Record<string, unkno
 }
 
 function isLive(r: GroupRegs): boolean {
-  return r.save !== undefined && (r.del === undefined || later(r.del, r.save));
+  return r.save !== undefined && r.del === undefined;
 }
 
 interface Folded {

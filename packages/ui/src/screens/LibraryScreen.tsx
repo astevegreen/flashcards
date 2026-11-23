@@ -26,6 +26,7 @@ import { describeImportError } from '../components/describeImportError.ts';
 import { LayoutRequiredFieldList } from '../library/LayoutRequiredFieldList.tsx';
 import { RubyDisplaySelect } from '../library/RubyDisplaySelect.tsx';
 import { DeckOrganizationPanel } from '../library/DeckOrganizationPanel.tsx';
+import { runPresetCatchUp } from '../library/presetCatchUp.ts';
 import { useDeckOrganization } from '../library/useDeckOrganization.ts';
 import { setStudyFilter } from '../study/filterStore.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
@@ -795,7 +796,16 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     upsertLayout,
     upsertPage,
     markBackupCompleted,
+    syncState,
   } = useApp();
+
+  // Opening the Library copies every preset into any member deck that fell behind it (also run
+  // after each sync, from AppContext). Once per visit; a read-only device writes nothing.
+  const readOnly = syncState.readOnly;
+  useEffect(() => {
+    if (!readOnly) runPresetCatchUp(state, getEventFactory(), emitEvents);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [expandedDeckId, setExpandedDeckId] = useState<string | null>(null);
   const [showArchivedDecks, setShowArchivedDecks] = useState(false);

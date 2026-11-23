@@ -4,11 +4,11 @@ import {
   buildTrainingBatch,
   collectOptimizerDataset,
   collectPooledOptimizerDataset,
+  estimateMembersCurrentRetention,
   estimateRetention,
   getCurrentDeckWeights,
   getOptimizerReadiness,
   normalizeOptimizedWeights,
-  resolveFsrs6Weights,
   type OptimizerDataset,
   type RetentionEstimate,
 } from '@flash/core/fsrs-optimizer';
@@ -38,6 +38,8 @@ type Phase =
       unchanged: boolean;
       before: RetentionEstimate;
       after: RetentionEstimate;
+      /** Preset runs: the member decks use this many different weight vectors today. */
+      weightSets?: number;
     }
   | { kind: 'applied'; version: number; rescheduled: boolean }
   | { kind: 'applied-preset'; decks: number; rescheduled: boolean };
@@ -109,12 +111,14 @@ function ResultView({
   before,
   after,
   unchanged,
+  weightSets,
   onApply,
   onDiscard,
 }: Readonly<{
   before: RetentionEstimate;
   after: RetentionEstimate;
   unchanged: boolean;
+  weightSets?: number | undefined;
   onApply: (reschedule: boolean) => void;
   onDiscard: () => void;
 }>) {
@@ -146,6 +150,12 @@ function ResultView({
         </tbody>
       </table>
       <p className="text-[var(--muted)]">{verdict(before, after, unchanged)}</p>
+      {!unchanged && (weightSets ?? 0) > 1 && (
+        <p role="note" data-testid="fsrs-optimizer-mixed-weights">
+          The decks in this preset use {weightSets} different sets of weights today (Current scores
+          each deck with its own). Applying gives every deck in the preset these weights.
+        </p>
+      )}
       {!unchanged && (
         <label className="flex items-center gap-2">
           <input
@@ -210,7 +220,11 @@ function isAbortError(err: unknown): boolean {
 interface RunArgs {
   getOptimizer: () => Promise<FsrsOptimizer>;
   dataset: OptimizerDataset;
-  currentWeights: number[];
+  /** The weights in use; `undefined` when they differ between a preset's decks. */
+  currentWeights: number[] | undefined;
+  /** The current-weights estimate, when it is not one `estimateRetention` (preset runs). */
+  before?: RetentionEstimate;
+  weightSets?: number;
   onStage: (stage: FsrsOptimizerStage) => void;
   onRun: (run: FsrsOptimizerRun) => void;
 }
@@ -232,14 +246,17 @@ async function runOptimization(args: RunArgs): Promise<Phase> {
     args.onRun(run);
     const weights = normalizeOptimizedWeights(await run.result);
     if (!weights) return { kind: 'error', message: 'the optimizer returned unusable weights.' };
+    const current = args.currentWeights;
+    const before = args.before ?? estimateRetention(args.dataset.histories, current ?? []);
     return {
       kind: 'result',
       weights,
-      unchanged: weights.every(
-        (w, i) => Math.abs(w - (args.currentWeights[i] ?? Number.NaN)) < 1e-4,
-      ),
-      before: estimateRetention(args.dataset.histories, args.currentWeights),
+      unchanged:
+        current !== undefined &&
+        weights.every((w, i) => Math.abs(w - (current[i] ?? Number.NaN)) < 1e-4),
+      before,
       after: estimateRetention(args.dataset.histories, weights),
+      ...(args.weightSets === undefined ? {} : { weightSets: args.weightSets }),
     };
   } catch (err) {
     if (isAbortError(err)) return { kind: 'cancelled' };
@@ -292,12 +309,17 @@ export default function FsrsOptimizerPanel({ deck, preset }: Readonly<OptimizerT
     const token = tokenRef.current;
     const isCurrent = () => tokenRef.current === token;
     setPhase({ kind: 'running', stage: 'preparing' });
+    const nowMs = Date.now();
+    // A preset is compared with what its decks really use today, not the preset's own weights
+    // (a preset without weights leaves each deck its own).
+    const members = preset ? estimateMembersCurrentRetention(state, presetDeckIds, nowMs) : null;
     const next = await runOptimization({
       getOptimizer,
       dataset,
-      currentWeights: preset
-        ? resolveFsrs6Weights(preset.w)
-        : getCurrentDeckWeights(state, deck?.id ?? '', Date.now()),
+      currentWeights: members
+        ? members.sharedWeights
+        : getCurrentDeckWeights(state, deck?.id ?? '', nowMs),
+      ...(members ? { before: members.estimate, weightSets: members.weightSets } : {}),
       onStage: (stage) => {
         if (isCurrent()) setPhase({ kind: 'running', stage });
       },
@@ -379,6 +401,7 @@ export default function FsrsOptimizerPanel({ deck, preset }: Readonly<OptimizerT
           before={phase.before}
           after={phase.after}
           unchanged={phase.unchanged}
+          weightSets={phase.weightSets}
           onApply={(reschedule) => apply(phase.weights, reschedule)}
           onDiscard={() => setPhase({ kind: 'idle' })}
         />

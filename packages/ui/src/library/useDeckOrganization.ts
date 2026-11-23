@@ -8,6 +8,7 @@ import {
   listPresetDeckIds,
   presetSeedFromDeck,
   uuidv7,
+  type PresetField,
   type CollectionState,
   type DeckPreset,
   type DeckPresetSettings,
@@ -43,28 +44,27 @@ export interface DeckOrganizationActions {
   setDeckFolder: (deckId: string, folderId: string | null) => void;
 }
 
-/** Copies a preset's limits, retention and weights into the decks where they differ. */
+/**
+ * Copies the given preset `fields` into the decks where they differ. An edit copies only the
+ * fields it changed, so a concurrent edit of another field on another device is never overwritten.
+ */
 function fanOut(
   factory: EventFactory,
   state: CollectionState,
   preset: Pick<DeckPreset, 'settings' | 'w'>,
   deckIds: readonly string[],
   nowMs: number,
-  rescheduleExisting = false,
+  options: { fields?: readonly PresetField[]; rescheduleExisting?: boolean } = {},
 ): KnownEvent[] {
+  const { deviceId } = factory;
   return [
-    ...buildPresetSettingsPayloads(state, preset, deckIds).map((payload) =>
+    ...buildPresetSettingsPayloads(state, preset, deckIds, options.fields).map((payload) =>
       factory.create('DeckSettingsChanged', payload, nowMs),
     ),
-    ...buildPresetParamsPayloads(state, preset, deckIds, nowMs, { rescheduleExisting }).map(
+    ...buildPresetParamsPayloads(state, preset, deckIds, nowMs, { ...options, deviceId }).map(
       (payload) => factory.create('DeckFSRSParamsChanged', payload, nowMs),
     ),
   ];
-}
-
-/** Unlinks a deck from its preset; its own settings already hold the preset's values. */
-function leavePreset(factory: EventFactory, deckId: string, nowMs: number): KnownEvent {
-  return factory.create('DeckGroupingChanged', { deck_id: deckId, preset_id: null }, nowMs);
 }
 
 export function useDeckOrganization(): DeckOrganizationActions {
@@ -115,23 +115,18 @@ export function useDeckOrganization(): DeckOrganizationActions {
           ...current,
           settings: { ...current.settings, ...payload.settings },
         };
+        const fields = Object.keys(payload.settings ?? {}) as PresetField[];
         emit([
           factory.create('DeckPresetSaved', payload, nowMs),
-          // Also heals decks that joined on another device while the preset was being edited.
-          ...fanOut(factory, state, next, listPresetDeckIds(state, presetId), nowMs),
+          ...fanOut(factory, state, next, listPresetDeckIds(state, presetId), nowMs, { fields }),
         ]);
       },
 
       deletePreset(presetId) {
         if (!presetById(presetId)) return;
-        const factory = getEventFactory();
-        const nowMs = Date.now();
-        const events: KnownEvent[] = [];
-        for (const deckId of listPresetDeckIds(state, presetId)) {
-          events.push(leavePreset(factory, deckId, nowMs));
-        }
-        events.push(factory.create('DeckPresetDeleted', { preset_id: presetId }, nowMs));
-        emit(events);
+        // Nothing per deck: the fold treats a deck on a deleted preset as on its own settings,
+        // so a concurrent switch to another preset on another device still stands.
+        emit([getEventFactory().create('DeckPresetDeleted', { preset_id: presetId }, Date.now())]);
       },
 
       setDeckPreset(deckId, presetId) {
@@ -140,7 +135,10 @@ export function useDeckOrganization(): DeckOrganizationActions {
         const currentPreset = getDeckPreset(state, deckId);
         if ((currentPreset?.id ?? null) === presetId) return;
         if (presetId === null) {
-          if (currentPreset) emit([leavePreset(factory, deckId, nowMs)]);
+          // The deck's own settings already hold the preset's values.
+          emit([
+            factory.create('DeckGroupingChanged', { deck_id: deckId, preset_id: null }, nowMs),
+          ]);
           return;
         }
         const preset = presetById(presetId);
@@ -163,7 +161,7 @@ export function useDeckOrganization(): DeckOrganizationActions {
           { ...preset, w: payload.w ?? weights },
           listPresetDeckIds(state, presetId),
           nowMs,
-          reschedule,
+          { fields: ['w'], rescheduleExisting: reschedule },
         );
         emit([factory.create('DeckPresetSaved', payload, nowMs), ...params]);
         return params.length;
@@ -192,18 +190,9 @@ export function useDeckOrganization(): DeckOrganizationActions {
       },
 
       deleteFolder(folderId) {
-        const factory = getEventFactory();
-        const nowMs = Date.now();
-        const events: KnownEvent[] = [];
-        for (const [deckId, id] of getDeckOrganization(state).folderByDeck) {
-          if (id === folderId) {
-            events.push(
-              factory.create('DeckGroupingChanged', { deck_id: deckId, folder_id: null }, nowMs),
-            );
-          }
-        }
-        events.push(factory.create('DeckFolderDeleted', { folder_id: folderId }, nowMs));
-        emit(events);
+        // Nothing per deck: the fold treats a deck in a deleted folder as unfiled, so a concurrent
+        // move to another folder on another device still stands.
+        emit([getEventFactory().create('DeckFolderDeleted', { folder_id: folderId }, Date.now())]);
       },
 
       setDeckFolder(deckId, folderId) {

@@ -28,10 +28,13 @@ export * from './fold.ts';
  *
  * A preset never reaches the study queue or replay directly. When a preset changes, or a deck
  * joins one, the app appends ordinary per-deck events for the member decks that differ: a
- * `DeckSettingsChanged` with the preset's limits and retention ({@link buildPresetSettingsPayloads})
- * and a `DeckFSRSParamsChanged` with its retention and weights ({@link buildPresetParamsPayloads}). Each deck keeps
- * its own versioned parameter history, so every review still replays under the version it was
- * recorded with, and decks that never join a preset behave exactly as before.
+ * `DeckSettingsChanged` with the changed limits and retention
+ * ({@link buildPresetSettingsPayloads}) and a `DeckFSRSParamsChanged` with the changed retention
+ * or weights ({@link buildPresetParamsPayloads}). Each deck keeps its own versioned parameter
+ * history, so every review still replays under the version it was recorded with, and decks that
+ * never join a preset behave exactly as before. Concurrent edits can still leave a member deck
+ * behind its preset; {@link buildPresetCatchUp} finds and fixes those after a sync and when the
+ * Library opens.
  */
 
 function cmpStr(a: string, b: string): number {
@@ -130,30 +133,111 @@ function sameWeights(a: readonly number[] | undefined, b: readonly number[] | un
   return a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
+/** A preset value that reaches its decks: the three deck settings, and the FSRS weights. */
+export type PresetField = keyof DeckPresetSettings | 'w';
+
+/** Every preset field: used when a deck joins a preset, and by the catch-up step. */
+export const ALL_PRESET_FIELDS: readonly PresetField[] = [
+  'new_cards_per_day',
+  'max_reviews_per_day',
+  'target_retention',
+  'w',
+];
+
+const SETTINGS_FIELDS = ['new_cards_per_day', 'max_reviews_per_day', 'target_retention'] as const;
+
 /**
- * The per-deck `DeckFSRSParamsChanged` payloads that bring `deckIds` in line with a preset's
- * target retention and weights (a preset without weights leaves each deck's own weights alone).
- * Only decks whose active parameters differ get a payload, unless `rescheduleExisting` is set:
- * then every deck gets one that re-runs its past reviews (§4.1). Deterministic in `state`.
+ * Preset copies write FSRS parameter versions `stamp * 1000 + salt`, where `salt` comes from the
+ * device id and `stamp` is past the active version and at least the current time in ms. Replay
+ * keeps one entry per version, so two devices that copy a preset at the same moment must not write
+ * the same version: with distinct versions both entries survive and every review keeps replaying
+ * under the parameters it was recorded with. Versions stay ordered by time.
+ */
+const VERSION_SALT_RANGE = 1000;
+
+function deviceSalt(deviceId: string): number {
+  let h = 0x811c9dc5;
+  for (const ch of deviceId) {
+    h ^= ch.codePointAt(0) ?? 0;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h % VERSION_SALT_RANGE;
+}
+
+/** The FSRS parameters version a preset copy on `deviceId` writes for a deck (see above). */
+export function nextPresetParamsVersion(
+  state: CollectionState,
+  deckId: string,
+  nowMs: number,
+  deviceId: string,
+): number {
+  const active = getActiveFsrsParamsVersion(state, deckId);
+  const stamp = Math.max(Math.floor(active / VERSION_SALT_RANGE) + 1, Math.floor(nowMs));
+  return stamp * VERSION_SALT_RANGE + deviceSalt(deviceId);
+}
+
+/**
+ * The per-deck `DeckSettingsChanged` payloads that copy a preset's daily limits and target
+ * retention into the own settings of `deckIds`. Each payload carries only the `fields` given that
+ * differ on that deck: deck settings merge per field, so copying a field the user did not change
+ * could overwrite a newer value another device wrote. The study queue only reads `deck.settings`,
+ * so this is how a preset's limits take effect, and a deck that leaves the preset simply keeps
+ * them.
+ */
+export function buildPresetSettingsPayloads(
+  state: CollectionState,
+  preset: Pick<DeckPreset, 'settings'>,
+  deckIds: readonly string[],
+  fields: readonly PresetField[] = ALL_PRESET_FIELDS,
+): DeckSettingsChangedPayload[] {
+  const out: DeckSettingsChangedPayload[] = [];
+  for (const deckId of [...deckIds].sort(cmpStr)) {
+    const own = state.decks.get(deckId)?.settings;
+    if (!own) continue;
+    const settings: Partial<DeckPresetSettings> = {};
+    for (const key of SETTINGS_FIELDS) {
+      if (fields.includes(key) && own[key] !== preset.settings[key]) {
+        settings[key] = preset.settings[key];
+      }
+    }
+    if (Object.keys(settings).length > 0) out.push({ deck_id: deckId, settings });
+  }
+  return out;
+}
+
+/**
+ * The per-deck `DeckFSRSParamsChanged` payloads that bring `deckIds` in line with a preset. Only
+ * the `fields` given are taken from the preset (`target_retention`, `w`); everything else stays at
+ * the deck's active parameters, and a preset without weights leaves each deck its own. Only decks
+ * whose active parameters differ get a payload, unless `rescheduleExisting` is set: then every
+ * deck gets one that re-runs its past reviews (§4.1). Versions come from
+ * {@link nextPresetParamsVersion}. Deterministic in `state`, `nowMs` and `deviceId`.
  */
 export function buildPresetParamsPayloads(
   state: CollectionState,
   preset: Pick<DeckPreset, 'settings' | 'w'>,
   deckIds: readonly string[],
   nowMs: number,
-  options: { rescheduleExisting?: boolean } = {},
+  options: {
+    deviceId: string;
+    fields?: readonly PresetField[];
+    rescheduleExisting?: boolean;
+  },
 ): DeckFSRSParamsChangedPayload[] {
+  const fields = options.fields ?? ALL_PRESET_FIELDS;
   const out: DeckFSRSParamsChangedPayload[] = [];
   for (const deckId of [...deckIds].sort(cmpStr)) {
     if (!state.decks.has(deckId)) continue;
     const current = resolveDeckFsrsConfig(state, deckId, nowMs);
-    const retention = preset.settings.target_retention;
-    const w = preset.w ?? current.w;
+    const retention = fields.includes('target_retention')
+      ? preset.settings.target_retention
+      : current.request_retention;
+    const w = fields.includes('w') && preset.w ? preset.w : current.w;
     const drifted = current.request_retention !== retention || !sameWeights(current.w, w);
     if (!drifted && !options.rescheduleExisting) continue;
     const payload: DeckFSRSParamsChangedPayload = {
       deck_id: deckId,
-      params_version: getActiveFsrsParamsVersion(state, deckId) + 1,
+      params_version: nextPresetParamsVersion(state, deckId, nowMs, options.deviceId),
       effective_from: nowMs,
       params: { ...current, request_retention: retention, ...(w ? { w: [...w] } : {}) },
     };
@@ -161,6 +245,29 @@ export function buildPresetParamsPayloads(
     out.push(payload);
   }
   return out;
+}
+
+/**
+ * Catch-up: for every live preset, the copies that bring each member deck back in line with it.
+ * Decks drift when a deck joins a preset on one device while another device edits that preset,
+ * when two devices copy different fields at once, or when an older build edits a member deck's own
+ * settings. Empty when every member already matches, so running it again, or on several devices at
+ * once, writes nothing more (devices that agree on the preset write the same values).
+ */
+export function buildPresetCatchUp(
+  state: CollectionState,
+  nowMs: number,
+  deviceId: string,
+): { settings: DeckSettingsChangedPayload[]; params: DeckFSRSParamsChangedPayload[] } {
+  const settings: DeckSettingsChangedPayload[] = [];
+  const params: DeckFSRSParamsChangedPayload[] = [];
+  for (const preset of listDeckPresets(state)) {
+    const deckIds = listPresetDeckIds(state, preset.id);
+    if (deckIds.length === 0) continue;
+    settings.push(...buildPresetSettingsPayloads(state, preset, deckIds));
+    params.push(...buildPresetParamsPayloads(state, preset, deckIds, nowMs, { deviceId }));
+  }
+  return { settings, params };
 }
 
 /** Preset fields seeded from a deck: its limits, retention and current weights. */
@@ -178,32 +285,4 @@ export function presetSeedFromDeck(
     },
     ...(w ? { w: [...w] } : {}),
   };
-}
-
-/**
- * The per-deck `DeckSettingsChanged` payloads that copy a preset's daily limits and target
- * retention into the own settings of `deckIds`, for the decks where any of them differ. The study
- * queue only reads `deck.settings`, so this is how a preset's limits take effect, and a deck that
- * leaves the preset simply keeps them.
- */
-export function buildPresetSettingsPayloads(
-  state: CollectionState,
-  preset: Pick<DeckPreset, 'settings'>,
-  deckIds: readonly string[],
-): DeckSettingsChangedPayload[] {
-  const out: DeckSettingsChangedPayload[] = [];
-  for (const deckId of [...deckIds].sort(cmpStr)) {
-    const own = state.decks.get(deckId)?.settings;
-    if (!own) continue;
-    const s = preset.settings;
-    if (
-      own.new_cards_per_day === s.new_cards_per_day &&
-      own.max_reviews_per_day === s.max_reviews_per_day &&
-      own.target_retention === s.target_retention
-    ) {
-      continue;
-    }
-    out.push({ deck_id: deckId, settings: { ...s } });
-  }
-  return out;
 }

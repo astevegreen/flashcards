@@ -250,7 +250,7 @@ export interface DeckPresetSavedPayload {
   w?: number[];
 }
 
-/** Deletes a preset unless a later `DeckPresetSaved` edits it again. */
+/** Deletes a preset for good; a `DeckPresetSaved` with a later HLC does not bring it back. */
 export interface DeckPresetDeletedPayload {
   preset_id: string;
 }

@@ -329,7 +329,40 @@ export function buildOptimizedParamsPayload(
   return payload;
 }
 
-/** FSRS-6 weights for a stored weight vector (defaults when absent), e.g. a deck preset's. */
-export function resolveFsrs6Weights(w: readonly number[] | undefined): number[] {
-  return migrateFSRS6Parameters(w ? Array.from(w) : undefined);
+/**
+ * The "current" side of a preset's pooled optimizer run: each member deck's reviews scored with
+ * that deck's own active weights, then combined review-weighted (the same numbers as one
+ * `estimateRetention` over all of them). `sharedWeights` is set when every member uses the same
+ * weights; `weightSets` counts the distinct weight vectors among the members.
+ */
+export function estimateMembersCurrentRetention(
+  state: CollectionState,
+  deckIds: readonly string[],
+  nowMs: number,
+): { estimate: RetentionEstimate; sharedWeights: number[] | undefined; weightSets: number } {
+  let n = 0;
+  let passed = 0;
+  let predicted = 0;
+  let loss = 0;
+  const sets = new Map<string, number[]>();
+  for (const deckId of new Set(deckIds)) {
+    const weights = getCurrentDeckWeights(state, deckId, nowMs);
+    sets.set(weights.join(','), weights);
+    const e = estimateRetention(collectOptimizerDataset(state, deckId).histories, weights);
+    n += e.reviews;
+    passed += e.measured_retention * e.reviews;
+    predicted += e.predicted_retention * e.reviews;
+    loss += e.log_loss * e.reviews;
+  }
+  const estimate: RetentionEstimate =
+    n === 0
+      ? { reviews: 0, measured_retention: 0, predicted_retention: 0, log_loss: 0 }
+      : {
+          reviews: n,
+          measured_retention: passed / n,
+          predicted_retention: predicted / n,
+          log_loss: loss / n,
+        };
+  const [only] = sets.values();
+  return { estimate, sharedWeights: sets.size === 1 ? only : undefined, weightSets: sets.size };
 }

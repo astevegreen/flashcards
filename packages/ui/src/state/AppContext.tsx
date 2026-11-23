@@ -441,6 +441,23 @@ export function AppProvider({
     emitEventsRef.current(plan.map((payload) => factory.create('NoteTagsAdded', payload, nowMs)));
   }, [backfillReady, collectionState, eventFactory]);
 
+  // Deck option presets: after each sync completed in this launch, copy every preset into any
+  // member deck that fell behind it (lazy; see library/presetCatchUp.ts). Idempotent.
+  const presetCatchUpAt = backfillReady ? syncController.syncState.lastSyncedAt : undefined;
+  useEffect(() => {
+    if (presetCatchUpAt === undefined) return;
+    void import('../library/presetCatchUp.ts')
+      .then((m) =>
+        m.runPresetCatchUp(
+          stateRef.current ?? collectionState,
+          factoryRef.current ?? eventFactory,
+          emitEventsRef.current,
+        ),
+      )
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetCatchUpAt]);
+
   // Non-blocking post-first-paint source check (§3.1 modifiedTime check & §3.2 local folder rescan).
   // Strictly lazy-loads sourceRunner ONLY if linked sources exist so initial bundle stays lean (§8).
   useEffect(() => {
