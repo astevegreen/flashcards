@@ -12,14 +12,8 @@ export function createPersistQueue(): PersistQueue {
   let pending = 0;
   return {
     enqueue(task) {
-      const invoke = (): Promise<void> => {
-        try {
-          // NOSONAR (S4822): converts a synchronous throw from task() into a rejection
-          return task();
-        } catch (err) {
-          return Promise.reject(err);
-        }
-      };
+      // The executor runs task() at once, and a synchronous throw becomes a rejection.
+      const invoke = (): Promise<void> => new Promise<void>((resolve) => resolve(task()));
       const started = pending === 0 ? invoke() : chain.then(invoke, invoke);
       pending += 1;
       const next = started
