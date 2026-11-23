@@ -28,7 +28,8 @@ function firstImageFile(data: DataTransfer | null): { file: File | null; hasFile
     .filter((f): f is File => f !== null);
   const all = files.length > 0 ? files : fromItems;
   return {
-    file: all.find((f) => f.type.startsWith('image/')) ?? null,
+    // An empty type (some drags from file managers) goes on to `processImage`, which sniffs bytes.
+    file: all.find((f) => f.type === '' || f.type.startsWith('image/')) ?? null,
     hasFiles: all.length > 0,
   };
 }
@@ -61,6 +62,8 @@ export function NoteEditDialog({
   const [draftFields, setDraftFields] = useState<Record<string, string>>({});
   const [tagsText, setTagsText] = useState('');
   const [uploadingField, setUploadingField] = useState<string | null>(null);
+  // Synchronous twin of `uploadingField`: two pastes in one tick both see stale state.
+  const uploadingRef = useRef(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -140,6 +143,8 @@ export function NoteEditDialog({
     fieldKey: string,
     readBytes: () => Promise<{ bytes: Uint8Array; mime: string } | null>,
   ) => {
+    if (uploadingRef.current) return;
+    uploadingRef.current = true;
     setUploadError(null);
     setUploadingField(fieldKey);
     try {
@@ -154,6 +159,7 @@ export function NoteEditDialog({
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : String(err));
     } finally {
+      uploadingRef.current = false;
       setUploadingField(null);
     }
   };
@@ -192,11 +198,18 @@ export function NoteEditDialog({
   ) => {
     const { file, hasFiles } = firstImageFile(data);
     if (!hasFiles) return;
+    const isDrop = e.type === 'drop';
+    // A drop on the backdrop (the <dialog> itself) is ignored, but never opens the file.
+    if (isDrop && e.target === e.currentTarget) {
+      e.preventDefault();
+      return;
+    }
     const zone = (e.target as HTMLElement | null)?.closest?.('[data-image-drop-field]');
     const zoneKey = zone?.getAttribute('data-image-drop-field') ?? null;
-    const isDrop = e.type === 'drop';
     if (zoneKey) {
       e.preventDefault();
+      // One image at a time: a transfer while one is processing is dropped, not raced.
+      if (uploadingRef.current) return;
       if (file) void handleImageFile(zoneKey, file);
       else setUploadError('Only PNG, JPEG, WebP, or GIF images can be added here.');
       return;
@@ -206,10 +219,13 @@ export function NoteEditDialog({
     const onlyImageField = imageFieldKeys.length === 1 ? imageFieldKeys[0] : undefined;
     if (!file || hasText || onlyImageField === undefined) return;
     e.preventDefault();
+    if (uploadingRef.current) return;
     void handleImageFile(onlyImageField, file);
   };
 
   const handleUploadAudio = async (fieldKey: string) => {
+    if (uploadingRef.current) return;
+    uploadingRef.current = true;
     setUploadError(null);
     setUploadingField(fieldKey);
     try {
@@ -226,13 +242,15 @@ export function NoteEditDialog({
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : String(err));
     } finally {
+      uploadingRef.current = false;
       setUploadingField(null);
     }
   };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!note) return;
+    // Saving mid-upload would drop the image and orphan the blob `addMedia` is writing.
+    if (!note || uploadingField !== null) return;
     const parsedTags = tagsText
       .split(/[;,]/)
       .map((t) => t.trim())
@@ -258,16 +276,13 @@ export function NoteEditDialog({
       aria-labelledby={titleId}
       {...({ closedby: 'any' } as Record<string, string>)}
       className="flash-dialog m-auto w-[min(92vw,34rem)] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-0 text-[var(--fg)] shadow-2xl"
+      onPaste={(e) => routeImageTransfer(e, e.clipboardData)}
+      onDragOver={(e) => {
+        if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+      }}
+      onDrop={(e) => routeImageTransfer(e, e.dataTransfer)}
     >
-      <form
-        onSubmit={handleSubmit}
-        onPaste={(e) => routeImageTransfer(e, e.clipboardData)}
-        onDragOver={(e) => {
-          if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
-        }}
-        onDrop={(e) => routeImageTransfer(e, e.dataTransfer)}
-        className="flex flex-col gap-4 p-5"
-      >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4 p-5">
         <div className="flex items-center justify-between gap-2">
           <h2 id={titleId} className="text-lg font-semibold">
             Edit Note
@@ -342,7 +357,7 @@ export function NoteEditDialog({
                     <button
                       type="button"
                       data-testid={`upload-image-${field.key}`}
-                      disabled={busy}
+                      disabled={uploadingField !== null}
                       onClick={() => void handleUploadImage(field.key)}
                       className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-50"
                     >
@@ -373,7 +388,7 @@ export function NoteEditDialog({
                     <button
                       type="button"
                       data-testid={`upload-audio-${field.key}`}
-                      disabled={busy}
+                      disabled={uploadingField !== null}
                       onClick={() => void handleUploadAudio(field.key)}
                       className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-50"
                     >
@@ -486,7 +501,8 @@ export function NoteEditDialog({
             </button>
             <button
               type="submit"
-              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+              disabled={uploadingField !== null}
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
             >
               Save
             </button>
