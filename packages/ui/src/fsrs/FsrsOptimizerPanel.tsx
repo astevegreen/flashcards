@@ -1,8 +1,10 @@
-import type { Deck } from '@flash/core';
+import { listPresetDeckIds, type Deck, type DeckPreset } from '@flash/core';
 import {
   buildOptimizedParamsPayload,
   buildTrainingBatch,
   collectOptimizerDataset,
+  collectPooledOptimizerDataset,
+  estimateMembersCurrentRetention,
   estimateRetention,
   getCurrentDeckWeights,
   getOptimizerReadiness,
@@ -12,6 +14,7 @@ import {
 } from '@flash/core/fsrs-optimizer';
 import type { FsrsOptimizer, FsrsOptimizerRun, FsrsOptimizerStage } from '@flash/platform';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useDeckOrganization } from '../library/useDeckOrganization.ts';
 import { useApp } from '../state/AppContext.tsx';
 
 /**
@@ -35,8 +38,11 @@ type Phase =
       unchanged: boolean;
       before: RetentionEstimate;
       after: RetentionEstimate;
+      /** Preset runs: the member decks use this many different weight vectors today. */
+      weightSets?: number;
     }
-  | { kind: 'applied'; version: number; rescheduled: boolean };
+  | { kind: 'applied'; version: number; rescheduled: boolean }
+  | { kind: 'applied-preset'; decks: number; rescheduled: boolean };
 
 const STAGES: readonly { stage: RunStage; label: string }[] = [
   { stage: 'preparing', label: 'Preparing review history' },
@@ -105,12 +111,14 @@ function ResultView({
   before,
   after,
   unchanged,
+  weightSets,
   onApply,
   onDiscard,
 }: Readonly<{
   before: RetentionEstimate;
   after: RetentionEstimate;
   unchanged: boolean;
+  weightSets?: number | undefined;
   onApply: (reschedule: boolean) => void;
   onDiscard: () => void;
 }>) {
@@ -142,6 +150,12 @@ function ResultView({
         </tbody>
       </table>
       <p className="text-[var(--muted)]">{verdict(before, after, unchanged)}</p>
+      {!unchanged && (weightSets ?? 0) > 1 && (
+        <p role="note" data-testid="fsrs-optimizer-mixed-weights">
+          The decks in this preset use {weightSets} different sets of weights today (Current scores
+          each deck with its own). Applying gives every deck in the preset these weights.
+        </p>
+      )}
       {!unchanged && (
         <label className="flex items-center gap-2">
           <input
@@ -176,6 +190,16 @@ function StatusLine({ phase }: Readonly<{ phase: Phase }>) {
       </p>
     );
   }
+  if (phase.kind === 'applied-preset') {
+    const tail = phase.rescheduled
+      ? 'Existing cards were rescheduled.'
+      : 'They apply to future reviews; existing due dates are unchanged.';
+    return (
+      <output className="block">
+        Saved the optimized weights on the preset and its {phase.decks} deck(s). {tail}
+      </output>
+    );
+  }
   if (phase.kind === 'applied') {
     const tail = phase.rescheduled
       ? 'Existing cards were rescheduled.'
@@ -196,7 +220,11 @@ function isAbortError(err: unknown): boolean {
 interface RunArgs {
   getOptimizer: () => Promise<FsrsOptimizer>;
   dataset: OptimizerDataset;
-  currentWeights: number[];
+  /** The weights in use; `undefined` when they differ between a preset's decks. */
+  currentWeights: number[] | undefined;
+  /** The current-weights estimate, when it is not one `estimateRetention` (preset runs). */
+  before?: RetentionEstimate;
+  weightSets?: number;
   onStage: (stage: FsrsOptimizerStage) => void;
   onRun: (run: FsrsOptimizerRun) => void;
 }
@@ -218,14 +246,17 @@ async function runOptimization(args: RunArgs): Promise<Phase> {
     args.onRun(run);
     const weights = normalizeOptimizedWeights(await run.result);
     if (!weights) return { kind: 'error', message: 'the optimizer returned unusable weights.' };
+    const current = args.currentWeights;
+    const before = args.before ?? estimateRetention(args.dataset.histories, current ?? []);
     return {
       kind: 'result',
       weights,
-      unchanged: weights.every(
-        (w, i) => Math.abs(w - (args.currentWeights[i] ?? Number.NaN)) < 1e-4,
-      ),
-      before: estimateRetention(args.dataset.histories, args.currentWeights),
+      unchanged:
+        current !== undefined &&
+        weights.every((w, i) => Math.abs(w - (current[i] ?? Number.NaN)) < 1e-4),
+      before,
       after: estimateRetention(args.dataset.histories, weights),
+      ...(args.weightSets === undefined ? {} : { weightSets: args.weightSets }),
     };
   } catch (err) {
     if (isAbortError(err)) return { kind: 'cancelled' };
@@ -233,18 +264,32 @@ async function runOptimization(args: RunArgs): Promise<Phase> {
   }
 }
 
-export default function FsrsOptimizerPanel({ deck }: Readonly<{ deck: Deck }>) {
+/** One deck, or a preset whose decks' reviews are pooled (deck option presets). */
+type OptimizerTarget =
+  { deck: Deck; preset?: undefined } | { preset: DeckPreset; deck?: undefined };
+
+export default function FsrsOptimizerPanel({ deck, preset }: Readonly<OptimizerTarget>) {
   const { platform, state, stateVersion, emitEvents, getEventFactory } = useApp();
+  const { applyPresetWeights } = useDeckOrganization();
+  const targetId = preset ? `preset-${preset.id}` : (deck?.id ?? '');
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const runRef = useRef<FsrsOptimizerRun | null>(null);
   // Bumped on every start / cancel / unmount so a stale run can never update the panel.
   const tokenRef = useRef(0);
   const whyId = useId();
 
-  const dataset = useMemo(
-    () => collectOptimizerDataset(state, deck.id),
+  const presetDeckIds = useMemo(
+    () => (preset ? listPresetDeckIds(state, preset.id) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, stateVersion, deck.id],
+    [state, stateVersion, preset],
+  );
+  const dataset = useMemo(
+    () =>
+      preset
+        ? collectPooledOptimizerDataset(state, presetDeckIds, `preset:${preset.id}`)
+        : collectOptimizerDataset(state, deck?.id ?? ''),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, stateVersion, deck?.id, preset, presetDeckIds],
   );
   const readiness = getOptimizerReadiness(dataset);
   const getOptimizer = platform.getFsrsOptimizer;
@@ -264,10 +309,17 @@ export default function FsrsOptimizerPanel({ deck }: Readonly<{ deck: Deck }>) {
     const token = tokenRef.current;
     const isCurrent = () => tokenRef.current === token;
     setPhase({ kind: 'running', stage: 'preparing' });
+    const nowMs = Date.now();
+    // A preset is compared with what its decks really use today, not the preset's own weights
+    // (a preset without weights leaves each deck its own).
+    const members = preset ? estimateMembersCurrentRetention(state, presetDeckIds, nowMs) : null;
     const next = await runOptimization({
       getOptimizer,
       dataset,
-      currentWeights: getCurrentDeckWeights(state, deck.id, Date.now()),
+      currentWeights: members
+        ? members.sharedWeights
+        : getCurrentDeckWeights(state, deck?.id ?? '', nowMs),
+      ...(members ? { before: members.estimate, weightSets: members.weightSets } : {}),
       onStage: (stage) => {
         if (isCurrent()) setPhase({ kind: 'running', stage });
       },
@@ -289,6 +341,12 @@ export default function FsrsOptimizerPanel({ deck }: Readonly<{ deck: Deck }>) {
   };
 
   const apply = (weights: number[], reschedule: boolean) => {
+    if (preset) {
+      const decks = applyPresetWeights(preset.id, weights, reschedule);
+      setPhase({ kind: 'applied-preset', decks, rescheduled: reschedule });
+      return;
+    }
+    if (!deck) return;
     const nowMs = Date.now();
     const payload = buildOptimizedParamsPayload(state, deck.id, weights, {
       nowMs,
@@ -305,12 +363,14 @@ export default function FsrsOptimizerPanel({ deck }: Readonly<{ deck: Deck }>) {
   return (
     <section
       aria-label="FSRS optimizer"
-      data-testid={`fsrs-optimizer-${deck.id}`}
+      data-testid={`fsrs-optimizer-${targetId}`}
       className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 text-xs"
     >
       <div className="font-semibold text-[var(--fg)]">FSRS optimizer</div>
       <p className="text-[var(--muted)]">
-        Fits FSRS weights to this deck&apos;s review history, on this device.{' '}
+        {preset
+          ? `Fits FSRS weights to the pooled review history of this preset's ${presetDeckIds.length} deck(s), on this device. `
+          : "Fits FSRS weights to this deck's review history, on this device. "}
         <span data-testid="fsrs-optimizer-count">{readiness.eligible}</span> eligible reviews
         (minimum {readiness.required}).
       </p>
@@ -341,6 +401,7 @@ export default function FsrsOptimizerPanel({ deck }: Readonly<{ deck: Deck }>) {
           before={phase.before}
           after={phase.after}
           unchanged={phase.unchanged}
+          weightSets={phase.weightSets}
           onApply={(reschedule) => apply(phase.weights, reschedule)}
           onDiscard={() => setPhase({ kind: 'idle' })}
         />

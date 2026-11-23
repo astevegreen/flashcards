@@ -15,6 +15,7 @@ export * from './tags/index.ts';
 export * from './tags/bulk.ts';
 export * from './tags/browse.ts';
 export * from './study/queue.ts';
+export * from './decks/organization.ts';
 export * from './study/custom-study.ts';
 export * from './study/study-set-tags.ts';
 export * from './study/reminders.ts';

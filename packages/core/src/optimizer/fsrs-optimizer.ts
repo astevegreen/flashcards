@@ -124,33 +124,49 @@ export function countEligibleReviews(reviews: readonly OptimizerReview[]): numbe
  * first active review using the replay comparator.
  */
 export function collectOptimizerDataset(state: CollectionState, deckId: string): OptimizerDataset {
-  const deck = state.decks.get(deckId);
-  const dayStartHour = resolveDayStartHour(
-    deck?.settings.day_start_hour,
-    state.preferences.day_start_hour,
-  );
-  const perCard: { cardId: string; reviews: ReviewRecord[] }[] = [];
-  for (const cardId of state.cardIdsByDeck.get(deckId) ?? []) {
-    const reviews = activeReviewsFor(state, cardId);
-    if (reviews.length > 0) perCard.push({ cardId, reviews });
+  return collectPooledOptimizerDataset(state, [deckId], deckId);
+}
+
+/**
+ * Pools the review histories of several decks (a deck option preset's decks) into one dataset.
+ * Each card keeps its own deck's day rollover; cards are ordered across all decks by their first
+ * active review, so the result does not depend on the order of `deckIds`. `datasetId` becomes
+ * the dataset's `deck_id`.
+ */
+export function collectPooledOptimizerDataset(
+  state: CollectionState,
+  deckIds: readonly string[],
+  datasetId: string,
+): OptimizerDataset {
+  const perCard: { cardId: string; reviews: ReviewRecord[]; dayStartHour: number }[] = [];
+  for (const deckId of new Set(deckIds)) {
+    const deck = state.decks.get(deckId);
+    const dayStartHour = resolveDayStartHour(
+      deck?.settings.day_start_hour,
+      state.preferences.day_start_hour,
+    );
+    for (const cardId of state.cardIdsByDeck.get(deckId) ?? []) {
+      const reviews = activeReviewsFor(state, cardId);
+      if (reviews.length > 0) perCard.push({ cardId, reviews, dayStartHour });
+    }
   }
   perCard.sort((a, b) => {
     const [ra] = a.reviews;
     const [rb] = b.reviews;
-    return ra && rb ? compareReviewRecords(ra, rb) : 0;
+    return (ra && rb ? compareReviewRecords(ra, rb) : 0) || (a.cardId < b.cardId ? -1 : 1);
   });
 
   const histories: OptimizerHistory[] = [];
   let reviewCount = 0;
   let eligible = 0;
-  for (const { cardId, reviews } of perCard) {
+  for (const { cardId, reviews, dayStartHour } of perCard) {
     const history = toHistory(cardId, reviews, dayStartHour);
     histories.push(history);
     reviewCount += reviews.length;
     eligible += countEligibleReviews(history.reviews);
   }
   return {
-    deck_id: deckId,
+    deck_id: datasetId,
     histories,
     review_count: reviewCount,
     eligible_review_count: eligible,
@@ -311,4 +327,42 @@ export function buildOptimizedParamsPayload(
   };
   if (options.rescheduleExisting) payload.reschedule_existing = true;
   return payload;
+}
+
+/**
+ * The "current" side of a preset's pooled optimizer run: each member deck's reviews scored with
+ * that deck's own active weights, then combined review-weighted (the same numbers as one
+ * `estimateRetention` over all of them). `sharedWeights` is set when every member uses the same
+ * weights; `weightSets` counts the distinct weight vectors among the members.
+ */
+export function estimateMembersCurrentRetention(
+  state: CollectionState,
+  deckIds: readonly string[],
+  nowMs: number,
+): { estimate: RetentionEstimate; sharedWeights: number[] | undefined; weightSets: number } {
+  let n = 0;
+  let passed = 0;
+  let predicted = 0;
+  let loss = 0;
+  const sets = new Map<string, number[]>();
+  for (const deckId of new Set(deckIds)) {
+    const weights = getCurrentDeckWeights(state, deckId, nowMs);
+    sets.set(weights.join(','), weights);
+    const e = estimateRetention(collectOptimizerDataset(state, deckId).histories, weights);
+    n += e.reviews;
+    passed += e.measured_retention * e.reviews;
+    predicted += e.predicted_retention * e.reviews;
+    loss += e.log_loss * e.reviews;
+  }
+  const estimate: RetentionEstimate =
+    n === 0
+      ? { reviews: 0, measured_retention: 0, predicted_retention: 0, log_loss: 0 }
+      : {
+          reviews: n,
+          measured_retention: passed / n,
+          predicted_retention: predicted / n,
+          log_loss: loss / n,
+        };
+  const [only] = sets.values();
+  return { estimate, sharedWeights: sets.size === 1 ? only : undefined, weightSets: sets.size };
 }
