@@ -22,9 +22,29 @@ import {
 } from './replay.ts';
 import { foldSuspensionEventsFromUnknown } from './suspension.ts';
 import { canonicalizeAllTagAddNotes, foldTagAddEventsFromUnknown } from './tag-adds.ts';
+import { compareHlc } from '../hlc.ts';
+import { SERIALIZED_STATE_FORMAT_VERSION } from './snapshot-format.ts';
 import type { UnknownEvent } from './types.ts';
 
-export const SERIALIZED_STATE_FORMAT_VERSION = 1;
+export { SERIALIZED_STATE_FORMAT_VERSION, snapshotLacksMediaRecords } from './snapshot-format.ts';
+
+/**
+ * Gives each media entry of a version 1 snapshot an add register at the newest register HLC the
+ * snapshot holds (the notes that use a file are written after it, so the true add is no newer), and any removal newer than that still wins; only a removal
+ * older than the snapshot but newer than the add (an offline device catching up) keeps the file
+ * here, where a full replay would drop it. Keeping is the safe side: nothing a note uses is lost.
+ */
+function restoreMediaAddRecords(state: CollectionState): void {
+  let newest: string | undefined;
+  for (const h of state.fieldHlcs.values()) {
+    if (newest === undefined || compareHlc(h, newest) > 0) newest = h;
+  }
+  if (newest === undefined) return;
+  for (const hash of state.media.keys()) {
+    const key = `media:${hash}:added`;
+    if (!state.fieldHlcs.has(key)) state.fieldHlcs.set(key, newest);
+  }
+}
 
 /**
  * Pure JS JSON-safe and structured-cloneable snapshot of `CollectionState`.
@@ -486,6 +506,8 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
     snapshotWatermarks,
     snapshotEventCount: serialized.totalEvents,
   };
+  // Before folding removals: a version 1 snapshot has no add registers for its media.
+  if (serialized.formatVersion < 2) restoreMediaAddRecords(state);
   // Snapshots from builds that predate `NoteTagsAdded` carry those events as unknown.
   state.unknownEvents = foldMediaRemovedFromUnknown(
     state,

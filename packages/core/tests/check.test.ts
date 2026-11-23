@@ -4,10 +4,13 @@ import {
   checkMedia,
   collectMediaReferences,
   compareCollectionStates,
+  compareCollectionStatesAsync,
   mediaFilesToDelete,
   planMediaRemoval,
   rebuildFromEvents,
+  rebuildFromEventsAsync,
 } from '../src/check/index.ts';
+import { newlyReferencedMedia } from '../src/events/media-refs.ts';
 import { computeStatePatch, mergeStatePatch } from '../src/events/patch.ts';
 import {
   applyEvents,
@@ -16,7 +19,12 @@ import {
   type CollectionState,
   type EventFactory,
 } from '../src/events/replay.ts';
-import { deserializeCollectionState, serializeCollectionState } from '../src/events/snapshot.ts';
+import {
+  deserializeCollectionState,
+  serializeCollectionState,
+  snapshotLacksMediaRecords,
+  type SerializedCollectionState,
+} from '../src/events/snapshot.ts';
 import type { FlashEvent, KnownEvent } from '../src/events/types.ts';
 import { createHlcState } from '../src/hlc.ts';
 import { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } from '../src/samples/decks.ts';
@@ -97,6 +105,105 @@ describe('MediaRemoved', () => {
     const folded = deserializeCollectionState(old);
     expect([...folded.media.keys()]).toEqual([B]);
     expect(folded.unknownEvents).toHaveLength(0);
+  });
+});
+
+function noteUsing(f: EventFactory, deckId: string, noteId: string, h: string, at: number) {
+  return f.create(
+    'NoteUpserted',
+    {
+      note_id: noteId,
+      deck_id: deckId,
+      source_key: noteId,
+      fields: { front: `<img src="media:${h}">` },
+    },
+    at,
+  );
+}
+
+/** What a build before media removal saved: version 1, without the media add registers. */
+function asPreRemovalSnapshot(s: SerializedCollectionState): SerializedCollectionState {
+  s.formatVersion = 1;
+  s.fieldHlcs = Object.fromEntries(
+    Object.entries(s.fieldHlcs).filter(([k]) => !(k.startsWith('media:') && k.endsWith(':added'))),
+  );
+  return s;
+}
+
+describe('media re-adds and old snapshots', () => {
+  it('lists the hashes an edit starts to use, not ones it already used or adds itself', () => {
+    const { state, f } = sample();
+    const deckId = [...state.decks.keys()][0] ?? '';
+    applyEvents(state, [noteUsing(f, deckId, 'n1', A, T0)]);
+    const edits = [
+      noteUsing(f, deckId, 'n1', A, T0 + 1), // already used by n1
+      noteUsing(f, deckId, 'n2', B, T0 + 1), // a new use
+      mediaAdded(f, C, T0 + 1),
+      noteUsing(f, deckId, 'n3', C, T0 + 1), // added by the same batch
+      f.create(
+        'PageUpserted',
+        { page_id: 'p1', slug: 'p1', title: 'P', markdown: `![x](media:${D})` },
+        T0 + 1,
+      ),
+    ];
+    expect(newlyReferencedMedia(state, edits)).toEqual([B, D]);
+  });
+
+  it('an edit that re-adds a file beats an older removal from another device, in any order', () => {
+    const { state: base, events, f } = sample();
+    const deckId = [...base.decks.keys()][0] ?? '';
+    const orphanAdd = mediaAdded(f, A, T0); // listed, used by nothing
+    const b = factoryFor('dev-b');
+    const removal = b.create('MediaRemoved', { hash: A }, T0 + 5); // Check media on dev-b
+    // dev-a, offline: a note starts using A, and the edit re-adds it (what emitEvents does).
+    const edit = noteUsing(f, deckId, 'n-offline', A, T0 + 10);
+    const reAdd = mediaAdded(f, A, T0 + 10);
+    for (const order of [
+      [removal, edit, reAdd],
+      [edit, reAdd, removal],
+      [edit, removal, reAdd],
+    ]) {
+      const s = applyEvents(createEmptyState(), [...events, orphanAdd]);
+      for (const ev of order) applyEvents(s, [ev]);
+      expect(s.media.has(A)).toBe(true);
+    }
+    // Without the re-add the removal wins and a live note loses its image.
+    const without = applyEvents(createEmptyState(), [...events, orphanAdd, edit]);
+    applyEvents(without, [removal]);
+    expect(without.media.has(A)).toBe(false);
+  });
+
+  it('hydrates a snapshot from before media removal the way a full replay does', () => {
+    const { events, f } = sample();
+    const deckId = [...applyEvents(createEmptyState(), events).decks.keys()][0] ?? '';
+    const b = factoryFor('dev-b');
+    // dev-b decided a removal before dev-a's add reached it; dev-a's add is newer.
+    const removal = b.create('MediaRemoved', { hash: A }, T0 + 5);
+    const log = [...events, mediaAdded(f, A, T0 + 10), noteUsing(f, deckId, 'n-a', A, T0 + 11)];
+    const oldSnapshot = () =>
+      asPreRemovalSnapshot(
+        serializeCollectionState(applyEvents(createEmptyState(), log), { 'dev-a': log.length }),
+      );
+
+    const full = applyEvents(createEmptyState(), [...log, removal]);
+    expect(full.media.has(A)).toBe(true);
+
+    const old = oldSnapshot();
+    expect(snapshotLacksMediaRecords(old)).toBe(true);
+    const hydrated = deserializeCollectionState(old);
+    applyEvents(hydrated, [removal]);
+    expect(hydrated.media.has(A)).toBe(true);
+    expect(compareCollectionStates(full, hydrated).byArea.media ?? 0).toBe(0);
+    // Saved again, it is a current snapshot.
+    expect(snapshotLacksMediaRecords(serializeCollectionState(hydrated))).toBe(false);
+
+    // A removal newer than everything still wins on both.
+    const later = b.create('MediaRemoved', { hash: A }, T0 + 60_000);
+    applyEvents(full, [later]);
+    const hydrated2 = deserializeCollectionState(oldSnapshot());
+    applyEvents(hydrated2, [later]);
+    expect(full.media.has(A)).toBe(false);
+    expect(hydrated2.media.has(A)).toBe(false);
   });
 });
 
@@ -193,6 +300,34 @@ describe('check database', () => {
     expect(cmp.differences).toContainEqual({ area: 'cards', id: card.id, kind: 'changed' });
     expect(cmp.differences).toContainEqual({ area: 'notes', id: note.id, kind: 'missing' });
     expect(cmp.differences).toContainEqual({ area: 'decks', id: 'ghost', kind: 'extra' });
+  });
+
+  it('rebuilds and compares in steps with the same result as in one go', async () => {
+    const { events, f } = sample();
+    const b = factoryFor('dev-b');
+    const log = [
+      ...events,
+      mediaAdded(f, A, T0),
+      b.create('MediaRemoved', { hash: A }, T0 + 1),
+      mediaAdded(b, B, T0 + 2),
+    ].reverse(); // the stored order does not matter
+    let pauses = 0;
+    const pause = async () => {
+      pauses += 1;
+    };
+    const stepped = await rebuildFromEventsAsync(log, pause, 7);
+    expect(pauses).toBeGreaterThan(1);
+    const whole = rebuildFromEvents(log);
+    expect(compareCollectionStates(whole, stepped).total).toBe(0);
+    expect(await compareCollectionStatesAsync(whole, stepped, pause)).toEqual(
+      compareCollectionStates(whole, stepped),
+    );
+    const card = [...stepped.cards.values()][0];
+    if (!card) throw new Error('no cards');
+    stepped.cards.delete(card.id);
+    expect(await compareCollectionStatesAsync(whole, stepped, pause)).toEqual(
+      compareCollectionStates(whole, stepped),
+    );
   });
 
   it('knows when the log lacks history another device folded into a snapshot', () => {

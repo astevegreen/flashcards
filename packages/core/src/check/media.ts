@@ -1,3 +1,4 @@
+import { forEachMediaRef } from '../events/media-refs.ts';
 import type { CollectionState } from '../events/replay.ts';
 import { compareCodeUnits } from '../study/queue.ts';
 
@@ -12,8 +13,6 @@ import { compareCodeUnits } from '../study/queue.ts';
  * until that backup rolls off, so restoring the backup still finds it.
  */
 
-const MEDIA_REF_RE = /media:([0-9a-f]{64})/gi;
-
 export interface MediaReference {
   noteIds: string[];
   pageIds: string[];
@@ -21,15 +20,7 @@ export interface MediaReference {
   elsewhere: boolean;
 }
 
-function scan(value: unknown, onHash: (hash: string) => void): void {
-  const text = typeof value === 'string' ? value : JSON.stringify(value);
-  if (!text?.includes('media:')) return;
-  MEDIA_REF_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = MEDIA_REF_RE.exec(text)) !== null) {
-    if (m[1]) onHash(m[1].toLowerCase());
-  }
-}
+const scan = forEachMediaRef;
 
 /** Every `media:<sha256>` the collection mentions, with what mentions it. */
 export function collectMediaReferences(state: CollectionState): Map<string, MediaReference> {
@@ -106,6 +97,17 @@ export interface MissingMediaFile {
   inCollection: boolean;
 }
 
+/**
+ * Used and stored on this device, but no longer listed in the collection (a removal won over an
+ * edit that used it, or the add never synced). Sync won't share it until it is added again.
+ */
+export interface UnlistedMediaFile {
+  hash: string;
+  noteIds: string[];
+  pageIds: string[];
+  elsewhere: boolean;
+}
+
 export interface MediaCheckReport {
   /** Files the collection uses and this device stores. */
   usedCount: number;
@@ -114,6 +116,7 @@ export interface MediaCheckReport {
   /** Bytes of the unused files whose size is known. */
   unusedBytes: number;
   missing: MissingMediaFile[];
+  unlisted: UnlistedMediaFile[];
   /** Files outside the collection that stay stored only because a kept backup lists them. */
   keptForBackups: number;
   /** Cached spoken audio, which is never offered for removal. */
@@ -183,6 +186,21 @@ function missingMedia(sets: MediaCheckSets): MissingMediaFile[] {
   return missing;
 }
 
+function unlistedMedia(sets: MediaCheckSets): UnlistedMediaFile[] {
+  const out: UnlistedMediaFile[] = [];
+  for (const hash of [...sets.refs.keys()].sort(compareCodeUnits)) {
+    const ref = sets.refs.get(hash);
+    if (!ref || !sets.stored.has(hash) || sets.state.media.has(hash)) continue;
+    out.push({
+      hash,
+      noteIds: [...ref.noteIds].sort(compareCodeUnits),
+      pageIds: [...ref.pageIds].sort(compareCodeUnits),
+      elsewhere: ref.elsewhere,
+    });
+  }
+  return out;
+}
+
 export function checkMedia(state: CollectionState, input: MediaCheckInput): MediaCheckReport {
   const sets: MediaCheckSets = {
     state,
@@ -200,6 +218,7 @@ export function checkMedia(state: CollectionState, input: MediaCheckInput): Medi
     unused: [],
     unusedBytes: 0,
     missing: missingMedia(sets),
+    unlisted: unlistedMedia(sets),
     keptForBackups: 0,
     spokenAudio: 0,
   };

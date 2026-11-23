@@ -55,6 +55,8 @@ import {
   type AddDeviceLink,
 } from '../sync/addDeviceLink.ts';
 import { SECURE_KEYS_LOST_KV_KEY } from './secureKeysNotice.ts';
+import { priorOfMediaEdits } from './mediaEditPrior.ts';
+import { COLLECTION_REBUILT_KV_KEY, rebuiltSince } from './rebuildSignal.ts';
 import { useAudioController, type AudioController } from './useAudioController.ts';
 import { isLeechBackfillReady } from './leechBackfillGate.ts';
 import { useSyncController, type SyncUiState } from './useSyncController.ts';
@@ -220,6 +222,8 @@ export function AppProvider({
   const persistChainRef = useRef<Promise<void>>(Promise.resolve());
   const persistPendingRef = useRef(0);
   const lastLocalSnapEventsRef = useRef<number>(getTotalAppliedEventCount(collectionState));
+  // A Check database rebuild saved after this start keeps its snapshot (see rebuildSignal.ts).
+  const [startedAtMs] = useState(() => Date.now());
 
   const refreshEntitlement = useCallback(async (): Promise<EntitlementState> => {
     if (!platform.getPurchase) {
@@ -358,6 +362,20 @@ export function AppProvider({
       if (events.length === 0) return;
       const factory = factoryRef.current ?? eventFactory;
       const st = stateRef.current ?? collectionState;
+      // An edit that starts using a file re-adds it right after, so the newer use beats a Check
+      // media removal another device decided before this edit synced (mediaReAdds.ts).
+      const mediaPrior = priorOfMediaEdits(st, events);
+      if (mediaPrior) {
+        void import('./mediaReAdds.ts')
+          .then((m) => m.planMediaReAdds(mediaPrior, events, st, platform.storage))
+          .then((entries) => {
+            if (entries.length === 0) return;
+            const f = factoryRef.current ?? eventFactory;
+            const now = Date.now();
+            emitEventsRef.current(entries.map((media) => f.create('MediaAdded', { media }, now)));
+          })
+          .catch(() => undefined);
+      }
       const diff = applyEventsWithDiff(st, events);
       const nextMeta: DeviceMeta = {
         ...metaRef.current,
@@ -397,7 +415,10 @@ export function AppProvider({
           await platform.storage.deleteMaterializedCards(removedIds);
         }
         await platform.storage.setDeviceMeta(nextMeta);
-        if (watermarksForSnap) {
+        if (
+          watermarksForSnap &&
+          !rebuiltSince(await platform.storage.getKv(COLLECTION_REBUILT_KV_KEY), startedAtMs)
+        ) {
           const [{ serializeCollectionState }, maxLocalSeq] = await Promise.all([
             import('@flash/core/snapshot'),
             platform.storage.getMaxLocalSeq(),
@@ -411,7 +432,7 @@ export function AppProvider({
         }
       });
     },
-    [collectionState, enqueuePersist, eventFactory, platform.storage, syncController],
+    [collectionState, enqueuePersist, eventFactory, platform.storage, startedAtMs, syncController],
   );
 
   const getEventFactory = useCallback(() => factoryRef.current ?? eventFactory, [eventFactory]);

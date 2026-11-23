@@ -3,17 +3,20 @@ import { mediaHashesUsedByBackups } from '@flash/core/backup';
 import {
   checkLogCoverage,
   checkMedia,
-  compareCollectionStates,
+  compareCollectionStatesAsync,
   mediaFilesToDelete,
   planMediaRemoval,
-  rebuildFromEvents,
+  rebuildFromEventsAsync,
   type CollectionComparison,
   type MediaCheckReport,
 } from '@flash/core/check';
 import { deserializeCollectionState, serializeCollectionState } from '@flash/core/snapshot';
-import { applyEvents } from '@flash/core';
+import { applyEvents, createEmptyState } from '@flash/core';
 import type { MaterializedCardRow, PlatformServices } from '@flash/platform';
 import { openBackupStore } from '../backups/backupRunner.ts';
+import { storedMediaEntries } from '../state/storedMedia.ts';
+import { announceRebuild } from '../state/rebuildChannel.ts';
+import { COLLECTION_REBUILT_KV_KEY } from '../state/rebuildSignal.ts';
 
 /**
  * Settings > Check media and Check database (`@flash/core/check`). Lazy chunk (§8): nothing here
@@ -98,6 +101,24 @@ export async function removeUnusedMedia(ctx: RemoveMediaContext): Promise<Remove
   };
 }
 
+/**
+ * Adds the files of a fresh media check that notes use and this device stores, but the
+ * collection no longer lists, back to the collection (so sync shares them again). Returns how
+ * many were added.
+ */
+export async function reAddUnlistedMedia(ctx: RemoveMediaContext): Promise<number> {
+  const { report } = await runMediaCheck(ctx);
+  const entries = await storedMediaEntries(
+    ctx.platform.storage,
+    report.unlisted.map((f) => f.hash),
+  );
+  if (entries.length === 0) return 0;
+  const factory = ctx.getEventFactory();
+  const nowMs = Date.now();
+  ctx.emitEvents(entries.map((media) => factory.create('MediaAdded', { media }, nowMs)));
+  return entries.length;
+}
+
 export type DatabaseCheckMode =
   /** Rebuilt from the whole event log. */
   | 'full'
@@ -121,31 +142,38 @@ export interface RebuiltCollection {
   watermarks: Record<string, number>;
 }
 
+/** Yields to the browser between the heavy steps of a database check (§8). */
+function pauseForHost(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 async function rebuildOnce(
   ctx: CheckContext,
 ): Promise<Omit<DatabaseCheckResult, 'changedDuringCheck'>> {
   const storage = ctx.platform.storage;
-  const localSeq = await storage.getMaxLocalSeq();
-  const events = await storage.getAllEvents();
+  // One read gives the events and the local seq they reach, so the saved snapshot's `localSeq`
+  // covers exactly the events it was rebuilt from (no event replayed twice or skipped at boot).
+  const { events, maxLocalSeq: localSeq } = await storage.getEventsAfterLocalSeq(0);
   const current = ctx.getState();
   const coverage = checkLogCoverage(events, current.snapshotWatermarks);
   if (coverage.complete) {
-    const state = rebuildFromEvents(events);
+    const state = await rebuildFromEventsAsync(events, pauseForHost);
     return {
       mode: 'full',
       logEvents: events.length,
-      comparison: compareCollectionStates(state, current),
+      comparison: await compareCollectionStatesAsync(state, ctx.getState(), pauseForHost),
       rebuilt: { state, localSeq, watermarks: coverage.maxSeqByDevice },
     };
   }
   const saved = await storage.getLocalSnapshot();
-  const state = saved ? deserializeCollectionState(saved.snapshot) : rebuildFromEvents([]);
+  const state = saved ? deserializeCollectionState(saved.snapshot) : createEmptyState();
   const delta = saved ? await storage.getEventsAfterLocalSeq(saved.localSeq) : { events };
   applyEvents(state, delta.events);
+  await pauseForHost();
   return {
     mode: 'snapshot',
     logEvents: events.length,
-    comparison: compareCollectionStates(state, ctx.getState()),
+    comparison: await compareCollectionStatesAsync(state, ctx.getState(), pauseForHost),
   };
 }
 
@@ -178,17 +206,26 @@ function cardRows(state: CollectionState): MaterializedCardRow[] {
 
 /**
  * Saves a full rebuild as this device's starting point (local snapshot and cards cache); the
- * caller reloads the app so it runs on it. The event log is not touched.
+ * caller reloads the app so it runs on it. The event log is not touched. Tabs still on the old
+ * collection (this one until it reloads, and others, which are told to reload) stop writing
+ * snapshots first, and the saved one is read back to make sure it is the one that stays.
  */
 export async function saveRebuiltCollection(
-  ctx: CheckContext,
+  ctx: CheckContext & { deviceId: string },
   rebuilt: RebuiltCollection,
 ): Promise<void> {
   const storage = ctx.platform.storage;
+  const savedAt = Date.now();
+  await storage.setKv(COLLECTION_REBUILT_KV_KEY, savedAt);
   await storage.saveMaterializedCards(cardRows(rebuilt.state));
   await storage.setLocalSnapshot({
     snapshot: serializeCollectionState(rebuilt.state, rebuilt.watermarks),
     localSeq: rebuilt.localSeq,
-    savedAt: Date.now(),
+    savedAt,
   });
+  announceRebuild(ctx.deviceId);
+  const kept = await storage.getLocalSnapshot();
+  if (kept?.savedAt !== savedAt || kept.localSeq !== rebuilt.localSeq) {
+    throw new Error('Another tab saved over the rebuild. Close the other tabs and try again.');
+  }
 }

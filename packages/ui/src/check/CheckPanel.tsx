@@ -2,6 +2,7 @@ import type { CollectionArea, CollectionDifferenceKind } from '@flash/core/check
 import { useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import {
+  reAddUnlistedMedia,
   removeUnusedMedia,
   runDatabaseCheck,
   runMediaCheck,
@@ -54,7 +55,7 @@ const KIND_LABELS: Record<CollectionDifferenceKind, string> = {
 const SHOWN = 20;
 
 export function CheckPanel() {
-  const { platform, state, emitEvents, getEventFactory, syncState } = useApp();
+  const { platform, state, emitEvents, getEventFactory, syncState, syncNow } = useApp();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -109,6 +110,23 @@ export function CheckPanel() {
       setMedia(await runMediaCheck(ctx()));
     });
 
+  const reAddNow = () =>
+    run(async () => {
+      const added = await reAddUnlistedMedia({ ...ctx(), emitEvents, getEventFactory });
+      setStatus(
+        added > 0
+          ? `Added ${plural(added, 'file')} back to the collection, so sync shares them again.`
+          : 'Nothing to add back.',
+      );
+      setMedia(await runMediaCheck(ctx()));
+    });
+
+  const fetchMissingNow = () =>
+    run(async () => {
+      await syncNow();
+      setMedia(await runMediaCheck(ctx()));
+    });
+
   const checkDatabaseNow = () =>
     run(async () => {
       setConfirmRebuild(false);
@@ -118,7 +136,7 @@ export function CheckPanel() {
   const rebuildNow = () =>
     run(async () => {
       if (!database?.rebuilt) return;
-      await saveRebuiltCollection(ctx(), database.rebuilt);
+      await saveRebuiltCollection({ ...ctx(), deviceId: platform.deviceId }, database.rebuilt);
       window.location.reload();
     });
 
@@ -193,7 +211,9 @@ export function CheckPanel() {
           <p>
             {plural(report.usedCount, 'file')} in use
             {report.spokenAudio > 0 ? `, ${plural(report.spokenAudio, 'spoken audio clip')}` : ''}.
-            {report.unused.length === 0 && report.missing.length === 0
+            {report.unused.length === 0 &&
+            report.missing.length === 0 &&
+            report.unlisted.length === 0
               ? ' Nothing unused or missing.'
               : ''}
           </p>
@@ -222,6 +242,46 @@ export function CheckPanel() {
               {report.missing.length > SHOWN && (
                 <p className="text-[var(--muted)]">and {report.missing.length - SHOWN} more.</p>
               )}
+              {syncing && report.missing.some((m) => m.inCollection) && (
+                <button
+                  type="button"
+                  data-testid="media-fetch"
+                  disabled={busy}
+                  onClick={() => void fetchMissingNow()}
+                  className="mt-1 self-start rounded-xl border border-[var(--border)] px-3 py-2 font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
+                >
+                  Sync now and check again
+                </button>
+              )}
+            </div>
+          )}
+
+          {report.unlisted.length > 0 && (
+            <div data-testid="media-unlisted">
+              <p className="font-medium">
+                {plural(report.unlisted.length, 'file')} in use but no longer in the collection
+                (other devices won't get {report.unlisted.length === 1 ? 'it' : 'them'})
+              </p>
+              <ul className="list-disc pl-5">
+                {report.unlisted.slice(0, SHOWN).map((m) => (
+                  <li key={m.hash}>
+                    <span className="font-mono">{m.hash.slice(0, 10)}</span>:{' '}
+                    {describeMissing(m.noteIds, m.pageIds, m.elsewhere)}
+                  </li>
+                ))}
+              </ul>
+              {report.unlisted.length > SHOWN && (
+                <p className="text-[var(--muted)]">and {report.unlisted.length - SHOWN} more.</p>
+              )}
+              <button
+                type="button"
+                data-testid="media-readd"
+                disabled={busy}
+                onClick={() => void reAddNow()}
+                className="mt-1 self-start rounded-xl border border-[var(--border)] px-3 py-2 font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
+              >
+                Add back to the collection
+              </button>
             </div>
           )}
 

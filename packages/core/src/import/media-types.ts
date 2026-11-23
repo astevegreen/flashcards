@@ -17,6 +17,13 @@ export const SAFE_MEDIA_MIME_BY_EXT: ReadonlyMap<string, string> = new Map([
   ['m4a', 'audio/mp4'],
 ]);
 
+/** The extension (lower-case, no dot) for an accepted media MIME type, or `undefined`. */
+export function safeMediaExtForMime(mime: string): string | undefined {
+  const want = mime.toLowerCase();
+  for (const [ext, m] of SAFE_MEDIA_MIME_BY_EXT) if (m === want) return ext;
+  return undefined;
+}
+
 /** The MIME type for an accepted media extension (lower-case, no dot), or `undefined`. */
 export function safeMediaMimeForExt(ext: string): string | undefined {
   return SAFE_MEDIA_MIME_BY_EXT.get(ext);

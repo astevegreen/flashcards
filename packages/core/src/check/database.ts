@@ -6,6 +6,7 @@ import {
 } from '../events/replay.ts';
 import { serializeCollectionState, type SerializedCollectionState } from '../events/snapshot.ts';
 import type { FlashEvent } from '../events/types.ts';
+import { compareHlc } from '../hlc.ts';
 import { compareCodeUnits } from '../study/queue.ts';
 
 /**
@@ -126,42 +127,88 @@ const AREA_ORDER: readonly CollectionArea[] = [
   'registers',
 ];
 
+interface DifferenceTally {
+  differences: CollectionDifference[];
+  byArea: Partial<Record<CollectionArea, number>>;
+  total: number;
+  limit: number;
+}
+
+function compareArea(tally: DifferenceTally, area: CollectionArea, w: Keyed, h: Keyed): void {
+  const ids = [...new Set([...w.keys(), ...h.keys()])].sort(compareCodeUnits);
+  for (const id of ids) {
+    const a = w.get(id);
+    const b = h.get(id);
+    let kind: CollectionDifferenceKind | null = null;
+    if (a === undefined) kind = 'extra';
+    else if (b === undefined) kind = 'missing';
+    else if (a !== b) kind = 'changed';
+    if (kind === null) continue;
+    tally.total += 1;
+    tally.byArea[area] = (tally.byArea[area] ?? 0) + 1;
+    if (tally.differences.length < tally.limit) tally.differences.push({ area, id, kind });
+  }
+}
+
+function finishComparison(
+  tally: DifferenceTally,
+  expected: CollectionState,
+  actual: CollectionState,
+): CollectionComparison {
+  return {
+    differences: tally.differences,
+    byArea: tally.byArea,
+    total: tally.total,
+    rebuiltEvents: getTotalAppliedEventCount(expected),
+    currentEvents: getTotalAppliedEventCount(actual),
+  };
+}
+
 /** Compares the rebuilt collection (`expected`) with the running one (`actual`). */
 export function compareCollectionStates(
   expected: CollectionState,
   actual: CollectionState,
   opts: { limit?: number } = {},
 ): CollectionComparison {
-  const limit = opts.limit ?? 200;
+  const tally: DifferenceTally = {
+    differences: [],
+    byArea: {},
+    total: 0,
+    limit: opts.limit ?? 200,
+  };
   const want = areaMaps(serializeCollectionState(expected));
   const have = areaMaps(serializeCollectionState(actual));
-  const differences: CollectionDifference[] = [];
-  const byArea: Partial<Record<CollectionArea, number>> = {};
-  let total = 0;
-  const add = (area: CollectionArea, id: string, kind: CollectionDifferenceKind): void => {
-    total += 1;
-    byArea[area] = (byArea[area] ?? 0) + 1;
-    if (differences.length < limit) differences.push({ area, id, kind });
+  for (const area of AREA_ORDER) compareArea(tally, area, want[area], have[area]);
+  return finishComparison(tally, expected, actual);
+}
+
+/** Lets the host run (paint, input) between steps of a long check. */
+export type Pause = () => Promise<void>;
+
+/**
+ * {@link compareCollectionStates} in steps, pausing between the heavy ones, so a large collection
+ * doesn't freeze the screen (§8). Same result.
+ */
+export async function compareCollectionStatesAsync(
+  expected: CollectionState,
+  actual: CollectionState,
+  pause: Pause,
+  opts: { limit?: number } = {},
+): Promise<CollectionComparison> {
+  const tally: DifferenceTally = {
+    differences: [],
+    byArea: {},
+    total: 0,
+    limit: opts.limit ?? 200,
   };
+  const want = areaMaps(serializeCollectionState(expected));
+  await pause();
+  const have = areaMaps(serializeCollectionState(actual));
   for (const area of AREA_ORDER) {
-    const w = want[area];
-    const h = have[area];
-    const ids = [...new Set([...w.keys(), ...h.keys()])].sort(compareCodeUnits);
-    for (const id of ids) {
-      const a = w.get(id);
-      const b = h.get(id);
-      if (a === undefined) add(area, id, 'extra');
-      else if (b === undefined) add(area, id, 'missing');
-      else if (a !== b) add(area, id, 'changed');
-    }
+    await pause();
+    compareArea(tally, area, want[area], have[area]);
   }
-  return {
-    differences,
-    byArea,
-    total,
-    rebuiltEvents: getTotalAppliedEventCount(expected),
-    currentEvents: getTotalAppliedEventCount(actual),
-  };
+  return finishComparison(tally, expected, actual);
 }
 
 export interface LogCoverage {
@@ -208,4 +255,29 @@ export function checkLogCoverage(
 /** The collection rebuilt from nothing but the event log. */
 export function rebuildFromEvents(events: readonly FlashEvent[]): CollectionState {
   return applyEvents(createEmptyState(), events);
+}
+
+const REBUILD_CHUNK = 2000;
+
+function byHlcThenId(a: FlashEvent, b: FlashEvent): number {
+  return compareHlc(a.hlc, b.hlc) || compareCodeUnits(a.id, b.id);
+}
+
+/**
+ * {@link rebuildFromEvents} in chunks of the log in (hlc, id) order, pausing between them. Replay
+ * converges whatever the delivery order (that is what lets sync deliver in batches), so the
+ * result equals the one-batch rebuild.
+ */
+export async function rebuildFromEventsAsync(
+  events: readonly FlashEvent[],
+  pause: Pause,
+  chunk = REBUILD_CHUNK,
+): Promise<CollectionState> {
+  const sorted = [...events].sort(byHlcThenId);
+  const state = createEmptyState();
+  for (let i = 0; i < sorted.length; i += chunk) {
+    applyEvents(state, sorted.slice(i, i + chunk));
+    if (i + chunk < sorted.length) await pause();
+  }
+  return state;
 }

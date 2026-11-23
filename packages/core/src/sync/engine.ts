@@ -1,3 +1,4 @@
+import { snapshotLacksMediaRecords } from '../events/snapshot-format.ts';
 import type { SerializedCollectionState } from '../events/snapshot.ts';
 import type { FlashEvent, KnownEvent } from '../events/types.ts';
 import { compareHlc } from '../hlc.ts';
@@ -295,7 +296,9 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
         const snap = decodeSyncSnapshot(snapBytes);
         if (
           snap.format_version <= maxFormatVersion &&
-          snap.collection_id === manifest.collection_id
+          snap.collection_id === manifest.collection_id &&
+          // From a build before media removal: replaying the segments agrees with other devices.
+          !snapshotLacksMediaRecords(snap.state)
         ) {
           hydratedSnapshot = snap;
           for (const [dev, seq] of Object.entries(snap.watermarks)) {

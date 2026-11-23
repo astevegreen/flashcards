@@ -12,12 +12,14 @@ import type { PlatformServices } from '@flash/platform';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DexieStorage } from '../../platform-web/src/storage/dexie-storage.ts';
 import {
+  reAddUnlistedMedia,
   removeUnusedMedia,
   runDatabaseCheck,
   runMediaCheck,
   saveRebuiltCollection,
   type RemoveMediaContext,
 } from '../src/check/checkRunner.ts';
+import { COLLECTION_REBUILT_KV_KEY, rebuiltSince } from '../src/state/rebuildSignal.ts';
 
 const opened: DexieStorage[] = [];
 afterEach(() => {
@@ -86,6 +88,20 @@ describe('check media on a device', () => {
     expect((await storage.listMediaHashes()).sort()).toEqual([USED]);
     expect((await runMediaCheck(ctx)).report.unused).toEqual([]);
   });
+
+  it('adds back a used file the collection no longer lists, so sync shares it again', async () => {
+    const { state, ctx } = await setup();
+    // A removal from another device won over the note that uses USED.
+    ctx.emitEvents([ctx.getEventFactory().create('MediaRemoved', { hash: USED }, Date.now())]);
+    expect(state.current.media.has(USED)).toBe(false);
+    const { report } = await runMediaCheck(ctx);
+    expect(report.unlisted.map((f) => f.hash)).toEqual([USED]);
+    expect(report.unlisted[0]?.noteIds).toEqual(['n-media']);
+
+    expect(await reAddUnlistedMedia(ctx)).toBe(1);
+    expect(state.current.media.get(USED)).toMatchObject({ ext: 'png', mime: 'image/png', size: 3 });
+    expect((await runMediaCheck(ctx)).report.unlisted).toEqual([]);
+  });
 });
 
 describe('check database on a device', () => {
@@ -107,9 +123,32 @@ describe('check database on a device', () => {
     });
     if (!drifted.rebuilt) throw new Error('expected a full rebuild');
 
-    await saveRebuiltCollection(ctx, drifted.rebuilt);
+    // The rebuild reads the log and its local seq together.
+    expect(drifted.rebuilt.localSeq).toBe(await storage.getMaxLocalSeq());
+    const before = Date.now();
+    await saveRebuiltCollection({ ...ctx, deviceId: 'dev-a' }, drifted.rebuilt);
+    // Tabs started before the rebuild stop writing snapshots over it.
+    expect(rebuiltSince(await storage.getKv(COLLECTION_REBUILT_KV_KEY), before)).toBe(true);
+    expect(rebuiltSince(await storage.getKv(COLLECTION_REBUILT_KV_KEY), Date.now() + 1)).toBe(
+      false,
+    );
     const saved = await storage.getLocalSnapshot();
     expect(saved?.snapshot.cards.some((c) => c.id === card.id)).toBe(true);
     expect((await storage.loadMaterializedCards()).some((c) => c.id === card.id)).toBe(true);
+  });
+
+  it('reports a rebuild another tab saved over', async () => {
+    const { storage, ctx } = await setup();
+    const result = await runDatabaseCheck(ctx);
+    if (!result.rebuilt) throw new Error('expected a full rebuild');
+    const realSet = storage.setLocalSnapshot.bind(storage);
+    // Another tab writes its own snapshot right after this one.
+    storage.setLocalSnapshot = async (record) => {
+      await realSet(record);
+      await realSet({ ...record, localSeq: record.localSeq - 1, savedAt: record.savedAt + 1 });
+    };
+    await expect(
+      saveRebuiltCollection({ ...ctx, deviceId: 'dev-a' }, result.rebuilt),
+    ).rejects.toThrow(/Another tab/);
   });
 });

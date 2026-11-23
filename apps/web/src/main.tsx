@@ -200,7 +200,24 @@ async function boot(): Promise<void> {
 
   // Fast cold-start hydration: load local snapshot + only incremental delta events when available
   let initialState: CollectionState;
-  const localSnapshot = await platform.storage.getLocalSnapshot();
+  let localSnapshot = await platform.storage.getLocalSnapshot();
+  // A snapshot from a build before media removal lacks the media add registers. When the log has
+  // every event it covers, replay the log instead, so this device agrees with the others.
+  let replayedLog: Awaited<ReturnType<typeof platform.storage.getAllEvents>> | undefined;
+  if (localSnapshot) {
+    const { snapshotLacksMediaRecords } = await import('@flash/core/snapshot');
+    if (snapshotLacksMediaRecords(localSnapshot.snapshot)) {
+      const [{ checkLogCoverage }, all] = await Promise.all([
+        import('@flash/core/check'),
+        platform.storage.getAllEvents(),
+      ]);
+      const watermarks = new Map(Object.entries(localSnapshot.snapshot.watermarks));
+      if (checkLogCoverage(all, watermarks).complete) {
+        localSnapshot = undefined;
+        replayedLog = all;
+      }
+    }
+  }
 
   if (localSnapshot) {
     const { deserializeCollectionState } = await import('@flash/core/snapshot');
@@ -223,7 +240,7 @@ async function boot(): Promise<void> {
       ]);
     }
   } else {
-    let events = await platform.storage.getAllEvents();
+    let events = replayedLog ?? (await platform.storage.getAllEvents());
 
     // Agent-friendly no-login dev mode (§10.2): auto-seed sample decks at fixed baseline epoch
     if (events.length === 0 && isDevMode && !meta.seeded) {
@@ -247,7 +264,7 @@ async function boot(): Promise<void> {
     if (events.length > 0) {
       const rows = [...initialState.cards.values()].map(cardToRow);
       void platform.storage.saveMaterializedCards(rows);
-      if (events.length >= 200) {
+      if (events.length >= 200 || replayedLog !== undefined) {
         // Capture maxLocalSeq synchronously before rendering so post-render mutations cannot race ahead
         const [maxLocalSeq, { serializeCollectionState }] = await Promise.all([
           platform.storage.getMaxLocalSeq(),
