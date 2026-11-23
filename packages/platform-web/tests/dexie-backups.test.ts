@@ -45,6 +45,25 @@ describe('DexieStorage rolling backups', () => {
     storage.close();
   });
 
+  it('keeps the media a kept backup lists across clearAll, and only that', async () => {
+    const storage = new DexieStorage(`backups-media-${Date.now()}`);
+    created.push(storage.dbName);
+    const kept = 'a'.repeat(64);
+    const dropped = 'b'.repeat(64);
+    for (const hash of [kept, dropped]) {
+      await storage.putMedia({ hash, mime: 'image/png', bytes: new Uint8Array([1]) });
+    }
+    const store = await storage.openBackupStore();
+    await store.put({ ...info('daily', 1), media_hashes: [kept] }, new Uint8Array([1]));
+    await storage.clearAll();
+    expect(await storage.listMediaHashes()).toEqual([kept]);
+
+    await store.delete('daily');
+    await storage.clearAll();
+    expect(await storage.listMediaHashes()).toEqual([]);
+    storage.close();
+  });
+
   it('opens a v2 database and adds the backup tables', async () => {
     const slug = `backups-upgrade-${Date.now()}`;
     const v2 = new Dexie(`flashcards-db-${slug}`);

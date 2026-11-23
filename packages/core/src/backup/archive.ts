@@ -1,4 +1,5 @@
-import { zipSync } from 'fflate';
+import { findBackupStateProblem } from '@flash/content-schema/backup-state';
+import { zip, zipSync, type AsyncZippable, type Zippable } from 'fflate';
 import type { CollectionState } from '../events/replay.ts';
 import { getTotalAppliedEventCount } from '../events/replay.ts';
 import {
@@ -123,16 +124,16 @@ export function countBackupContents(state: CollectionState): BackupCounts {
   };
 }
 
-/** Builds the entries of a backup archive; {@link packBackup} zips them. */
-export function buildBackup(state: CollectionState, options: BuildBackupOptions): BuiltBackup {
-  const dateStamp = new Date(options.nowMs).toISOString().slice(0, 10);
-  const entries = exportFlashpkgFiles(state, {
-    name: `Flashcards backup ${dateStamp}`,
-    version: '1.0.0',
-  });
-  const serialized = serializeCollectionState(state, options.watermarks ?? {});
-  entries[BACKUP_STATE_PATH] = encodeUtf8(JSON.stringify(serialized));
+function backupEntries(state: CollectionState, nowMs: number): Record<string, Uint8Array> {
+  const dateStamp = new Date(nowMs).toISOString().slice(0, 10);
+  return exportFlashpkgFiles(state, { name: `Flashcards backup ${dateStamp}`, version: '1.0.0' });
+}
 
+function finishBackup(
+  state: CollectionState,
+  options: BuildBackupOptions,
+  entries: Record<string, Uint8Array>,
+): BuiltBackup {
   const mediaEntries: Record<string, Uint8Array> = {};
   const mediaHashes: string[] = [];
   for (const [hash, entry] of state.media) {
@@ -162,6 +163,47 @@ export function buildBackup(state: CollectionState, options: BuildBackupOptions)
   return { manifest, entries, mediaEntries };
 }
 
+/** Builds the entries of a backup archive; {@link packBackup} zips them. */
+export function buildBackup(state: CollectionState, options: BuildBackupOptions): BuiltBackup {
+  const entries = backupEntries(state, options.nowMs);
+  const serialized = serializeCollectionState(state, options.watermarks ?? {});
+  entries[BACKUP_STATE_PATH] = encodeUtf8(JSON.stringify(serialized));
+  return finishBackup(state, options, entries);
+}
+
+/**
+ * {@link buildBackup} in steps, awaiting `pause` between them so a caller on the UI thread can
+ * yield to rendering (§8). The result is the same.
+ */
+export async function buildBackupAsync(
+  state: CollectionState,
+  options: BuildBackupOptions,
+  pause: () => Promise<void> = () => Promise.resolve(),
+): Promise<BuiltBackup> {
+  const entries = backupEntries(state, options.nowMs);
+  await pause();
+  const serialized = serializeCollectionState(state, options.watermarks ?? {});
+  await pause();
+  entries[BACKUP_STATE_PATH] = encodeUtf8(JSON.stringify(serialized));
+  await pause();
+  return finishBackup(state, options, entries);
+}
+
+function packedManifest(built: BuiltBackup, withMedia: boolean): BackupManifest {
+  return withMedia ? built.manifest : { ...built.manifest, kind: 'daily', media_included: false };
+}
+
+/** Archive files: text compressed, media stored as is (already compressed formats). */
+function archiveFiles(built: BuiltBackup, withMedia: boolean, manifest: BackupManifest): Zippable {
+  const files: Zippable = { ...built.entries };
+  if (withMedia) {
+    for (const [path, bytes] of Object.entries(built.mediaEntries))
+      files[path] = [bytes, { level: 0 }];
+  }
+  files[BACKUP_MANIFEST_PATH] = encodeUtf8(JSON.stringify(manifest, null, 2));
+  return files;
+}
+
 /**
  * Zips a built backup. `withMedia: false` writes the same snapshot as a daily one (no media), for
  * example for the copy in the sync folder, whose `media/` store already holds the files.
@@ -171,13 +213,23 @@ export function packBackup(
   opts: { withMedia: boolean },
 ): { manifest: BackupManifest; bytes: Uint8Array } {
   const withMedia = opts.withMedia && built.manifest.media_included;
-  const manifest: BackupManifest = withMedia
-    ? built.manifest
-    : { ...built.manifest, kind: 'daily', media_included: false };
-  const files: Record<string, Uint8Array> = { ...built.entries };
-  if (withMedia) Object.assign(files, built.mediaEntries);
-  files[BACKUP_MANIFEST_PATH] = encodeUtf8(JSON.stringify(manifest, null, 2));
-  return { manifest, bytes: zipSync(files, { level: 6 }) };
+  const manifest = packedManifest(built, withMedia);
+  return { manifest, bytes: zipSync(archiveFiles(built, withMedia, manifest), { level: 6 }) };
+}
+
+/** {@link packBackup} off the UI thread where the platform allows it (fflate's async zip). */
+export function packBackupAsync(
+  built: BuiltBackup,
+  opts: { withMedia: boolean },
+): Promise<{ manifest: BackupManifest; bytes: Uint8Array }> {
+  const withMedia = opts.withMedia && built.manifest.media_included;
+  const manifest = packedManifest(built, withMedia);
+  return new Promise((resolve, reject) => {
+    zip(archiveFiles(built, withMedia, manifest) as AsyncZippable, { level: 6 }, (err, bytes) => {
+      if (err) reject(err);
+      else resolve({ manifest, bytes });
+    });
+  });
 }
 
 /** A media file packed in a backup archive (hash not verified yet: see {@link verifyBackupMedia}). */
@@ -246,38 +298,15 @@ function parseManifest(raw: unknown): BackupManifest {
   };
 }
 
-const STATE_ARRAY_KEYS = [
-  'noteTypes',
-  'layouts',
-  'decks',
-  'notes',
-  'cards',
-  'undoneReviewIds',
-  'pages',
-  'courses',
-  'media',
-  'unknownEvents',
-] as const;
-const STATE_RECORD_KEYS = [
-  'watermarks',
-  'reviewsByCard',
-  'deckFsrsParams',
-  'preferences',
-  'fieldHlcs',
-  'noteArchivedState',
-  'pendingDeckPatches',
-  'pendingPagePatches',
-] as const;
-
 function parseSerializedState(raw: unknown): SerializedCollectionState {
-  if (!isRecord(raw) || raw['formatVersion'] !== SERIALIZED_STATE_FORMAT_VERSION) {
+  const version = isRecord(raw) ? raw['formatVersion'] : undefined;
+  if (typeof version !== 'number' || version < 1 || version > SERIALIZED_STATE_FORMAT_VERSION) {
     throw new BackupArchiveError('The backup was made by an incompatible version of the app.');
   }
-  for (const key of STATE_ARRAY_KEYS) {
-    if (!Array.isArray(raw[key])) throw new BackupArchiveError('The backup state is damaged.');
-  }
-  for (const key of STATE_RECORD_KEYS) {
-    if (!isRecord(raw[key])) throw new BackupArchiveError('The backup state is damaged.');
+  // Untrusted: every value a restore turns into an event is checked (§13).
+  const problem = findBackupStateProblem(raw);
+  if (problem !== null) {
+    throw new BackupArchiveError(`The backup state is damaged (${problem}).`);
   }
   return raw as unknown as SerializedCollectionState;
 }

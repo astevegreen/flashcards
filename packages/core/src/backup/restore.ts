@@ -21,7 +21,8 @@ import { compareCodeUnits } from '../study/queue.ts';
  * - decks and notes the backup does not have are archived (nothing is ever deleted);
  * - reviews the backup has and the collection lost are recorded again with their original
  *   `review_id` (replay dedupes by id, so devices that still have them are unaffected);
- * - reviews made after the backup are kept unless `undoNewerReviews` is set.
+ * - reviews made after the backup are kept (undoing them could not be reverted, so a restore
+ *   never does it).
  *
  * Not restorable this way: a review that was undone after the backup (an undo is final), pages
  * the backup lacks (pages have no archive), Study Sets and practice sessions (log-retained
@@ -42,7 +43,7 @@ export interface RestoreSummary {
   notesRestored: number;
   reviewsAdded: number;
   reviewsUndone: number;
-  /** Reviews made after the backup that stay (`undoNewerReviews` off). */
+  /** Reviews made after the backup, which stay. */
   reviewsKept: number;
   /** Backup reviews that were undone since; an undo cannot be reverted. */
   reviewsNotRestorable: number;
@@ -62,8 +63,6 @@ export interface RestorePlan {
 }
 
 export interface RestorePlanOptions {
-  /** Undo the reviews recorded after the backup was taken (default: keep them). */
-  undoNewerReviews?: boolean;
   /** Clock for new FSRS parameter versions (default `Date.now()`). */
   nowMs?: number;
 }
@@ -323,6 +322,13 @@ function planNotes(ctx: PlanContext): void {
   }
 }
 
+/** A leech's suspension comes back as a leech one (its note carries the `leech` tag). */
+function suspendReason(backup: CollectionState, cardId: string): 'manual' | 'leech' {
+  const noteId = backup.cards.get(cardId)?.note_id;
+  const tags = noteId ? backup.notes.get(noteId)?.tags : undefined;
+  return tags?.includes('leech') ? 'leech' : 'manual';
+}
+
 function planSuspensions(ctx: PlanContext): void {
   const { current, backup, steps, summary } = ctx;
   for (const cardId of backup.cards.keys()) {
@@ -330,7 +336,10 @@ function planSuspensions(ctx: PlanContext): void {
     if (wanted === isCardSuspended(current, cardId)) continue;
     steps.push(
       wanted
-        ? { type: 'CardSuspended', payload: { card_id: cardId, reason: 'manual' } }
+        ? {
+            type: 'CardSuspended',
+            payload: { card_id: cardId, reason: suspendReason(backup, cardId) },
+          }
         : { type: 'CardUnsuspended', payload: { card_id: cardId } },
     );
     summary.suspensionsChanged += 1;
@@ -376,8 +385,8 @@ function planBackupReview(ctx: PlanContext, r: ReviewRecord, currentIds: Set<str
   }
 }
 
-function planReviews(ctx: PlanContext, undoNewer: boolean): void {
-  const { current, backup, steps, summary } = ctx;
+function planReviews(ctx: PlanContext): void {
+  const { current, backup, summary } = ctx;
   const currentReviews = allReviews(current);
   const currentIds = new Set(current.reviewIdToCardId.keys());
   for (const r of currentReviews) currentIds.add(r.review_id);
@@ -386,12 +395,7 @@ function planReviews(ctx: PlanContext, undoNewer: boolean): void {
   for (const r of backupReviews) planBackupReview(ctx, r, currentIds);
   for (const r of currentReviews) {
     if (backupIds.has(r.review_id) || current.undoneReviewIds.has(r.review_id)) continue;
-    if (undoNewer) {
-      steps.push({ type: 'ReviewUndone', payload: { review_id: r.review_id } });
-      summary.reviewsUndone += 1;
-    } else {
-      summary.reviewsKept += 1;
-    }
+    summary.reviewsKept += 1;
   }
 }
 
@@ -476,7 +480,7 @@ export function planBackupRestore(
   planMediaAndPreferences(ctx);
   planNotes(ctx);
   planSuspensions(ctx);
-  planReviews(ctx, options.undoNewerReviews === true);
+  planReviews(ctx);
   return { steps: ctx.steps, summary: ctx.summary };
 }
 

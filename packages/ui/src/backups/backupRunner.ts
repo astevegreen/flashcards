@@ -1,9 +1,9 @@
 import type { CollectionState, EventFactory, KnownEvent } from '@flash/core';
 import {
-  buildBackup,
+  buildBackupAsync,
   chooseBackupKind,
   isAutoBackupDue,
-  packBackup,
+  packBackupAsync,
   parseSyncFolderBackupPath,
   planBackupRestore,
   readBackupArchive,
@@ -127,16 +127,20 @@ export async function buildFullBackupFile(
   opts: { deviceId: string; collectionId?: string },
 ): Promise<Uint8Array> {
   const nowMs = Date.now();
-  const built = buildBackup(state, {
-    backupId: uuidv7(nowMs),
-    kind: 'full',
-    reason: 'manual',
-    nowMs,
-    deviceId: opts.deviceId,
-    ...(opts.collectionId !== undefined ? { collectionId: opts.collectionId } : {}),
-    mediaBlobs: await loadMediaBlobs(storage, state.media.keys()),
-  });
-  return packBackup(built, { withMedia: true }).bytes;
+  const built = await buildBackupAsync(
+    state,
+    {
+      backupId: uuidv7(nowMs),
+      kind: 'full',
+      reason: 'manual',
+      nowMs,
+      deviceId: opts.deviceId,
+      ...(opts.collectionId !== undefined ? { collectionId: opts.collectionId } : {}),
+      mediaBlobs: await loadMediaBlobs(storage, state.media.keys()),
+    },
+    yieldToHost,
+  );
+  return (await packBackupAsync(built, { withMedia: true })).bytes;
 }
 
 export interface TakeBackupResult {
@@ -146,55 +150,144 @@ export interface TakeBackupResult {
   syncCopyWritten?: boolean;
 }
 
+/** A snapshot that was not saved (low storage, or the write failed). Event writes are unaffected. */
+export class BackupNotSavedError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'BackupNotSavedError';
+  }
+}
+
+export const BACKUP_STATUS_KV_KEY = 'backup_status_v1';
+
+export interface BackupStatus {
+  /** Why the last snapshot was not saved; absent after a successful one. */
+  lastError?: string;
+  at: number;
+}
+
+export async function loadBackupStatus(storage: Storage): Promise<BackupStatus | undefined> {
+  return storage.getKv<BackupStatus>(BACKUP_STATUS_KV_KEY);
+}
+
+/** Free space a snapshot must leave: twice its size plus a margin, so event writes never run out. */
+const QUOTA_MARGIN_BYTES = 50 * 1024 * 1024;
+
+/** `navigator.storage.estimate()` where the platform has it; `null` elsewhere (native shells). */
+async function freeStorageBytes(): Promise<number | null> {
+  try {
+    const estimate = await globalThis.navigator?.storage?.estimate?.();
+    if (!estimate || typeof estimate.quota !== 'number' || typeof estimate.usage !== 'number') {
+      return null;
+    }
+    return estimate.quota - estimate.usage;
+  } catch {
+    return null;
+  }
+}
+
+/** Yields to the browser between the heavy steps of a snapshot (§8). */
+function yieldToHost(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 let inFlight: Promise<TakeBackupResult | null> | null = null;
 
-/** Takes one snapshot now, keeps it, prunes past the rolling window and copies it if asked. */
-export async function takeBackup(
+async function writeSnapshot(
   ctx: BackupContext,
+  store: BackupStore,
   reason: BackupReason,
-  opts: { kind?: BackupKind } = {},
-): Promise<TakeBackupResult | null> {
+  opts: { kind?: BackupKind; protect?: readonly string[] },
+): Promise<TakeBackupResult> {
   const storage = ctx.platform.storage;
-  const store = await openBackupStore(storage);
-  if (!store) return null;
-  const run = async (): Promise<TakeBackupResult> => {
-    const nowMs = Date.now();
-    const state = ctx.getState();
-    const meta = ctx.getMeta();
-    const existing = await store.list();
-    const kind = opts.kind ?? chooseBackupKind(existing, totalMediaBytes(state), nowMs);
-    const built = buildBackup(state, {
+  const nowMs = Date.now();
+  const state = ctx.getState();
+  const meta = ctx.getMeta();
+  const existing = await store.list();
+  const kind = opts.kind ?? chooseBackupKind(existing, totalMediaBytes(state), nowMs);
+  const mediaBlobs =
+    kind === 'full' ? await loadMediaBlobs(storage, state.media.keys()) : undefined;
+  const built = await buildBackupAsync(
+    state,
+    {
       backupId: uuidv7(nowMs),
       kind,
       reason,
       nowMs,
       deviceId: meta.deviceId,
       ...(meta.collectionId !== undefined ? { collectionId: meta.collectionId } : {}),
-      ...(kind === 'full' ? { mediaBlobs: await loadMediaBlobs(storage, state.media.keys()) } : {}),
-    });
-    const packed = packBackup(built, { withMedia: true });
-    const info: StoredBackupInfo = { ...packed.manifest, size_bytes: packed.bytes.byteLength };
+      ...(mediaBlobs ? { mediaBlobs } : {}),
+    },
+    yieldToHost,
+  );
+  const packed = await packBackupAsync(built, { withMedia: true });
+  const info: StoredBackupInfo = { ...packed.manifest, size_bytes: packed.bytes.byteLength };
+
+  // Make room first, then check what is left.
+  const prune = selectBackupsToPrune([...existing, info], {
+    nowMs,
+    protect: [info.backup_id, ...(opts.protect ?? [])],
+  });
+  for (const id of prune) await store.delete(id);
+  const free = await freeStorageBytes();
+  if (free !== null && free < info.size_bytes * 2 + QUOTA_MARGIN_BYTES) {
+    throw new BackupNotSavedError(
+      'Not enough free storage on this device for a backup. Download one, or free up space.',
+    );
+  }
+  try {
     await store.put(info, packed.bytes);
-    for (const id of selectBackupsToPrune([...existing, info])) {
-      await store.delete(id);
+  } catch (err) {
+    throw new BackupNotSavedError(
+      `The backup could not be saved: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
+  }
+
+  const result: TakeBackupResult = { info };
+  const settings = await loadBackupSettings(storage);
+  const provider = ctx.getSyncProvider();
+  if (settings.syncFolderCopy && provider !== 'none') {
+    try {
+      const transport = await resolveSyncFolderTransport(ctx.platform, provider);
+      if (!transport) throw new Error('The sync folder is not available right now.');
+      const copy = info.media_included
+        ? (await packBackupAsync(built, { withMedia: false })).bytes
+        : packed.bytes;
+      await transport.write(syncFolderBackupPath(meta.deviceId, nowMs), copy);
+      result.syncCopyWritten = true;
+    } catch (err) {
+      result.syncCopyError = err instanceof Error ? err.message : String(err);
     }
-    const result: TakeBackupResult = { info };
-    const settings = await loadBackupSettings(storage);
-    const provider = ctx.getSyncProvider();
-    if (settings.syncFolderCopy && provider !== 'none') {
-      try {
-        const transport = await resolveSyncFolderTransport(ctx.platform, provider);
-        if (!transport) throw new Error('The sync folder is not available right now.');
-        const copy = info.media_included
-          ? packBackup(built, { withMedia: false }).bytes
-          : packed.bytes;
-        await transport.write(syncFolderBackupPath(meta.deviceId, nowMs), copy);
-        result.syncCopyWritten = true;
-      } catch (err) {
-        result.syncCopyError = err instanceof Error ? err.message : String(err);
-      }
+  }
+  return result;
+}
+
+/**
+ * Takes one snapshot now, keeps it, prunes past the rolling window and copies it if asked. A
+ * snapshot that can't be saved throws {@link BackupNotSavedError} and is recorded for Settings;
+ * it never touches the event log, so a quota error here can't break normal edits.
+ */
+export async function takeBackup(
+  ctx: BackupContext,
+  reason: BackupReason,
+  opts: { kind?: BackupKind; protect?: readonly string[] } = {},
+): Promise<TakeBackupResult | null> {
+  const storage = ctx.platform.storage;
+  const store = await openBackupStore(storage);
+  if (!store) return null;
+  const run = async (): Promise<TakeBackupResult> => {
+    try {
+      const result = await writeSnapshot(ctx, store, reason, opts);
+      await storage.setKv(BACKUP_STATUS_KV_KEY, { at: Date.now() } satisfies BackupStatus);
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await storage
+        .setKv(BACKUP_STATUS_KV_KEY, { lastError: message, at: Date.now() } satisfies BackupStatus)
+        .catch(() => undefined);
+      throw err;
     }
-    return result;
   };
   const previous = inFlight ?? Promise.resolve(null);
   const next = previous.catch(() => null).then(run);
@@ -220,10 +313,20 @@ export async function runAutoBackupIfDue(ctx: BackupContext): Promise<TakeBackup
 
 const AUTO_BACKUP_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
-/** Checks now, every hour while the app runs, and when the app comes back to the foreground. */
-export function startAutoBackups(ctx: BackupContext): () => void {
+/**
+ * Checks now, every hour while the app runs, and when the app comes back to the foreground.
+ * `onPersistence` gets the answer to the persistent-storage request.
+ */
+export function startAutoBackups(
+  ctx: BackupContext,
+  onPersistence?: (granted: boolean) => void,
+): () => void {
   // Persistent storage keeps the browser from evicting the collection and its backups (§4.4).
-  ctx.platform.storage.requestPersistence().catch(() => false);
+  ctx.platform.storage
+    .requestPersistence()
+    .catch(() => false)
+    .then((granted) => onPersistence?.(granted))
+    .catch(() => undefined);
   const check = (): void => {
     runAutoBackupIfDue(ctx).catch((err: unknown) => {
       console.warn('Automatic backup failed', err);
@@ -279,13 +382,9 @@ export interface PreparedRestore {
 }
 
 /** Reads a backup archive and plans its restore against the current collection (no changes). */
-export function prepareRestore(
-  ctx: BackupContext,
-  bytes: Uint8Array,
-  opts: { undoNewerReviews?: boolean } = {},
-): PreparedRestore {
+export function prepareRestore(ctx: BackupContext, bytes: Uint8Array): PreparedRestore {
   const read = readBackupArchive(bytes);
-  const plan = planBackupRestore(ctx.getState(), read.state, opts);
+  const plan = planBackupRestore(ctx.getState(), read.state);
   return { read, plan };
 }
 
@@ -304,13 +403,16 @@ export interface RestoreResult {
 export async function applyRestore(
   ctx: RestoreContext,
   read: ReadBackupResult,
-  opts: { undoNewerReviews?: boolean } = {},
 ): Promise<RestoreResult> {
   const storage = ctx.platform.storage;
   const result: RestoreResult = { eventCount: 0, mediaMissing: 0 };
   const current = ctx.getState();
   if (current.decks.size > 0 || current.notes.size > 0) {
-    const pre = await takeBackup(ctx, 'pre-restore', { kind: 'daily' });
+    // Kept apart from the rolling snapshots; the backup being restored is never pruned for it.
+    const pre = await takeBackup(ctx, 'pre-restore', {
+      kind: 'daily',
+      protect: [read.manifest.backup_id],
+    });
     if (pre) result.preRestoreBackup = pre.info;
   }
   for (const hash of read.state.media.keys()) {
@@ -323,7 +425,7 @@ export async function applyRestore(
       result.mediaMissing += 1;
     }
   }
-  const plan = planBackupRestore(ctx.getState(), read.state, opts);
+  const plan = planBackupRestore(ctx.getState(), read.state);
   const events = restoreStepsToEvents(plan.steps, ctx.getEventFactory(), Date.now());
   ctx.emitEvents(events);
   result.eventCount = events.length;

@@ -374,7 +374,9 @@ export class DexieStorage implements Storage {
     return false;
   }
 
+  /** Clears the collection. Backups stay, and so does the media a kept backup lists. */
   async clearAll(): Promise<void> {
+    const backups = this.db.table<{ media_hashes?: unknown }, string>('backups');
     await this.db.transaction(
       'rw',
       [
@@ -384,12 +386,19 @@ export class DexieStorage implements Storage {
         this.db.media,
         this.db.snapshots,
         this.db.kv,
+        backups,
       ],
       async () => {
+        const keep = new Set<string>();
+        for (const info of await backups.toArray()) {
+          if (!Array.isArray(info.media_hashes)) continue;
+          for (const h of info.media_hashes) if (typeof h === 'string') keep.add(h.toLowerCase());
+        }
         await this.db.events.clear();
         await this.db.cards_cache.clear();
         await this.db.meta.clear();
-        await this.db.media.clear();
+        if (keep.size === 0) await this.db.media.clear();
+        else await this.db.media.filter((m) => !keep.has(m.hash.toLowerCase())).delete();
         await this.db.snapshots.clear();
         await this.db.kv.clear();
       },

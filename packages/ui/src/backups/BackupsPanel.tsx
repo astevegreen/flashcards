@@ -1,4 +1,9 @@
-import { planBackupRestore, type RestoreSummary } from '@flash/core/backup';
+import {
+  anyBackupHoldsMedia,
+  FULL_BACKUP_MAX_MEDIA_BYTES,
+  planBackupRestore,
+  type RestoreSummary,
+} from '@flash/core/backup';
 import type { StoredBackupInfo } from '@flash/platform';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
@@ -6,6 +11,7 @@ import {
   applyRestore,
   listSyncFolderBackups,
   loadBackupSettings,
+  loadBackupStatus,
   prepareRestore,
   readSyncFolderBackup,
   saveBackupSettings,
@@ -41,6 +47,20 @@ function backupSavedMessage(result: TakeBackupResult): string {
   }
   if (result.syncCopyWritten) return 'Backup saved on this device and in the sync folder.';
   return 'Backup saved on this device.';
+}
+
+/** Says when no kept snapshot holds the images and audio (none yet, or too much for one). */
+function backupMediaNotice(
+  state: { media: ReadonlyMap<string, { size: number }> },
+  backups: readonly StoredBackupInfo[],
+): string | null {
+  if (state.media.size === 0 || anyBackupHoldsMedia(backups)) return null;
+  let total = 0;
+  for (const m of state.media.values()) total += Math.max(0, m.size);
+  if (total > FULL_BACKUP_MAX_MEDIA_BYTES) {
+    return `Your images and audio (${formatBytes(total)}) are too large for the automatic backups, so none of them holds media. Download a backup to keep a copy with media, or use sync.`;
+  }
+  return 'None of the kept backups holds your images and audio yet. The weekly backup will; Download adds them to any backup.';
 }
 
 function plural(n: number, one: string, many = `${one}s`): string {
@@ -91,6 +111,8 @@ export function BackupsPanel() {
     emitEvents,
     getEventFactory,
     markBackupCompleted,
+    syncNow,
+    clearUndoStack,
   } = useApp();
   const storage = platform.storage;
   const supported = typeof storage.openBackupStore === 'function';
@@ -102,7 +124,7 @@ export function BackupsPanel() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingRestore | null>(null);
-  const [undoNewer, setUndoNewer] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -128,6 +150,7 @@ export function BackupsPanel() {
   const refresh = useCallback(async () => {
     const store = await openBackupStore(storage);
     if (store) setBackups(await store.list());
+    setLastError((await loadBackupStatus(storage))?.lastError ?? null);
   }, [storage]);
 
   useEffect(() => {
@@ -151,29 +174,41 @@ export function BackupsPanel() {
 
   const backUpNow = () =>
     run(async () => {
-      const result = await takeBackup(ctx(), 'manual');
-      await refresh();
-      if (!result) return;
-      setStatus(backupSavedMessage(result));
+      try {
+        const result = await takeBackup(ctx(), 'manual');
+        if (result) setStatus(backupSavedMessage(result));
+      } finally {
+        await refresh();
+      }
     });
 
-  const preview = (label: string, bytes: Uint8Array) => {
-    const prepared = prepareRestore(ctx(), bytes, { undoNewerReviews: undoNewer });
-    setPending({ label, prepared });
+  /** Pulls other devices' changes first, so the plan starts from the newest collection. */
+  const syncFirst = async (): Promise<void> => {
+    if (!syncing) return;
+    try {
+      await syncNow();
+    } catch {
+      // Planning still works on this device's view; the confirmation says so.
+    }
+  };
+
+  const preview = async (label: string, bytes: Uint8Array) => {
+    await syncFirst();
+    setPending({ label, prepared: prepareRestore(ctx(), bytes) });
   };
 
   const previewLocal = (info: StoredBackupInfo) =>
     run(async () => {
       const bytes = await (await openBackupStore(storage))?.getBytes(info.backup_id);
       if (!bytes) throw new Error('This backup is no longer on the device.');
-      preview(new Date(info.created_at).toLocaleString(), bytes);
+      await preview(new Date(info.created_at).toLocaleString(), bytes);
     });
 
   const previewRemote = (entry: SyncFolderBackupEntry) =>
     run(async () => {
       const bytes = await readSyncFolderBackup(ctx(), entry.path);
       const when = entry.updatedAt ? new Date(entry.updatedAt).toLocaleString() : entry.path;
-      preview(`${when} (sync folder, ${entry.deviceId})`, bytes);
+      await preview(`${when} (sync folder, ${entry.deviceId})`, bytes);
     });
 
   const previewFile = () =>
@@ -181,7 +216,7 @@ export function BackupsPanel() {
       const picked = await platform.files.pickFile({ accept: '.flashpkg,.zip' });
       if (!picked) return;
       try {
-        preview(picked.name, picked.bytes);
+        await preview(picked.name, picked.bytes);
       } catch (err) {
         throw new Error(
           `${err instanceof Error ? err.message : String(err)} A .flashpkg without review history can still be imported with "Restore .flashpkg".`,
@@ -190,7 +225,7 @@ export function BackupsPanel() {
       }
     });
 
-  // The preview follows the collection (a sync can land while it is open) and the checkbox.
+  // The preview follows the collection (a sync can land while it is open).
   useEffect(() => {
     setPending((p) =>
       p
@@ -198,25 +233,24 @@ export function BackupsPanel() {
             label: p.label,
             prepared: {
               read: p.prepared.read,
-              plan: planBackupRestore(stateRef.current, p.prepared.read.state, {
-                undoNewerReviews: undoNewer,
-              }),
+              plan: planBackupRestore(stateRef.current, p.prepared.read.state),
             },
           }
         : p,
     );
-  }, [stateVersion, undoNewer]);
+  }, [stateVersion]);
 
   const confirmRestore = () =>
     run(async () => {
       if (!pending) return;
+      await syncFirst();
       const result = await applyRestore(
         { ...ctx(), emitEvents, getEventFactory },
         pending.prepared.read,
-        { undoNewerReviews: undoNewer },
       );
+      // Undoing a review from before the restore would act on a collection that changed.
+      clearUndoStack();
       setPending(null);
-      setUndoNewer(false);
       await refresh();
       const parts = [
         result.eventCount === 0
@@ -276,6 +310,7 @@ export function BackupsPanel() {
     });
 
   if (!supported) return null;
+  const mediaNotice = backupMediaNotice(state, backups);
   const lines = pending ? describeRestoreSummary(pending.prepared.plan.summary) : [];
   const summary = pending?.prepared.plan.summary;
   const differentCollection =
@@ -315,6 +350,23 @@ export function BackupsPanel() {
           </button>
         </div>
       </div>
+
+      {lastError && (
+        <p
+          data-testid="backup-last-error"
+          className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+        >
+          The last backup was not saved. {lastError}
+        </p>
+      )}
+      {mediaNotice && (
+        <p
+          data-testid="backup-media-notice"
+          className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+        >
+          {mediaNotice}
+        </p>
+      )}
 
       {persisted === false && (
         <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
@@ -379,23 +431,14 @@ export function BackupsPanel() {
               stay undone.
             </p>
           )}
-          {(summary.reviewsKept > 0 || undoNewer) && (
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={undoNewer}
-                onChange={(e) => setUndoNewer(e.target.checked)}
-                className="h-4 w-4"
-              />
-              <span>
-                Also undo the reviews made after this backup
-                {summary.reviewsKept > 0 ? ` (${summary.reviewsKept.toLocaleString()})` : ''}
-              </span>
-            </label>
+          {summary.reviewsKept > 0 && (
+            <p>
+              {plural(summary.reviewsKept, 'review')} made after this backup stay in your history.
+            </p>
           )}
           <p className="text-[var(--muted)]">
             {syncing
-              ? 'The restore is saved as new changes, so it reaches every device that syncs with this collection. '
+              ? 'The restore is saved as new changes, so it reaches every device that syncs with this collection. Edits made on a device that has not synced yet may survive it. '
               : ''}
             Nothing is deleted: notes and decks the backup doesn't have are archived. A backup of
             the collection as it is now is saved first, so you can go back.
@@ -412,10 +455,7 @@ export function BackupsPanel() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => {
-                setPending(null);
-                setUndoNewer(false);
-              }}
+              onClick={() => setPending(null)}
               className="rounded-xl border border-[var(--border)] px-3 py-2 font-semibold hover:bg-[var(--surface-2)]"
             >
               Cancel

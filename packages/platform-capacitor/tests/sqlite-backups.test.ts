@@ -59,4 +59,34 @@ describe.each([
     expect((await store.list()).map((b) => b.backup_id)).toEqual(['new']);
     expect(await store.getBytes('old')).toBeUndefined();
   });
+
+  it('stores a large archive in chunks and reads it back whole', async () => {
+    const storage = await make();
+    const store = await storage.openBackupStore();
+    const big = new Uint8Array(2.5 * 1024 * 1024);
+    for (let i = 0; i < big.length; i++) big[i] = i % 251;
+    await store.put(info('big', 3), big);
+    const back = await store.getBytes('big');
+    expect(back?.byteLength).toBe(big.byteLength);
+    expect(back?.[big.length - 1]).toBe(big[big.length - 1]);
+    expect(back?.[1024 * 1024 + 7]).toBe(big[1024 * 1024 + 7]);
+    // Rewriting with fewer bytes leaves no stale chunk behind.
+    await store.put(info('big', 3), new Uint8Array([7, 8]));
+    expect([...((await store.getBytes('big')) ?? [])]).toEqual([7, 8]);
+    await store.delete('big');
+    expect(await store.getBytes('big')).toBeUndefined();
+  });
+
+  it('keeps the media a kept backup lists across clearAll', async () => {
+    const storage = await make();
+    const kept = 'ab'.repeat(32);
+    const dropped = 'cd'.repeat(32);
+    for (const hash of [kept, dropped]) {
+      await storage.putMedia({ hash, mime: 'image/png', bytes: new Uint8Array([1]) });
+    }
+    const store = await storage.openBackupStore();
+    await store.put(info('daily', 1), new Uint8Array([1]));
+    await storage.clearAll();
+    expect(await storage.listMediaHashes()).toEqual([kept]);
+  });
 });

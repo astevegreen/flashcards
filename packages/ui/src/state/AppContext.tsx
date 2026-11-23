@@ -114,6 +114,8 @@ export interface AppContextValue {
     options?: { typedAnswer?: string },
   ) => void;
   undoLastReview: () => boolean;
+  /** Forgets the study undo history (after a restore changed the collection under it). */
+  clearUndoStack: () => void;
   updateNote: (note: Note, fields: Record<string, string>, tags: string[]) => void;
   setNoteArchived: (noteId: string, archived: boolean) => void;
   markNoteReviewed: (note: Note) => void;
@@ -1010,6 +1012,7 @@ export function AppProvider({
     entitlement,
     refreshEntitlement,
     undoStack,
+    clearUndoStack: () => setUndoStack([]),
     activeDeckId,
     setActiveDeckId,
     showBackupBanner,

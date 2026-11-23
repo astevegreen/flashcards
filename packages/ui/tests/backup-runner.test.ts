@@ -14,7 +14,9 @@ import { DexieStorage } from '../../platform-web/src/storage/dexie-storage.ts';
 import { InMemorySyncTransport } from '../../platform-web/src/sync/in-memory-transport.ts';
 import {
   applyRestore,
+  BackupNotSavedError,
   listSyncFolderBackups,
+  loadBackupStatus,
   prepareRestore,
   readSyncFolderBackup,
   runAutoBackupIfDue,
@@ -27,6 +29,7 @@ import {
 const opened: DexieStorage[] = [];
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   for (const storage of opened.splice(0)) storage.close();
 });
 
@@ -120,5 +123,69 @@ describe('rolling backups on a device', () => {
       'pre-restore',
       'manual',
     ]);
+  });
+
+  it('keeps pre-restore snapshots outside the rolling 14 and never prunes the one restored', async () => {
+    const { storage, ctx } = setup();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    let now = Date.UTC(2026, 10, 1, 9);
+    for (let i = 0; i < 14; i++) {
+      vi.setSystemTime(now);
+      await takeBackup(ctx, 'manual');
+      now += DAY;
+    }
+    const store = await storage.openBackupStore();
+    const oldest = (await store.list()).at(-1);
+    if (!oldest) throw new Error('setup failed');
+    const bytes = await store.getBytes(oldest.backup_id);
+    for (let i = 0; i < 4; i++) {
+      vi.setSystemTime(now + i * 1000);
+      await applyRestore(ctx, prepareRestore(ctx, bytes ?? new Uint8Array()).read);
+    }
+    const kept = await store.list();
+    expect(kept.filter((b) => b.reason === 'manual')).toHaveLength(14);
+    expect(kept.filter((b) => b.reason === 'pre-restore')).toHaveLength(3);
+    expect(kept.some((b) => b.backup_id === oldest.backup_id)).toBe(true);
+  });
+
+  it('skips a snapshot on low storage, records why, and leaves the collection alone', async () => {
+    const { storage, ctx, state } = setup();
+    vi.stubGlobal('navigator', {
+      storage: { estimate: () => Promise.resolve({ quota: 10_000_000, usage: 9_000_000 }) },
+    });
+    const notesBefore = state.current.notes.size;
+    await expect(takeBackup(ctx, 'manual')).rejects.toBeInstanceOf(BackupNotSavedError);
+    expect(await (await storage.openBackupStore()).list()).toHaveLength(0);
+    expect((await loadBackupStatus(storage))?.lastError).toMatch(/Not enough free storage/);
+    expect(state.current.notes.size).toBe(notesBefore);
+
+    vi.unstubAllGlobals();
+    expect(await takeBackup(ctx, 'manual')).not.toBeNull();
+    expect((await loadBackupStatus(storage))?.lastError).toBeUndefined();
+  });
+
+  it('after a Reset, a daily backup restores with its media still on the device', async () => {
+    const { storage, ctx, factory, state } = setup();
+    const hash = 'c'.repeat(64);
+    await storage.putMedia({ hash, mime: 'image/png', bytes: new Uint8Array([1, 2, 3]) });
+    ctx.emitEvents([
+      factory.create(
+        'MediaAdded',
+        { media: { hash, ext: 'png', mime: 'image/png', size: 3 } },
+        Date.now(),
+      ),
+    ]);
+    const taken = await takeBackup(ctx, 'manual', { kind: 'daily' });
+    expect(taken?.info.media_included).toBe(false);
+    expect(taken?.info.media_hashes).toEqual([hash]);
+
+    // Reset: the collection goes, the backups and the media they list stay.
+    await storage.clearAll();
+    state.current = createEmptyState();
+    const bytes = await (await storage.openBackupStore()).getBytes(taken?.info.backup_id ?? '');
+    const result = await applyRestore(ctx, prepareRestore(ctx, bytes ?? new Uint8Array()).read);
+    expect(result.mediaMissing).toBe(0);
+    expect((await storage.getMedia(hash))?.bytes).toEqual(new Uint8Array([1, 2, 3]));
+    expect(state.current.media.has(hash)).toBe(true);
   });
 });

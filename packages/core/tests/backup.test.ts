@@ -3,12 +3,15 @@ import {
   BackupArchiveError,
   BACKUP_KEEP_COUNT,
   buildBackup,
+  buildBackupAsync,
   chooseBackupKind,
   FULL_BACKUP_INTERVAL_MS,
   isAutoBackupDue,
   mediaHashesUsedByBackups,
   packBackup,
+  packBackupAsync,
   parseSyncFolderBackupPath,
+  PRE_RESTORE_KEEP_COUNT,
   planBackupRestore,
   readBackupArchive,
   restoreStepsToEvents,
@@ -28,6 +31,7 @@ import {
 } from '../src/events/replay.ts';
 import type { FlashEvent, KnownEvent } from '../src/events/types.ts';
 import { createHlcState } from '../src/hlc.ts';
+import type { Note } from '../src/model/types.ts';
 import { encodeUtf8 } from '../src/ids.ts';
 import { exportFlashpkg, importFlashpkg } from '../src/import/flashpkg.ts';
 import { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } from '../src/samples/decks.ts';
@@ -125,9 +129,8 @@ function restore(
   current: CollectionState,
   backup: CollectionState,
   factory: EventFactory,
-  opts: { undoNewerReviews?: boolean } = {},
 ): KnownEvent[] {
-  const plan = planBackupRestore(current, backup, { ...opts, nowMs: T0 + 10 * DAY });
+  const plan = planBackupRestore(current, backup, { nowMs: T0 + 10 * DAY });
   const events = restoreStepsToEvents(plan.steps, factory, T0 + 10 * DAY);
   applyEvents(current, events);
   return events;
@@ -195,8 +198,36 @@ describe('backup policy', () => {
     expect(isAutoBackupDue(old, state, T0, 'other')).toBe(true);
     const changed = [info('a', T0 - DAY, { total_events: total - 1, collection_id: 'c' })];
     expect(isAutoBackupDue(changed, state, T0, 'c')).toBe(true);
-    // A snapshot stamped far in the future (wrong clock) does not block backups forever.
-    expect(isAutoBackupDue([info('a', T0 + 5 * DAY, { total_events: 0 })], state, T0)).toBe(true);
+  });
+
+  it('ignores snapshots stamped in the future by a wrong clock, without churning', () => {
+    const { state } = buildCollection();
+    const total = state.snapshotEventCount + state.appliedEventIds.size;
+    const future = info('future', T0 + 30 * DAY, { total_events: 0 });
+    // The future one never counts as "newest", so a snapshot is due now...
+    expect(isAutoBackupDue([future], state, T0)).toBe(true);
+    // ...and once a sane one exists, the hourly checks are quiet again.
+    const sane = info('sane', T0, { total_events: total });
+    for (let hour = 1; hour < 20; hour++) {
+      expect(isAutoBackupDue([future, sane], state, T0 + hour * 60 * 60 * 1000)).toBe(false);
+    }
+    // Future-stamped snapshots were taken earlier in real time: they go first when pruning.
+    const daily = Array.from({ length: BACKUP_KEEP_COUNT }, (_, i) => info(`d${i}`, T0 - i * DAY));
+    expect(selectBackupsToPrune([future, ...daily], { nowMs: T0 })).toEqual(['future']);
+  });
+
+  it('keeps pre-restore snapshots apart and never prunes the backup being restored', () => {
+    const daily = Array.from({ length: BACKUP_KEEP_COUNT }, (_, i) => info(`d${i}`, T0 - i * DAY));
+    const pre = Array.from({ length: PRE_RESTORE_KEEP_COUNT + 2 }, (_, i) =>
+      info(`p${i}`, T0 + 1000 - i, { reason: 'pre-restore' }),
+    );
+    const pruned = selectBackupsToPrune([...daily, ...pre], { nowMs: T0 + 2000 });
+    // The rolling 14 are untouched; only the oldest pre-restore snapshots go.
+    expect(pruned).toEqual(['p3', 'p4']);
+    const oldest = `d${BACKUP_KEEP_COUNT - 1}`;
+    const withNew = [...daily, info('new', T0 + 5000)];
+    expect(selectBackupsToPrune(withNew, { nowMs: T0 + 5000 })).toEqual([oldest]);
+    expect(selectBackupsToPrune(withNew, { nowMs: T0 + 5000, protect: [oldest] })).toEqual([]);
   });
 
   it('takes a full snapshot weekly unless the media is too large', () => {
@@ -212,7 +243,7 @@ describe('backup policy', () => {
     const list = Array.from({ length: 20 }, (_, i) =>
       info(`d${i}`, T0 - i * DAY, i === 16 ? { kind: 'full', media_included: true } : {}),
     );
-    const pruned = selectBackupsToPrune(list);
+    const pruned = selectBackupsToPrune(list, { nowMs: T0 });
     expect(pruned).toHaveLength(20 - BACKUP_KEEP_COUNT - 1);
     expect(pruned).not.toContain('d16');
     expect(pruned).not.toContain('d0');
@@ -237,6 +268,87 @@ describe('backup policy', () => {
   });
 });
 
+function noteUpsertOf(note: Note) {
+  return {
+    note_id: note.id,
+    deck_id: note.deck_id,
+    source_key: note.source_key,
+    fields: note.fields,
+    tags: note.tags,
+  };
+}
+
+describe('backup archive validation and async packing', () => {
+  it('packs the same snapshot off the UI thread, media stored uncompressed', async () => {
+    const { state } = buildCollection();
+    const options = {
+      backupId: 'b-async',
+      kind: 'full' as const,
+      reason: 'auto' as const,
+      nowMs: T0,
+      deviceId: 'dev-a',
+      mediaBlobs: new Map([[PNG_HASH, PNG]]),
+    };
+    let pauses = 0;
+    const built = await buildBackupAsync(state, options, async () => {
+      pauses += 1;
+    });
+    expect(pauses).toBeGreaterThan(0);
+    const packed = await packBackupAsync(built, { withMedia: true });
+    const read = readBackupArchive(packed.bytes);
+    expect(read.manifest.media_included).toBe(true);
+    expect(read.media.get(PNG_HASH)?.bytes).toEqual(PNG);
+    expect(activeNotes(read.state)).toEqual(activeNotes(state));
+  });
+
+  it('rejects a malformed state.json before any of it becomes an event', () => {
+    const { state } = buildCollection();
+    const tamper = (edit: (raw: Record<string, unknown>) => void) => {
+      const built = buildBackup(state, {
+        backupId: 'b-bad',
+        kind: 'daily',
+        reason: 'auto',
+        nowMs: T0,
+        deviceId: 'dev-a',
+      });
+      const raw = JSON.parse(
+        new TextDecoder().decode(built.entries['backup/state.json']),
+      ) as Record<string, unknown>;
+      edit(raw);
+      built.entries['backup/state.json'] = encodeUtf8(JSON.stringify(raw));
+      return () => readBackupArchive(packBackup(built, { withMedia: false }).bytes);
+    };
+    const notes = (raw: Record<string, unknown>) => raw['notes'] as Record<string, unknown>[];
+    const firstReviews = (raw: Record<string, unknown>) =>
+      Object.values(raw['reviewsByCard'] as Record<string, Record<string, unknown>[]>)[0] ?? [];
+    expect(
+      tamper((raw) => {
+        const n = notes(raw)[0];
+        if (n) n['fields'] = { front: 42 };
+      }),
+    ).toThrow(BackupArchiveError);
+    expect(
+      tamper((raw) => {
+        const r = firstReviews(raw)[0];
+        if (r) r['rating'] = 9;
+      }),
+    ).toThrow(/rating/);
+    expect(
+      tamper((raw) => {
+        const r = firstReviews(raw)[0];
+        if (r) r['reviewed_at'] = null;
+      }),
+    ).toThrow(BackupArchiveError);
+    expect(
+      tamper((raw) => {
+        raw['decks'] = 'nope';
+      }),
+    ).toThrow(BackupArchiveError);
+    // The untouched archive still reads.
+    expect(() => tamper(() => undefined)()).not.toThrow();
+  });
+});
+
 describe('backup restore', () => {
   it('rebuilds the whole collection on an empty device', () => {
     const { state } = buildCollection();
@@ -250,7 +362,7 @@ describe('backup restore', () => {
     expect(planBackupRestore(fresh, read.state).steps).toHaveLength(0);
   });
 
-  it('undoes a bad import, a deletion and an edit, keeping newer reviews unless asked', () => {
+  it('undoes a bad import, a deletion and an edit, and keeps newer reviews', () => {
     const { state, factory } = buildCollection();
     const read = readBackupArchive(backupOf(state).bytes);
     const notes = [...state.notes.values()];
@@ -303,10 +415,44 @@ describe('backup restore', () => {
     expect(kept.notes.get(edited.id)?.fields['junk']).toBe('');
     expect(kept.decks.get(deck.id)?.name).toBe(deckName);
     expect(kept.reviewsByCard.get(newerCard)?.length).toBe(1);
+    expect(kept.undoneReviewIds.size).toBe(state.undoneReviewIds.size);
+    expect(planBackupRestore(kept, read.state).steps).toHaveLength(0);
+  });
 
-    restore(state, read.state, factory, { undoNewerReviews: true });
-    expect(schedules(state)).toEqual(schedules(read.state));
-    expect(planBackupRestore(state, read.state, { undoNewerReviews: true }).steps).toHaveLength(0);
+  it('brings a leech suspension back as a leech one', () => {
+    const { state, factory } = buildCollection();
+    const card = [...state.cards.values()][5];
+    const note = card ? state.notes.get(card.note_id) : undefined;
+    if (!card || !note) throw new Error('sample data changed');
+    applyEvents(state, [
+      factory.create('NoteTagsAdded', { note_id: note.id, tags: ['leech'], reason: 'leech' }, T0),
+      factory.create('CardSuspended', { card_id: card.id, reason: 'leech' }, T0),
+    ]);
+    const read = readBackupArchive(backupOf(state).bytes);
+    applyEvents(state, [factory.create('CardUnsuspended', { card_id: card.id }, T0 + DAY)]);
+    const step = planBackupRestore(state, read.state).steps.find((s) => s.type === 'CardSuspended');
+    expect(step?.payload).toEqual({ card_id: card.id, reason: 'leech' });
+  });
+
+  it('restores while another device edits offline: both converge, the offline edit survives', () => {
+    const { events, state, factory } = buildCollection();
+    const read = readBackupArchive(backupOf(state).bytes);
+    const note = [...state.notes.values()][3];
+    if (!note) throw new Error('sample data changed');
+    const b = factoryFor('dev-b');
+    const deviceB = applyEvents(createEmptyState(), events);
+    // Device B edits offline before the restore; device A has not seen it.
+    const offlineEdit = b.create(
+      'NoteUpserted',
+      { ...noteUpsertOf(note), fields: { ...note.fields, extra: 'offline' } },
+      T0 + 3 * DAY,
+    );
+    applyEvents(deviceB, [offlineEdit]);
+    const restoreEvents = restore(state, read.state, factory);
+    applyEvents(state, [offlineEdit]);
+    applyEvents(deviceB, restoreEvents);
+    expect(activeNotes(deviceB)).toEqual(activeNotes(state));
+    expect(state.notes.get(note.id)?.fields['extra']).toBe('offline');
   });
 
   it('converges: a device that never saw the damage ends in the same state', () => {
