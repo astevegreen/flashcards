@@ -81,12 +81,12 @@ function normalizeHeader(header: string): string {
 /** `category 2` / `category2` / `예문1` -> `category` / `예문` (the trailing number dropped). */
 function headerBase(norm: string): string {
   let end = norm.length;
-  while (end > 0 && isAsciiDigit(norm.charCodeAt(end - 1))) end -= 1;
+  while (end > 0 && isAsciiDigit(norm[end - 1] ?? '')) end -= 1;
   return norm.slice(0, end).trim();
 }
 
-function isAsciiDigit(code: number): boolean {
-  return code >= 0x30 && code <= 0x39;
+function isAsciiDigit(ch: string): boolean {
+  return ch >= '0' && ch <= '9';
 }
 
 /** `Text 3` (Flashcards Deluxe positional column) -> 2. */
