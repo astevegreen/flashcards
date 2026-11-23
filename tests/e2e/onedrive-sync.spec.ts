@@ -156,6 +156,18 @@ test.describe('Phase 12 OneDrive storage connector (fake Graph)', () => {
     await page.getByRole('button', { name: 'Study' }).first().click();
     await page.getByLabel('Select deck to study').selectOption({ label: 'Linked' });
     await expect(page.getByTestId('count-new')).toHaveText('3');
+
+    // Unlink keeps the deck and its cards; the row stays gone after the panel reloads.
+    await page.getByRole('button', { name: 'Library' }).first().click();
+    await row.getByRole('button', { name: 'Unlink' }).click();
+    await expect(page.getByText('Source unlinked.')).toBeVisible();
+    await expect(row).toHaveCount(0);
+    await page.getByRole('button', { name: 'Study' }).first().click();
+    await page.getByLabel('Select deck to study').selectOption({ label: 'Linked' });
+    await expect(page.getByTestId('count-new')).toHaveText('3');
+    await page.getByRole('button', { name: 'Library' }).first().click();
+    await expect(page.getByTestId('sources-panel')).toBeVisible();
+    await expect(row).toHaveCount(0);
     await context.close();
   });
 

@@ -237,6 +237,8 @@ export interface LinkedGoogleSource {
   columnMap?: SourceColumnMapping[];
   readOnly?: boolean;
   lastModifiedTime?: string;
+  /** The last refresh left the Sheet alone because its deck is archived (`lastError` says so). */
+  skipReason?: 'archived';
   lastSyncedAt?: number;
   lastStatus?: SourceSyncStatus;
   lastError?: string;
@@ -269,6 +271,12 @@ export interface LinkedOneDriveSource {
   columnMapUnsaved?: true;
   /** Content tag at the last pull; an unchanged tag skips the download. */
   contentTag?: string;
+  /**
+   * Why the last refresh left the file alone on this device (`lastError` says it in words):
+   * `archived` = its deck is archived; `unreadable` = an `.xlsx` this device cannot read (phone
+   * and Tauri shells). Cleared by the next pull that lands.
+   */
+  skipReason?: 'archived' | 'unreadable';
   lastSyncedAt?: number;
   lastStatus?: SourceSyncStatus;
   lastError?: string;
@@ -361,7 +369,11 @@ export interface SourcesRegistry {
   googleSources: LinkedGoogleSource[];
   /** Absent in registries saved before linked OneDrive sources existed. */
   oneDriveSources?: LinkedOneDriveSource[];
-  /** OneDrive item ids unlinked on this device; their synced decks are not re-listed as sources. */
+  /**
+   * Legacy (PR #19 builds): OneDrive item ids unlinked on this device only; their synced decks
+   * are not re-listed as sources. Unlink now emits `SourceUnlinked`, which reaches every device,
+   * so this is only read (and cleared when the file is linked again), never added to.
+   */
   unlinkedOneDriveIds?: string[];
   localFolders: LinkedLocalFolder[];
   packageSubscriptions: PackageSubscription[];
