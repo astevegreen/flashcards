@@ -231,6 +231,17 @@ export function exportFlashpkg(
   state: CollectionState,
   options: FlashpkgExportOptions = {},
 ): Uint8Array {
+  return zipSync(exportFlashpkgFiles(state, options), { level: 6 });
+}
+
+/**
+ * The entries of the archive {@link exportFlashpkg} writes (path -> bytes), before zipping.
+ * Rolling backups add their own entries next to these (`backup/`), which importers ignore.
+ */
+export function exportFlashpkgFiles(
+  state: CollectionState,
+  options: FlashpkgExportOptions = {},
+): Record<string, Uint8Array> {
   const noteSubset = options.noteIds === undefined ? undefined : new Set(options.noteIds);
   const scope = resolveExportScope(state, options, noteSubset);
   const targetDecks = [...state.decks.values()].filter(
@@ -413,7 +424,7 @@ export function exportFlashpkg(
     }
   }
 
-  return zipSync(files, { level: 6 });
+  return files;
 }
 
 function parseJsonFile(files: Map<string, Uint8Array>, path: string): unknown {

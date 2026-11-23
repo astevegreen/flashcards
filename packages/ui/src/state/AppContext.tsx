@@ -240,11 +240,6 @@ export function AppProvider({
     void refreshEntitlement();
   }, [refreshEntitlement]);
 
-  // Request persistent storage on first launch (§4.4)
-  useEffect(() => {
-    void platform.storage.requestPersistence();
-  }, [platform.storage]);
-
   // Phase 14 add-device link (`?sync=<provider>&col=<collection id>`): read and stripped from
   // the address bar once per page load. Its collection id is kept on this device until the first
   // sync confirms the new device reached that collection (it survives the sign-in redirect).
@@ -960,13 +955,12 @@ export function AppProvider({
   }, [audio, enqueuePersist, platform, refreshEntitlement, syncController]);
 
   const showBackupBanner = useMemo(() => {
-    // Auto-hide weekly backup reminder once cloud or local-folder sync is connected and active (§4.4)
+    // Auto-hide weekly backup reminder once cloud or local-folder sync is connected and active
+    // (§4.4). Automatic backups stay on the device, so they never hide it.
+    const provider = syncController.syncState.provider;
     if (
-      (syncController.syncState.provider === 'google_drive' ||
-        syncController.syncState.provider === 'dropbox' ||
-        syncController.syncState.provider === 'onedrive' ||
-        syncController.syncState.provider === 'local_folder' ||
-        syncController.syncState.provider === 'icloud') &&
+      provider !== 'none' &&
+      provider !== 'dev_channel' &&
       syncController.syncState.status !== 'reconnect_required'
     ) {
       return false;

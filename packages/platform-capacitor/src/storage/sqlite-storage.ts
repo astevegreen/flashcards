@@ -3,7 +3,9 @@ import type {
   DeviceMeta,
   LocalSnapshotRecord,
   MaterializedCardRow,
+  BackupStore,
   MediaBlob,
+  StoredBackupInfo,
   Storage,
   SyncConfig,
 } from '@flash/platform';
@@ -46,6 +48,12 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS kv (
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS backups (
+    backup_id TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    info_json TEXT NOT NULL,
+    bytes_b64 TEXT NOT NULL
   )`,
 ] as const;
 
@@ -144,6 +152,10 @@ export class InMemorySqliteDriver implements SqliteDriver {
   >();
   private media = new Map<string, { hash: string; mime: string; bytes_b64: string }>();
   private kv = new Map<string, string>();
+  private backups = new Map<
+    string,
+    { backup_id: string; created_at: number; info_json: string; bytes_b64: string }
+  >();
 
   async execute(sql: string, params: readonly unknown[] = []): Promise<void> {
     const norm = sql.trim().replace(/\s+/g, ' ');
@@ -197,6 +209,20 @@ export class InMemorySqliteDriver implements SqliteDriver {
     }
     if (norm.startsWith('INSERT OR REPLACE INTO kv')) {
       this.kv.set(String(params[0] ?? ''), String(params[1] ?? 'null'));
+      return;
+    }
+    if (norm.startsWith('INSERT OR REPLACE INTO backups')) {
+      const backupId = String(params[0] ?? '');
+      this.backups.set(backupId, {
+        backup_id: backupId,
+        created_at: Number(params[1] ?? 0),
+        info_json: String(params[2] ?? 'null'),
+        bytes_b64: String(params[3] ?? ''),
+      });
+      return;
+    }
+    if (norm.startsWith('DELETE FROM backups WHERE backup_id =')) {
+      this.backups.delete(String(params[0] ?? ''));
       return;
     }
     if (norm.startsWith('DELETE FROM kv WHERE key =')) {
@@ -262,6 +288,15 @@ export class InMemorySqliteDriver implements SqliteDriver {
     }
     if (norm.startsWith('SELECT hash FROM media')) {
       return [...this.media.keys()].map((hash) => ({ hash }) as T);
+    }
+    if (norm.startsWith('SELECT info_json FROM backups')) {
+      return [...this.backups.values()]
+        .sort((a, b) => b.created_at - a.created_at)
+        .map((r) => ({ info_json: r.info_json }) as T);
+    }
+    if (norm.startsWith('SELECT bytes_b64 FROM backups WHERE backup_id = ?')) {
+      const row = this.backups.get(String(params[0] ?? ''));
+      return row ? ([{ bytes_b64: row.bytes_b64 }] as T[]) : [];
     }
     if (norm.startsWith('SELECT value_json FROM kv WHERE key = ?')) {
       const raw = this.kv.get(String(params[0] ?? ''));
@@ -498,6 +533,37 @@ export class CapacitorSqliteStorage implements Storage {
     await this.ensureReady();
     const rows = await this.driver.query<{ hash: string }>(`SELECT hash FROM media`);
     return rows.map((r) => r.hash);
+  }
+
+  /** Rolling backups in the `backups` table (manifest JSON beside the archive). */
+  async openBackupStore(): Promise<BackupStore> {
+    await this.ensureReady();
+    const driver = this.driver;
+    return {
+      list: async () => {
+        const rows = await driver.query<{ info_json: string }>(
+          `SELECT info_json FROM backups ORDER BY created_at DESC`,
+        );
+        return rows.map((r) => JSON.parse(r.info_json) as StoredBackupInfo);
+      },
+      put: async (info, bytes) => {
+        await driver.execute(
+          `INSERT OR REPLACE INTO backups (backup_id, created_at, info_json, bytes_b64) VALUES (?, ?, ?, ?)`,
+          [info.backup_id, info.created_at, JSON.stringify(info), bytesToBase64(bytes)],
+        );
+      },
+      getBytes: async (backupId) => {
+        const rows = await driver.query<{ bytes_b64: string }>(
+          `SELECT bytes_b64 FROM backups WHERE backup_id = ?`,
+          [backupId],
+        );
+        const raw = rows[0]?.bytes_b64;
+        return raw !== undefined ? base64ToBytes(raw) : undefined;
+      },
+      delete: async (backupId) => {
+        await driver.execute(`DELETE FROM backups WHERE backup_id = ?`, [backupId]);
+      },
+    };
   }
 
   async requestPersistence(): Promise<boolean> {

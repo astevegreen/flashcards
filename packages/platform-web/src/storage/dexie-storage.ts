@@ -3,6 +3,7 @@ import type {
   DeviceMeta,
   LocalSnapshotRecord,
   MaterializedCardRow,
+  BackupStore,
   MediaBlob,
   Storage,
   SyncConfig,
@@ -50,7 +51,7 @@ const SYNC_CURSOR_KEY = 'sync_cursor';
 const SYNC_CONFIG_KEY = 'sync_config';
 const LATEST_SNAPSHOT_KEY = 'latest';
 
-class FlashcardsDexieDb extends Dexie {
+export class FlashcardsDexieDb extends Dexie {
   events!: Table<StoredEventRow, string>;
   cards_cache!: Table<MaterializedCardRow, string>;
   meta!: Table<StoredMetaRow, string>;
@@ -97,6 +98,8 @@ class FlashcardsDexieDb extends Dexie {
         }
         await kvTable.put({ key: LOCAL_SEQ_COUNTER_KEY, value: counter });
       });
+    // Rolling backups (lazy: ./dexie-backup-store.ts).
+    this.version(3).stores({ backups: 'backup_id, created_at', backup_blobs: 'id' });
   }
 }
 
@@ -354,6 +357,10 @@ export class DexieStorage implements Storage {
 
   async listMediaHashes(): Promise<string[]> {
     return this.db.media.toCollection().primaryKeys();
+  }
+
+  openBackupStore(): Promise<BackupStore> {
+    return import('./dexie-backup-store.ts').then((m) => m.createDexieBackupStore(this.db));
   }
 
   async requestPersistence(): Promise<boolean> {

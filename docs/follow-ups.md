@@ -176,7 +176,13 @@ On 2026-11-23 an agent compared the app with Anki, about 25 features. This secti
 
 ### To build
 
-- [ ] **Automatic rolling backups (first priority of this list).** Sync is not a backup: a deletion or a bad import syncs to every device and to the cloud copy. Backup today is a manual full `.flashpkg` export (`SettingsScreen.tsx`). The reminder (`showBackupBanner`, `AppContext.tsx`) is hidden once sync is connected, so synced users get no backups at all. Take a dated `.flashpkg` snapshot automatically, for example once a day when the app is used, and keep the last 7–14. Store them locally, with an optional copy in the sync folder. How many to keep and where to store them on the web build are open design points.
+- [x] **Automatic rolling backups (first priority of this list).** Sync is not a backup: a deletion or a bad import syncs to every device and to the cloud copy. Built in `packages/core/src/backup/` and Settings > Automatic backups (`packages/ui/src/backups/`):
+  - A dated snapshot about once a day the app is used, only when the collection changed. The newest 14 are kept, plus the newest full one. A snapshot is a valid `.flashpkg` (any build imports it) with `backup/state.json`, the full state with review history, beside it.
+  - Daily snapshots carry no media. They list the content hashes they use, and media cleanup must keep those. A weekly full snapshot packs the media, when it totals 100 MB or less.
+  - Restore is previewed and confirmed. It appends new events from this device that bring the collection back to the backup, so it syncs like any edit. Nothing is deleted: decks and notes the backup lacks are archived. A `pre-restore` snapshot is taken first, so a restore can be reverted. Reviews made after the backup are kept unless the user ticks "Also undo".
+  - Optional copy in the sync folder (`backups/v1/<device>/day-<weekday>.flashpkg`, no media). The 7 weekday slots overwrite, so no transport needs a delete. Settings lists every device's copies for restore.
+  - Web: backups live in IndexedDB and persistent storage is requested. OPFS was not used: it shares IndexedDB's quota and eviction, so it adds nothing. The off-device copies are a downloaded file and the sync folder.
+  - The reminder still shows for users who don't sync. Automatic snapshots never count as a backup for it; downloading one does. "Export Backup" now writes the same format with media, so a manual backup keeps review history too.
 - [ ] **Check media and check database.**
   - Check media lists media that no note uses and media that notes reference but is missing. It offers to remove unused files, because they count against the user's own Drive or Dropbox quota.
   - Check database rebuilds state from the event log and reports any difference.
@@ -312,6 +318,18 @@ Defaults picked while building deck descriptions. Each stays shipped until the o
 - [ ] **Starter decks** use the catalog's description (for example "Beginner (level A) Korean words from the NIKL learning vocabulary list…"). Starter decks added before this build get none; there is no backfill.
 - [ ] **Packages:** `.flashpkg` export writes the deck's description in the manifest. Import fills it only for a deck that never had a description event, so a package update never brings back a description the user cleared. Package and starter descriptions are marked as such, and any description the user wrote or cleared wins over them, even from a device that has not synced the user's text yet. A Family Library `index.json` entry's own description is not copied; the deck description comes from the package manifest.
 - [ ] **Overview:** only decks with a description show it. Study on any other deck starts at once, as before. "Study folder" and "All decks" skip the overview.
+
+## Decisions needed (rolling backups, 2026-11-23)
+
+Defaults picked while building automatic backups. Each stays shipped until the owner decides.
+
+- [ ] **How many and how often:** keep 14 snapshots. A new one when the newest is 20 hours old and the collection changed. The first check runs 8 s after launch, then hourly and when the app returns to the foreground.
+- [ ] **Full snapshots:** weekly, only when media totals 100 MB or less (the `.flashpkg` import cap). Above that every snapshot is daily, and the media store and the sync folder hold the files. The newest full snapshot is kept even when older than the 14.
+- [ ] **Restore mechanism:** new events that move the collection to the backup, not a separate collection. Decks and notes the backup lacks are archived. Reviews made since are kept by default. Not restorable: a review undone after the backup, pages the backup lacks (pages have no archive), Study Sets and practice sessions, and deck fields added after this PR.
+- [ ] **Reset keeps backups:** "Reset Local Device Data" leaves the backups on the device, so a reset can be undone. There is no "Delete all backups" button yet.
+- [ ] **Sync-folder copy:** off by default. One copy per device per weekday, without media. A restore from the sync folder needs the media in the sync store, or in the full snapshot of the device it came from.
+- [ ] **Web storage:** IndexedDB with `navigator.storage.persist()`, requested by the backup check at launch, no longer by `AppContext` directly. When the browser refuses, Settings warns that backups can be cleared.
+- [ ] **Downloads:** "Download" on a daily snapshot adds the media from this device to the file. Downloading counts as a backup for the reminder.
 
 ## Leftover nits and known limitations
 

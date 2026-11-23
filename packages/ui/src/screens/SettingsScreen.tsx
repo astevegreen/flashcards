@@ -30,6 +30,9 @@ const LazyPackManagerPanel = lazyWithRetry(() =>
 const LazyAboutLicensesCard = lazyWithRetry(() =>
   import('../packs/AboutLicensesCard.tsx').then((m) => ({ default: m.AboutLicensesCard })),
 );
+const LazyBackupsPanel = lazyWithRetry(() =>
+  import('../backups/BackupsPanel.tsx').then((m) => ({ default: m.BackupsPanel })),
+);
 const LazyUnlockAndSunsetCard = lazyWithRetry(() =>
   import('../packs/UnlockAndSunsetCard.tsx').then((m) => ({ default: m.UnlockAndSunsetCard })),
 );
@@ -377,15 +380,12 @@ export function SettingsScreen() {
 
   const handleExportBackup = async () => {
     try {
-      const { exportFlashpkg } = await import('@flash/core/flashpkg');
-      const mediaBlobs = new Map<string, Uint8Array>();
-      for (const hash of state.media.keys()) {
-        const blob = await platform.storage.getMedia(hash);
-        if (blob) {
-          mediaBlobs.set(hash, blob.bytes);
-        }
-      }
-      const bytes = exportFlashpkg(state, { name: 'Flashcards Full Backup', mediaBlobs });
+      // A `.flashpkg` any build can import, plus the review history a restore needs.
+      const { buildFullBackupFile } = await import('../backups/backupRunner.ts');
+      const bytes = await buildFullBackupFile(platform.storage, state, {
+        deviceId: meta?.deviceId ?? platform.deviceId,
+        ...(meta?.collectionId !== undefined ? { collectionId: meta.collectionId } : {}),
+      });
       const dateStamp = new Date().toISOString().slice(0, 10);
       await platform.files.downloadFile(
         `flashcards-backup-${dateStamp}.flashpkg`,
@@ -1064,6 +1064,10 @@ export function SettingsScreen() {
           </div>
         </div>
       </div>
+
+      <Suspense fallback={null}>
+        <LazyBackupsPanel />
+      </Suspense>
 
       {/* Device / Dev Mode panel */}
       <div className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
