@@ -2,7 +2,6 @@ import {
   BUILTIN_NOTE_TYPE_IDS,
   compareCodeUnits,
   deriveNoteId,
-  isPackForActiveLanguages,
   stripRuby,
   type Deck,
   type NoteType,
@@ -26,9 +25,9 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useState, type FormEv
 import { RichText } from '../components/RichText.tsx';
 import { DrawLookupPanel } from '../drawing/DrawLookupPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
-import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { useDrawScripts, type DrawScriptLang } from '../drawing/useDrawScripts.ts';
-import { ShowAllLanguagesSwitch, useShowAllLanguages } from '../packs/ShowAllLanguagesSwitch.tsx';
+import { ShowAllLanguagesSwitch } from '../packs/ShowAllLanguagesSwitch.tsx';
+import { homeSummariesFor, searchPackIds, useVisiblePacks } from './useVisiblePacks.ts';
 import { DictionaryBrowseHeader, DictionaryHome } from './DictionaryHome.tsx';
 import {
   directionTargetName,
@@ -953,22 +952,14 @@ export function DictionaryPanel({
   }, [platform, installedPacks]);
 
   // UX #2: pack filters (and "All") cover the languages in use unless "Show all languages" is on.
-  const { languages: activeLanguages } = useActiveLanguages();
-  const [showAllLanguages, setShowAllLanguages] = useShowAllLanguages();
-  const visiblePacks = useMemo(
-    () =>
-      showAllLanguages
-        ? installedPacks
-        : installedPacks.filter((p) => isPackForActiveLanguages(activeLanguages, p)),
-    [activeLanguages, installedPacks, showAllLanguages],
-  );
-  const hiddenPackCount = installedPacks.length - visiblePacks.length;
-  const packFilter: DictionaryPackId | 'all' =
-    selectedPack !== 'all' && visiblePacks.some((p) => p.id === selectedPack)
-      ? selectedPack
-      : 'all';
-  // `undefined` = every installed pack; otherwise only these (some are hidden).
-  const allPackIdsKey = hiddenPackCount > 0 ? visiblePacks.map((p) => p.id).join('\n') : undefined;
+  const {
+    visiblePacks,
+    hiddenPackCount,
+    packFilter,
+    allPackIdsKey,
+    showAllLanguages,
+    setShowAllLanguages,
+  } = useVisiblePacks(installedPacks, selectedPack);
 
   const loadBrowsePage = useCallback(
     async (sel: DictionaryBrowseSelection, after?: string) => {
@@ -1008,15 +999,14 @@ export function DictionaryPanel({
   const runSearch = useCallback(
     async (rawQuery: string, filter: DictionaryPackId | 'all') => {
       const trimmed = rawQuery.trim();
-      const allIds = allPackIdsKey?.split('\n').filter(Boolean) as DictionaryPackId[] | undefined;
-      if (!trimmed || !platform.getDictionaryService || allIds?.length === 0) {
+      const packIds = searchPackIds(filter, allPackIdsKey);
+      if (!trimmed || !platform.getDictionaryService || packIds?.length === 0) {
         setResults([]);
         return;
       }
       setSearching(true);
       try {
         const svc = await platform.getDictionaryService();
-        const packIds = filter === 'all' ? allIds : [filter];
         const found = isSingleIdeograph(trimmed)
           ? await svc.lookupCharacter(trimmed, packIds ? { packIds } : undefined)
           : await svc.search(trimmed, { ...(packIds ? { packIds } : {}), limit: 60, direction });
@@ -1115,10 +1105,7 @@ export function DictionaryPanel({
   const targetName = directionTargetName(
     packFilter === 'all' ? visiblePacks.map((p) => p.language) : [PACK_LANG[packFilter]],
   );
-  const homeSummaries =
-    packFilter === 'all'
-      ? summaries.filter((x) => visiblePacks.some((p) => p.id === x.packId))
-      : summaries.filter((x) => x.packId === packFilter);
+  const homeSummaries = homeSummariesFor(summaries, packFilter, visiblePacks);
   const hanjaVisible = homeSummaries.some((x) => x.packId === 'dict-hanja-unihan');
   const browsePos = browseSel
     ? (summaries.find((x) => x.packId === browseSel.packId)?.pos ?? [])

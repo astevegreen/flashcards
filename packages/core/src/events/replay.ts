@@ -1338,7 +1338,7 @@ function applyLanguageChoicePreferences(ctx: ApplyEventContext, pref: Preference
         typeof on === 'boolean' &&
         shouldApplyLww(state, `prefs:languages:${langKey}`, hlc, collector)
       ) {
-        state.preferences.languages = { ...(state.preferences.languages ?? {}), [langKey]: on };
+        state.preferences.languages = { ...state.preferences.languages, [langKey]: on };
         changed = true;
       }
     }
