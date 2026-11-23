@@ -1,7 +1,11 @@
 import type { StoredBackupInfo } from '@flash/platform';
 import initSqlJs from 'sql.js';
 import { describe, expect, it } from 'vitest';
-import { CapacitorSqliteStorage, type SqliteDriver } from '../src/storage/sqlite-storage.ts';
+import {
+  CapacitorSqliteStorage,
+  InMemorySqliteDriver,
+  type SqliteDriver,
+} from '../src/storage/sqlite-storage.ts';
 
 function info(id: string, createdAt: number): StoredBackupInfo {
   return {
@@ -88,5 +92,64 @@ describe.each([
     await store.put(info('daily', 1), new Uint8Array([1]));
     await storage.clearAll();
     expect(await storage.listMediaHashes()).toEqual([kept]);
+  });
+});
+
+/** Fails the `n`th chunk insert, like a disk that fills up halfway through a backup. */
+function failingOnChunk(driver: SqliteDriver, n: number): SqliteDriver {
+  let chunks = 0;
+  return {
+    execute: async (sql, params) => {
+      if (sql.startsWith('INSERT INTO backup_chunks') && ++chunks === n) {
+        throw new Error('SQLITE_FULL');
+      }
+      await driver.execute(sql, params);
+    },
+    query: (sql, params) => driver.query(sql, params),
+  };
+}
+
+/** How many of `backupId`'s first `upTo` chunks are stored. */
+async function chunkCount(driver: SqliteDriver, backupId: string, upTo = 8): Promise<number> {
+  let n = 0;
+  for (let idx = 0; idx < upTo; idx++) {
+    const rows = await driver.query(
+      `SELECT b64 FROM backup_chunks WHERE backup_id = ? AND idx = ?`,
+      [backupId, idx],
+    );
+    n += rows.length;
+  }
+  return n;
+}
+
+describe.each([
+  ['in-memory driver', async (): Promise<SqliteDriver> => new InMemorySqliteDriver()],
+  ['sql.js', sqlJsDriver],
+])('CapacitorSqliteStorage backup writes that fail (%s)', (_label, makeDriver) => {
+  it('leaves no chunks or row behind when a write fails halfway', async () => {
+    const driver = await makeDriver();
+    const storage = new CapacitorSqliteStorage(failingOnChunk(driver, 3));
+    const store = await storage.openBackupStore();
+    const big = new Uint8Array(3.5 * 1024 * 1024).fill(7);
+    await expect(store.put(info('big', 1), big)).rejects.toThrow('SQLITE_FULL');
+    expect(await store.list()).toEqual([]);
+    expect(await chunkCount(driver, 'big')).toBe(0);
+  });
+
+  it('sweeps chunks an interrupted write left behind at the next launch', async () => {
+    const driver = await makeDriver();
+    const first = await new CapacitorSqliteStorage(driver).openBackupStore();
+    await first.put(info('kept', 1), new Uint8Array([1, 2, 3]));
+    // An app killed mid-write: chunks in, no `backups` row.
+    await driver.execute(`INSERT INTO backup_chunks (backup_id, idx, b64) VALUES (?, ?, ?)`, [
+      'orphan',
+      0,
+      'AAAA',
+    ]);
+    expect(await chunkCount(driver, 'orphan')).toBe(1);
+    const next = await new CapacitorSqliteStorage(driver).openBackupStore();
+    expect(await chunkCount(driver, 'orphan')).toBe(0);
+    expect(await chunkCount(driver, 'kept')).toBe(1);
+    expect([...((await next.getBytes('kept')) ?? [])]).toEqual([1, 2, 3]);
   });
 });

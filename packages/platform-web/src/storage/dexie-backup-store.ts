@@ -16,6 +16,7 @@ export function createDexieBackupStore(db: FlashcardsDexieDb): BackupStore {
   const infos: Table<StoredBackupInfo, string> = db.table('backups');
   const blobs: Table<StoredBackupBlobRow, string> = db.table('backup_blobs');
   return {
+    measuredByStorageEstimate: true,
     list: () => infos.orderBy('created_at').reverse().toArray(),
     put: async (info, bytes) => {
       await db.transaction('rw', [infos, blobs], async () => {

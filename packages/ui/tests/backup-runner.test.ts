@@ -14,9 +14,11 @@ import { DexieStorage } from '../../platform-web/src/storage/dexie-storage.ts';
 import { InMemorySyncTransport } from '../../platform-web/src/sync/in-memory-transport.ts';
 import {
   applyRestore,
+  BACKUP_STATUS_KV_KEY,
   BackupNotSavedError,
   listSyncFolderBackups,
   loadBackupStatus,
+  openBackupStore,
   prepareRestore,
   readSyncFolderBackup,
   runAutoBackupIfDue,
@@ -187,5 +189,69 @@ describe('rolling backups on a device', () => {
     expect(result.mediaMissing).toBe(0);
     expect((await storage.getMedia(hash))?.bytes).toEqual(new Uint8Array([1, 2, 3]));
     expect(state.current.media.has(hash)).toBe(true);
+  });
+
+  it('prunes only after the new snapshot is stored', async () => {
+    const { storage, ctx } = setup();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    let now = Date.UTC(2026, 10, 1, 9);
+    for (let i = 0; i < 14; i++) {
+      vi.setSystemTime(now);
+      await takeBackup(ctx, 'manual');
+      now += DAY;
+    }
+    const store = await openBackupStore(storage);
+    if (!store) throw new Error('no store');
+    const before = (await store.list()).map((b) => b.backup_id);
+    vi.setSystemTime(now);
+    const realPut = store.put.bind(store);
+    store.put = () => Promise.reject(new Error('QuotaExceededError'));
+    await expect(takeBackup(ctx, 'manual')).rejects.toBeInstanceOf(BackupNotSavedError);
+    expect((await store.list()).map((b) => b.backup_id)).toEqual(before);
+    store.put = realPut;
+    await takeBackup(ctx, 'manual');
+    const after = (await store.list()).map((b) => b.backup_id);
+    expect(after).toHaveLength(14);
+    expect(after).not.toContain(before.at(-1));
+  });
+
+  it('on a store the storage estimate does not count, skips media snapshots after a failure', async () => {
+    const { storage, ctx, factory } = setup();
+    const real = await storage.openBackupStore();
+    // What a native SQLite store looks like: no `measuredByStorageEstimate`.
+    storage.openBackupStore = () => Promise.resolve({ ...real, measuredByStorageEstimate: false });
+    const hash = 'd'.repeat(64);
+    await storage.putMedia({ hash, mime: 'image/png', bytes: new Uint8Array([1, 2, 3]) });
+    ctx.emitEvents([
+      factory.create(
+        'MediaAdded',
+        { media: { hash, ext: 'png', mime: 'image/png', size: 3 } },
+        Date.now(),
+      ),
+    ]);
+    // Even a nearly full browser quota doesn't count for such a store.
+    vi.stubGlobal('navigator', {
+      storage: { estimate: () => Promise.resolve({ quota: 10_000_000, usage: 9_999_000 }) },
+    });
+    await storage.setKv(BACKUP_STATUS_KV_KEY, { lastError: 'SQLITE_FULL', at: Date.now() });
+    const afterFailure = await takeBackup(ctx, 'manual');
+    expect(afterFailure?.info.kind).toBe('daily');
+    // Once one succeeded, the weekly full snapshot with media comes back.
+    const next = await takeBackup(ctx, 'manual');
+    expect(next?.info.kind).toBe('full');
+    expect(next?.info.media_included).toBe(true);
+  });
+
+  it('gives up on a snapshot that never finishes, so later ones still run', async () => {
+    const { storage, ctx } = setup();
+    const store = await openBackupStore(storage);
+    if (!store) throw new Error('no store');
+    await takeBackup(ctx, 'manual'); // warm up, so only the write can be slow
+    const realPut = store.put.bind(store);
+    store.put = () => new Promise<void>(() => undefined); // a write that never settles
+    await expect(takeBackup(ctx, 'manual', { timeoutMs: 2000 })).rejects.toThrow(/too long/);
+    store.put = realPut;
+    expect(await takeBackup(ctx, 'manual')).not.toBeNull();
+    expect(await runAutoBackupIfDue(ctx)).toBeNull(); // not blocked: nothing due right after
   });
 });

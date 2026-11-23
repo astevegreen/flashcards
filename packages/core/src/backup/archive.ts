@@ -1,5 +1,5 @@
 import { findBackupStateProblem } from '@flash/content-schema/backup-state';
-import { zip, zipSync, type AsyncZippable, type Zippable } from 'fflate';
+import { Zip, ZipDeflate, ZipPassThrough, zipSync, type Zippable } from 'fflate';
 import type { CollectionState } from '../events/replay.ts';
 import { getTotalAppliedEventCount } from '../events/replay.ts';
 import {
@@ -217,19 +217,54 @@ export function packBackup(
   return { manifest, bytes: zipSync(archiveFiles(built, withMedia, manifest), { level: 6 }) };
 }
 
-/** {@link packBackup} off the UI thread where the platform allows it (fflate's async zip). */
-export function packBackupAsync(
+/** Bytes fed to the zip stream between two pauses. */
+const PACK_STEP_BYTES = 512 * 1024;
+
+/**
+ * {@link packBackup} in steps on the calling thread, pausing between pieces of each file, so a
+ * large snapshot doesn't freeze the screen (§8). fflate's async `zip` is not used: it compresses
+ * in a `blob:` worker, which the app's CSP (`worker-src 'self'`) refuses, and it reports no error
+ * when the worker can't start, so the promise would never settle.
+ */
+export async function packBackupAsync(
   built: BuiltBackup,
   opts: { withMedia: boolean },
+  pause: () => Promise<void> = () => Promise.resolve(),
 ): Promise<{ manifest: BackupManifest; bytes: Uint8Array }> {
   const withMedia = opts.withMedia && built.manifest.media_included;
   const manifest = packedManifest(built, withMedia);
-  return new Promise((resolve, reject) => {
-    zip(archiveFiles(built, withMedia, manifest) as AsyncZippable, { level: 6 }, (err, bytes) => {
-      if (err) reject(err);
-      else resolve({ manifest, bytes });
-    });
+  const parts: Uint8Array[] = [];
+  let failure: Error | null = null;
+  let done = false;
+  const archive = new Zip((err, chunk, final) => {
+    if (err) failure = err;
+    else parts.push(chunk);
+    if (final) done = true;
   });
+  const files = archiveFiles(built, withMedia, manifest);
+  for (const [path, value] of Object.entries(files)) {
+    const stored = Array.isArray(value);
+    const bytes = (stored ? value[0] : value) as Uint8Array;
+    const file = stored ? new ZipPassThrough(path) : new ZipDeflate(path, { level: 6 });
+    archive.add(file);
+    if (bytes.byteLength === 0) file.push(bytes, true);
+    for (let at = 0; at < bytes.byteLength; at += PACK_STEP_BYTES) {
+      const end = Math.min(at + PACK_STEP_BYTES, bytes.byteLength);
+      file.push(bytes.subarray(at, end), end === bytes.byteLength);
+      await pause();
+    }
+    if (failure) throw failure;
+  }
+  archive.end();
+  if (failure) throw failure;
+  if (!done) throw new Error('The backup archive did not finish.');
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.byteLength;
+  }
+  return { manifest, bytes: out };
 }
 
 /** A media file packed in a backup archive (hash not verified yet: see {@link verifyBackupMedia}). */

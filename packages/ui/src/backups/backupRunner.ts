@@ -140,7 +140,7 @@ export async function buildFullBackupFile(
     },
     yieldToHost,
   );
-  return (await packBackupAsync(built, { withMedia: true })).bytes;
+  return (await packBackupAsync(built, { withMedia: true }, yieldToHost)).bytes;
 }
 
 export interface TakeBackupResult {
@@ -193,6 +193,20 @@ function yieldToHost(): Promise<void> {
 
 let inFlight: Promise<TakeBackupResult | null> | null = null;
 
+/** A snapshot that hasn't finished by then is given up on, so `inFlight` always clears. */
+export const BACKUP_TIMEOUT_MS = 10 * 60 * 1000;
+
+function settleWithin<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new BackupNotSavedError('The backup took too long and was stopped.')),
+      ms,
+    );
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function writeSnapshot(
   ctx: BackupContext,
   store: BackupStore,
@@ -204,7 +218,14 @@ async function writeSnapshot(
   const state = ctx.getState();
   const meta = ctx.getMeta();
   const existing = await store.list();
-  const kind = opts.kind ?? chooseBackupKind(existing, totalMediaBytes(state), nowMs);
+  // Native stores have no reliable free-space figure: after a failed write, skip the big
+  // (media) snapshots until one succeeds again, so backups can't crowd out event writes.
+  const lastFailed = Boolean((await loadBackupStatus(storage))?.lastError);
+  const kind =
+    opts.kind ??
+    (lastFailed && !store.measuredByStorageEstimate
+      ? 'daily'
+      : chooseBackupKind(existing, totalMediaBytes(state), nowMs));
   const mediaBlobs =
     kind === 'full' ? await loadMediaBlobs(storage, state.media.keys()) : undefined;
   const built = await buildBackupAsync(
@@ -220,16 +241,10 @@ async function writeSnapshot(
     },
     yieldToHost,
   );
-  const packed = await packBackupAsync(built, { withMedia: true });
+  const packed = await packBackupAsync(built, { withMedia: true }, yieldToHost);
   const info: StoredBackupInfo = { ...packed.manifest, size_bytes: packed.bytes.byteLength };
 
-  // Make room first, then check what is left.
-  const prune = selectBackupsToPrune([...existing, info], {
-    nowMs,
-    protect: [info.backup_id, ...(opts.protect ?? [])],
-  });
-  for (const id of prune) await store.delete(id);
-  const free = await freeStorageBytes();
+  const free = store.measuredByStorageEstimate ? await freeStorageBytes() : null;
   if (free !== null && free < info.size_bytes * 2 + QUOTA_MARGIN_BYTES) {
     throw new BackupNotSavedError(
       'Not enough free storage on this device for a backup. Download one, or free up space.',
@@ -243,6 +258,12 @@ async function writeSnapshot(
       { cause: err },
     );
   }
+  // Pruned only once the new snapshot is safely stored.
+  const prune = selectBackupsToPrune([...existing, info], {
+    nowMs,
+    protect: [info.backup_id, ...(opts.protect ?? [])],
+  });
+  for (const id of prune) await store.delete(id);
 
   const result: TakeBackupResult = { info };
   const settings = await loadBackupSettings(storage);
@@ -252,7 +273,7 @@ async function writeSnapshot(
       const transport = await resolveSyncFolderTransport(ctx.platform, provider);
       if (!transport) throw new Error('The sync folder is not available right now.');
       const copy = info.media_included
-        ? (await packBackupAsync(built, { withMedia: false })).bytes
+        ? (await packBackupAsync(built, { withMedia: false }, yieldToHost)).bytes
         : packed.bytes;
       await transport.write(syncFolderBackupPath(meta.deviceId, nowMs), copy);
       result.syncCopyWritten = true;
@@ -271,14 +292,17 @@ async function writeSnapshot(
 export async function takeBackup(
   ctx: BackupContext,
   reason: BackupReason,
-  opts: { kind?: BackupKind; protect?: readonly string[] } = {},
+  opts: { kind?: BackupKind; protect?: readonly string[]; timeoutMs?: number } = {},
 ): Promise<TakeBackupResult | null> {
   const storage = ctx.platform.storage;
   const store = await openBackupStore(storage);
   if (!store) return null;
   const run = async (): Promise<TakeBackupResult> => {
     try {
-      const result = await writeSnapshot(ctx, store, reason, opts);
+      const result = await settleWithin(
+        writeSnapshot(ctx, store, reason, opts),
+        opts.timeoutMs ?? BACKUP_TIMEOUT_MS,
+      );
       await storage.setKv(BACKUP_STATUS_KV_KEY, { at: Date.now() } satisfies BackupStatus);
       return result;
     } catch (err) {

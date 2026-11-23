@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BackupArchiveError,
   BACKUP_KEEP_COUNT,
@@ -279,6 +279,11 @@ function noteUpsertOf(note: Note) {
 }
 
 describe('backup archive validation and async packing', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it('packs the same snapshot off the UI thread, media stored uncompressed', async () => {
     const { state } = buildCollection();
     const options = {
@@ -299,6 +304,64 @@ describe('backup archive validation and async packing', () => {
     expect(read.manifest.media_included).toBe(true);
     expect(read.media.get(PNG_HASH)?.bytes).toEqual(PNG);
     expect(activeNotes(read.state)).toEqual(activeNotes(state));
+  });
+
+  it('packs a state.json far over 160 KB without a worker or an object URL (CSP)', async () => {
+    const { state, factory } = buildCollection();
+    const cards = [...state.cards.keys()];
+    const reviews: KnownEvent[] = [];
+    for (let i = 0; i < 40; i++) {
+      for (const card_id of cards) {
+        reviews.push(
+          factory.create(
+            'ReviewRecorded',
+            {
+              review_id: `r-${i}-${card_id}`,
+              card_id,
+              rating: 3,
+              reviewed_at: T0 + i * DAY,
+              tz_offset: 0,
+              duration_ms: 1500,
+              answer_mode: 'flip',
+              fsrs_params_version: 0,
+              resulting_due_at: T0 + (i + 3) * DAY,
+            },
+            T0 + i * DAY,
+          ),
+        );
+      }
+    }
+    applyEvents(state, reviews);
+    // fflate's async zip would start a `blob:` worker here, which `worker-src 'self'` refuses.
+    const workers = vi.fn(() => {
+      throw new Error('no workers');
+    });
+    vi.stubGlobal('Worker', workers);
+    const objectUrls = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
+      throw new Error('no object URLs');
+    });
+    const built = await buildBackupAsync(state, {
+      backupId: 'b-large',
+      kind: 'full',
+      reason: 'auto',
+      nowMs: T0,
+      deviceId: 'dev-a',
+      mediaBlobs: new Map([[PNG_HASH, PNG]]),
+    });
+    expect(built.entries['backup/state.json']?.byteLength).toBeGreaterThan(160 * 1024);
+    let pauses = 0;
+    const packed = await packBackupAsync(built, { withMedia: true }, async () => {
+      pauses += 1;
+    });
+    expect(workers).not.toHaveBeenCalled();
+    expect(objectUrls).not.toHaveBeenCalled();
+    expect(pauses).toBeGreaterThan(1);
+    const read = readBackupArchive(packed.bytes);
+    expect(read.state.reviewsByCard.size).toBe(state.reviewsByCard.size);
+    expect(read.media.get(PNG_HASH)?.bytes).toEqual(PNG);
+    // The synchronous packer reads back the same.
+    const sync = readBackupArchive(packBackup(built, { withMedia: true }).bytes);
+    expect(activeNotes(sync.state)).toEqual(activeNotes(read.state));
   });
 
   it('rejects a malformed state.json before any of it becomes an event', () => {

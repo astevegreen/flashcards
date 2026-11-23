@@ -136,6 +136,11 @@ export interface Storage {
 
 /** Rolling backups kept apart from the key-value store, so listing never loads an archive. */
 export interface BackupStore {
+  /**
+   * True when `navigator.storage.estimate()` counts this store and the event log (IndexedDB).
+   * Native SQLite stores leave it unset: the WebView's estimate doesn't include the database file.
+   */
+  readonly measuredByStorageEstimate?: boolean;
   /** Newest first. */
   list(): Promise<StoredBackupInfo[]>;
   put(info: StoredBackupInfo, bytes: Uint8Array): Promise<void>;

@@ -262,6 +262,12 @@ export class InMemorySqliteDriver implements SqliteDriver {
       );
       return;
     }
+    if (norm.startsWith('DELETE FROM backup_chunks WHERE backup_id NOT IN')) {
+      for (const key of [...this.backupChunks.keys()]) {
+        if (!this.backups.has(key.slice(0, key.lastIndexOf('#')))) this.backupChunks.delete(key);
+      }
+      return;
+    }
     if (norm.startsWith('DELETE FROM backup_chunks WHERE backup_id =')) {
       const prefix = `${paramText(params[0], '')}#`;
       for (const key of [...this.backupChunks.keys()]) {
@@ -592,10 +598,19 @@ export class CapacitorSqliteStorage implements Storage {
   }
 
   /** Rolling backups in the `backups` table (manifest JSON beside the archive). */
+  private orphanSweep: Promise<void> | null = null;
+
   async openBackupStore(): Promise<BackupStore> {
     await this.ensureReady();
     const driver = this.driver;
+    // Chunks a failed or interrupted write left behind (no `backups` row): once per launch.
+    this.orphanSweep ??= driver
+      .execute(`DELETE FROM backup_chunks WHERE backup_id NOT IN (SELECT backup_id FROM backups)`)
+      .catch(() => undefined);
+    await this.orphanSweep;
     return {
+      // The row is written last, so a backup is listed only once all its chunks are in. A failed
+      // write (a full disk) removes what it wrote; an interrupted one is swept at the next launch.
       list: async () => {
         const rows = await driver.query<{ info_json: string }>(
           `SELECT info_json FROM backups ORDER BY created_at DESC`,
@@ -603,19 +618,27 @@ export class CapacitorSqliteStorage implements Storage {
         return rows.map((r) => JSON.parse(r.info_json) as StoredBackupInfo);
       },
       put: async (info, bytes) => {
-        await driver.execute(`DELETE FROM backup_chunks WHERE backup_id = ?`, [info.backup_id]);
-        for (let idx = 0; idx * BACKUP_CHUNK_BYTES < bytes.byteLength; idx++) {
-          const chunk = bytes.subarray(idx * BACKUP_CHUNK_BYTES, (idx + 1) * BACKUP_CHUNK_BYTES);
-          await driver.execute(`INSERT INTO backup_chunks (backup_id, idx, b64) VALUES (?, ?, ?)`, [
-            info.backup_id,
-            idx,
-            bytesToBase64(chunk),
-          ]);
+        const id = info.backup_id;
+        try {
+          await driver.execute(`DELETE FROM backups WHERE backup_id = ?`, [id]);
+          await driver.execute(`DELETE FROM backup_chunks WHERE backup_id = ?`, [id]);
+          for (let idx = 0; idx * BACKUP_CHUNK_BYTES < bytes.byteLength; idx++) {
+            const chunk = bytes.subarray(idx * BACKUP_CHUNK_BYTES, (idx + 1) * BACKUP_CHUNK_BYTES);
+            await driver.execute(
+              `INSERT INTO backup_chunks (backup_id, idx, b64) VALUES (?, ?, ?)`,
+              [id, idx, bytesToBase64(chunk)],
+            );
+          }
+          await driver.execute(
+            `INSERT OR REPLACE INTO backups (backup_id, created_at, info_json, bytes_b64) VALUES (?, ?, ?, ?)`,
+            [id, info.created_at, JSON.stringify(info), ''],
+          );
+        } catch (err) {
+          await driver
+            .execute(`DELETE FROM backup_chunks WHERE backup_id = ?`, [id])
+            .catch(() => undefined);
+          throw err;
         }
-        await driver.execute(
-          `INSERT OR REPLACE INTO backups (backup_id, created_at, info_json, bytes_b64) VALUES (?, ?, ?, ?)`,
-          [info.backup_id, info.created_at, JSON.stringify(info), ''],
-        );
       },
       getBytes: async (backupId) => {
         const rows = await driver.query<{ bytes_b64: string }>(
