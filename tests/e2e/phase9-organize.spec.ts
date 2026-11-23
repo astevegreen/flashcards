@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { unzipApkg } from '../../packages/core/src/import/anki/package.ts';
+import { ANKI_IMPORT_LIMITS } from '../../packages/core/src/import/anki/types.ts';
 
 /** Counts persisted events of one type in the device's IndexedDB event log. */
 async function countStoredEvents(page: Page, dbName: string, type: string): Promise<number> {
@@ -159,6 +161,27 @@ test.describe('Phase 9 organizing: tag manager, bulk edit, Due today, CSV export
     expect(header).toContain('Category 1');
     expect(lines).toHaveLength(2);
     expect(lines.find((l) => l.includes('학교'))).toContain('복습');
+
+    // The same selection "For Anki": a zip with the CSV (Anki header lines) and a README.
+    await page.getByTestId('bulk-export-for-anki').check();
+    const [ankiDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('bulk-export-csv').click(),
+    ]);
+    expect(ankiDownload.suggestedFilename()).toMatch(/-anki\.zip$/);
+    const zipped = unzipApkg(new Uint8Array(readFileSync(await ankiDownload.path())), {
+      ...ANKI_IMPORT_LIMITS,
+    });
+    const csvName = [...zipped.keys()].find((n) => n.endsWith('.csv'));
+    expect(zipped.has('README.txt')).toBe(true);
+    const ankiCsv = new TextDecoder().decode(zipped.get(csvName ?? '') ?? new Uint8Array());
+    const ankiLines = ankiCsv.trim().split('\r\n');
+    expect(ankiLines.slice(0, 2)).toEqual(['#separator:Comma', '#html:true']);
+    expect(ankiLines).toContain('#deck column:3');
+    expect(ankiLines.filter((l) => !l.startsWith('#'))).toHaveLength(2);
+    expect(ankiLines.find((l) => l.includes('학교'))).toContain('복습');
+    await expect(page.getByTestId('bulk-message')).toContainText('-anki.zip');
+    await page.getByTestId('bulk-export-for-anki').uncheck();
 
     // Move both to the new deck.
     await page.getByTestId('bulk-move-deck-select').selectOption({ label: 'Korean Extra' });

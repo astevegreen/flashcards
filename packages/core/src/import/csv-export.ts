@@ -66,6 +66,27 @@ function escapeCell(value: string, delimiter: string): string {
   return value;
 }
 
+/** The notes a CSV export of `options.deckId` writes, in the deck's note order. */
+export function selectCsvExportNotes(
+  state: CollectionState,
+  options: Pick<CsvExportOptions, 'deckId' | 'noteIds' | 'includeArchived'>,
+): Note[] {
+  const wanted = options.noteIds ? new Set(options.noteIds) : null;
+  const notes: Note[] = [];
+  for (const note of state.notes.values()) {
+    if (note.deck_id !== options.deckId) continue;
+    if (note.archived && !options.includeArchived) continue;
+    if (wanted && !wanted.has(note.id)) continue;
+    notes.push(note);
+  }
+  return notes.sort((a, b) => a.created_order - b.created_order || (a.id < b.id ? -1 : 1));
+}
+
+/** Quotes a CSV / TSV cell when it holds a quote, the delimiter or a line break. */
+export function escapeCsvCell(value: string, delimiter: string): string {
+  return escapeCell(value, delimiter);
+}
+
 /**
  * Exports one deck as Flashcards Deluxe-style CSV / TSV that `buildEventsFromCsv` reads back
  * losslessly: `Card ID` (the note's source key), one column per Note Type field, then
@@ -75,16 +96,7 @@ export function exportCsv(state: CollectionState, options: CsvExportOptions): Cs
   const delimiter = options.delimiter ?? ',';
   const deck = state.decks.get(options.deckId);
   const noteType = deck ? state.noteTypes.get(deck.note_type_id) : undefined;
-  const wanted = options.noteIds ? new Set(options.noteIds) : null;
-
-  const notes: Note[] = [];
-  for (const note of state.notes.values()) {
-    if (note.deck_id !== options.deckId) continue;
-    if (note.archived && !options.includeArchived) continue;
-    if (wanted && !wanted.has(note.id)) continue;
-    notes.push(note);
-  }
-  notes.sort((a, b) => a.created_order - b.created_order || (a.id < b.id ? -1 : 1));
+  const notes = selectCsvExportNotes(state, options);
 
   const fields = noteType?.fields ?? [];
   const tagLists = notes.map((n) => normalizeTagList(n.tags));

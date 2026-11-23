@@ -206,7 +206,7 @@ On 2026-11-23 an agent compared the app with Anki, about 25 features. This secti
 
 No open format with media and review history is widely adopted. CSV/TSV is the common format that most apps import, but it carries no media and no history. `.apkg` is in practice the main exchange format: Anki on every platform reads it, and some other apps import it too. **To build**, in this order:
 
-- [ ] **"Export for Anki" option on CSV export.** It writes Anki's header lines (`#separator`, `#deck column`, `#tags column` and similar) and puts the media files in a zip alongside. Plain CSV stays the default, because other apps would read those header lines as data.
+- [x] **"Export for Anki" option on CSV export.** Browse > select notes > tick **For Anki** > Export CSV. The zip holds the CSV with Anki's header lines, a `collection.media/` folder and a README. Ruby becomes Anki furigana, `media:` references become `<img>` / `[sound:]`. Plain CSV stays the default, because other apps would read those header lines as data. Defaults under "Decisions needed (Anki export)".
 - [ ] **`.apkg` export** of notes, media and tags. Review history comes later.
 
 ## Decisions needed (2026-11-23 batch)
@@ -264,6 +264,18 @@ Defaults picked while building two items of the Anki feature gap list. Each stay
 - [ ] **Duplicate finder, scope:** "Only across decks" is on by default; unticking it also lists repeats inside one deck. The rich-text markup from the field editor is not stripped yet (a TODO in `normalizeDuplicateKey` until its parser lands).
 - [ ] **Duplicate finder, actions:** Open (the note editor), Tag "duplicate" on the whole group (set-union `NoteTagsAdded`, so a concurrent tag edit is never overwritten), and Archive per note (history kept, restorable). **No merge:** cards are keyed by note id, so merging two notes' review histories would need a new event, not a cheap or safe change.
 - [ ] **Follow-up:** the duplicate panel recomputes every group on each state change while it is open (`DuplicateFinderPanel.tsx`). Fine for typical collections; memoize per note if large imports feel slow.
+
+## Decisions needed (Anki export)
+
+Defaults picked for "Export for Anki". Each stays shipped until the owner decides.
+
+- [ ] **CSV columns:** GUID, note type, deck, one column per field (named after the field label, without the characters Anki forbids), tags. Header lines: `#separator`, `#html:true`, `#columns`, `#guid column`, `#notetype column`, `#deck column`, `#tags column`. No BOM, because the header lines must start the file.
+- [ ] **Note type column:** names this app's note type. Anki skips rows whose note type it doesn't have (it creates missing decks, not note types), so the README says to create the note type first or to use `.apkg`. The other option: leave the column out, and Anki's import window asks for a note type.
+- [ ] **GUID:** a note imported from Anki gets its original GUID back, so importing into the same Anki profile updates those notes. Other notes use their own id.
+- [ ] **Media file names:** `<sha256>.<ext>`, in `collection.media/` inside the zip (Anki's text import copies no media). Media this device doesn't have is left out and counted in the message.
+- [ ] **Text as HTML:** `<`, `>`, `&`, `"` are escaped, line breaks become `<br>`, and literal `[` / `]` are written as `&#91;` / `&#93;`, so Anki's furigana filter can't turn `test[abc]` into ruby. Ruby becomes ` base[reading]`; a base with a space keeps it as `&nbsp;`.
+- [ ] **Tags:** spaces inside a tag become `_` (Anki separates tags with spaces); `::` hierarchies are kept.
+- [ ] **Rich text:** the field editor's planned rich-text markup isn't converted yet. `AnkiRichTextConverter` (`packages/core/src/export/anki/field-html.ts`) is the hook for it.
 
 ## Leftover nits and known limitations
 
