@@ -21,6 +21,51 @@ async function finishSession(page: Page): Promise<void> {
   await expect(caughtUp).toBeVisible();
 }
 
+/**
+ * What the production preview's database (`flashcards-db`) holds: the onboarding record's status and
+ * the device's event count. The UI updates first and persists asynchronously (§8), so a reload has
+ * to wait for this, or under load it can come back to a still-empty collection.
+ */
+async function storedStart(page: Page): Promise<{ status?: string; events: number; seq: number }> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open('flashcards-db');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error ?? new Error('open failed'));
+    });
+    const get = <T>(store: string, key: string) =>
+      new Promise<T | undefined>((resolve, reject) => {
+        const req = db.transaction(store, 'readonly').objectStore(store).get(key);
+        req.onsuccess = () => resolve(req.result as T | undefined);
+        req.onerror = () => reject(req.error ?? new Error('get failed'));
+      });
+    try {
+      const onboarding = await get<{ value?: { status?: string } }>('kv', 'onboarding_v1');
+      const meta = await get<{ value?: { seq?: number } }>('meta', 'device');
+      const events = await new Promise<number>((resolve, reject) => {
+        const req = db.transaction('events', 'readonly').objectStore('events').count();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error ?? new Error('count failed'));
+      });
+      const status = onboarding?.value?.status;
+      return { ...(status ? { status } : {}), events, seq: meta?.value?.seq ?? 0 };
+    } finally {
+      db.close();
+    }
+  });
+}
+
+/** Waits until the onboarding record is saved and the chosen deck's events are on disk. */
+async function waitForSavedStart(page: Page, status: 'completed' | 'skipped'): Promise<void> {
+  await expect
+    .poll(async () => {
+      const s = await storedStart(page);
+      const eventsSaved = status === 'skipped' || (s.seq > 0 && s.events >= s.seq);
+      return s.status === status && eventsSaved;
+    })
+    .toBe(true);
+}
+
 test.describe('Phase 13 first-run onboarding', () => {
   test('first run: a language, then a starter deck, and the first card is on screen in two taps', async ({
     page,
@@ -53,6 +98,7 @@ test.describe('Phase 13 first-run onboarding', () => {
     ]);
     await expect(page.getByLabel('Select deck to study')).toHaveValue(/.+/);
 
+    await waitForSavedStart(page, 'completed');
     await page.reload();
     await expect(page.getByTestId('study-card')).toBeVisible();
     await expect(page.getByTestId('onboarding')).toHaveCount(0);
@@ -65,6 +111,7 @@ test.describe('Phase 13 first-run onboarding', () => {
     await expect(page.getByTestId('onboarding')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Ready to Study Offline' })).toBeVisible();
 
+    await waitForSavedStart(page, 'skipped');
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Ready to Study Offline' })).toBeVisible();
     await expect(page.getByTestId('onboarding')).toHaveCount(0);
