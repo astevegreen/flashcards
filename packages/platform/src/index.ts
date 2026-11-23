@@ -767,9 +767,14 @@ export interface PlatformServices {
   getOneDrivePicker?(): Promise<OneDriveFilePicker>;
   /**
    * Apple devices: true on iOS when the iCloud Drive plugin is present (the user may still be signed
-   * out), and on macOS when iCloud Drive was available at launch. Both use the same container.
+   * out), and in the macOS desktop app. Both use the same container.
    */
   readonly iCloudSyncSupported?: boolean;
+  /**
+   * macOS: false when iCloud Drive was not available at launch. iCloud is still offered (a saved
+   * connection keeps working) but is not the "Sync my devices" default. Unset on iOS.
+   */
+  readonly iCloudAvailableAtLaunch?: boolean;
   /** iOS / macOS: iCloud Drive transport; throws when iCloud Drive is off or the user is signed out. */
   createICloudTransport?(): Promise<SyncTransport>;
   getGooglePicker(): Promise<GooglePickerAdapter>;

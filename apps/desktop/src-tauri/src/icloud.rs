@@ -23,6 +23,9 @@ use std::time::UNIX_EPOCH;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const CONTAINER_ID: &str = "iCloud.app.flashcards.localfirst";
 
+/// Hidden folder at the container root for atomic-replace temp files.
+const TEMP_DIR: &str = ".flashcards-tmp";
+
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct IcloudError {
     pub code: &'static str,
@@ -251,16 +254,15 @@ pub fn write_file(
             .map_err(io_err)?;
         return Ok(());
     }
-    // Hidden temp file next to the target (never listed), then rename over it.
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    // Temp file in a hidden folder at the container root, outside every sync prefix (so neither
+    // this walker nor the iOS metadata query lists it), then renamed over the target.
+    let tmp_dir = root.join(TEMP_DIR);
     let nanos = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    let tmp = path.with_file_name(format!(".{name}.{}-{nanos}.tmp", std::process::id()));
+    let tmp = tmp_dir.join(format!("{}-{nanos}.tmp", std::process::id()));
     let result = (|| {
+        fs::create_dir_all(&tmp_dir)?;
         let mut file = fs::File::create(&tmp)?;
         file.write_all(data)?;
         file.sync_all()?;
@@ -417,6 +419,12 @@ fn root() -> Result<PathBuf, IcloudError> {
     container_root().ok_or_else(IcloudError::unavailable)
 }
 
+/// True on macOS builds (where the container may exist), false elsewhere. Cheap: no iCloud call.
+#[tauri::command]
+pub fn icloud_supported() -> bool {
+    cfg!(target_os = "macos")
+}
+
 #[tauri::command]
 pub async fn icloud_available() -> bool {
     blocking(|| Ok(container_root().is_some()))
@@ -439,11 +447,11 @@ pub async fn icloud_read_file(path: String) -> Result<tauri::ipc::Response, Iclo
 /// The body is the raw file bytes; the path (URI-encoded) and `ifAbsent` travel as headers.
 #[tauri::command]
 pub async fn icloud_write_file(request: tauri::ipc::Request<'_>) -> Result<(), IcloudError> {
-    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
-        return Err(IcloudError::new(
-            "UNKNOWN",
-            "icloud_write_file expects raw bytes.",
-        ));
+    let data = match request.body() {
+        tauri::ipc::InvokeBody::Raw(data) => data.clone(),
+        // Fallback when an IPC path serializes the bytes as a JSON number array.
+        tauri::ipc::InvokeBody::Json(value) => serde_json::from_value::<Vec<u8>>(value.clone())
+            .map_err(|_| IcloudError::new("UNKNOWN", "icloud_write_file expects file bytes."))?,
     };
     let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok());
     let path = header("x-icloud-path")
@@ -451,7 +459,6 @@ pub async fn icloud_write_file(request: tauri::ipc::Request<'_>) -> Result<(), I
         .transpose()?
         .ok_or_else(|| IcloudError::new("UNKNOWN", "path is required"))?;
     let if_absent = header("x-icloud-if-absent") == Some("1");
-    let data = data.clone();
     blocking(move || write_file(&root()?, &path, &data, if_absent)).await
 }
 
@@ -519,6 +526,8 @@ mod tests {
         write_file(&root, "other/x.txt", b"x", false).unwrap();
         // Overwrite is atomic and leaves no temp file behind.
         write_file(&root, "sync/manifest.json", b"{\"v\":2}", false).unwrap();
+        assert_eq!(fs::read_dir(root.join(TEMP_DIR)).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(root.join("sync")).unwrap().count(), 2);
 
         assert_eq!(
             read_file(&root, "sync/manifest.json", no_download).unwrap(),
@@ -553,6 +562,13 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].path, "sync/remote.seg");
         assert_eq!(listed[0].size, 0);
+
+        // Once downloaded, the real file wins over a placeholder that is still there.
+        fs::write(root.join("sync").join(".local.seg.icloud"), b"plist").unwrap();
+        fs::write(root.join("sync").join("local.seg"), b"12345").unwrap();
+        let local: Vec<_> = list_files(&root, "sync/local").unwrap();
+        assert_eq!(local.len(), 1);
+        assert_eq!(local[0].size, 5);
 
         // Write-once refuses a file another device already created.
         assert_eq!(

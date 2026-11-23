@@ -282,10 +282,12 @@ The macOS app syncs through the **same iCloud container and file layout as the i
 - TypeScript side: `createTauriICloudDocumentPlugin` (`packages/platform-tauri/src/sync/`) adapts
   the commands to the existing `ICloudDocumentPlugin` interface, and `ICloudDriveSyncTransport`
   from `@flash/platform-capacitor` does the rest, so path checks and error codes match iOS.
-- Default: at launch `bootTauriPlatform` asks `icloud_available` (at most 2 s, alongside the
-  database open). When it is true, iCloud Drive is the **Sync my devices** default and Google
-  Drive is listed as the alternative. When it is false (signed out, iCloud Drive off, or a build
-  without the entitlement), the app behaves as before: Google Drive is the default.
+- Default: on macOS (`icloud_supported`) iCloud Drive is always offered, and each connect checks
+  that it is available, like iOS, so a Mac that already syncs with iCloud keeps syncing even if
+  iCloud was slow or off at launch. At launch `bootTauriPlatform` also asks `icloud_available`
+  (at most 2 s, alongside the database open). That answer only picks the **Sync my devices**
+  default: iCloud Drive when it is true, otherwise Google Drive, with iCloud Drive listed as an
+  alternative. Windows and Linux builds never offer iCloud.
 
 Differences from the iOS plugin, all untested on a Mac:
 
@@ -293,8 +295,9 @@ Differences from the iOS plugin, all untested on a Mac:
   metadata of the whole iCloud Drive tree on disk, so files not downloaded yet still show up
   (as `.<name>.icloud` placeholders on older macOS, as dataless files on newer). A placeholder's
   size is reported as 0.
-- Reads and writes use plain file I/O, not `NSFileCoordinator`. Overwrites go to a hidden temp
-  file and are renamed into place; `ifAbsent` writes are an exclusive create (`create_new`) and
+- Reads and writes use plain file I/O, not `NSFileCoordinator`. Overwrites go to a temp file in the
+  hidden .flashcards-tmp/ folder at the container root (outside every sync prefix, so neither app
+  lists it) and are renamed into place; `ifAbsent` writes are an exclusive create (`create_new`) and
   also fail when only another device's placeholder is present. The `manifest.json` first-connect
   race described in the iOS section applies here too.
 

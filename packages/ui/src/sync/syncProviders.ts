@@ -84,6 +84,7 @@ export type SyncPlatformFlags = Pick<
   | 'getOneDriveAuth'
   | 'iCloudSyncSupported'
   | 'createICloudTransport'
+  | 'iCloudAvailableAtLaunch'
   | 'supportsLocalFolderSync'
 >;
 
@@ -99,7 +100,7 @@ export function isSyncProviderAvailable(
 ): boolean {
   switch (kind) {
     case 'icloud':
-      // The iOS app, and the macOS desktop app when iCloud Drive was available at launch.
+      // The iOS app and the macOS desktop app.
       return platform.iCloudSyncSupported === true && platform.createICloudTransport !== undefined;
     case 'google_drive':
       return platform.googleOAuthConfigured;
@@ -118,14 +119,18 @@ export function availableSyncProviders(platform: SyncPlatformFlags): AddDevicePr
 }
 
 /**
- * The default: iCloud where this platform has an iCloud transport (Apple devices; no sign-in),
+ * The default: iCloud where this platform has an iCloud transport and it was not seen to be off at
+ * launch (Apple devices; no sign-in),
  * otherwise Google Drive (Android, Windows, web, and Apple platforms without one). If neither is
  * configured in this build, the first other available provider.
  */
 export function pickDefaultSyncProvider(
   platform: SyncPlatformFlags,
 ): AddDeviceProvider | undefined {
-  if (isSyncProviderAvailable(platform, 'icloud')) return 'icloud';
+  // A Mac where iCloud was off at launch still lists iCloud, but not as the default.
+  if (isSyncProviderAvailable(platform, 'icloud') && platform.iCloudAvailableAtLaunch !== false) {
+    return 'icloud';
+  }
   if (isSyncProviderAvailable(platform, 'google_drive')) return 'google_drive';
   return availableSyncProviders(platform)[0];
 }

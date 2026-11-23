@@ -62,6 +62,30 @@ export function createTauriICloudDocumentPlugin(invoke: TauriInvoke): ICloudDocu
   };
 }
 
+export interface TauriICloudOptions {
+  iCloudPlugin?: ICloudDocumentPlugin;
+  iCloudAvailableAtLaunch?: boolean;
+}
+
+/**
+ * What the desktop boot passes to `createTauriPlatform` for iCloud. On macOS the plugin is always
+ * passed, so a Mac already syncing with iCloud keeps its transport even when the launch probe is
+ * slow or iCloud is briefly signed out (the transport checks availability on each connect, like
+ * iOS). The probe only decides whether iCloud is the "Sync my devices" default.
+ */
+export async function resolveTauriICloudOptions(
+  invoke: TauriInvoke,
+  timeoutMs = 2000,
+): Promise<TauriICloudOptions> {
+  const supported = await invoke<boolean>('icloud_supported').catch(() => false);
+  if (supported !== true) return {};
+  const iCloudPlugin = createTauriICloudDocumentPlugin(invoke);
+  return {
+    iCloudPlugin,
+    iCloudAvailableAtLaunch: await probeICloudAvailable(iCloudPlugin, timeoutMs),
+  };
+}
+
 /**
  * True when iCloud Drive is usable on this machine (macOS, signed in, entitled build). Gives up
  * after `timeoutMs` and on any error, so a slow iCloud daemon never holds up the first screen.

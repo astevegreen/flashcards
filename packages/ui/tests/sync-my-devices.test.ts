@@ -31,7 +31,12 @@ const MACOS_ICLOUD: SyncPlatformFlags = {
   iCloudSyncSupported: true,
   createICloudTransport: unavailable,
 };
-/** The Tauri shell on macOS without iCloud (signed out, iCloud Drive off, unsigned build). */
+/** The Tauri shell on macOS when iCloud was off or slow at launch: offered, not the default. */
+const MACOS_ICLOUD_OFF_AT_LAUNCH: SyncPlatformFlags = {
+  ...MACOS_ICLOUD,
+  iCloudAvailableAtLaunch: false,
+};
+/** A Tauri build without iCloud support (Windows, Linux). */
 const MACOS_NO_ICLOUD: SyncPlatformFlags = {
   googleOAuthConfigured: true,
   supportsLocalFolderSync: true,
@@ -58,6 +63,17 @@ describe('"Sync my devices" default provider', () => {
     expect(pickDefaultSyncProvider({ ...ANDROID, iCloudSyncSupported: true })).toBe('google_drive');
     expect(pickDefaultSyncProvider({ ...ANDROID, createICloudTransport: unavailable })).toBe(
       'google_drive',
+    );
+  });
+
+  it('keeps iCloud as an alternative on a Mac where it was off at launch', () => {
+    expect(planSyncMyDevices(MACOS_ICLOUD_OFF_AT_LAUNCH, undefined)).toEqual({
+      primary: 'google_drive',
+      alternatives: ['icloud', 'local_folder'],
+    });
+    // An add-device link for iCloud still preselects it.
+    expect(planSyncMyDevices(MACOS_ICLOUD_OFF_AT_LAUNCH, { provider: 'icloud' }).primary).toBe(
+      'icloud',
     );
   });
 

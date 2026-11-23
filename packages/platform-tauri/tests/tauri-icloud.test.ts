@@ -4,6 +4,7 @@ import {
   createTauriICloudDocumentPlugin,
   createTauriPlatform,
   probeICloudAvailable,
+  resolveTauriICloudOptions,
   type TauriInvoke,
 } from '../src/index.ts';
 
@@ -136,5 +137,53 @@ describe('macOS iCloud Drive transport (Tauri)', () => {
     expect(await probeICloudAvailable(failing)).toBe(false);
     const hanging = createTauriICloudDocumentPlugin((() => new Promise(() => {})) as TauriInvoke);
     expect(await probeICloudAvailable(hanging, 10)).toBe(false);
+  });
+});
+
+describe('macOS desktop boot: iCloud options', () => {
+  it('keeps a saved iCloud connection usable when the launch probe times out', async () => {
+    // A Mac already syncing with iCloud (saved provider `icloud`) whose iCloud daemon is slow
+    // at launch: the probe gives up, but the transport must still be there.
+    let slow = true;
+    const rust = fakeRust();
+    const invoke = (async (cmd: string, ...rest: unknown[]) => {
+      if (cmd === 'icloud_supported') return true;
+      if (cmd === 'icloud_available' && slow) return new Promise(() => {});
+      return (rust.invoke as (...a: unknown[]) => Promise<unknown>)(cmd, ...rest);
+    }) as TauriInvoke;
+
+    const options = await resolveTauriICloudOptions(invoke, 10);
+    expect(options.iCloudPlugin).toBeDefined();
+    expect(options.iCloudAvailableAtLaunch).toBe(false);
+
+    const platform = createTauriPlatform({ deviceId: 'mac', ...options });
+    expect(platform.iCloudSyncSupported).toBe(true);
+    expect(platform.iCloudAvailableAtLaunch).toBe(false);
+
+    // What `resolveActiveTransport(ctx, 'icloud')` does on the next sync cycle.
+    slow = false;
+    const transport = await platform.createICloudTransport?.();
+    expect(transport).toBeDefined();
+    await transport?.write('sync/manifest.json', bytes('{}'));
+    expect(rust.files.has('sync/manifest.json')).toBe(true);
+  });
+
+  it('marks iCloud available at launch when the probe answers in time', async () => {
+    const rust = fakeRust();
+    const invoke = (async (cmd: string, ...rest: unknown[]) =>
+      cmd === 'icloud_supported'
+        ? true
+        : (rust.invoke as (...a: unknown[]) => Promise<unknown>)(cmd, ...rest)) as TauriInvoke;
+    const options = await resolveTauriICloudOptions(invoke);
+    expect(options.iCloudAvailableAtLaunch).toBe(true);
+  });
+
+  it('offers no iCloud on Windows and Linux, or when the command is missing', async () => {
+    expect(await resolveTauriICloudOptions((async () => false) as TauriInvoke)).toEqual({});
+    expect(
+      await resolveTauriICloudOptions((async () => {
+        throw new Error('command icloud_supported not found');
+      }) as TauriInvoke),
+    ).toEqual({});
   });
 });

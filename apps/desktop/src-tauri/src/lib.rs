@@ -43,6 +43,7 @@ pub fn run() {
             secure_store::secure_store_get,
             secure_store::secure_store_set,
             secure_store::secure_store_delete,
+            icloud::icloud_supported,
             icloud::icloud_available,
             icloud::icloud_list_files,
             icloud::icloud_read_file,
