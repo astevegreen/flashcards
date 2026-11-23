@@ -7,7 +7,8 @@ import { expect, test, type Page } from '@playwright/test';
  * deck gives a Korean-only collection. Korean shows Hanja as plain text: no ruby options.
  */
 
-const NEW_DECK_CSV = 'word,meaning\n日本[にほん],Japan\n';
+const KOREAN_CSV = 'word,meaning\n사과,apple\n';
+const JAPANESE_CSV = 'word,meaning\n日本[にほん],Japan\n';
 const RUBY_TOGGLE = /^Ruby (On|Off)$/;
 
 async function onboardKorean(page: Page): Promise<void> {
@@ -53,7 +54,7 @@ async function dropCsv(page: Page, text: string): Promise<void> {
 
 async function importJapaneseDeck(page: Page): Promise<void> {
   await openBringMyCards(page);
-  await dropCsv(page, NEW_DECK_CSV);
+  await dropCsv(page, JAPANESE_CSV);
   await page.getByTestId('bring-csv-language').selectOption('ja');
   await page.getByTestId('bring-csv-note-type').selectOption('preset:vocab-ja');
   await page.getByTestId('bring-csv-import-btn').click();
@@ -104,7 +105,7 @@ test.describe('Language-aware options (UX #2)', () => {
 
     // Import: no Anki furigana switch until the new deck's language is Japanese.
     await openBringMyCards(page);
-    await dropCsv(page, NEW_DECK_CSV);
+    await dropCsv(page, KOREAN_CSV);
     await expect(page.getByTestId('bring-csv-anki-ruby')).toHaveCount(0);
     await page.getByTestId('bring-csv-language').selectOption('ja');
     await expect(page.getByTestId('bring-csv-anki-ruby')).toBeVisible();
@@ -161,5 +162,68 @@ test.describe('Language-aware options (UX #2)', () => {
     await openSettings(page);
     await page.getByTestId('language-toggle-ja').uncheck();
     await expectJapaneseOptions(page, false);
+  });
+
+  test('offline packs and dictionary filters show active languages unless "Show all languages" is on', async ({
+    page,
+  }) => {
+    await onboardKorean(page);
+    await openSettings(page);
+    // The production preview has no catalog configured (and catalogs must be https): serve the
+    // bundled starter packs from a stand-in https host.
+    const local = new URL(page.url()).origin;
+    const host = 'https://packs.example.test';
+    await page.route(`${host}/**`, async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      const response = await route.fetch({ url: `${local}${path}` });
+      if (!path.endsWith('/packs.json')) {
+        await route.fulfill({ response });
+        return;
+      }
+      const catalog = (await response.json()) as { packs: Array<Record<string, unknown>> };
+      for (const pack of catalog.packs) {
+        for (const [key, value] of Object.entries(pack)) {
+          if (typeof value === 'string' && value.startsWith('/packs/')) pack[key] = host + value;
+        }
+      }
+      await route.fulfill({ response, json: catalog });
+    });
+    // The panel's first catalog read can land after the fill and reset the field: retry.
+    await expect(async () => {
+      await page.getByTestId('pack-catalog-url-input').fill(`${host}/packs/packs.json`);
+      await page.getByRole('button', { name: 'Load Catalog' }).click();
+      await expect(page.getByTestId('pack-row-dict-hanja-unihan')).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
+
+    // Korean only: the Hanja dictionary and the Hanja (Make Me a Hanzi) strokes; no Kanji.
+    await expect(page.getByTestId('pack-row-strokes-zh-mmah')).toBeVisible();
+    await expect(page.getByTestId('pack-row-dict-kanjidic2')).toHaveCount(0);
+    await expect(page.getByTestId('pack-row-strokes-ja-kanjivg')).toHaveCount(0);
+    await expect(page.getByTestId('pack-row-dict-cc-cedict')).toHaveCount(0);
+
+    const showAll = page.getByTestId('pack-show-all-languages');
+    await expect(showAll).not.toBeChecked();
+    await showAll.check();
+    await expect(page.getByTestId('pack-row-dict-kanjidic2')).toBeVisible();
+
+    await page.getByTestId('pack-install-btn-dict-hanja-unihan').click();
+    await expect(page.getByTestId('pack-installed-badge-dict-hanja-unihan')).toBeVisible({
+      timeout: 10_000,
+    });
+    await page.getByTestId('pack-install-btn-dict-kanjidic2').click();
+    await expect(page.getByTestId('pack-installed-badge-dict-kanjidic2')).toBeVisible({
+      timeout: 10_000,
+    });
+    await showAll.uncheck();
+    await expect(page.getByTestId('pack-row-dict-kanjidic2')).toHaveCount(0);
+
+    // Dictionary: the Kanji pack tab is hidden until "Show all languages" is on.
+    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByTestId('browse-tab-dictionary').click();
+    await expect(page.getByTestId('dict-filter-dict-hanja-unihan')).toBeVisible();
+    await expect(page.getByTestId('dict-filter-dict-kanjidic2')).toHaveCount(0);
+    await expect(page.getByTestId('dict-show-all-languages-hidden')).toHaveText('(1 hidden)');
+    await page.getByTestId('dict-show-all-languages').check();
+    await expect(page.getByTestId('dict-filter-dict-kanjidic2')).toBeVisible();
   });
 });
