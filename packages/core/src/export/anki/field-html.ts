@@ -12,8 +12,9 @@ import { normalizeTagList } from '../../tags/index.ts';
  * - Text is HTML-escaped and line breaks become `<br>`.
  * - Ruby (`漢字[かんじ]`, `{base|reading}`, `{日本|に|ほん}`) becomes Anki furigana
  *   (` 漢字[かんじ]`): a space marks where each base starts, and Anki's `furigana:` filter
- *   consumes it. Literal brackets in plain text are written as `&#91;` / `&#93;`, so Anki's
- *   furigana filter cannot mistake `test[abc]` for ruby.
+ *   consumes it. A space of the text itself right before a base is written `&#32;`. Literal
+ *   brackets in plain text are written as `&#91;` / `&#93;`, so Anki's furigana filter cannot
+ *   mistake `test[abc]` for ruby.
  * - A field that holds only `media:<sha256>` becomes `<img src="…">` or `[sound:…]`, with the
  *   file named `<sha256>.<ext>` (see {@link AnkiMediaNamer}).
  */
@@ -84,9 +85,12 @@ export function escapeAnkiText(text: string): string {
   return text.replace(/[&<>"[\]]/g, (ch) => HTML_ESCAPES[ch] ?? ch).replace(/\r?\n/g, '<br>');
 }
 
-/** Escapes a ruby base: no literal space may appear inside it, or Anki would cut the base there. */
+/**
+ * Escapes a ruby base: a literal space inside it would cut the base there, so spaces become
+ * `&#160;` (a numeric entity, which both Anki and this app's importer keep inside the base).
+ */
 function escapeRubyBase(base: string): string {
-  return escapeAnkiText(base).replace(/ /g, '&nbsp;');
+  return escapeAnkiText(base).replace(/ /g, '&#160;');
 }
 
 /**
@@ -100,6 +104,9 @@ export function rubyTextToAnkiHtml(text: string): string {
       out += escapeAnkiText(seg.value);
       continue;
     }
+    // The text's own space before a base is written as `&#32;`: Anki consumes one literal space
+    // as the base marker, and importers collapse runs of spaces.
+    if (out.endsWith(' ')) out = `${out.slice(0, -1)}&#32;`;
     if (out.length > 0 && !out.endsWith('>')) out += ' ';
     out += `${escapeRubyBase(seg.base)}[${escapeAnkiText(seg.reading)}]`;
   }

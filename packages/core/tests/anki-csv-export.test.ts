@@ -28,7 +28,7 @@ describe('ruby to Anki furigana', () => {
     ['{食べる|たべる}', '食べる[たべる]'],
     ['{日本|に|ほん}', '日[に] 本[ほん]'],
     ['學[학]교', '學[학]교'],
-    ['{New York|ニューヨーク}', 'New&nbsp;York[ニューヨーク]'],
+    ['{New York|ニューヨーク}', 'New&#160;York[ニューヨーク]'],
     ['test[abc] a<b', 'test&#91;abc&#93; a&lt;b'],
     ['a\nb', 'a<br>b'],
   ])('%s -> %s', (input, expected) => {
@@ -112,8 +112,8 @@ describe('Export for Anki CSV', () => {
     ]);
     // A note imported from Anki gets its original GUID back.
     expect(rows[1]?.[0]).toBe('AbC123guid');
-    // The text's own space stays; the second one is the furigana base marker Anki consumes.
-    expect(rows[1]?.[3]).toBe('test&#91;abc&#93; &amp;  今日[きょう]');
+    // The text's own space is `&#32;`; the literal one is the furigana base marker Anki consumes.
+    expect(rows[1]?.[3]).toBe('test&#91;abc&#93; &amp;&#32; 今日[きょう]');
     // Media the collection doesn't list is left out (and counted).
     expect(rows[2]?.[5]).toBe('');
     expect(plan.unknownMediaCount).toBe(1);

@@ -273,9 +273,9 @@ Defaults picked for "Export for Anki". Each stays shipped until the owner decide
 - [ ] **Note type column:** names this app's note type. Anki skips rows whose note type it doesn't have (it creates missing decks, not note types), so the README says to create the note type first or to use `.apkg`. The other option: leave the column out, and Anki's import window asks for a note type.
 - [ ] **GUID:** a note imported from Anki gets its original GUID back, so importing into the same Anki profile updates those notes. Other notes use their own id.
 - [ ] **Media file names:** `<sha256>.<ext>`, in `collection.media/` inside the zip (Anki's text import copies no media). Media this device doesn't have is left out and counted in the message.
-- [ ] **Text as HTML:** `<`, `>`, `&`, `"` are escaped, line breaks become `<br>`, and literal `[` / `]` are written as `&#91;` / `&#93;`, so Anki's furigana filter can't turn `test[abc]` into ruby. Ruby becomes ` base[reading]`; a base with a space keeps it as `&nbsp;`.
+- [ ] **Text as HTML:** `<`, `>`, `&`, `"` are escaped, line breaks become `<br>`, and literal `[` / `]` are written as `&#91;` / `&#93;`, so Anki's furigana filter can't turn `test[abc]` into ruby. Ruby becomes ` base[reading]`. A space of the text right before a base is written `&#32;` (Anki consumes the literal space as the base marker), and a space inside a base is `&#160;`.
 - [ ] **Tags:** spaces inside a tag become `_` (Anki separates tags with spaces); `::` hierarchies are kept.
-- [ ] **Rich text:** the field editor's planned rich-text markup isn't converted yet. `AnkiRichTextConverter` (`packages/core/src/export/anki/field-html.ts`) is the hook for it.
+- [ ] **Rich text (follow-up):** the field editor's markup from PR #38 (`{b:…}`, `{i:…}`, `{red:…}` and the other colours, nesting) isn't converted yet. `AnkiRichTextConverter` (`packages/core/src/export/anki/field-html.ts`) is the hook: once #38 is on main it should turn the markup into `<b>`, `<i>` and `<span style="color: …">`. Plain CSV export should then strip it with `stripRichText`.
 
 ## Leftover nits and known limitations
 
