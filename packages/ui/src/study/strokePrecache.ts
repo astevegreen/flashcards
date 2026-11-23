@@ -24,7 +24,9 @@ function collectDrawCharacters(
     const lang = noteType?.fields.find((f) => f.key === key)?.lang ?? deck.language;
     if (resolveDrawingMode(state.preferences, lang) !== 'graded') continue;
     const script = resolveStrokeScriptForLang(lang);
-    for (const ch of extractDrawableCharacters(note.fields[key] ?? '', lang)) {
+    for (const ch of extractDrawableCharacters(note.fields[key] ?? '', lang, {
+      rubyDisplay: layout.ruby_display,
+    })) {
       byScript[script].add(ch);
     }
   }

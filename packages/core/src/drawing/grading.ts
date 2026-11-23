@@ -1,4 +1,9 @@
-import type { CollectionPreferences, DrawingMode, ReviewRating } from '../model/types.ts';
+import type {
+  CollectionPreferences,
+  DrawingMode,
+  ReviewRating,
+  RubyDisplay,
+} from '../model/types.ts';
 import { stripCloze } from '../parsers/cloze.ts';
 import { stripRuby } from '../parsers/ruby.ts';
 import type { StrokeScript } from './types.ts';
@@ -84,16 +89,18 @@ function isKanaCharacter(cp: number): boolean {
 
 /**
  * Extracts ordered drawable characters from a card field value.
- * - Strips inline ruby (`日本[にほん]`, `{今日|きょう}`) and cloze (`{{c1::...}}`) syntax first.
+ * - Strips inline ruby (`日本[にほん]`, `{今日|きょう}`) and cloze (`{{c1::...}}`) syntax first,
+ *   keeping what the layout's `rubyDisplay` flag shows (the readings on a `readings` layout,
+ *   otherwise the bases).
  * - For `zh-Hans` / `ko` (Hanja), extracts Han ideographs only.
  * - For `ja`, extracts Han ideographs (and falls back to kana if the word has no kanji, or includes kana when `includeJaKana` is true).
  */
 export function extractDrawableCharacters(
   rawText: string,
   lang: string = 'ja',
-  opts?: { includeJaKana?: boolean },
+  opts?: { includeJaKana?: boolean; rubyDisplay?: RubyDisplay | undefined },
 ): string[] {
-  const plain = stripRuby(stripCloze(rawText)).trim();
+  const plain = stripRuby(stripCloze(rawText), opts?.rubyDisplay).trim();
   if (!plain) return [];
 
   const normLang = normalizeDrawingLang(lang);
