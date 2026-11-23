@@ -14,6 +14,7 @@ export function createPersistQueue(): PersistQueue {
     enqueue(task) {
       const invoke = (): Promise<void> => {
         try {
+          // NOSONAR (S4822): converts a synchronous throw from task() into a rejection
           return task();
         } catch (err) {
           return Promise.reject(err);

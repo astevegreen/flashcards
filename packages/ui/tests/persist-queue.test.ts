@@ -15,7 +15,7 @@ const deferred = () => {
 
 describe('persist queue', () => {
   it('whenSaved resolves at once when nothing is queued', async () => {
-    await createPersistQueue().whenSaved();
+    await expect(createPersistQueue().whenSaved()).resolves.toBeUndefined();
   });
 
   it('whenSaved resolves only after a slow write finished', async () => {

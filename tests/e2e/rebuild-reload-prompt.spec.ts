@@ -37,7 +37,7 @@ test.describe('Reload prompt after a rebuild in another tab', () => {
     await other.goto('/?device=rebuildprompt');
     for (let i = 0; i < 8; i++) {
       await announce(other, 'device-someone-else');
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(200); // NOSONAR (S2925): a negative needs a timed window; no event marks "ignored"
     }
     await expect(prompt).toHaveCount(0);
     await expect(async () => {
