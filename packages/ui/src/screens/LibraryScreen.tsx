@@ -1,7 +1,6 @@
 import {
   buildStudyQueue,
   compareCodeUnits,
-  decodeUtf8,
   getEnabledLayoutsForDeck,
   uuidv7,
   type AnswerMode,
@@ -21,11 +20,7 @@ import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { ANKI_IMPORT_PANEL_HEIGHT } from '../import/anki-import-layout.ts';
 import { BRING_MY_CARDS_PANEL_HEIGHT } from '../import/bring-my-cards-layout.ts';
-import {
-  importCsvIntoDeck,
-  importFlashpkgBytes,
-  type LibraryImportContext,
-} from '../import/libraryImports.ts';
+import { importFlashpkgBytes, type LibraryImportContext } from '../import/libraryImports.ts';
 
 const LazyPageViewer = lazy(() => import('../pages/PageViewer.tsx'));
 const LazyPageEditor = lazy(() => import('../pages/PageEditor.tsx'));
@@ -632,9 +627,6 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const [newDeckName, setNewDeckName] = useState('');
   const [newDeckNoteTypeId, setNewDeckNoteTypeId] = useState('preset:vocab-ko');
   const [newDeckLang, setNewDeckLang] = useState('ko');
-  const [csvTargetDeckId, setCsvTargetDeckId] = useState('');
-  const [csvPaste, setCsvPaste] = useState('');
-  const [csvAnkiRuby, setCsvAnkiRuby] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showAnkiImport, setShowAnkiImport] = useState(false);
@@ -680,8 +672,6 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const nowMs = Date.now();
   const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
 
-  const effectiveCsvDeckId = csvTargetDeckId || decks[0]?.id || '';
-
   const viewingPage = viewingPageId ? state.pages.get(viewingPageId) : undefined;
 
   const collectMediaBlobs = async (): Promise<Map<string, Uint8Array>> => {
@@ -703,9 +693,8 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       setErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
       return;
     }
-    const id = createDeck(newDeckName, newDeckNoteTypeId, newDeckLang);
+    createDeck(newDeckName, newDeckNoteTypeId, newDeckLang);
     setNewDeckName('');
-    setCsvTargetDeckId(id);
     setStatusMessage(`Created deck "${newDeckName.trim()}".`);
     setErrorMessage(null);
   };
@@ -713,7 +702,6 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const handleArchiveDeck = (deck: Deck) => {
     updateDeckSettings(deck.id, { archived: true });
     if (expandedDeckId === deck.id) setExpandedDeckId(null);
-    if (csvTargetDeckId === deck.id) setCsvTargetDeckId('');
     setStatusMessage(`Archived deck "${deck.name}". Reviews remain safely preserved.`);
     setErrorMessage(null);
   };
@@ -736,46 +724,6 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     getEventFactory,
     emitEvents,
   });
-
-  const runCsvImport = async (csvText: string, deckId: string) => {
-    const outcome = await importCsvIntoDeck(importContext(), csvText, deckId, {
-      ankiRuby: csvAnkiRuby,
-    });
-    setStatusMessage(outcome.message);
-    setErrorMessage(null);
-  };
-
-  const handleImportCsvFile = async () => {
-    try {
-      const picked = await platform.files.pickFile({ accept: '.csv,.tsv,.txt' });
-      if (!picked) return;
-      const text = decodeUtf8(picked.bytes);
-      let targetDeckId = effectiveCsvDeckId;
-      if (!targetDeckId) {
-        const gate = canCreateOrImportDeck(decks.length, entitlement);
-        if (!gate.allowed) {
-          setErrorMessage(gate.reason ?? 'Free tier deck limit reached.');
-          return;
-        }
-        const baseName = picked.name.replace(/\.(csv|tsv|txt)$/i, '');
-        targetDeckId = createDeck(baseName || 'Imported Deck', newDeckNoteTypeId, newDeckLang);
-      }
-      await runCsvImport(text, targetDeckId);
-    } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const handleImportCsvPaste = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!csvPaste.trim()) return;
-    try {
-      await runCsvImport(csvPaste, effectiveCsvDeckId);
-      setCsvPaste('');
-    } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : String(err));
-    }
-  };
 
   const handleImportFlashpkg = async () => {
     try {
@@ -913,26 +861,6 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
           >
             Bring my cards
           </button>
-          <button
-            type="button"
-            data-testid="import-csv-btn"
-            onClick={() => void handleImportCsvFile()}
-            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)]"
-          >
-            Import CSV/TSV
-          </button>
-          <label
-            className="flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs"
-            title="Anki exports put a space before each furigana base, e.g. 私は 日本語[にほんご]"
-          >
-            <input
-              type="checkbox"
-              data-testid="csv-anki-ruby-toggle"
-              checked={csvAnkiRuby}
-              onChange={(e) => setCsvAnkiRuby(e.target.checked)}
-            />
-            Anki furigana
-          </label>
           <button
             type="button"
             data-testid="import-flashpkg-btn"
@@ -1283,7 +1211,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
         )}
       </section>
 
-      {/* Create Deck & Quick CSV/TSV Paste */}
+      {/* Create Deck (tables, pasted rows and files come in through Bring my cards) */}
       <div className="grid gap-4 md:grid-cols-2">
         <form
           onSubmit={handleCreateDeck}
@@ -1328,45 +1256,6 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
             className="rounded-xl bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-40"
           >
             Create Deck
-          </button>
-        </form>
-
-        <form
-          onSubmit={(e) => void handleImportCsvPaste(e)}
-          className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Paste CSV / TSV</h2>
-            {decks.length > 0 && (
-              <select
-                aria-label="Target deck for CSV paste"
-                value={effectiveCsvDeckId}
-                onChange={(e) => setCsvTargetDeckId(e.target.value)}
-                className="max-w-[11rem] truncate rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-xs"
-              >
-                {decks.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-          <textarea
-            rows={3}
-            data-testid="csv-paste-input"
-            placeholder={'Word,Meaning,Tags\n감사합니다,thank you,polite'}
-            value={csvPaste}
-            onChange={(e) => setCsvPaste(e.target.value)}
-            className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 font-mono text-xs"
-          />
-          <button
-            type="submit"
-            data-testid="csv-paste-submit"
-            disabled={!csvPaste.trim() || !effectiveCsvDeckId}
-            className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 text-xs font-semibold hover:opacity-90 disabled:opacity-40"
-          >
-            Import Pasted Rows
           </button>
         </form>
       </div>

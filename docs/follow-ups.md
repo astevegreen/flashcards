@@ -41,9 +41,16 @@ Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). Tick an it
 
 ### Import
 
-- [ ] **Bring my cards imports a detected `.apkg` right away**, with review history off (the owner default). To include history, tick the box and pick the file again. Show a pre-import summary with an Import button instead?
+- [x] **Anki pre-import summary (2026-11-22).** A picked or detected `.apkg` is read once (with its review history) and converted as a dry run. The summary lists notes, decks (new or existing), note types, media, suspended cards and how many reviews could come along. Nothing is imported until Import is pressed, and "Include review history" stays off unless ticked. Import converts again against the current collection. The Library's "Import Anki (.apkg)" panel works the same way.
 - [ ] **`kana:` / `kanji:` filters are applied at import time**, so the dropped text can't be recovered in the app. A reversible alternative is to keep ruby and add a per-layout "readings only" / "bases only" render flag.
-- [ ] **Flashcards Deluxe / generic CSV mapping:** Bring my cards imports into a new deck with `preset:vocab-ko`, mapping columns by position. Add a Front/Back preset or a column-mapping step?
+- [x] **Column-mapping step (2026-11-22)** for CSV/TSV, Flashcards Deluxe, Excel `.xlsx` (first sheet), rows pasted into the Bring my cards text box, and Google Sheets.
+  - **The guess** (`@flash/core/import-mapping`): header names first (field keys and labels, then English and Korean synonyms, so `word / definition / example / category1-3` maps with no changes). Then the first 20 rows (script, length, repeated values, media URLs). Then column order.
+  - **The note type and language** of a new deck are guessed from the script of the rows. Whether row 1 holds column names is guessed too, and can be switched.
+  - **On screen:** every column can be changed, and a preview shows the first notes as stored.
+  - **Unmapped columns and categories:** columns nobody could place go to Notes as `Header: value` lines; empty ones are skipped. Category columns become flat tags, one per value.
+  - **Saved mapping:** a Sheet's mapping is saved on its deck as `SourceRef.column_map` (through `DeckCreated` / `SourceLinked`), so it syncs and applies on every refresh. A column added later falls back to matching by name.
+  - **Removed from the Library:** the Paste CSV / TSV form, the "Import CSV/TSV" button and its "Anki furigana" toggle. The toggle is now on the mapping screen.
+  - Builds from before this change ignore `column_map`. When one of them refreshes a Sheet, its `SourceLinked` drops the saved mapping, which then needs linking again from Bring my cards.
 - [ ] **Imported suspensions use reason `manual`.** A separate `imported` reason would need an event schema change.
 - [ ] **A pasted Google Sheets link** returns 404 under `drive.file` when the app was never granted that file; the UI then suggests the Picker. Acceptable?
 

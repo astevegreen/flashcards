@@ -8,6 +8,7 @@ import {
   type EventFactory,
   type KnownEvent,
   type NoteType,
+  type SourceColumnMapping,
 } from '@flash/core';
 import { parseDelimitedText } from '@flash/core/csv';
 import { importFlashpkg } from '@flash/core/flashpkg';
@@ -289,10 +290,11 @@ async function preLocalizeHttpsImageUrls(
 function extractHttpsImageUrlsFromSheetGrid(
   grid: readonly (readonly string[])[],
   noteType: NoteType,
+  columnMap?: readonly SourceColumnMapping[],
 ): string[] {
   const headerRow = grid[0];
   if (!headerRow || headerRow.length === 0) return [];
-  const headerMap = mapTabularHeaders(headerRow, noteType);
+  const headerMap = mapTabularHeaders(headerRow, noteType, columnMap);
   if (headerMap.imageColumnIndices.length === 0) return [];
   const urls = new Set<string>();
   for (let r = 1; r < grid.length; r++) {
@@ -403,10 +405,11 @@ async function preLocalizeHttpsAudioUrls(
 function extractHttpsAudioUrlsFromSheetGrid(
   grid: readonly (readonly string[])[],
   noteType: NoteType,
+  columnMap?: readonly SourceColumnMapping[],
 ): string[] {
   const headerRow = grid[0];
   if (!headerRow || headerRow.length === 0) return [];
-  const headerMap = mapTabularHeaders(headerRow, noteType);
+  const headerMap = mapTabularHeaders(headerRow, noteType, columnMap);
   if (headerMap.audioColumnIndices.length === 0) return [];
   const urls = new Set<string>();
   for (let r = 1; r < grid.length; r++) {
@@ -456,7 +459,12 @@ function resolveNoteType(state: CollectionState, noteTypeId?: string): NoteType 
 export async function linkPickedGoogleFiles(
   picked: readonly GooglePickedFile[],
   ctx: SourceRunContext,
-  options?: { defaultNoteTypeId?: string; defaultLanguage?: string },
+  options?: {
+    defaultNoteTypeId?: string;
+    defaultLanguage?: string;
+    /** Where each Sheet column goes (Bring my cards mapping step); saved on the deck's source. */
+    columnMap?: SourceColumnMapping[];
+  },
 ): Promise<SourceRefreshSummary> {
   const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
   const toRefresh: LinkedGoogleSource[] = [];
@@ -468,6 +476,7 @@ export async function linkPickedGoogleFiles(
 
     const existing = registry.googleSources.find((s) => s.fileId === file.id);
     if (existing) {
+      if (isSheet && options?.columnMap) existing.columnMap = options.columnMap;
       toRefresh.push(existing);
       continue;
     }
@@ -483,6 +492,7 @@ export async function linkPickedGoogleFiles(
             ? { noteTypeId: options.defaultNoteTypeId }
             : {}),
           ...(options?.defaultLanguage !== undefined ? { language: options.defaultLanguage } : {}),
+          ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
           lastStatus: 'idle',
         }
       : {
@@ -506,7 +516,12 @@ export async function linkPickedGoogleFiles(
 
   for (const src of toRefresh) {
     try {
-      const res = await refreshSingleGoogleSource(src, ctx, { force: true });
+      const res = await refreshSingleGoogleSource(src, ctx, {
+        force: true,
+        ...(options?.columnMap && src.kind === 'google_sheets'
+          ? { columnMap: options.columnMap }
+          : {}),
+      });
       if (res.updated) updatedSources += 1;
       importedNotes += res.notesTouched;
       importedPages += res.pagesTouched;
@@ -582,7 +597,11 @@ export async function createAndLinkGoogleSheetTemplate(
 export async function refreshSingleGoogleSource(
   source: LinkedGoogleSource,
   ctx: SourceRunContext,
-  opts?: { force?: boolean },
+  opts?: {
+    force?: boolean;
+    /** A mapping just chosen for this Sheet: it replaces the one saved on the deck. */
+    columnMap?: SourceColumnMapping[];
+  },
 ): Promise<{
   updated: boolean;
   notesTouched: number;
@@ -668,12 +687,14 @@ export async function refreshSingleGoogleSource(
     existingDeck?.note_type_id ?? source.noteTypeId ?? inferred.noteTypeId,
   );
   const language = existingDeck?.language ?? source.language ?? inferred.language;
+  // A mapping chosen now, else the deck's synced one, else the copy kept when it was linked.
+  const columnMap = opts?.columnMap ?? existingDeck?.source?.column_map ?? source.columnMap;
 
   // Option 1: pre-localize remote https: images & audio BEFORE diffing so MediaAdded has strictly ascending seq
   // and unchanged rows reuse cached media:<sha256> without re-fetching or emitting redundant diffs.
-  const sheetImageUrls = extractHttpsImageUrlsFromSheetGrid(grid.values, noteType);
+  const sheetImageUrls = extractHttpsImageUrlsFromSheetGrid(grid.values, noteType, columnMap);
   const localizedSheetImages = await preLocalizeHttpsImageUrls(sheetImageUrls, source, ctx, nowMs);
-  const sheetAudioUrls = extractHttpsAudioUrlsFromSheetGrid(grid.values, noteType);
+  const sheetAudioUrls = extractHttpsAudioUrlsFromSheetGrid(grid.values, noteType, columnMap);
   const localizedSheetAudio = await preLocalizeHttpsAudioUrls(sheetAudioUrls, source, ctx, nowMs);
 
   const mergedSheetMediaPathMap: Record<string, string> = {
@@ -700,6 +721,7 @@ export async function refreshSingleGoogleSource(
     canWriteBack,
     mediaPathMap: mergedSheetMediaPathMap,
     embeddedImageRows: grid.embeddedImageRows,
+    ...(columnMap ? { columnMap } : {}),
     nowMs,
   });
 
@@ -710,7 +732,12 @@ export async function refreshSingleGoogleSource(
   if (canWriteBack && diff.writeBackPlan.cells.length > 0) {
     try {
       const freshGrid = await client.readSheet(source.fileId, grid.sheetTitle);
-      const guarded = filterSafeWriteBackCells(diff.writeBackPlan, freshGrid.values, noteType);
+      const guarded = filterSafeWriteBackCells(
+        diff.writeBackPlan,
+        freshGrid.values,
+        noteType,
+        columnMap,
+      );
 
       if (guarded.skippedCells.length > 0) {
         // Drop raced rows from this pull so the Sheet's winning Card ID is adopted on the next pull
@@ -758,6 +785,7 @@ export async function refreshSingleGoogleSource(
           canWriteBack: false,
           mediaPathMap: mergedSheetMediaPathMap,
           embeddedImageRows: grid.embeddedImageRows,
+          ...(columnMap ? { columnMap } : {}),
           nowMs,
         });
       } else {
@@ -774,6 +802,7 @@ export async function refreshSingleGoogleSource(
     sheet_tab: grid.sheetTitle,
     read_only: grid.readOnly,
     last_synced_at: nowMs,
+    ...(columnMap ? { column_map: [...columnMap] } : {}),
   };
 
   if (!existingDeck) {
@@ -825,6 +854,7 @@ export async function refreshSingleGoogleSource(
   source.noteTypeId = noteType.id;
   source.language = language;
   source.sheetTab = grid.sheetTitle;
+  if (columnMap) source.columnMap = [...columnMap];
   source.readOnly = grid.readOnly;
   if (grid.modifiedTime) source.lastModifiedTime = grid.modifiedTime;
   source.lastSyncedAt = nowMs;

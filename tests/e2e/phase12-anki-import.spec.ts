@@ -11,12 +11,21 @@ async function openLibrary(page: Page): Promise<void> {
   await expect(page.locator('h1', { hasText: 'Library' })).toBeVisible();
 }
 
-async function pickApkg(page: Page, name: string): Promise<void> {
+async function chooseApkg(page: Page, name: string): Promise<void> {
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser'),
     page.getByTestId('anki-pick-file-btn').click(),
   ]);
   await chooser.setFiles(fixture(name));
+}
+
+/** Picks a package, waits for the pre-import summary, then presses Import. */
+async function pickApkg(page: Page, name: string): Promise<void> {
+  await chooseApkg(page, name);
+  const status = page.getByTestId('anki-import-status');
+  await expect(status).toHaveAttribute('data-phase', 'ready', { timeout: 30_000 });
+  await expect(status).toContainText('Ready to import');
+  await page.getByTestId('anki-import-btn').click();
 }
 
 test.describe('Phase 12 Anki .apkg import', () => {
@@ -85,11 +94,13 @@ test.describe('Phase 12 Anki .apkg import', () => {
     await pickApkg(page, 'basic-reversed.apkg');
     await expect(status).toContainText('(0 new): 0 added or updated', { timeout: 30_000 });
 
-    await pickApkg(page, 'malicious-traversal.apkg');
+    // Unsafe or wrong packages are refused while reading, before any summary.
+    await chooseApkg(page, 'malicious-traversal.apkg');
     await expect(status).toHaveAttribute('data-phase', 'error', { timeout: 30_000 });
     await expect(status).toContainText('Unsafe Anki package');
+    await expect(page.getByTestId('anki-import-btn')).toBeDisabled();
 
-    await pickApkg(page, 'not-anki.apkg');
+    await chooseApkg(page, 'not-anki.apkg');
     await expect(status).toContainText('does not contain an Anki collection', { timeout: 30_000 });
   });
 
@@ -259,7 +270,7 @@ test.describe('Phase 12 Anki import panel layout stability', () => {
       await expect(page.getByTestId('anki-import-warnings')).toBeAttached();
       expect(await size()).toEqual(fallback);
 
-      await pickApkg(page, 'newer-format.apkg');
+      await chooseApkg(page, 'newer-format.apkg');
       await expect(status).toHaveAttribute('data-phase', 'error', { timeout: 30_000 });
       expect(await size()).toEqual(fallback);
 

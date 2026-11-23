@@ -1,4 +1,5 @@
 import type { CollectionState, EventFactory, KnownEvent } from '@flash/core';
+import type { ColumnTarget } from '@flash/core/import-mapping';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import type { EntitlementState, PlatformServices } from '@flash/platform';
 
@@ -41,12 +42,21 @@ export interface CsvImportOutcome {
   warnings: number;
 }
 
+export interface CsvImportOptions {
+  ankiRuby?: boolean;
+  /** Where each column goes (the mapping step); without it, columns are matched by name. */
+  columns?: readonly ColumnTarget[];
+  /** `false` when the first row is already a card. */
+  hasHeaderRow?: boolean;
+  delimiter?: ',' | '\t';
+}
+
 /** Imports CSV/TSV rows (incl. Flashcards Deluxe `Text 1..N`) into an existing deck. */
 export async function importCsvIntoDeck(
   ctx: LibraryImportContext,
   csvText: string,
   deckId: string,
-  options: { ankiRuby?: boolean } = {},
+  options: CsvImportOptions = {},
 ): Promise<CsvImportOutcome> {
   const deck = ctx.state.decks.get(deckId);
   if (!deck) throw new LibraryImportError('Select or create a deck before importing CSV/TSV.');
@@ -59,6 +69,9 @@ export async function importCsvIntoDeck(
     eventFactory: ctx.getEventFactory(),
     ankiRuby: options.ankiRuby === true,
     existingNotes: ctx.state.notes.values(),
+    ...(options.columns ? { columns: options.columns } : {}),
+    ...(options.hasHeaderRow === undefined ? {} : { hasHeaderRow: options.hasHeaderRow }),
+    ...(options.delimiter ? { delimiter: options.delimiter } : {}),
   });
   if (result.events.length > 0) ctx.emitEvents(result.events);
   const warnSuffix = result.warnings.length > 0 ? ` (${result.warnings.length} warning(s))` : '';

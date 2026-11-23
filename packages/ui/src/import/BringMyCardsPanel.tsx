@@ -1,10 +1,37 @@
-import { compareCodeUnits, decodeUtf8, type NoteType } from '@flash/core';
+import {
+  compareCodeUnits,
+  decodeUtf8,
+  type CollectionState,
+  type Deck,
+  type NoteType,
+  type SourceColumnMapping,
+} from '@flash/core';
+import { parseDelimitedText } from '@flash/core/csv';
 import type { DetectedImport } from '@flash/core/import-detect';
-import { lazy, Suspense, useEffect, useState, type DragEvent, type FormEvent } from 'react';
+import {
+  guessDeckSetup,
+  looksLikeHeaderRow,
+  previewMappedRows,
+  resolveSourceColumnMap,
+  toSourceColumnMap,
+  type ColumnTarget,
+} from '@flash/core/import-mapping';
+import type { GooglePickedFile } from '@flash/platform';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type DragEvent,
+  type SyntheticEvent,
+} from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
+import { gridToCsv } from '../sources/oneDriveImport.ts';
 import { useApp } from '../state/AppContext.tsx';
 import type { PendingAnkiFile } from './AnkiImportPanel.tsx';
 import { BRING_MY_CARDS_PANEL_HEIGHT } from './bring-my-cards-layout.ts';
+import { ColumnMappingView, useColumnMapping } from './ColumnMapping.tsx';
 import {
   assertCanAddDecks,
   importCsvIntoDeck,
@@ -18,7 +45,6 @@ const LazyAnkiImportPanel = lazy(() => import('./AnkiImportPanel.tsx'));
 const MAX_IMPORT_BYTES = 300 * 1024 * 1024;
 const GOOGLE_SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
 const DEFAULT_NOTE_TYPE_ID = 'preset:vocab-ko';
-const MAX_LISTED_HEADERS = 6;
 
 const LANGUAGES: ReadonlyArray<{ code: string; label: string }> = [
   { code: 'ko', label: 'Korean (ko)' },
@@ -29,13 +55,16 @@ const LANGUAGES: ReadonlyArray<{ code: string; label: string }> = [
 
 type CsvDetection = Extract<DetectedImport, { kind: 'csv' }>;
 
+/** Where a table came from: a CSV/TSV file, an Excel workbook, or rows pasted in the text box. */
+type TableSource = 'file' | 'xlsx' | 'pasted';
+
 type Route =
   | { kind: 'input'; message: string; tone: 'muted' | 'error' }
   | { kind: 'reading'; name: string }
   // One `file` object per detection: the Anki panel imports it once (its bytes move to a Worker).
   | { kind: 'anki'; name: string; file: PendingAnkiFile }
   | { kind: 'flashpkg'; name: string; phase: 'importing' | 'done' | 'error'; message: string }
-  | { kind: 'csv'; name: string; text: string; detected: CsvDetection }
+  | { kind: 'csv'; name: string; text: string; detected: CsvDetection; source: TableSource }
   | { kind: 'google-sheets'; spreadsheetId: string; url: string };
 
 const INITIAL_ROUTE: Route = { kind: 'input', message: '', tone: 'muted' };
@@ -123,7 +152,7 @@ function InputView({
     onFile(file.name, new Uint8Array(await file.arrayBuffer()));
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = (e: SyntheticEvent) => {
     e.preventDefault();
     onLink(link);
   };
@@ -153,21 +182,24 @@ function InputView({
           Choose a file…
         </button>
         <p className="text-[11px] break-words text-[var(--muted)]">
-          Anki .apkg, .flashpkg, or CSV/TSV (Flashcards Deluxe exports too)
+          Anki .apkg, .flashpkg, Excel .xlsx, or CSV/TSV (Flashcards Deluxe exports too)
         </p>
       </div>
       <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
         <label className="flex min-w-0 flex-1 basis-48 flex-col gap-1 text-xs">
-          <span>Or paste a Google Sheets link</span>
-          <input
-            type="text"
-            inputMode="url"
+          <span>Or paste a Google Sheets link, or rows copied from a spreadsheet</span>
+          {/* A textarea, so pasted rows keep their line breaks. Ctrl/⌘+Enter submits. */}
+          <textarea
+            rows={2}
             data-testid="bring-link-input"
             value={link}
             disabled={busy}
             onChange={(e) => setLink(e.target.value)}
-            placeholder="https://docs.google.com/spreadsheets/d/…"
-            className={`w-full ${FIELD}`}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSubmit(e);
+            }}
+            placeholder={'https://docs.google.com/spreadsheets/d/…\nor: word ⇥ meaning ⇥ example'}
+            className={`w-full resize-none ${FIELD}`}
           />
         </label>
         <button
@@ -176,7 +208,7 @@ function InputView({
           disabled={busy || link.trim() === ''}
           className={BUTTON}
         >
-          Use link
+          Use this
         </button>
       </form>
       <output
@@ -191,47 +223,36 @@ function InputView({
 }
 
 // ---------------------------------------------------------------------------------------------
-// CSV / TSV (incl. Flashcards Deluxe): pick the target deck, then the existing CSV importer
+// CSV / TSV / Excel / pasted rows: pick the target deck, map the columns, then import
 // ---------------------------------------------------------------------------------------------
 
-function csvLabel(detected: CsvDetection): string {
+function csvLabel(detected: CsvDetection, source: TableSource): string {
+  if (source === 'xlsx') return 'Excel workbook (first sheet)';
+  if (source === 'pasted') return 'Pasted rows';
   const kind =
     detected.dialect === 'flashcards-deluxe' ? 'Flashcards Deluxe file' : 'CSV/TSV table';
   const delimiter = detected.delimiter === '\t' ? 'tab-separated' : 'comma-separated';
   return `${kind} (${delimiter})`;
 }
 
-function headerList(headers: readonly string[]): string {
-  const shown = headers.slice(0, MAX_LISTED_HEADERS).join(', ');
-  return headers.length > MAX_LISTED_HEADERS ? `${shown}, …` : shown;
+function rowCountText(grid: readonly (readonly string[])[], hasHeaderRow: boolean): string {
+  const rows = Math.max(0, grid.length - (hasHeaderRow ? 1 : 0));
+  return `${rows} ${rows === 1 ? 'row' : 'rows'}`;
 }
 
-/** `Text 3` -> 2 (a Flashcards Deluxe positional column), otherwise `undefined`. */
-function deluxeTextIndex(header: string): number | undefined {
-  const norm = header.trim().toLowerCase();
-  if (!norm.startsWith('text')) return undefined;
-  const digits = norm.slice(4).trim();
-  if (digits === '' || [...digits].some((ch) => ch < '0' || ch > '9')) return undefined;
-  return Number(digits) - 1;
-}
-
-/** `Text 1 → Word · Text 2 → Hanja / Reading`, so a positional mismatch is visible up front. */
-function deluxeMapping(headers: readonly string[], noteType: NoteType | undefined): string {
-  const parts = headers.flatMap((header) => {
-    const index = deluxeTextIndex(header);
-    if (index === undefined) return [];
-    const field = noteType?.fields[index];
-    return [`${header} → ${field ? field.label : '(not imported)'}`];
-  });
-  return parts.join(' · ');
+/** The note type a new deck starts with: the guess when this collection has it. */
+function initialNoteTypeId(state: CollectionState, guessed: string): string {
+  if (state.noteTypes.has(guessed)) return guessed;
+  if (state.noteTypes.has(DEFAULT_NOTE_TYPE_ID)) return DEFAULT_NOTE_TYPE_ID;
+  return [...state.noteTypes.keys()][0] ?? '';
 }
 
 interface NewDeckFieldsProps {
-  deckName: string;
+  deckName?: string;
   noteTypeId: string;
   language: string;
   disabled: boolean;
-  onDeckName: (v: string) => void;
+  onDeckName?: (v: string) => void;
   onNoteType: (v: string) => void;
   onLanguage: (v: string) => void;
 }
@@ -239,19 +260,22 @@ interface NewDeckFieldsProps {
 function NewDeckFields(props: Readonly<NewDeckFieldsProps>) {
   const { state } = useApp();
   const noteTypes = [...state.noteTypes.values()].toSorted(byNameThenId);
+  const { onDeckName } = props;
   return (
     <>
-      <label className="flex min-w-0 flex-col gap-1">
-        <span>Deck name</span>
-        <input
-          type="text"
-          data-testid="bring-csv-deck-name"
-          value={props.deckName}
-          disabled={props.disabled}
-          onChange={(e) => props.onDeckName(e.target.value)}
-          className={FIELD}
-        />
-      </label>
+      {onDeckName && (
+        <label className="flex min-w-0 flex-col gap-1">
+          <span>Deck name</span>
+          <input
+            type="text"
+            data-testid="bring-csv-deck-name"
+            value={props.deckName ?? ''}
+            disabled={props.disabled}
+            onChange={(e) => onDeckName(e.target.value)}
+            className={FIELD}
+          />
+        </label>
+      )}
       <div className="flex min-w-0 flex-wrap gap-2">
         <label className="flex min-w-0 flex-1 basis-32 flex-col gap-1">
           <span>Note type</span>
@@ -290,33 +314,105 @@ function NewDeckFields(props: Readonly<NewDeckFieldsProps>) {
   );
 }
 
+type ImportPhase = 'idle' | 'importing' | 'done' | 'error';
+
+interface MappedTableImportProps {
+  grid: readonly (readonly string[])[];
+  noteType: NoteType;
+  phase: ImportPhase;
+  message: string;
+  onImport: (columns: ColumnTarget[], hasHeaderRow: boolean, ankiRuby: boolean) => void;
+}
+
+/** The mapping, the furigana switch and the Import button for one note type (keyed by it). */
+function MappedTableImport({
+  grid,
+  noteType,
+  phase,
+  message,
+  onImport,
+}: Readonly<MappedTableImportProps>) {
+  const mapping = useColumnMapping(grid, noteType);
+  const [ankiRuby, setAnkiRuby] = useState(false);
+  const locked = phase === 'importing' || phase === 'done';
+  const empty =
+    previewMappedRows(grid, mapping.targets, noteType, {
+      hasHeaderRow: mapping.hasHeaderRow,
+      limit: 1,
+    }).length === 0;
+  return (
+    <>
+      <p data-testid="bring-csv-rows" className="text-[11px] text-[var(--muted)]">
+        {rowCountText(grid, mapping.hasHeaderRow)}
+      </p>
+      <ColumnMappingView grid={grid} noteType={noteType} mapping={mapping} disabled={locked} />
+      <label
+        className="flex min-w-0 items-center gap-1.5"
+        title="Anki exports put a space before each furigana base, e.g. 私は 日本語[にほんご]"
+      >
+        <input
+          type="checkbox"
+          data-testid="bring-csv-anki-ruby"
+          checked={ankiRuby}
+          disabled={locked}
+          onChange={(e) => setAnkiRuby(e.target.checked)}
+        />
+        <span className="min-w-0 break-words">Anki furigana</span>
+      </label>
+      <div>
+        <button
+          type="button"
+          data-testid="bring-csv-import-btn"
+          disabled={locked || mapping.blocked || empty}
+          onClick={() => onImport(mapping.targets, mapping.hasHeaderRow, ankiRuby)}
+          className={PRIMARY_BUTTON}
+        >
+          Import
+        </button>
+      </div>
+      <output
+        aria-live="polite"
+        data-testid="bring-csv-status"
+        data-phase={phase}
+        className={`block min-h-[2.5rem] break-words whitespace-pre-line ${toneClass(phase === 'error')}`}
+      >
+        {message}
+      </output>
+    </>
+  );
+}
+
 interface CsvRouteProps {
   name: string;
   text: string;
   detected: CsvDetection;
+  source: TableSource;
   onBusyChange: BusyReporter;
 }
 
-function CsvRoute({ name, text, detected, onBusyChange }: Readonly<CsvRouteProps>) {
+function CsvRoute({ name, text, detected, source, onBusyChange }: Readonly<CsvRouteProps>) {
   const { state, createDeck } = useApp();
   const ctx = useImportContext();
+  const grid = useMemo(() => {
+    const parsed = parseDelimitedText(text, { delimiter: detected.delimiter });
+    return [parsed.headers, ...parsed.rows];
+  }, [text, detected.delimiter]);
+  const setup = useMemo(() => guessDeckSetup(grid), [grid]);
   const decks = [...state.decks.values()].filter((d) => !d.archived).toSorted(byNameThenId);
   const [target, setTarget] = useState('new');
   const [deckName, setDeckName] = useState(baseName(name));
-  const [noteTypeId, setNoteTypeId] = useState(
-    state.noteTypes.has(DEFAULT_NOTE_TYPE_ID)
-      ? DEFAULT_NOTE_TYPE_ID
-      : ([...state.noteTypes.keys()][0] ?? ''),
-  );
-  const [language, setLanguage] = useState('ko');
-  const [ankiRuby, setAnkiRuby] = useState(false);
-  const [phase, setPhase] = useState<'idle' | 'importing' | 'done' | 'error'>('idle');
+  const [noteTypeId, setNoteTypeId] = useState(() => initialNoteTypeId(state, setup.noteTypeId));
+  const [language, setLanguage] = useState(setup.language);
+  const [phase, setPhase] = useState<ImportPhase>('idle');
   const [message, setMessage] = useState('');
   const locked = phase === 'importing' || phase === 'done';
   useReportBusy(phase === 'importing', onBusyChange);
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleImport = async (
+    columns: ColumnTarget[],
+    hasHeaderRow: boolean,
+    ankiRuby: boolean,
+  ) => {
     setPhase('importing');
     setMessage('Importing…');
     try {
@@ -325,7 +421,12 @@ function CsvRoute({ name, text, detected, onBusyChange }: Readonly<CsvRouteProps
         assertCanAddDecks(ctx, 1);
         deckId = createDeck(deckName.trim() || baseName(name), noteTypeId, language);
       }
-      const outcome = await importCsvIntoDeck(ctx, text, deckId, { ankiRuby });
+      const outcome = await importCsvIntoDeck(ctx, text, deckId, {
+        ankiRuby,
+        columns,
+        hasHeaderRow,
+        delimiter: detected.delimiter,
+      });
       setPhase('done');
       setMessage(outcome.message);
     } catch (err) {
@@ -336,24 +437,10 @@ function CsvRoute({ name, text, detected, onBusyChange }: Readonly<CsvRouteProps
 
   const deckNoteTypeId =
     target === 'new' ? noteTypeId : (state.decks.get(target)?.note_type_id ?? '');
-  const mapping =
-    detected.dialect === 'flashcards-deluxe'
-      ? deluxeMapping(detected.headers, state.noteTypes.get(deckNoteTypeId))
-      : '';
-  const hint =
-    detected.dialect === 'flashcards-deluxe'
-      ? 'Text 1, Text 2, … fill the note type’s fields in order; Category columns become tags.'
-      : 'Columns are matched to the note type’s fields by name; Tags and Card ID are kept.';
+  const noteType = state.noteTypes.get(deckNoteTypeId);
   return (
-    <form
-      onSubmit={(e) => void handleSubmit(e)}
-      data-testid="bring-csv-form"
-      className="flex flex-col gap-2 text-xs"
-    >
-      <p className="break-words">
-        <span className="font-semibold">{csvLabel(detected)}</span>: {headerList(detected.headers)}
-      </p>
-      <p className="text-[11px] text-[var(--muted)]">{hint}</p>
+    <div data-testid="bring-csv-form" className="flex flex-col gap-2 text-xs">
+      <p className="break-words font-semibold">{csvLabel(detected, source)}</p>
       <label className="flex min-w-0 flex-col gap-1">
         <span>Import into</span>
         <select
@@ -382,48 +469,24 @@ function CsvRoute({ name, text, detected, onBusyChange }: Readonly<CsvRouteProps
           onLanguage={setLanguage}
         />
       )}
-      {mapping && (
-        <p data-testid="bring-csv-mapping" className="break-words text-[11px]">
-          {mapping}
-        </p>
-      )}
-      <label
-        className="flex min-w-0 items-center gap-1.5"
-        title="Anki exports put a space before each furigana base, e.g. 私は 日本語[にほんご]"
-      >
-        <input
-          type="checkbox"
-          data-testid="bring-csv-anki-ruby"
-          checked={ankiRuby}
-          disabled={locked}
-          onChange={(e) => setAnkiRuby(e.target.checked)}
+      {noteType ? (
+        <MappedTableImport
+          key={noteType.id}
+          grid={grid}
+          noteType={noteType}
+          phase={phase}
+          message={message}
+          onImport={(c, h, r) => void handleImport(c, h, r)}
         />
-        <span className="min-w-0 break-words">Anki furigana</span>
-      </label>
-      <div>
-        <button
-          type="submit"
-          data-testid="bring-csv-import-btn"
-          disabled={locked || (target === 'new' && !noteTypeId)}
-          className={PRIMARY_BUTTON}
-        >
-          Import
-        </button>
-      </div>
-      <output
-        aria-live="polite"
-        data-testid="bring-csv-status"
-        data-phase={phase}
-        className={`block min-h-[2.5rem] break-words whitespace-pre-line ${toneClass(phase === 'error')}`}
-      >
-        {message}
-      </output>
-    </form>
+      ) : (
+        <p className={toneClass(true)}>Choose a note type for the new deck.</p>
+      )}
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------------------------
-// Google Sheets: the existing linked-source flow (Picker or a pasted link)
+// Google Sheets: read the Sheet, map its columns, then link it as a source (Picker or a link)
 // ---------------------------------------------------------------------------------------------
 
 interface SheetsRouteProps {
@@ -455,41 +518,160 @@ function useGoogleConnected(): boolean | null {
 const PICKER_HINT =
   'If Google says the file is not found, use "Choose it with Google Picker": Google only lets this app open Sheets you pick there.';
 
+type SheetsPhase = 'idle' | 'reading' | 'mapping' | 'working' | 'done' | 'error';
+
+interface ReadSheet {
+  file: GooglePickedFile;
+  grid: string[][];
+  title: string;
+}
+
+/** The deck this Sheet is already linked to, if any (its note type then can't change). */
+function linkedSheetDeck(state: CollectionState, fileId: string): Deck | undefined {
+  for (const deck of state.decks.values()) {
+    if (deck.source?.kind === 'google_sheets' && deck.source.external_id === fileId) return deck;
+  }
+  return undefined;
+}
+
+interface SheetMappingProps {
+  sheet: ReadSheet;
+  noteType: NoteType;
+  existingDeck: Deck | undefined;
+  disabled: boolean;
+  onLink: (columnMap: SourceColumnMapping[]) => void;
+}
+
+/** The mapping and the Link button for one note type (keyed by it). Headers are required. */
+function SheetMapping({
+  sheet,
+  noteType,
+  existingDeck,
+  disabled,
+  onLink,
+}: Readonly<SheetMappingProps>) {
+  const saved = useMemo(
+    () =>
+      existingDeck?.source?.column_map
+        ? resolveSourceColumnMap(sheet.grid[0] ?? [], existingDeck.source.column_map, noteType)
+        : undefined,
+    [sheet.grid, existingDeck, noteType],
+  );
+  const mapping = useColumnMapping(sheet.grid, noteType, {
+    forceHeaderRow: true,
+    ...(saved ? { saved } : {}),
+  });
+  const headerLooksLikeData = !looksLikeHeaderRow(sheet.grid, noteType);
+  return (
+    <>
+      {headerLooksLikeData && (
+        <p className="text-[11px] text-[var(--muted)]">
+          The first row is read as column names (Card IDs are written under them). If it holds a
+          card, add a row of names above it in the Sheet.
+        </p>
+      )}
+      <ColumnMappingView
+        grid={sheet.grid}
+        noteType={noteType}
+        mapping={mapping}
+        disabled={disabled}
+        headerRowFixed
+      />
+      <div>
+        <button
+          type="button"
+          data-testid="bring-sheets-link-btn"
+          disabled={disabled || mapping.blocked}
+          onClick={() => onLink(toSourceColumnMap(sheet.grid[0] ?? [], mapping.targets))}
+          className={PRIMARY_BUTTON}
+        >
+          Link this Sheet
+        </button>
+      </div>
+    </>
+  );
+}
+
 function SheetsRoute({ spreadsheetId, url, onBusyChange }: Readonly<SheetsRouteProps>) {
   const { platform, state, getEventFactory, emitEvents } = useApp();
   const ctx = useImportContext();
   const connected = useGoogleConnected();
-  const [phase, setPhase] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
+  const [phase, setPhase] = useState<SheetsPhase>('idle');
   const [message, setMessage] = useState('');
+  const [sheet, setSheet] = useState<ReadSheet | null>(null);
+  const [noteTypeId, setNoteTypeId] = useState('');
+  const [language, setLanguage] = useState('ko');
   const configured = platform.googleOAuthConfigured;
-  const busy = phase === 'working';
+  const busy = phase === 'reading' || phase === 'working';
   useReportBusy(busy, onBusyChange);
 
-  const runLink = async (pick: boolean) => {
-    setPhase('working');
-    setMessage(pick ? 'Opening Google Picker…' : 'Linking the Sheet…');
+  const runCtx = () => ({ platform, getState: () => state, getEventFactory, emitEvents });
+
+  const readSheet = async (file: GooglePickedFile, fromPicker: boolean) => {
+    setPhase('reading');
+    setMessage('Reading the Sheet…');
     try {
-      assertCanAddDecks(ctx, 1);
-      const files = pick
-        ? await (await platform.getGooglePicker()).pickSheetsAndDocs()
-        : [{ id: spreadsheetId, name: 'Google Sheet', mimeType: GOOGLE_SHEET_MIME, url }];
-      if (files.length === 0) {
-        setPhase('idle');
-        setMessage('');
+      const client = await platform.getGoogleSourcesClient();
+      const read = await client.readSheet(file.id);
+      if ((read.values[0] ?? []).every((cell) => cell.trim() === '')) {
+        setPhase('error');
+        setMessage('This Sheet’s first tab is empty. Add a row of column names and your cards.');
         return;
       }
+      const setup = guessDeckSetup(read.values, { hasHeaderRow: true });
+      setNoteTypeId(initialNoteTypeId(state, setup.noteTypeId));
+      setLanguage(setup.language);
+      setSheet({ file, grid: read.values, title: read.title || file.name });
+      setPhase('mapping');
+      setMessage('');
+    } catch (err) {
+      setPhase('error');
+      setMessage(`${describeImportError(err)}\n${fromPicker ? '' : PICKER_HINT}`.trim());
+    }
+  };
+
+  const linkFiles = async (
+    files: readonly GooglePickedFile[],
+    columnMap?: SourceColumnMapping[],
+  ) => {
+    setPhase('working');
+    setMessage('Linking the Sheet…');
+    try {
+      const isNew = files.some(
+        (f) => f.mimeType === GOOGLE_SHEET_MIME && !linkedSheetDeck(state, f.id),
+      );
+      assertCanAddDecks(ctx, isNew ? 1 : 0);
       const { linkPickedGoogleFiles } = await import('../sources/sourceRunner.ts');
-      const runCtx = { platform, getState: () => state, getEventFactory, emitEvents };
-      const summary = await linkPickedGoogleFiles(files, runCtx);
+      const summary = await linkPickedGoogleFiles(files, runCtx(), {
+        ...(noteTypeId ? { defaultNoteTypeId: noteTypeId, defaultLanguage: language } : {}),
+        ...(columnMap ? { columnMap } : {}),
+      });
       if (summary.errors.length > 0) {
         setPhase('error');
-        setMessage(`${summary.errors.join('\n')}\n${pick ? '' : PICKER_HINT}`.trim());
+        setMessage(`${summary.errors.join('\n')}\n${PICKER_HINT}`.trim());
         return;
       }
       setPhase('done');
       setMessage(
         `Linked ${files.length} Google file(s): ${summary.importedNotes} note(s). It stays linked under Sources and refreshes from there.`,
       );
+    } catch (err) {
+      setPhase('error');
+      setMessage(describeImportError(err));
+    }
+  };
+
+  const runPicker = async () => {
+    try {
+      const files = await (await platform.getGooglePicker()).pickSheetsAndDocs();
+      if (files.length === 0) return;
+      const [only] = files;
+      // One Sheet gets the mapping step; several files (or Docs) link as before.
+      if (files.length === 1 && only?.mimeType === GOOGLE_SHEET_MIME) {
+        await readSheet(only, true);
+      } else {
+        await linkFiles(files);
+      }
     } catch (err) {
       setPhase('error');
       setMessage(describeImportError(err));
@@ -505,10 +687,21 @@ function SheetsRoute({ spreadsheetId, url, onBusyChange }: Readonly<SheetsRouteP
     }
   };
 
+  const linkedFile: GooglePickedFile = {
+    id: spreadsheetId,
+    name: 'Google Sheet',
+    mimeType: GOOGLE_SHEET_MIME,
+    url,
+  };
+  const existingDeck = sheet ? linkedSheetDeck(state, sheet.file.id) : undefined;
+  const noteType = state.noteTypes.get(existingDeck?.note_type_id ?? noteTypeId);
+  const mapped = sheet !== null && (phase === 'mapping' || phase === 'working' || phase === 'done');
+  const canStart = connected === true && !busy && phase !== 'done';
+
   return (
     <div className="flex flex-col gap-2 text-xs" data-testid="bring-sheets">
       <p className="break-all">
-        <span className="font-semibold">Google Sheets link</span>: {url}
+        <span className="font-semibold">Google Sheets link</span>: {sheet?.file.url ?? url}
       </p>
       {!configured && (
         <p className="text-[var(--muted)]">
@@ -516,7 +709,7 @@ function SheetsRoute({ spreadsheetId, url, onBusyChange }: Readonly<SheetsRouteP
           Sheet as CSV and choose that file instead.
         </p>
       )}
-      {configured && (
+      {configured && !mapped && (
         <div className="flex flex-wrap gap-2">
           {connected === false && (
             <button
@@ -530,23 +723,56 @@ function SheetsRoute({ spreadsheetId, url, onBusyChange }: Readonly<SheetsRouteP
           )}
           <button
             type="button"
-            data-testid="bring-sheets-link-btn"
-            disabled={busy || phase === 'done' || connected !== true}
-            onClick={() => void runLink(false)}
+            data-testid="bring-sheets-read-btn"
+            disabled={!canStart}
+            onClick={() => void readSheet(linkedFile, false)}
             className={PRIMARY_BUTTON}
           >
-            Link this Sheet
+            Read the Sheet
           </button>
           <button
             type="button"
             data-testid="bring-sheets-picker-btn"
-            disabled={busy || connected !== true}
-            onClick={() => void runLink(true)}
+            disabled={!canStart}
+            onClick={() => void runPicker()}
             className={BUTTON}
           >
             Choose it with Google Picker
           </button>
         </div>
+      )}
+      {mapped && sheet && (
+        <>
+          <p className="break-words">
+            <span className="font-semibold">{sheet.title}</span>: {rowCountText(sheet.grid, true)}
+          </p>
+          {existingDeck ? (
+            <p className="text-[11px] text-[var(--muted)]">
+              Already linked to the deck “{existingDeck.name}”. Linking again updates it with this
+              mapping.
+            </p>
+          ) : (
+            <NewDeckFields
+              noteTypeId={noteTypeId}
+              language={language}
+              disabled={phase !== 'mapping'}
+              onNoteType={setNoteTypeId}
+              onLanguage={setLanguage}
+            />
+          )}
+          {noteType ? (
+            <SheetMapping
+              key={noteType.id}
+              sheet={sheet}
+              noteType={noteType}
+              existingDeck={existingDeck}
+              disabled={phase !== 'mapping'}
+              onLink={(columnMap) => void linkFiles([sheet.file], columnMap)}
+            />
+          ) : (
+            <p className={toneClass(true)}>Choose a note type for the new deck.</p>
+          )}
+        </>
       )}
       <output
         aria-live="polite"
@@ -597,6 +823,7 @@ function RouteBody({ route, onBusyChange }: Readonly<RouteBodyProps>) {
         name={route.name}
         text={route.text}
         detected={route.detected}
+        source={route.source}
         onBusyChange={onBusyChange}
       />
     );
@@ -633,6 +860,7 @@ function RouteBody({ route, onBusyChange }: Readonly<RouteBodyProps>) {
  */
 export function BringMyCardsPanel() {
   const ctx = useImportContext();
+  const { platform } = ctx;
   const [route, setRoute] = useState<Route>(INITIAL_ROUTE);
   // An Anki, CSV or Sheets route that is still importing (the .flashpkg route reports its phase).
   const [routeBusy, setRouteBusy] = useState(false);
@@ -649,11 +877,24 @@ export function BringMyCardsPanel() {
     }
   };
 
-  const routeDetected = (detected: DetectedImport, name: string, bytes: Uint8Array) => {
+  /** Reads the first sheet of a workbook (lazy Excel reader) and maps it like a CSV file. */
+  const runXlsx = async (name: string, bytes: Uint8Array) => {
+    const grid = await (await platform.getLocalFolderSources()).parseXlsxBytes(bytes);
+    const headers = (grid[0] ?? []).map((h) => h.trim());
+    if (grid.length === 0 || headers.every((h) => h === '')) {
+      fail(`"${name}" has nothing in its first sheet's first row.`);
+      return;
+    }
+    const detected: CsvDetection = { kind: 'csv', dialect: 'generic', delimiter: ',', headers };
+    setRoute({ kind: 'csv', name, text: gridToCsv(grid), detected, source: 'xlsx' });
+  };
+
+  const routeDetected = async (detected: DetectedImport, name: string, bytes: Uint8Array) => {
     if (detected.kind === 'anki') setRoute({ kind: 'anki', name, file: { name, bytes } });
-    else if (detected.kind === 'flashpkg') void runFlashpkg(name, bytes);
+    else if (detected.kind === 'flashpkg') await runFlashpkg(name, bytes);
+    else if (detected.kind === 'xlsx') await runXlsx(name, bytes);
     else if (detected.kind === 'csv')
-      setRoute({ kind: 'csv', name, text: decodeUtf8(bytes), detected });
+      setRoute({ kind: 'csv', name, text: decodeUtf8(bytes), detected, source: 'file' });
     else if (detected.kind === 'unsupported') fail(detected.message);
   };
 
@@ -665,7 +906,7 @@ export function BringMyCardsPanel() {
     setRoute({ kind: 'reading', name });
     try {
       const { detectImportFile } = await import('@flash/core/import-detect');
-      routeDetected(detectImportFile(bytes, name), name, bytes);
+      await routeDetected(detectImportFile(bytes, name), name, bytes);
     } catch (err) {
       fail(describeImportError(err));
     }
@@ -676,10 +917,14 @@ export function BringMyCardsPanel() {
     const detected = detectImportText(text);
     if (detected.kind === 'google-sheets') {
       setRoute({ kind: 'google-sheets', spreadsheetId: detected.spreadsheetId, url: detected.url });
+    } else if (detected.kind === 'csv') {
+      setRoute({ kind: 'csv', name: 'Pasted rows', text, detected, source: 'pasted' });
     } else if (detected.kind === 'unsupported') {
       fail(detected.message);
     } else {
-      fail('Paste a Google Sheets link here. To import a file, drop it above or choose it.');
+      fail(
+        'Paste a Google Sheets link or rows here. To import a file, drop it above or choose it.',
+      );
     }
   };
 
@@ -701,7 +946,7 @@ export function BringMyCardsPanel() {
           <h2 className="text-sm font-semibold">Bring my cards</h2>
           <p className="text-xs break-words text-[var(--muted)]">
             {detected ??
-              'Import from Anki, Flashcards Deluxe, a .flashpkg backup or Google Sheets. The format is detected for you.'}
+              'Import from Anki, Flashcards Deluxe, a .flashpkg backup, Excel, CSV or Google Sheets. The format is detected for you.'}
           </p>
         </div>
         {routed && (

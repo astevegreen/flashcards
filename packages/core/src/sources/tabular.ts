@@ -3,7 +3,14 @@ import type { CollectionState, EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { deriveNoteId, uuidv7 } from '../ids.ts';
 import { BUILTIN_NOTE_TYPE_IDS } from '../model/presets.ts';
-import type { Note, NoteType, Provenance } from '../model/types.ts';
+import type { Note, NoteType, Provenance, SourceColumnMapping } from '../model/types.ts';
+import {
+  joinNotes,
+  notesFieldKey,
+  notesLine,
+  resolveSourceColumnMap,
+  type ColumnTarget,
+} from '../import/column-target.ts';
 import { computeNoteContentHash, sha256String } from './hash.ts';
 
 export type TabularWarningCode =
@@ -29,6 +36,8 @@ export type TabularColumnRole =
   | { kind: 'field'; fieldKey: string; mediaKind?: 'image' | 'audio' }
   | { kind: 'tags' }
   | { kind: 'card_id' }
+  /** Appended to the Notes field as `Header: value` (a column mapped to "Add to Notes"). */
+  | { kind: 'notes'; header: string }
   | { kind: 'ignore' };
 
 export interface MappedTabularHeaders {
@@ -105,6 +114,8 @@ export interface TabularDiffOptions {
   renameMap?: Readonly<Record<string, string>>;
   /** Optional provenance override (defaults to `{ source: 'import', reviewed: true }`). */
   provenance?: Provenance;
+  /** The mapping saved when the source was linked (`SourceRef.column_map`); see `mapTabularHeaders`. */
+  columnMap?: readonly SourceColumnMapping[];
   nowMs?: number;
   /** Optional deterministic ID generator for unit tests (defaults to `uuidv7`). */
   generateCardId?: () => string;
@@ -287,13 +298,40 @@ export function inferPresetNoteTypeId(
   };
 }
 
+function fieldRole(
+  fieldKey: string,
+  noteType: NoteType,
+  colIdx: number,
+  imageColumnIndices: number[],
+  audioColumnIndices: number[],
+): TabularColumnRole {
+  const kind = noteType.fields.find((f) => f.key === fieldKey)?.kind;
+  if (kind === 'image') {
+    imageColumnIndices.push(colIdx);
+    return { kind: 'field', fieldKey, mediaKind: 'image' };
+  }
+  if (kind === 'audio') {
+    audioColumnIndices.push(colIdx);
+    return { kind: 'field', fieldKey, mediaKind: 'audio' };
+  }
+  return { kind: 'field', fieldKey };
+}
+
 /**
  * Matches tabular headers to Note Type fields by name (never position alone, except Flashcards Deluxe `Text 1..N`).
+ * A saved `columnMap` (the Bring my cards mapping step) decides first for every header it lists.
  */
 export function mapTabularHeaders(
   headers: readonly string[],
   noteType: NoteType,
+  columnMap?: readonly SourceColumnMapping[],
 ): MappedTabularHeaders {
+  const explicit: (ColumnTarget | undefined)[] = resolveSourceColumnMap(
+    headers,
+    columnMap,
+    noteType,
+  );
+  const notesKey = notesFieldKey(noteType);
   const warnings: TabularImportWarning[] = [];
   const mappedHeaders: Record<string, string> = {};
   const fieldByLookup = new Map<string, { key: string; kind: string }>();
@@ -316,6 +354,28 @@ export function mapTabularHeaders(
     const header = rawHeader.trim();
     const norm = header.toLowerCase();
     if (!norm) return { kind: 'ignore' };
+
+    const saved = explicit[colIdx];
+    if (saved) {
+      if (saved.kind === 'card_id' && cardIdColumnIndex === -1) {
+        cardIdColumnIndex = colIdx;
+        mappedHeaders[header] = 'source_key';
+        return { kind: 'card_id' };
+      }
+      if (saved.kind === 'field') {
+        mappedHeaders[header] = saved.fieldKey;
+        return fieldRole(saved.fieldKey, noteType, colIdx, imageColumnIndices, audioColumnIndices);
+      }
+      if (saved.kind === 'tags') {
+        mappedHeaders[header] = 'tags';
+        return { kind: 'tags' };
+      }
+      if (saved.kind === 'notes' && notesKey) {
+        mappedHeaders[header] = notesKey;
+        return { kind: 'notes', header };
+      }
+      return { kind: 'ignore' };
+    }
 
     if (seenNormalized.has(norm)) {
       warnings.push({
@@ -498,7 +558,8 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
     };
   }
 
-  const headerMap = mapTabularHeaders(headerRow, noteType);
+  const headerMap = mapTabularHeaders(headerRow, noteType, options.columnMap);
+  const notesKey = notesFieldKey(noteType);
   const warnings: TabularImportWarning[] = [...headerMap.warnings];
   const embeddedSet = new Set(embeddedImageRows);
   const referencedRelativeSet = new Set<string>();
@@ -589,6 +650,7 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
 
     const fields: Record<string, string> = {};
     const tagSet = new Set<string>();
+    const notes: string[] = [];
     let rawCardId = '';
 
     for (let colIdx = 0; colIdx < headerMap.roles.length; colIdx++) {
@@ -599,6 +661,8 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
 
       if (role.kind === 'card_id') {
         rawCardId = rawCell;
+      } else if (role.kind === 'notes') {
+        notes.push(notesLine(role.header, colIdx, rawCell));
       } else if (role.kind === 'tags') {
         for (const part of rawCell.split(/[;,]/)) {
           const t = part.normalize('NFC').trim();
@@ -643,10 +707,15 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
             });
           }
         } else {
-          fields[role.fieldKey] = rawCell;
+          const prev = fields[role.fieldKey];
+          // Several columns may go to Notes (the mapping step allows it for Notes only).
+          fields[role.fieldKey] =
+            prev && role.fieldKey === notesKey ? joinNotes(prev, [rawCell]) : rawCell;
         }
       }
     }
+
+    if (notesKey && notes.length > 0) fields[notesKey] = joinNotes(fields[notesKey], notes);
 
     if (Object.keys(fields).length === 0) {
       stats.skipped += 1;
@@ -898,9 +967,10 @@ export function filterSafeWriteBackCells(
   plan: WriteBackPlan,
   reReadGrid: readonly (readonly string[])[],
   noteType: NoteType,
+  columnMap?: readonly SourceColumnMapping[],
 ): SafeWriteBackFilterResult {
   const headerRow = reReadGrid[0] ?? [];
-  const headerMap = mapTabularHeaders(headerRow, noteType);
+  const headerMap = mapTabularHeaders(headerRow, noteType, columnMap);
 
   const safeCells: Array<WriteBackCell & { a1: string }> = [];
   const skippedCells: SafeWriteBackFilterResult['skippedCells'] = [];
