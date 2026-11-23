@@ -515,6 +515,38 @@ function krdictEntryMeta(own) {
   };
 }
 
+/**
+ * KRDict's two category systems, as `<feat>` names. 주제 및 상황 범주 (situations such as
+ * `음식 주문하기`) is kept as written; 의미 범주 (`식생활 > 음식`) keeps its top level only.
+ * The exact attribute names of the "사전 전체 내려받기" export are not verified against a real
+ * download yet, so both the English-style and the Korean labels are accepted (docs/follow-ups.md).
+ */
+export const KRDICT_SUBJECT_CATEGORY_ATTS = [
+  'subjectCategory',
+  'subject_category',
+  '주제 및 상황 범주',
+];
+export const KRDICT_SEMANTIC_CATEGORY_ATTS = [
+  'semanticCategory',
+  'semantic_category',
+  'sem_cat',
+  '의미 범주',
+];
+const KRDICT_MAX_TOPICS = 8;
+
+/** Topic groups from an entry's and its senses' own `<feat>`s (see the attribute lists above). */
+function parseKrdictTopics(block) {
+  const pairs = [...ownFeats(block), ...elements(block, 'Sense').flatMap((s) => ownFeats(s))];
+  const topics = [];
+  for (const [att, val] of pairs) {
+    // One value is one topic: some topic names contain commas (`감정, 기분 표현하기`).
+    if (!val || val === '없음') continue;
+    if (KRDICT_SUBJECT_CATEGORY_ATTS.includes(att)) topics.push(val);
+    else if (KRDICT_SEMANTIC_CATEGORY_ATTS.includes(att)) topics.push(val.split('>')[0].trim());
+  }
+  return uniq(topics.filter(Boolean)).slice(0, KRDICT_MAX_TOPICS);
+}
+
 /** One `<LexicalEntry>` as a pack entry, or `undefined` when it has no headword or usable sense. */
 function parseKrdictEntry(block) {
   const lemmaBlock = elements(block, 'Lemma')[0] ?? '';
@@ -527,6 +559,7 @@ function parseKrdictEntry(block) {
     .filter((s) => s !== undefined);
   if (senses.length === 0) return undefined;
   const { hanja, pos, level, origin, homonym } = krdictEntryMeta(own);
+  const topics = parseKrdictTopics(block);
   return {
     headword: headword.normalize('NFC'),
     ...(hanja ? { altForms: [hanja] } : {}),
@@ -539,6 +572,7 @@ function parseKrdictEntry(block) {
     ...(origin ? { origin } : {}),
     ...(homonym === undefined ? {} : { homonym }),
     ...(forms.length > 0 ? { forms: uniq(forms) } : {}),
+    ...(topics.length > 0 ? { topics } : {}),
     senses,
   };
 }
@@ -548,7 +582,8 @@ function parseKrdictEntry(block) {
  * multilingual one — only `영어` equivalents are kept). Shape per `<LexicalEntry>`:
  *   Lemma/writtenForm, homonym_number, partOfSpeech, vocabularyLevel, origin (원어),
  *   WordForm[type=발음]/pronunciation, WordForm[type=활용]/writtenForm,
- *   Sense/definition + Equivalent[language=영어]/{lemma,definition} + SenseExample/{type,example}.
+ *   Sense/definition + Equivalent[language=영어]/{lemma,definition} + SenseExample/{type,example},
+ *   and the topic categories (`parseKrdictTopics`).
  * Output matches `decodePackArchive` (packages/core/src/dictionary/pack-codec.ts).
  */
 export function parseKrdictXml(xml) {

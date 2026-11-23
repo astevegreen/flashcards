@@ -184,7 +184,52 @@ export const KRDICT_STARTER_ROWS = [
   ['푸르다', '형용사', '중급', '', '푸르다', ['푸르러', '푸르니', '푸른'], [
     ['blue; green', 'Having the color of a clear sky, the sea or fresh grass.', ['푸른 바다.']],
   ]],
+  ['정책', '명사', '고급', '政策', '정책', [], [
+    ['policy', 'A plan of action chosen by a government or an organization.', ['새 정책을 발표하다.']],
+  ]],
+  ['꾸준하다', '형용사', '고급', '', '꾸준하다', ['꾸준해', '꾸준하니', '꾸준한'], [
+    ['steady; constant', 'Keeping at something without stopping or changing.', ['꾸준한 노력.']],
+  ]],
 ];
+
+/**
+ * Starter topic tags in KRDict's two category systems: 주제 및 상황 범주 (`subject`, kept as
+ * written) and 의미 범주 (`semantic`, `top > sub`; packs keep the top level). Hand-assigned.
+ */
+// prettier-ignore
+export const KRDICT_STARTER_TOPICS = {
+  학교: { subject: ['학교생활'], semantic: ['교육 > 학교'] },
+  학생: { subject: ['학교생활'], semantic: ['교육 > 학교'] },
+  선생님: { subject: ['학교생활'], semantic: ['인간 > 직업'] },
+  공부: { subject: ['학교생활'], semantic: ['교육 > 학문'] },
+  공부하다: { subject: ['학교생활'], semantic: ['교육 > 학문'] },
+  배우다: { subject: ['학교생활'], semantic: ['교육 > 학문'] },
+  책: { subject: ['학교생활'], semantic: ['교육 > 학습 도구'] },
+  도서관: { subject: ['학교생활', '공공 기관 이용하기'], semantic: ['교육 > 학교'] },
+  쓰다: { subject: ['학교생활'], semantic: ['교육 > 학습 행위'] },
+  먹다: { subject: ['음식 주문하기'], semantic: ['식생활 > 음식 행위'] },
+  마시다: { subject: ['음식 주문하기'], semantic: ['식생활 > 음식 행위'] },
+  밥: { subject: ['음식 주문하기'], semantic: ['식생활 > 음식'] },
+  물: { subject: ['음식 주문하기'], semantic: ['식생활 > 음식'] },
+  김치: { subject: ['음식 주문하기'], semantic: ['식생활 > 음식'] },
+  식사: { subject: ['하루 생활'], semantic: ['식생활 > 음식 행위'] },
+  약속: { subject: ['약속하기'], semantic: ['사회 생활 > 사회 활동'] },
+  만나다: { subject: ['약속하기'], semantic: ['인간 > 인간관계'] },
+  시간: { subject: ['약속하기', '시간 표현하기'], semantic: ['개념 > 시간'] },
+  춥다: { subject: ['날씨 표현하기'], semantic: ['자연 > 기상 및 기후'] },
+  덥다: { subject: ['날씨 표현하기'], semantic: ['자연 > 기상 및 기후'] },
+  친구: { subject: ['소개하기'], semantic: ['인간 > 인간관계'] },
+  사람: { semantic: ['인간 > 사람의 종류'] },
+  한국: { subject: ['소개하기'], semantic: ['사회 생활 > 국가'] },
+  한국어: { subject: ['소개하기'], semantic: ['문화 > 언어'] },
+  감사하다: { subject: ['감사하기'], semantic: ['인간 > 감정'] },
+  노래: { subject: ['취미'], semantic: ['문화 > 음악'] },
+  부르다: { subject: ['취미'], semantic: ['문화 > 음악'] },
+  집: { subject: ['집 구하기'], semantic: ['주생활 > 주거 형태'] },
+  살다: { subject: ['집 구하기'], semantic: ['삶 > 삶의 상태'] },
+  사다: { subject: ['물건 사기'], semantic: ['경제 생활 > 경제 행위'] },
+  일하다: { subject: ['직장 생활'], semantic: ['경제 생활 > 경제 행위'] },
+};
 
 const esc = (s) =>
   String(s)
@@ -195,7 +240,7 @@ const esc = (s) =>
 const feat = (att, val) => `<feat att="${esc(att)}" val="${esc(val)}"/>`;
 
 /** Renders the starter rows as KRDict LMF XML (the shape of the "사전 전체 내려받기" export). */
-export function renderKrdictStarterXml(rows = KRDICT_STARTER_ROWS) {
+export function renderKrdictStarterXml(rows = KRDICT_STARTER_ROWS, topics = KRDICT_STARTER_TOPICS) {
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<LexicalResource dtdVersion="16">',
@@ -213,6 +258,10 @@ export function renderKrdictStarterXml(rows = KRDICT_STARTER_ROWS) {
       lines.push(`<WordForm>${feat('type', '활용')}${feat('writtenForm', f)}</WordForm>`);
     senses.forEach(([equivalent, definition, examples], j) => {
       lines.push(`<Sense att="id" val="${i + 1}-${j + 1}">`);
+      if (j === 0) {
+        for (const t of topics[headword]?.subject ?? []) lines.push(feat('subjectCategory', t));
+        for (const t of topics[headword]?.semantic ?? []) lines.push(feat('semanticCategory', t));
+      }
       lines.push(
         `<Equivalent>${feat('language', '영어')}${feat('lemma', equivalent)}${feat('definition', definition)}</Equivalent>`,
       );

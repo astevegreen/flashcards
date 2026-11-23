@@ -1,6 +1,9 @@
 import {
   planDictionarySearch,
   rankDictionaryResults,
+  type DictionaryBrowsePage,
+  type DictionaryBrowseQuery,
+  type DictionaryBrowseSummary,
   type DictionaryEntry,
   type DictionaryPackId,
 } from '@flash/core/dictionary';
@@ -54,7 +57,7 @@ export class WebDictionaryService implements DictionaryService {
   async search(query: string, opts: DictionarySearchOptions = {}): Promise<DictionaryEntry[]> {
     // Core plans the lookups: prefix tokens (incl. 초성 / jamo / English reverse-index keys) plus
     // exact headword candidates from Korean deinflection and romanization, validated by fetching them.
-    const plan = planDictionarySearch(query);
+    const plan = planDictionarySearch(query, opts.direction);
     const q = plan.query;
     if (!q.raw) return [];
 
@@ -75,6 +78,15 @@ export class WebDictionaryService implements DictionaryService {
     return rankDictionaryResults(merged, q.raw, {
       ...(opts.packIds ? { packIds: opts.packIds } : {}),
       limit: opts.limit ?? 50,
+      ...(opts.direction ? { direction: opts.direction } : {}),
     });
+  }
+
+  browse(query: DictionaryBrowseQuery): Promise<DictionaryBrowsePage> {
+    return this.packStorage.browseDictionary(query);
+  }
+
+  getBrowseSummary(packId: DictionaryPackId): Promise<DictionaryBrowseSummary> {
+    return this.packStorage.getBrowseSummary(packId);
   }
 }

@@ -1,8 +1,17 @@
-import type {
-  DictionaryEntry,
-  DictionaryPackId,
-  PackCatalog,
-  PackId,
+import {
+  browseCursorFor,
+  browseKeyRange,
+  browsePageSize,
+  buildEntryBrowseKeys,
+  DictionaryBrowseSummaryBuilder,
+  matchesBrowseFilters,
+  type DictionaryBrowsePage,
+  type DictionaryBrowseQuery,
+  type DictionaryBrowseSummary,
+  type DictionaryEntry,
+  type DictionaryPackId,
+  type PackCatalog,
+  type PackId,
 } from '@flash/core/dictionary';
 import type { HanziStrokeData, StrokeLookupIndex, StrokeScript } from '@flash/core/drawing';
 import type { InstalledPackInfo } from '@flash/platform';
@@ -36,6 +45,13 @@ export interface CachedPackCatalogRecord {
 
 const CUSTOM_CATALOG_URL_KEY = 'custom_pack_catalog_url';
 const CACHED_CATALOG_KEY = 'cached_pack_catalog';
+const BROWSE_SUMMARY_KEY_PREFIX = 'browse_summary:';
+
+interface StoredBrowseSummary {
+  /** `installedAt` of the pack the summary was computed for. */
+  installedAt: number;
+  summary: DictionaryBrowseSummary;
+}
 
 class FlashcardsPacksDexieDb extends Dexie {
   packs!: Table<InstalledPackInfo, PackId>;
@@ -53,6 +69,18 @@ class FlashcardsPacksDexieDb extends Dexie {
       stroke_index: 'id',
       kv: 'key',
     });
+    // Browse without typing: a multiEntry index of `packId␁group␁headword␁id` keys (core browse.ts).
+    // Rows installed before v2 get their keys here, so no pack needs reinstalling.
+    this.version(2)
+      .stores({ dict_entries: 'id, packId, headword, *altForms, *searchTokens, *browseKeys' })
+      .upgrade((tx) =>
+        tx
+          .table<DictionaryEntry, string>('dict_entries')
+          .toCollection()
+          .modify((entry) => {
+            entry.browseKeys = buildEntryBrowseKeys(entry);
+          }),
+      );
   }
 }
 
@@ -89,6 +117,7 @@ export class DexiePackStorage {
     onChunk?: (done: number, total: number) => void,
   ): Promise<void> {
     await this.db.dict_entries.where('packId').equals(packId).delete();
+    await this.db.kv.delete(BROWSE_SUMMARY_KEY_PREFIX + packId);
     const CHUNK = 2000;
     for (let i = 0; i < entries.length; i += CHUNK) {
       const slice = entries.slice(i, i + CHUNK);
@@ -126,10 +155,11 @@ export class DexiePackStorage {
     const existing = await this.db.packs.get(packId);
     await this.db.transaction(
       'rw',
-      [this.db.packs, this.db.dict_entries, this.db.strokes, this.db.stroke_index],
+      [this.db.packs, this.db.dict_entries, this.db.strokes, this.db.stroke_index, this.db.kv],
       async () => {
         await this.db.packs.delete(packId);
         await this.db.dict_entries.where('packId').equals(packId).delete();
+        await this.db.kv.delete(BROWSE_SUMMARY_KEY_PREFIX + packId);
         await this.db.strokes.where('packId').equals(packId).delete();
         if (existing?.kind === 'strokes' && existing.script) {
           await this.db.stroke_index.delete(existing.script);
@@ -231,6 +261,42 @@ export class DexiePackStorage {
     }
 
     return out;
+  }
+
+  /** One page of a browse group, in headword order; POS filtering happens while paging. */
+  async browseDictionary(query: DictionaryBrowseQuery): Promise<DictionaryBrowsePage> {
+    const range = browseKeyRange(query);
+    if (!range) return { entries: [] };
+    const size = browsePageSize(query);
+    // One row past the page tells whether a next page exists.
+    const rows = await this.db.dict_entries
+      .where('browseKeys')
+      .between(range.lower, range.upper, !range.lowerOpen, false)
+      .filter((entry) => matchesBrowseFilters(query, entry))
+      .limit(size + 1)
+      .toArray();
+    const entries = rows.slice(0, size);
+    const last = entries.at(-1);
+    return rows.length > size && last
+      ? { entries, next: browseCursorFor(query, last) }
+      : { entries };
+  }
+
+  /** The pack's browse groups with counts, computed once per install and cached. */
+  async getBrowseSummary(packId: DictionaryPackId): Promise<DictionaryBrowseSummary> {
+    const key = BROWSE_SUMMARY_KEY_PREFIX + packId;
+    const installedAt = (await this.db.packs.get(packId))?.installedAt ?? 0;
+    const cached = (await this.db.kv.get(key))?.value as StoredBrowseSummary | undefined;
+    if (cached && cached.installedAt === installedAt) return cached.summary;
+    const builder = new DictionaryBrowseSummaryBuilder(packId);
+    await this.db.dict_entries
+      .where('packId')
+      .equals(packId)
+      .each((entry) => builder.add(entry));
+    const summary = builder.build();
+    const record: StoredBrowseSummary = { installedAt, summary };
+    await this.db.kv.put({ key, value: record });
+    return summary;
   }
 
   async listInstalledHanjaCharacters(): Promise<Set<string>> {

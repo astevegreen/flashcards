@@ -68,8 +68,62 @@ export interface DictionaryEntry {
   /** Conjugated forms listed upstream (활용), e.g. ['먹어', '먹으니', '먹는']. */
   forms?: string[];
   senses?: DictionarySense[];
+  /**
+   * Topic groups for browsing without typing (KRDict 주제 및 상황 범주 as written upstream, and
+   * the top level of 의미 범주), e.g. `['음식', '식생활']`.
+   */
+  topics?: string[];
   /** Precomputed lowercase lookup tokens for IndexedDB multiEntry index. */
   searchTokens: string[];
+  /** Precomputed browse keys for the IndexedDB multiEntry browse index (see `browse.ts`). */
+  browseKeys?: string[];
+}
+
+/**
+ * Which way the learner is looking words up. `to-english`: the target language is typed (Latin
+ * letters may be romanization). `from-english`: English is typed, so Latin letters are never
+ * read as romanization (`son` finds 아들, never 손).
+ */
+export type DictionaryDirection = 'to-english' | 'from-english';
+
+/** A browsable group of one pack's entries. */
+export type DictionaryBrowseFacet =
+  | { kind: 'all' }
+  | { kind: 'level'; level: DictionaryLevel }
+  | { kind: 'topic'; topic: string }
+  | { kind: 'grade'; grade: string };
+
+export interface DictionaryBrowseQuery {
+  packId: DictionaryPackId;
+  facet: DictionaryBrowseFacet;
+  /** Korean initial consonant to jump to (`ㄱ` covers ㄱ and ㄲ words), for Hangul packs. */
+  initial?: string;
+  /** Only entries with this part-of-speech label (e.g. `verb`). */
+  pos?: string;
+  /** Cursor from the previous page's `next`. */
+  after?: string;
+  limit?: number;
+}
+
+export interface DictionaryBrowsePage {
+  entries: DictionaryEntry[];
+  /** Pass as `after` to load the next page; absent on the last page. */
+  next?: string;
+}
+
+export interface DictionaryBrowseCount {
+  key: string;
+  count: number;
+}
+
+/** What one pack offers to browse, with entry counts. */
+export interface DictionaryBrowseSummary {
+  packId: DictionaryPackId;
+  total: number;
+  levels: DictionaryBrowseCount[];
+  topics: DictionaryBrowseCount[];
+  grades: DictionaryBrowseCount[];
+  pos: DictionaryBrowseCount[];
 }
 
 export interface DictionaryPackManifest {

@@ -11,6 +11,8 @@
  * candidate simply finds nothing. Pure TypeScript only (packages/core purity).
  */
 
+import type { DictionaryDirection } from './types.ts';
+
 const S_BASE = 0xac00;
 const S_LAST = 0xd7a3;
 const V_COUNT = 21;
@@ -959,6 +961,12 @@ function buildKoreanQueryAnalysis(raw: string): KoreanQueryAnalysis {
  * `rankDictionaryResults` each call it once per query and pass the result down, so ranking never
  * re-analyzes per entry.
  */
-export function analyzeKoreanQuery(rawQuery: string): KoreanQueryAnalysis {
-  return buildKoreanQueryAnalysis(rawQuery.normalize('NFC').trim());
+export function analyzeKoreanQuery(
+  rawQuery: string,
+  direction: DictionaryDirection = 'to-english',
+): KoreanQueryAnalysis {
+  const analysis = buildKoreanQueryAnalysis(rawQuery.normalize('NFC').trim());
+  if (direction === 'to-english' || analysis.romanized.size === 0) return analysis;
+  // English → Korean: Latin letters are English, never romanization (`son` is never 손).
+  return { ...analysis, romanized: new Map(), romanizedJamoPrefixes: [] };
 }
