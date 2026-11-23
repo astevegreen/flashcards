@@ -30,7 +30,7 @@ function slugify(text: string, fallback: string): string {
   return slug || fallback;
 }
 
-/** Active notes in `tag` (and its `::` subcategories), optionally in one deck. */
+/** Active notes in `tag` (and its `::` nested tags), optionally in one deck. */
 function categoryNoteIds(state: CollectionState, tag: string, deckId: string): string[] {
   if (!tag) return [];
   const nowMs = Date.now();
@@ -46,9 +46,9 @@ function categoryNoteIds(state: CollectionState, tag: string, deckId: string): s
 }
 
 /**
- * Library "Export a category" (Phase 9): the notes of one category (and its `::` subcategories)
+ * Library "Export a tag" (Phase 9): the notes of one tag (and its `::` nested tags)
  * as CSV (one deck at a time, Flashcards Deluxe `Category N` columns) or as a `.flashpkg` that
- * keeps the categories as note tags. Lazily loaded; Browse keeps its bulk-bar CSV export for
+ * keeps the tags (the CSV keeps the Flashcards Deluxe `Category N` column names). Lazily loaded; Browse keeps its bulk-bar CSV export for
  * hand-picked selections. Names render as plain text (§13).
  */
 export function CategoryExportPanel({
@@ -67,7 +67,7 @@ export function CategoryExportPanel({
   );
   const selectedTag = categories.some((c) => c.tag === tag) ? tag : '';
 
-  // Decks that hold notes of the category (the deck picker only offers those).
+  // Decks that hold notes of the tag (the deck picker only offers those).
   const decksWithTag = useMemo(() => {
     const ids = new Set(
       categoryNoteIds(state, selectedTag, '').map((id) => state.notes.get(id)?.deck_id),
@@ -83,7 +83,7 @@ export function CategoryExportPanel({
   const csvDeck = deckId ? state.decks.get(deckId) : undefined;
   const csvDeckOrOnly = csvDeck ?? (decksWithTag.length === 1 ? decksWithTag[0] : undefined);
   const notesText = (n: number) => `${n} note${n === 1 ? '' : 's'}`;
-  const tagSlug = slugify(selectedTag.replaceAll('::', '-'), 'category');
+  const tagSlug = slugify(selectedTag.replaceAll('::', '-'), 'tag');
 
   const exportCsvFile = async () => {
     if (!selectedTag || !csvDeckOrOnly) return;
