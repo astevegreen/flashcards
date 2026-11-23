@@ -14,6 +14,7 @@ import {
 } from '@flash/content-schema';
 import { zipSync } from 'fflate';
 import type { CollectionState, EventFactory } from '../events/replay.ts';
+import { getDeckDescription, normalizeDeckDescription } from '../decks/description.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { decodeUtf8, deriveNoteId, encodeUtf8, uuidv5, FLASH_NAMESPACE_UUID } from '../ids.ts';
 import type { Deck, Note, SourceRef } from '../model/types.ts';
@@ -251,6 +252,9 @@ export function exportFlashpkg(
       file: filePath,
       note_type_id: deck.note_type_id,
       language: deck.language,
+      ...(getDeckDescription(state, deck.id)
+        ? { description: getDeckDescription(state, deck.id) }
+        : {}),
     });
 
     const deckNotes = [...state.notes.values()]
@@ -668,6 +672,17 @@ export function importFlashpkg(
             source: baseSource,
             created_at: nowMs,
           },
+          nowMs,
+        ),
+      );
+    }
+    // A package's description fills in a deck that has none; it never replaces the user's own.
+    const description = normalizeDeckDescription(deckEntry.description);
+    if (description && !(existingDeck && getDeckDescription(state, existingDeck.id))) {
+      events.push(
+        eventFactory.create(
+          'DeckDescriptionChanged',
+          { deck_id: targetDeckId, description },
           nowMs,
         ),
       );

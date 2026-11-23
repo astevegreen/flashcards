@@ -186,7 +186,7 @@ On 2026-11-23 an agent compared the app with Anki, about 25 features. This secti
 
 - [x] **Shared deck option presets.** Built: a deck uses a preset (new cards/day, max reviews/day, target retention, FSRS weights) or its own settings, and the optimizer can pool a preset's decks. Defaults under "Decisions needed (deck presets and folders)".
 - [x] **Deck folders instead of Anki subdecks.** Built: one level of folders in the Library, with "Study folder". Daily limits stay per deck.
-- [ ] **Deck descriptions**, shown before study, for starter decks and Family Library decks. `Deck` has no description field. The description in the starter catalog's `index.json` is a different thing.
+- [x] **Deck descriptions.** Built: a plain-text description per deck, edited in deck options and shown on an overview before study. Starter decks and `.flashpkg` packages (so Family Library decks) bring one. Defaults under "Decisions needed (deck descriptions)".
 - [x] **Limited rich text in the field editor.** Strict inline markup in the plain field string: `{b:…}`, `{i:…}` and `{red:…}`, `{orange:…}`, `{green:…}`, `{blue:…}`, `{purple:…}`, parsed in `packages/core/src/parsers/rich-text.ts` and rendered as React elements by `RichText.tsx`, never as HTML. It works with ruby and cloze (`{b:日本[にほん]}`, `{{c1::{b:word}}}`, `{b:{{c1::word}}}`); notes without it render as before. Answer matching, TTS, choice dedupe and draw grading ignore it; `stripRichText` is exported for the export and duplicate-finder work. The editor has a B / I / colour toolbar under the focused field, Ctrl/Cmd+B and Ctrl/Cmd+I, and a preview line. Defaults under "Decisions needed (2026-11-23 field editor)".
 - [x] **Paste images into fields.** Pasting or dropping an image on an image field's drop zone in `NoteEditDialog.tsx` goes through the same `processImage` → `addMedia` path as the file picker, with the same type and size checks (`editor-paste-image.spec.ts`). Defaults under "Decisions needed (2026-11-23 field editor)".
 - [ ] **Later:** find and replace across notes. The event log makes it undoable.
@@ -302,6 +302,16 @@ Defaults picked while building presets and folders. Each stays shipped until the
 - [ ] **Not in `.flashpkg`:** presets and folders are not exported or imported yet.
 - [ ] **Catch-up:** after each sync, and when the Library opens, the app compares every deck in a preset with the preset and copies the preset into any deck that differs. This heals a deck that joined during an edit elsewhere, a retention copy racing a weights copy, and an older build editing a member deck (the preset wins). It writes only real differences, and devices that agree on the preset write the same values.
 - [ ] **Bundle:** initial study-screen JS 156.43 KB gz before, 156.63 KB after. The 0.2 KB is the post-sync catch-up trigger and lazy-chunk names; presets, folders, the catch-up itself and their UI load with the Library or after a sync.
+
+## Decisions needed (deck descriptions)
+
+Defaults picked while building deck descriptions. Each stays shipped until the owner decides.
+
+- [ ] **Plain text only**, up to 2,000 characters, line breaks kept. Markup is shown as typed, never rendered. The limited rich text from the field editor item could be reused later.
+- [ ] **Stored as its own event, not a `Deck` field:** `DeckDescriptionChanged` is log-retained and folded on demand, like the Study Set events, so the study-screen bundle does not grow and older builds keep the events. Last writer wins per deck; an empty description clears it.
+- [ ] **Starter decks** use the catalog's description (for example "Beginner (level A) Korean words from the NIKL learning vocabulary list…"). Starter decks added before this build get none; there is no backfill.
+- [ ] **Packages:** `.flashpkg` export writes the deck's description in the manifest. Import fills it only for a deck without one, so an upgrade never replaces the user's own text. A Family Library `index.json` entry's own description is not copied; the deck description comes from the package manifest.
+- [ ] **Overview:** only decks with a description show it. Study on any other deck starts at once, as before. "Study folder" and "All decks" skip the overview.
 
 ## Leftover nits and known limitations
 

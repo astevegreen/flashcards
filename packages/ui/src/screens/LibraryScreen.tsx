@@ -1,6 +1,7 @@
 import {
   buildStudyQueue,
   compareCodeUnits,
+  getDeckDescription,
   getDeckFolder,
   getDeckOrganization,
   getDeckPreset,
@@ -25,6 +26,7 @@ import { CoursesPanel } from '../components/CoursesPanel.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
 import { LayoutRequiredFieldList } from '../library/LayoutRequiredFieldList.tsx';
 import { RubyDisplaySelect } from '../library/RubyDisplaySelect.tsx';
+import { DeckDescriptionField, DeckOverview } from '../library/DeckDescription.tsx';
 import { DeckOrganizationPanel } from '../library/DeckOrganizationPanel.tsx';
 import { runPresetCatchUp } from '../library/presetCatchUp.ts';
 import { useDeckOrganization } from '../library/useDeckOrganization.ts';
@@ -373,6 +375,8 @@ function DeckOptionsPanel({
           </div>
         )}
       </div>
+
+      <DeckDescriptionField deck={deck} />
 
       {deckPreset && (
         <p
@@ -808,6 +812,8 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   }, []);
 
   const [expandedDeckId, setExpandedDeckId] = useState<string | null>(null);
+  // Deck whose overview (description before study) is open.
+  const [overviewDeckId, setOverviewDeckId] = useState<string | null>(null);
   const [showArchivedDecks, setShowArchivedDecks] = useState(false);
   const [newDeckName, setNewDeckName] = useState('');
   const [newDeckNoteTypeId, setNewDeckNoteTypeId] = useState('preset:vocab-ko');
@@ -1040,6 +1046,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   }
 
   const renderDeckRow = (deck: Deck) => {
+    const description = getDeckDescription(state, deck.id);
     const queue =
       queues.get(deck.id) ?? buildStudyQueue(state, { deckId: deck.id, nowMs, tzOffsetMinutes });
     const noteCount = [...state.notes.values()].filter(
@@ -1110,7 +1117,15 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
 
             <button
               type="button"
-              onClick={() => onStudyDeck(deck.id)}
+              aria-expanded={description ? overviewDeckId === deck.id : undefined}
+              onClick={() => {
+                // A deck with a description shows its overview first; others start at once.
+                if (description) {
+                  setOverviewDeckId((prev) => (prev === deck.id ? null : deck.id));
+                } else {
+                  onStudyDeck(deck.id);
+                }
+              }}
               className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
             >
               Study
@@ -1125,6 +1140,19 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
             </button>
           </div>
         </div>
+
+        {description && overviewDeckId === deck.id && (
+          <DeckOverview
+            deck={deck}
+            description={description}
+            counts={queue.counts}
+            onStart={() => {
+              setOverviewDeckId(null);
+              onStudyDeck(deck.id);
+            }}
+            onClose={() => setOverviewDeckId(null)}
+          />
+        )}
 
         {isExpanded && (
           <DeckOptionsPanel
