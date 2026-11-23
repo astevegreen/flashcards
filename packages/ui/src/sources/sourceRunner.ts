@@ -34,7 +34,6 @@ import type {
   LinkedGoogleSource,
   LinkedLocalFolder,
   LinkedOneDriveSource,
-  LocalFolderSourcesAdapter,
   PackageSubscription,
   PendingXlsxReconciliation,
   PickedFile,
@@ -972,6 +971,7 @@ export async function linkOneDriveFile(
       force: true,
       ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
     });
+    if (res.unreadable) throw new Error(source.lastError ?? 'This file cannot be read here.');
     await saveSourcesRegistry(ctx.platform, registry);
     return {
       source,
@@ -992,6 +992,20 @@ export async function linkOneDriveFile(
   }
 }
 
+function excelUnreadableMessage(name: string): string {
+  return `Excel files can't be read on this device. Save "${name}" as CSV in Excel and link that instead.`;
+}
+
+/** True when this device can read `.xlsx` (the web and PC shells; not the phone shells yet). */
+async function canReadExcel(platform: PlatformServices): Promise<boolean> {
+  try {
+    await platform.getLocalFolderSources();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Reads a downloaded OneDrive `.csv` / `.tsv` / `.xlsx` into a grid whose first row is the headers. */
 export async function readOneDriveTable(
   platform: PlatformServices,
@@ -1000,16 +1014,12 @@ export async function readOneDriveTable(
   const lower = picked.name.toLowerCase();
   let grid: string[][];
   if (lower.endsWith('.xlsx')) {
-    let adapter: LocalFolderSourcesAdapter;
     try {
-      adapter = await platform.getLocalFolderSources();
+      grid = await (await platform.getLocalFolderSources()).parseXlsxBytes(picked.bytes);
     } catch {
-      // The native phone shells have no Excel reader yet (their folder adapter is PC-only).
-      throw new Error(
-        `Excel files can't be read on this device yet. Save "${picked.name}" as CSV in Excel and link that instead.`,
-      );
+      // Native shells have no Excel reader (the phone folder adapter is PC-only, Tauri has no parser).
+      throw new Error(excelUnreadableMessage(picked.name));
     }
-    grid = await adapter.parseXlsxBytes(picked.bytes);
   } else if (lower.endsWith('.csv') || lower.endsWith('.tsv')) {
     const parsed = parseDelimitedText(decodeUtf8(picked.bytes), {
       delimiter: lower.endsWith('.tsv') ? '\t' : ',',
@@ -1045,6 +1055,8 @@ export async function refreshSingleOneDriveSource(
   notesTouched: number;
   warnings: SourceWarning[];
   pending?: PendingXlsxReconciliation;
+  /** An `.xlsx` this device cannot read: nothing was downloaded or changed. */
+  unreadable?: true;
 }> {
   const unchanged = { updated: false, notesTouched: 0, warnings: source.warnings ?? [] };
   if (!isOnline()) {
@@ -1061,11 +1073,23 @@ export async function refreshSingleOneDriveSource(
 
   const nowMs = Date.now();
   const info = await picker.getFileInfo(source.itemId);
-  if (!opts?.force && source.deckId && source.contentTag && info.contentTag === source.contentTag) {
+  if (
+    !opts?.force &&
+    source.deckId &&
+    source.contentTag &&
+    !source.columnMapUnsaved &&
+    info.contentTag === source.contentTag
+  ) {
     source.lastSyncedAt = nowMs;
     source.lastStatus = 'synced';
     delete source.lastError;
     return unchanged;
+  }
+  // Decide from the name before fetching up to 50 MB this device could not read anyway.
+  if (info.name.toLowerCase().endsWith('.xlsx') && !(await canReadExcel(ctx.platform))) {
+    source.lastStatus = 'idle';
+    source.lastError = excelUnreadableMessage(info.name);
+    return { ...unchanged, unreadable: true };
   }
 
   const picked = await picker.downloadById(source.itemId);
@@ -1089,8 +1113,13 @@ export async function refreshSingleOneDriveSource(
     existingDeck?.note_type_id ?? source.noteTypeId ?? inferred.noteTypeId,
   );
   const language = existingDeck?.language ?? source.language ?? inferred.language;
-  // A mapping chosen now, else the deck's synced one, else the copy kept when it was linked.
-  const columnMap = opts?.columnMap ?? existingDeck?.source?.column_map ?? source.columnMap;
+  // A mapping chosen now, else one chosen here that hasn't reached the deck yet, else the deck's
+  // synced one, else the copy kept when it was linked.
+  const columnMap =
+    opts?.columnMap ??
+    (source.columnMapUnsaved ? source.columnMap : undefined) ??
+    existingDeck?.source?.column_map ??
+    source.columnMap;
 
   // Read-only, so rows are matched by their first field (like a linked local `.xlsx`).
   const diff = diffTabularSource({
@@ -1108,7 +1137,12 @@ export async function refreshSingleOneDriveSource(
 
   if (existingDeck && diff.reconciliationCandidates && !opts?.renameMap) {
     // Applying now would archive the old note (and its review history) and add a new one.
-    // Hold the pull; the content tag stays old, so the next refresh asks again.
+    // Hold the pull; the content tag stays old, so the next refresh asks again. A mapping chosen
+    // for this pull is kept on the source until it lands on the deck.
+    if (opts?.columnMap) {
+      source.columnMap = [...opts.columnMap];
+      source.columnMapUnsaved = true;
+    }
     return {
       ...unchanged,
       pending: {
@@ -1173,6 +1207,7 @@ export async function refreshSingleOneDriveSource(
   source.noteTypeId = noteType.id;
   source.language = language;
   if (columnMap) source.columnMap = [...columnMap];
+  delete source.columnMapUnsaved;
   if (uri) source.uri = uri;
   if (info.contentTag) source.contentTag = info.contentTag;
   source.lastSyncedAt = nowMs;

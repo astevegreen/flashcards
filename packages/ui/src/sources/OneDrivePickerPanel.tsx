@@ -1,6 +1,10 @@
 import type { SourceColumnMapping } from '@flash/core';
 import { canCreateOrImportDeck } from '@flash/core/license';
-import type { OneDriveBrowseItem, OneDriveFilePicker } from '@flash/platform';
+import type {
+  OneDriveBrowseItem,
+  OneDriveFilePicker,
+  PendingXlsxReconciliation,
+} from '@flash/platform';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { linkedOneDriveDeck } from './oneDriveLinkedDeck.ts';
@@ -60,10 +64,13 @@ export default function OneDrivePickerPanel({
   onStatusMessage,
   onErrorMessage,
   onClose,
+  onPendingReconciliation,
 }: Readonly<{
   onStatusMessage: (msg: string) => void;
   onErrorMessage: (msg: string) => void;
   onClose: () => void;
+  /** Hands a held rename review to the Sources panel, which shows the prompt. */
+  onPendingReconciliation?: (rec: PendingXlsxReconciliation) => void;
 }>) {
   const { platform, state, stateVersion, entitlement, getEventFactory, emitEvents, createDeck } =
     useApp();
@@ -211,9 +218,10 @@ export default function OneDrivePickerPanel({
         { platform, getState: () => state, getEventFactory, emitEvents },
         choice,
       );
+      if (res.pending) onPendingReconciliation?.(res.pending);
       onStatusMessage(
         res.pending
-          ? `Linked "${item.name}", but some rows look renamed. Press Refresh on it under Sources to match them.`
+          ? `Linked "${item.name}", but some rows look renamed. Match them in the prompt below to keep review history.`
           : `Linked "${item.name}" from OneDrive: ${res.notesTouched} note change(s). It refreshes with your other sources.`,
       );
       setLinking(null);

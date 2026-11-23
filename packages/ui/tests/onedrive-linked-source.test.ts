@@ -483,3 +483,100 @@ describe('readOneDriveTable', () => {
     );
   });
 });
+
+describe('linked OneDrive sources: round-2 fixes', () => {
+  const SWAPPED = [
+    { header: 'word', target: 'field:meaning' },
+    { header: 'definition', target: 'field:word' },
+    { header: 'topic', target: 'tags' },
+  ];
+
+  it('keeps a newly chosen mapping while its pull is held for a rename review', async () => {
+    const { ctx, state, emitted, fileId } = setup();
+    const { source } = await linkOneDriveFile({ id: fileId(), name: 'vocab.csv' }, ctx, {
+      noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+      language: 'ko',
+      columnMap: COLUMN_MAP,
+    });
+    const deckId = source.deckId ?? '';
+
+    // Relink with the columns swapped: every first-field value changes, so the pull is held.
+    emitted.length = 0;
+    const relinked = await linkOneDriveFile({ id: fileId(), name: 'vocab.csv' }, ctx, {
+      columnMap: SWAPPED,
+    });
+    expect(relinked.pending).toBeDefined();
+    expect(emitted).toEqual([]);
+    expect(state.decks.get(deckId)?.source?.column_map).toEqual(COLUMN_MAP);
+    const saved = await loadSourcesRegistry(ctx.platform, state);
+    expect(saved.oneDriveSources?.[0]).toMatchObject({
+      columnMap: SWAPPED,
+      columnMapUnsaved: true,
+    });
+
+    // A later plain Refresh still uses the new mapping (so it asks again, not "up to date").
+    const again = await refreshSingleOneDriveSource(relinked.source, ctx, { force: true });
+    expect(again.pending).toBeDefined();
+    expect(again.updated).toBe(false);
+
+    // Answering the prompt lands the mapping on the deck and clears the flag.
+    const renameMap: Record<string, string> = {};
+    for (const [i, m] of (again.pending?.missingNotes ?? []).entries()) {
+      renameMap[m.noteId] = again.pending?.addedRows[i]?.sortKey ?? '';
+    }
+    await refreshSingleOneDriveSource(relinked.source, ctx, { force: true, renameMap });
+    expect(state.decks.get(deckId)?.source?.column_map).toEqual(SWAPPED);
+    expect(relinked.source.columnMapUnsaved).toBeUndefined();
+  });
+
+  it('skips an .xlsx this device cannot read before downloading it', async () => {
+    const { graph, ctx, emitted, downloads } = setup();
+    graph.drive.put('Decks/sheet.xlsx', new Uint8Array([80, 75, 3, 4]), 5);
+    const id = graph.drive.files.get('Decks/sheet.xlsx')?.id ?? '';
+    const phone = {
+      ...ctx,
+      platform: {
+        ...ctx.platform,
+        getLocalFolderSources: async () => {
+          throw new Error('Local folder sources are desktop/PC-only.');
+        },
+      },
+    };
+    const source = { id: `onedrive:${id}`, itemId: id, name: 'sheet', deckId: 'deck-pc' };
+
+    // A background refresh (the synced PC link on a phone): quiet, no download, no error thrown.
+    const res = await refreshSingleOneDriveSource(source, phone as never, { force: true });
+    expect(res).toMatchObject({ updated: false, unreadable: true });
+    expect(downloads()).toBe(0);
+    expect(emitted).toEqual([]);
+    expect(source).toMatchObject({ lastStatus: 'idle' });
+    expect((source as { lastError?: string }).lastError).toMatch(/save .* as CSV/i);
+
+    // Refresh all: no error line for it on every launch.
+    const summary = await refreshAllSources(phone as never);
+    expect(summary.errors).toEqual([]);
+
+    // Linking it explicitly says why it cannot be linked and keeps no source.
+    await expect(linkOneDriveFile({ id, name: 'sheet.xlsx' }, phone as never)).rejects.toThrow(
+      /save .* as CSV/i,
+    );
+    expect(downloads()).toBe(0);
+    const saved = await loadSourcesRegistry(phone.platform as never);
+    expect(saved.oneDriveSources ?? []).toEqual([]);
+  });
+
+  it('gives a plain message when an .xlsx cannot be parsed', async () => {
+    const { ctx } = setup();
+    const platform = {
+      ...ctx.platform,
+      getLocalFolderSources: async () => ({
+        parseXlsxBytes: async () => {
+          throw new Error('No xlsx parser configured');
+        },
+      }),
+    } as unknown as PlatformServices;
+    await expect(
+      readOneDriveTable(platform, { name: 'v.xlsx', bytes: enc.encode('x') }),
+    ).rejects.toThrow(/save .* as CSV/i);
+  });
+});

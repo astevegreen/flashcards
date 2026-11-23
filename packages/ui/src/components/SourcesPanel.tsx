@@ -513,6 +513,8 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
           onErrorMessage(target.lastError ?? 'Allow OneDrive file access to refresh this source.');
         } else if (target.lastError) {
           onErrorMessage(target.lastError);
+        } else if (target.lastStatus === 'offline') {
+          onErrorMessage('You are offline. Try again when you are back online.');
         } else {
           onStatusMessage(
             res.updated
@@ -661,6 +663,19 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         });
         await saveSourcesRegistry(platform, nextReg);
         setRegistry(nextReg);
+        if (
+          od.lastStatus === 'offline' ||
+          od.lastStatus === 'permission_required' ||
+          res.unreadable
+        ) {
+          // Nothing was applied: keep the prompt so the user can answer it again later.
+          onErrorMessage(
+            od.lastStatus === 'offline'
+              ? 'You are offline. Try again when you are back online.'
+              : (od.lastError ?? 'OneDrive could not be read. Try Refresh on the source.'),
+          );
+          return;
+        }
         setPendingReconciliations((prev) =>
           prev.filter((r) => !(r.folderId === rec.folderId && r.relativePath === rec.relativePath)),
         );
@@ -897,6 +912,14 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
             onStatusMessage={onStatusMessage}
             onErrorMessage={onErrorMessage}
             onClose={() => setShowOneDrivePicker(false)}
+            onPendingReconciliation={(held) =>
+              setPendingReconciliations((prev) => [
+                ...prev.filter(
+                  (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
+                ),
+                held,
+              ])
+            }
           />
         </Suspense>
       )}

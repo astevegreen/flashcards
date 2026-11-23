@@ -262,6 +262,11 @@ export interface LinkedOneDriveSource {
   language?: string;
   /** The mapping chosen when linked; the deck's synced `source.column_map` wins once it exists. */
   columnMap?: SourceColumnMapping[];
+  /**
+   * `columnMap` was chosen on this device but has not reached the deck yet (the pull was held
+   * for a rename review). While set, it wins over the deck's older mapping.
+   */
+  columnMapUnsaved?: true;
   /** Content tag at the last pull; an unchanged tag skips the download. */
   contentTag?: string;
   lastSyncedAt?: number;
