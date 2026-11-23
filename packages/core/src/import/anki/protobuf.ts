@@ -4,7 +4,7 @@
  * length is bounds-checked and malformed data throws {@link ProtobufError}.
  */
 
-import { decodeUtf8 } from '../../ids.ts';
+import { decodeUtf8 } from '../../utf8-decode.ts';
 
 export class ProtobufError extends Error {
   constructor(message: string) {

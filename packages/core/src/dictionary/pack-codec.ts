@@ -7,7 +7,7 @@ import {
 } from '@flash/content-schema';
 import { Gunzip } from 'fflate';
 import { isValidHanziStrokeData } from '../drawing/kanjivg.ts';
-import { decodeUtf8 } from '../ids.ts';
+import { decodeUtf8 } from '../utf8-decode.ts';
 import { sha256Hex } from '../sources/hash.ts';
 import type {
   DecodedPackPayload,

@@ -8,7 +8,8 @@ import {
   SERIALIZED_STATE_FORMAT_VERSION,
   type SerializedCollectionState,
 } from '../events/snapshot.ts';
-import { decodeUtf8, encodeUtf8 } from '../ids.ts';
+import { encodeUtf8 } from '../ids.ts';
+import { decodeUtf8 } from '../utf8-decode.ts';
 import { exportFlashpkgFiles } from '../import/flashpkg.ts';
 import { safeMediaMimeForExt } from '../import/media-types.ts';
 import { safeUnzip, type ArchiveLimits } from '../import/safe-unzip.ts';

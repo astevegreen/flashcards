@@ -10,7 +10,8 @@ import {
 } from '../src/events/replay.ts';
 import { deserializeCollectionState, serializeCollectionState } from '../src/events/snapshot.ts';
 import type { FlashEvent, UnknownEvent } from '../src/events/types.ts';
-import { createHlcState, receiveHlc, type HlcState } from '../src/hlc.ts';
+import { createHlcState, type HlcState } from '../src/hlc.ts';
+import { receiveHlc } from '../src/hlc-merge.ts';
 import { deriveCardId, deriveNoteId } from '../src/ids.ts';
 import { BUILTIN_NOTE_TYPE_IDS } from '../src/model/presets.ts';
 import type { ReviewRating } from '../src/model/types.ts';

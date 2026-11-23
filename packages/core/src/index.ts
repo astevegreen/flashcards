@@ -1,5 +1,7 @@
 export * from './ids.ts';
+export * from './utf8-decode.ts';
 export * from './hlc.ts';
+export * from './hlc-merge.ts';
 export * from './model/types.ts';
 export * from './model/presets.ts';
 export * from './model/optional-cards.ts';
@@ -12,6 +14,7 @@ export * from './fsrs/scheduler.ts';
 export * from './events/suspension.ts';
 export * from './events/tag-adds.ts';
 export * from './study/filter.ts';
+export * from './study/filter-lists.ts';
 export * from './tags/index.ts';
 export * from './tags/bulk.ts';
 export * from './tags/browse.ts';
@@ -31,6 +34,7 @@ export * from './editor/rich-text-edit.ts';
 export * from './audio/tts.ts';
 export * from './samples/decks.ts';
 export * from './languages/active-languages.ts';
+export * from './languages/pack-languages.ts';
 export * from './sync/types.ts';
 // Note: csv, flashpkg, and sync are also exported via subpath exports (`@flash/core/csv`,
 // `@flash/core/flashpkg`, `@flash/core/sync`) to keep initial study-screen bundles lean (§8),

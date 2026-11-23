@@ -3,7 +3,8 @@ import { suspendRegisterKey, unsuspendRegisterKey } from '../../events/suspensio
 import type { EventPayloadMap, KnownEvent, KnownEventType } from '../../events/types.ts';
 import { deriveCardId, deriveNoteId, FLASH_NAMESPACE_UUID, uuidv5 } from '../../ids.ts';
 import type { Layout, NoteType, ReviewRating } from '../../model/types.ts';
-import { computeNoteContentHash, sha256Hex } from '../../sources/hash.ts';
+import { computeNoteContentHash } from '../../sources/content-hash.ts';
+import { sha256Hex } from '../../sources/hash.ts';
 import { compareCodeUnits } from '../../study/queue.ts';
 import { normalizeTagList } from '../../tags/index.ts';
 import { safeMediaMimeForExt } from '../media-types.ts';

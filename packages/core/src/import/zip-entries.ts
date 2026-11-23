@@ -1,4 +1,4 @@
-import { decodeUtf8 } from '../ids.ts';
+import { decodeUtf8 } from '../utf8-decode.ts';
 
 /**
  * Lists the entry names of a zip archive without inflating anything (Phase 14 "Bring my cards"

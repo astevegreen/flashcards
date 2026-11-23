@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { AnkiZipWriter, crc32 } from '../src/export/anki/zip-writer.ts';
 import { unzipApkg } from '../src/import/anki/package.ts';
 import { ANKI_IMPORT_LIMITS } from '../src/import/anki/types.ts';
-import { decodeUtf8, encodeUtf8 } from '../src/ids.ts';
+import { encodeUtf8 } from '../src/ids.ts';
+import { decodeUtf8 } from '../src/utf8-decode.ts';
 
 function join(chunks: Uint8Array[]): Uint8Array {
   const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));

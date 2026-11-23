@@ -1,4 +1,4 @@
-import { decodeUtf8 } from '../../ids.ts';
+import { decodeUtf8 } from '../../utf8-decode.ts';
 import { safeUnzip, type ArchiveErrorFactory } from '../safe-unzip.ts';
 import {
   decodeProtobuf,

@@ -1,5 +1,4 @@
 import { compareHlc } from '../hlc.ts';
-import type { UnknownEvent } from './types.ts';
 
 /**
  * Card suspension (Phase 9) is stored as two grow-only HLC registers per card inside the
@@ -62,25 +61,4 @@ export function isCardSuspendedIn(fieldHlcs: ReadonlyMap<string, string>, cardId
   if (suspendedAt === undefined) return false;
   const unsuspendedAt = fieldHlcs.get(unsuspendRegisterKey(cardId));
   return unsuspendedAt === undefined || compareHlc(suspendedAt, unsuspendedAt) > 0;
-}
-
-/**
- * Upgrade path for snapshots written by builds that predate suspension: such builds kept
- * `CardSuspended` / `CardUnsuspended` in `unknownEvents` (their segments are below the snapshot
- * watermark, so they will never be replayed again). Folds them into the registers and returns
- * the events that remain unknown to this build.
- */
-export function foldSuspensionEventsFromUnknown(
-  fieldHlcs: Map<string, string>,
-  unknownEvents: readonly UnknownEvent[],
-): UnknownEvent[] {
-  const remaining: UnknownEvent[] = [];
-  for (const ev of unknownEvents) {
-    if (isSuspensionEventType(ev.type)) {
-      applySuspensionRegister(fieldHlcs, ev.type, ev.payload, ev.hlc);
-    } else {
-      remaining.push(ev);
-    }
-  }
-  return remaining;
 }

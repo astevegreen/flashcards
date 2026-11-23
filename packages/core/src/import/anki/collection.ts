@@ -1,4 +1,4 @@
-import { decodeUtf8 } from '../../ids.ts';
+import { decodeUtf8 } from '../../utf8-decode.ts';
 import { decodeProtobuf, protoNumber, protoString, ProtobufError } from './protobuf.ts';
 import {
   ANKI_IMPORT_LIMITS,

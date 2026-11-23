@@ -14,7 +14,7 @@ import { escapeCsvCell } from '../src/export/anki/select.ts';
 import { SAFE_MEDIA_MIME_BY_EXT } from '../src/import/media-types.ts';
 import { ankiHtmlToText } from '../src/import/anki/html.ts';
 import { parseDelimitedText } from '../src/import/csv.ts';
-import { decodeUtf8 } from '../src/ids.ts';
+import { decodeUtf8 } from '../src/utf8-decode.ts';
 import { stripRuby } from '../src/parsers/ruby.ts';
 import {
   buildAnkiExportState,

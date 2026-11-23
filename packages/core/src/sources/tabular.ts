@@ -11,7 +11,8 @@ import {
   resolveSourceColumnMap,
   type ColumnTarget,
 } from '../import/column-target.ts';
-import { computeNoteContentHash, sha256String } from './hash.ts';
+import { computeNoteContentHash } from './content-hash.ts';
+import { sha256String } from './hash.ts';
 
 export type TabularWarningCode =
   | 'unknown_header'

@@ -3,7 +3,7 @@ import type { CollectionState, EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { FLASH_NAMESPACE_UUID, uuidv5 } from '../ids.ts';
 import type { SourceRef } from '../model/types.ts';
-import { computePageContentHash } from './hash.ts';
+import { computePageContentHash } from './content-hash.ts';
 import { isSafeRelativeMediaPath } from './tabular.ts';
 
 export type PageWarningCode = 'raw_html_stripped' | 'unsafe_url_stripped';

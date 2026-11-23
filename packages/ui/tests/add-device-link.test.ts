@@ -8,15 +8,17 @@ import {
   saveAddDeviceExpectation,
 } from '../src/sync/addDeviceExpectation.ts';
 import {
-  buildAddDeviceDeepLink,
-  buildAddDeviceUrl,
   mergeOpenedAddDeviceLink,
   parseAddDeviceDeepLink,
-  checkAddDeviceCollection,
   parseAddDeviceParams,
   stripAddDeviceParams,
   takeAddDeviceLink,
 } from '../src/sync/addDeviceLink.ts';
+import {
+  buildAddDeviceDeepLink,
+  buildAddDeviceUrl,
+  checkAddDeviceCollection,
+} from '../src/sync/addDeviceLinkShare.ts';
 import { qrMatrixToPath } from '../src/sync/qrPath.ts';
 
 const COLLECTION = 'col-0190f5c2-1234-7abc-8def-0123456789ab';

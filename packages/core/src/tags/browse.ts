@@ -5,11 +5,11 @@ import { stripCloze } from '../parsers/cloze.ts';
 import { stripRuby } from '../parsers/ruby.ts';
 import {
   filterCards,
-  filterNoteIds,
   matchesCategoryCriterion,
   type CardFilter,
   type CardFilterContext,
 } from '../study/filter.ts';
+import { filterNoteIds } from '../study/filter-lists.ts';
 
 /**
  * Note ids Browse shows for a filter. Same as {@link filterNoteIds}, plus one Browse rule: the

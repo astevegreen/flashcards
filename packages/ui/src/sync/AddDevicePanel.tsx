@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { isShareableCollectionId, type AddDeviceProvider } from './addDeviceLink.ts';
 import {
   buildAddDeviceDeepLink,
   buildAddDeviceUrl,
   isAddDeviceProvider,
-  isShareableCollectionId,
-  type AddDeviceProvider,
-} from './addDeviceLink.ts';
+} from './addDeviceLinkShare.ts';
 import { QrCodeSvg } from './QrCodeSvg.tsx';
 import { syncProviderInfo } from './syncProviders.ts';
 

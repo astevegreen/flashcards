@@ -1,25 +1,8 @@
-import type {
-  Auth,
-  DictionaryService,
-  AnkiPackageReader,
-  FsrsOptimizer,
-  GooglePickerAdapter,
-  GoogleSourcesClient,
-  HandwritingRecognizer,
-  LocalFolderSourcesAdapter,
-  PackageSubscriptionFetcher,
-  PackManager,
-  PlatformServices,
-  Purchase,
-  ReplayWorkerClient,
-  StrokeDataProvider,
-  SyncTransport,
-} from '@flash/platform';
+import type { PlatformServices, SyncTransport } from '@flash/platform';
 import { WebDeviceSpeechPlayer } from './audio/device-speech.ts';
 import { WebAudioPlayer } from './audio/web-audio-player.ts';
 import { WebFiles } from './files/web-files.ts';
-import type { OneDriveServices } from './onedrive-services.ts';
-import type { DexiePackStorage } from './packs/dexie-pack-storage.ts';
+import type { LazyWebServices } from './lazy-services.ts';
 import { DexieStorage } from './storage/dexie-storage.ts';
 
 export { DexieStorage } from './storage/dexie-storage.ts';
@@ -115,259 +98,37 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker ===
       'function';
 
-  let cachedGoogleAuth: Auth | null = null;
-  let cachedDriveTransport: SyncTransport | null = null;
-  let cachedDropboxAuth: Auth | null = null;
-  let cachedDropboxTransport: SyncTransport | null = null;
-  let cachedGooglePicker: GooglePickerAdapter | null = null;
-  let cachedGoogleSources: GoogleSourcesClient | null = null;
-  let cachedLocalFolderSources: LocalFolderSourcesAdapter | null = null;
-  let cachedPackageFetcher: PackageSubscriptionFetcher | null = null;
-  let cachedPackStoragePromise: Promise<DexiePackStorage> | null = null;
-  let cachedPackManager: PackManager | null = null;
-  let cachedStrokeProvider: StrokeDataProvider | null = null;
-  let cachedHandwritingRecognizer: HandwritingRecognizer | null = null;
-  let cachedDictionaryService: DictionaryService | null = null;
-  let cachedPurchase: Purchase | null = null;
-
-  const getPackStorage = async () => {
-    if (!cachedPackStoragePromise) {
-      cachedPackStoragePromise = import('./packs/dexie-pack-storage.ts').then(
-        ({ DexiePackStorage }) => new DexiePackStorage(resolved.slug),
-      );
-    }
-    return cachedPackStoragePromise;
-  };
-
-  const getGoogleAuth = async (): Promise<Auth> => {
-    if (!cachedGoogleAuth) {
-      const { GoogleOAuthWebAuth } = await import('./auth/google-oauth-web.ts');
-      cachedGoogleAuth = new GoogleOAuthWebAuth({
-        clientId: googleClientId,
-        tokenHelperUrl,
-        storage,
-      });
-    }
-    return cachedGoogleAuth;
-  };
-
-  const getDropboxAuth = async (): Promise<Auth> => {
-    if (!cachedDropboxAuth) {
-      const { DropboxOAuthWebAuth } = await import('./auth/dropbox-oauth-web.ts');
-      cachedDropboxAuth = new DropboxOAuthWebAuth({ appKey: dropboxAppKey, storage });
-    }
-    return cachedDropboxAuth;
-  };
-
-  const createDropboxTransport = async (): Promise<SyncTransport> => {
-    if (!cachedDropboxTransport) {
-      const [auth, { DropboxAppFolderTransport }] = await Promise.all([
-        getDropboxAuth(),
-        import('./sync/dropbox-transport.ts'),
-      ]);
-      cachedDropboxTransport = new DropboxAppFolderTransport({
-        getAccessToken: () => auth.getValidAccessToken(),
-      });
-    }
-    return cachedDropboxTransport;
-  };
-
-  let oneDriveServices: Promise<OneDriveServices> | null = null;
-  const loadOneDrive = () =>
-    (oneDriveServices ??= import('./onedrive-services.ts').then((m) =>
-      m.createOneDriveWebServices({
-        clientId: microsoftClientId,
-        tokenHelperUrl,
-        ...(microsoftTenant ? { tenant: microsoftTenant } : {}),
-        storage,
-      }),
-    ));
-
-  const createGoogleDriveTransport = async (): Promise<SyncTransport> => {
-    if (!cachedDriveTransport) {
-      const [auth, { GoogleDriveAppDataTransport }] = await Promise.all([
-        getGoogleAuth(),
-        import('./sync/google-drive-transport.ts'),
-      ]);
-      cachedDriveTransport = new GoogleDriveAppDataTransport({ auth });
-    }
-    return cachedDriveTransport;
-  };
-
-  const getGooglePicker = async (): Promise<GooglePickerAdapter> => {
-    if (!cachedGooglePicker) {
-      const [auth, { WebGooglePicker }] = await Promise.all([
-        getGoogleAuth(),
-        import('./sources/google-picker.ts'),
-      ]);
-      cachedGooglePicker = new WebGooglePicker({
-        auth,
-        apiKey: googleApiKey,
-        clientId: googleClientId,
-      });
-    }
-    return cachedGooglePicker;
-  };
-
-  const getGoogleSourcesClient = async (): Promise<GoogleSourcesClient> => {
-    if (!cachedGoogleSources) {
-      const [auth, { WebGoogleSourcesClient }] = await Promise.all([
-        getGoogleAuth(),
-        import('./sources/google-sheets-docs.ts'),
-      ]);
-      cachedGoogleSources = new WebGoogleSourcesClient({ auth });
-    }
-    return cachedGoogleSources;
-  };
-
-  const getLocalFolderSources = async (): Promise<LocalFolderSourcesAdapter> => {
-    if (!cachedLocalFolderSources) {
-      const { WebLocalFolderSources } = await import('./sources/local-folder-sources.ts');
-      cachedLocalFolderSources = new WebLocalFolderSources({ storage });
-    }
-    return cachedLocalFolderSources;
-  };
-
-  const getPackageFetcher = async (): Promise<PackageSubscriptionFetcher> => {
-    if (!cachedPackageFetcher) {
-      const { WebPackageSubscriptionFetcher } = await import('./sources/package-subscription.ts');
-      cachedPackageFetcher = new WebPackageSubscriptionFetcher();
-    }
-    return cachedPackageFetcher;
-  };
-
-  const pickLocalSyncFolder = async (): Promise<{
-    name: string;
-    transport: SyncTransport;
-  } | null> => {
-    const { pickAndSaveLocalSyncFolder } = await import('./sync/local-folder-transport.ts');
-    return pickAndSaveLocalSyncFolder(storage);
-  };
-
-  const restoreLocalSyncFolder = async (opts?: {
-    requestPermission?: boolean;
-  }): Promise<{ name: string; transport: SyncTransport } | null> => {
-    const { restoreLocalSyncFolderHandle } = await import('./sync/local-folder-transport.ts');
-    return restoreLocalSyncFolderHandle(storage, opts);
-  };
-
-  const disconnectLocalSyncFolder = async (): Promise<void> => {
-    const { clearSavedLocalSyncFolder } = await import('./sync/local-folder-transport.ts');
-    await clearSavedLocalSyncFolder(storage);
-  };
-
-  const createReplayWorker = async (): Promise<ReplayWorkerClient | null> => {
-    const { createWebReplayWorker } = await import('./workers/replay-client.ts');
-    return createWebReplayWorker();
-  };
-
-  const processImage: NonNullable<PlatformServices['processImage']> = async (bytes, mime, opts) => {
-    const { processImageBytes } = await import('./media/image-processor.ts');
-    return processImageBytes(bytes, mime, opts);
-  };
-
-  const fetchAndCacheHttpsImage: NonNullable<PlatformServices['fetchAndCacheHttpsImage']> = async (
-    url,
-    opts,
-  ) => {
-    const { fetchAndProcessHttpsImage } = await import('./media/image-processor.ts');
-    return fetchAndProcessHttpsImage(url, opts);
-  };
-
-  const createTtsProvider: NonNullable<PlatformServices['createTtsProvider']> = async (config) => {
-    const { createWebTtsProvider } = await import('./audio/tts-providers.ts');
-    return createWebTtsProvider(config);
-  };
-
-  const processAudio: NonNullable<PlatformServices['processAudio']> = async (bytes, mime) => {
-    const { processAudioBytes } = await import('./media/audio-processor.ts');
-    return processAudioBytes(bytes, mime);
-  };
-
-  const fetchAndCacheHttpsAudio: NonNullable<PlatformServices['fetchAndCacheHttpsAudio']> = async (
-    url,
-  ) => {
-    const { fetchAndProcessHttpsAudio } = await import('./media/audio-processor.ts');
-    return fetchAndProcessHttpsAudio(url);
-  };
-
-  const getPackManager = async (): Promise<PackManager> => {
-    if (!cachedPackManager) {
-      const [packStorage, { WebPackManager }] = await Promise.all([
-        getPackStorage(),
-        import('./packs/web-pack-manager.ts'),
-      ]);
-      cachedPackManager = new WebPackManager({
-        packStorage,
-        ...(packCatalogUrl ? { defaultCatalogUrl: packCatalogUrl } : {}),
-        allowRelativeUrls: isDevMode || packCatalogUrl.startsWith('/'),
-      });
-    }
-    return cachedPackManager;
-  };
-
-  const getStrokeDataProvider = async (): Promise<StrokeDataProvider> => {
-    if (!cachedStrokeProvider) {
-      const [packStorage, packManager, { WebStrokeDataProvider }] = await Promise.all([
-        getPackStorage(),
-        getPackManager(),
-        import('./drawing/web-stroke-provider.ts'),
-      ]);
-      cachedStrokeProvider = new WebStrokeDataProvider({
-        packStorage,
-        packManager,
-        allowRelativeUrls: isDevMode || packCatalogUrl.startsWith('/'),
-      });
-    }
-    return cachedStrokeProvider;
-  };
-
-  const getHandwritingRecognizer = async (): Promise<HandwritingRecognizer> => {
-    if (!cachedHandwritingRecognizer) {
-      const [packStorage, { WebStrokeRecognizer }] = await Promise.all([
-        getPackStorage(),
-        import('./drawing/web-stroke-recognizer.ts'),
-      ]);
-      cachedHandwritingRecognizer = new WebStrokeRecognizer(packStorage);
-    }
-    return cachedHandwritingRecognizer;
-  };
-
-  const getDictionaryService = async (): Promise<DictionaryService> => {
-    if (!cachedDictionaryService) {
-      const [packStorage, { WebDictionaryService }] = await Promise.all([
-        getPackStorage(),
-        import('./dictionary/web-dictionary-service.ts'),
-      ]);
-      // Sharded packs fetch their shards from beside the pack index (same URL rules as installs).
-      cachedDictionaryService = new WebDictionaryService(packStorage, {
-        allowRelativeUrls: isDevMode || packCatalogUrl.startsWith('/'),
-      });
-    }
-    return cachedDictionaryService;
-  };
-
-  const getFsrsOptimizer = async (): Promise<FsrsOptimizer> => {
-    const { createWebFsrsOptimizer } = await import('./fsrs/web-fsrs-optimizer.ts');
-    return createWebFsrsOptimizer();
-  };
-
-  const getAnkiPackageReader = async (): Promise<AnkiPackageReader> => {
-    const { createWebAnkiPackageReader } = await import('./anki/web-anki-reader.ts');
-    return createWebAnkiPackageReader();
-  };
-
-  const getPurchase = async (): Promise<Purchase> => {
-    if (!cachedPurchase) {
-      const { WebLicensePurchase } = await import('./purchase/web-license-purchase.ts');
-      cachedPurchase = new WebLicensePurchase({
-        storage,
-        isPersonalBuild: options?.isPersonalBuild ?? true,
-        ...(options?.licensePublicKeyHex ? { publicKeyHex: options.licensePublicKeyHex } : {}),
-      });
-    }
-    return cachedPurchase;
-  };
+  // Every other service loads `lazy-services.ts` on first use, which then loads that service's own
+  // chunk: one boot-chunk entry instead of one per service (§8).
+  let lazyServices: Promise<LazyWebServices> | undefined;
+  const lazy = () =>
+    (lazyServices ??= import('./lazy-services.ts')
+      .then((m) =>
+        m.createLazyWebServices({
+          slug: resolved.slug,
+          isDevMode,
+          storage,
+          googleClientId,
+          tokenHelperUrl,
+          googleApiKey,
+          dropboxAppKey,
+          microsoftClientId,
+          microsoftTenant,
+          packCatalogUrl,
+          isPersonalBuild: options?.isPersonalBuild ?? true,
+          licensePublicKeyHex: options?.licensePublicKeyHex,
+        }),
+      )
+      .catch((err: unknown) => {
+        // A failed chunk fetch (offline before precache, a replaced deploy) must not stick: the
+        // next call tries again, as each service's own import() did before.
+        lazyServices = undefined;
+        throw err;
+      }));
+  /** A platform method that forwards to the lazily loaded service of the same name. */
+  const defer = <K extends keyof LazyWebServices>(key: K): LazyWebServices[K] =>
+    (async (...args: unknown[]) =>
+      ((await lazy())[key] as (...a: unknown[]) => unknown)(...args)) as LazyWebServices[K];
 
   return {
     deviceId: resolved.deviceId,
@@ -384,22 +145,22 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     supportsLocalFolderSync,
     ...(packCatalogUrl ? { packCatalogUrl } : {}),
     ...(starterCatalogUrl ? { starterCatalogUrl } : {}),
-    getGoogleAuth,
-    createGoogleDriveTransport,
+    getGoogleAuth: defer('getGoogleAuth'),
+    createGoogleDriveTransport: defer('createGoogleDriveTransport'),
     dropboxConfigured: Boolean(dropboxAppKey),
-    getDropboxAuth,
-    createDropboxTransport,
+    getDropboxAuth: defer('getDropboxAuth'),
+    createDropboxTransport: defer('createDropboxTransport'),
     oneDriveConfigured,
-    getOneDriveAuth: async () => (await loadOneDrive()).auth,
-    createOneDriveTransport: async () => (await loadOneDrive()).transport,
-    getOneDrivePicker: async () => (await loadOneDrive()).picker,
-    getGooglePicker,
-    getGoogleSourcesClient,
-    getLocalFolderSources,
-    getPackageFetcher,
-    pickLocalSyncFolder,
-    restoreLocalSyncFolder,
-    disconnectLocalSyncFolder,
+    getOneDriveAuth: defer('getOneDriveAuth'),
+    createOneDriveTransport: defer('createOneDriveTransport'),
+    getOneDrivePicker: defer('getOneDrivePicker'),
+    getGooglePicker: defer('getGooglePicker'),
+    getGoogleSourcesClient: defer('getGoogleSourcesClient'),
+    getLocalFolderSources: defer('getLocalFolderSources'),
+    getPackageFetcher: defer('getPackageFetcher'),
+    pickLocalSyncFolder: defer('pickLocalSyncFolder'),
+    restoreLocalSyncFolder: defer('restoreLocalSyncFolder'),
+    disconnectLocalSyncFolder: defer('disconnectLocalSyncFolder'),
     ...(devTransport
       ? {
           onDevSyncNotification: (listener: (path: string) => void) => {
@@ -415,18 +176,18 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
           },
         }
       : {}),
-    createReplayWorker,
-    processImage,
-    fetchAndCacheHttpsImage,
-    createTtsProvider,
-    processAudio,
-    fetchAndCacheHttpsAudio,
-    getPackManager,
-    getStrokeDataProvider,
-    getHandwritingRecognizer,
-    getDictionaryService,
-    getPurchase,
-    getFsrsOptimizer,
-    getAnkiPackageReader,
+    createReplayWorker: defer('createReplayWorker'),
+    processImage: defer('processImage'),
+    fetchAndCacheHttpsImage: defer('fetchAndCacheHttpsImage'),
+    createTtsProvider: defer('createTtsProvider'),
+    processAudio: defer('processAudio'),
+    fetchAndCacheHttpsAudio: defer('fetchAndCacheHttpsAudio'),
+    getPackManager: defer('getPackManager'),
+    getStrokeDataProvider: defer('getStrokeDataProvider'),
+    getHandwritingRecognizer: defer('getHandwritingRecognizer'),
+    getDictionaryService: defer('getDictionaryService'),
+    getPurchase: defer('getPurchase'),
+    getFsrsOptimizer: defer('getFsrsOptimizer'),
+    getAnkiPackageReader: defer('getAnkiPackageReader'),
   };
 }

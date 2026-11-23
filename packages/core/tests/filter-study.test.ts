@@ -15,22 +15,24 @@ import { deriveCardId, deriveNoteId, FLASH_NAMESPACE_UUID, uuidv5 } from '../src
 import type { Card, ReviewRating } from '../src/model/types.ts';
 import { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } from '../src/samples/decks.ts';
 import {
-  applyFilterPreset,
-  BUILTIN_FILTER_PRESETS,
   compareHardestCards,
   computeCardRetrievability,
   filterCardIds,
   filterCards,
-  filterNoteIds,
   getCardStateKinds,
   isCardFilterEmpty,
   isLeechCard,
   LEECH_LAPSE_THRESHOLD,
-  listCategories,
   normalizeCardFilter,
   type CardFilter,
   type CardFilterContext,
 } from '../src/study/filter.ts';
+import {
+  applyFilterPreset,
+  BUILTIN_FILTER_PRESETS,
+  filterNoteIds,
+  listCategories,
+} from '../src/study/filter-lists.ts';
 import { buildStudyQueue } from '../src/study/queue.ts';
 
 const DAY = 86_400_000;
