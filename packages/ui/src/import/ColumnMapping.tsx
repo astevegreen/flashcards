@@ -215,6 +215,10 @@ export function ColumnMappingView({
           Guessed for you. Change any that are wrong: Category columns become tags, Add to Notes
           keeps a column as “name: value” lines.
         </p>
+        <p data-testid="bring-map-tags-hint" className="text-[11px] text-[var(--muted)]">
+          Tags are categories: use “::” to nest them, like Grammar::Particles. You can filter by
+          them in Browse.
+        </p>
       </div>
       {!headerRowFixed && (
         <label className="flex min-w-0 items-center gap-1.5">

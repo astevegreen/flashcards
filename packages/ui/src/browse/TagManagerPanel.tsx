@@ -7,8 +7,13 @@ import {
   type TagOperation,
   type TagOperationError,
 } from '@flash/core';
-import { useMemo, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useMemo, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { readTagsGuideDismissed, storeTagsGuideDismissed } from './tagsGuide.ts';
+
+const LazyTagsGuidePanel = lazy(() =>
+  import('./TagsGuidePanel.tsx').then((m) => ({ default: m.TagsGuidePanel })),
+);
 
 /** Stable callback ref: focuses the rename input once, when it mounts. */
 const focusOnMount = (el: HTMLInputElement | null) => el?.focus();
@@ -56,6 +61,8 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [mergeSelection, setMergeSelection] = useState<ReadonlySet<string>>(new Set());
   const [mergeTarget, setMergeTarget] = useState('');
+  // Open by default until the reader dismisses it once on this device.
+  const [showGuide, setShowGuide] = useState(() => !readTagsGuideDismissed());
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
   const labelOf = (key: string) => summary.tags.find((t) => t.key === key)?.label ?? key;
@@ -127,15 +134,36 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
           Manage categories{' '}
           <span className="text-sm font-normal text-[var(--muted)]">({summary.tags.length})</span>
         </h2>
-        <button
-          type="button"
-          data-testid="tag-manager-close"
-          onClick={onClose}
-          className={buttonClass}
-        >
-          Done
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="tag-manager-guide"
+            aria-expanded={showGuide}
+            onClick={() => setShowGuide((v) => !v)}
+            className={buttonClass}
+          >
+            How tags work
+          </button>
+          <button
+            type="button"
+            data-testid="tag-manager-close"
+            onClick={onClose}
+            className={buttonClass}
+          >
+            Done
+          </button>
+        </div>
       </div>
+      {showGuide && (
+        <Suspense fallback={null}>
+          <LazyTagsGuidePanel
+            onDismiss={() => {
+              storeTagsGuideDismissed(true);
+              setShowGuide(false);
+            }}
+          />
+        </Suspense>
+      )}
       <p className="text-xs text-[var(--muted)]">
         Changes apply to every note in the collection and to saved study sets. Renaming or deleting
         a category also changes its <code>::</code> subcategories.
