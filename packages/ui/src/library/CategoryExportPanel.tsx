@@ -120,31 +120,29 @@ export function CategoryExportPanel({
 
   return (
     <section
-      aria-label="Export a category"
+      aria-label="Export a tag"
       data-testid="category-export-panel"
       className="flex flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
     >
       <div>
-        <h2 className="text-sm font-semibold">Export a category</h2>
+        <h2 className="text-sm font-semibold">Export a tag</h2>
         <p className="text-xs text-[var(--muted)]">
-          Every note in a category (and its <code>::</code> subcategories) as CSV or .flashpkg, with
-          its categories kept. To export hand-picked notes, select them in Browse.
+          Every note in a tag (and its <code>::</code> subcategories) as CSV or .flashpkg, with its
+          tags kept. To export hand-picked notes, select them in Browse.
         </p>
       </div>
       {categories.length === 0 ? (
-        <p className="text-xs text-[var(--muted)]">
-          No categories yet. Add them to notes in Browse.
-        </p>
+        <p className="text-xs text-[var(--muted)]">No tags yet. Add them to notes in Browse.</p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
           <select
-            aria-label="Category to export"
+            aria-label="Tag to export"
             data-testid="category-export-tag"
             value={selectedTag}
             onChange={(e) => setTag(e.target.value)}
             className={selectClass}
           >
-            <option value="">Choose a category…</option>
+            <option value="">Choose a tag…</option>
             {categories.map((c) => (
               <option key={c.tag} value={c.tag}>
                 #{c.tag} ({c.noteCount})

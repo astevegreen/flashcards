@@ -62,7 +62,7 @@ export interface NoteDetailPaneProps {
 
 /**
  * Browse split view detail pane (Phase 13, tablets / desktop): every field of the selected note,
- * its categories and each card's schedule. Read-only; Edit opens the same editor as a row tap.
+ * its tags and each card's schedule. Read-only; Edit opens the same editor as a row tap.
  * Text goes through `RichText` (ruby / pinyin markup only), never raw HTML.
  */
 export function NoteDetailPane({ note, onEdit }: Readonly<NoteDetailPaneProps>) {
@@ -140,7 +140,7 @@ export function NoteDetailPane({ note, onEdit }: Readonly<NoteDetailPaneProps>) 
       </dl>
 
       {note.tags.length > 0 && (
-        <ul aria-label="Categories" className="flex flex-wrap gap-1.5">
+        <ul aria-label="Tags" className="flex flex-wrap gap-1.5">
           {note.tags.map((tag) => (
             <li
               key={tag}

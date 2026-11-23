@@ -83,7 +83,7 @@ export function StudyFilterPanel({ deckId, onStart, onClose }: StudyFilterPanelP
       list.push({
         id: 'custom',
         label: 'Study this filter',
-        description: 'Due cards from the chosen decks and categories.',
+        description: 'Due cards from the chosen decks and tags.',
         filter: custom,
       });
     }

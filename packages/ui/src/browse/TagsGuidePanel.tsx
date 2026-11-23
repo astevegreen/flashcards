@@ -1,23 +1,26 @@
 export interface TagsGuidePanelProps {
   /** Called when the reader closes the panel with "Got it". */
   onDismiss: () => void;
+  /** Render the heading one level lower (h3) when the panel sits inside another h2 section. */
+  nested?: boolean;
 }
 
 /**
- * Plain-language "How tags work" help (UX question #3). The app calls a note's tags its
- * categories; this explains where they come from and what they are for. Static text only.
+ * Plain-language "How tags work" help (UX question #3): where tags come from and what they are
+ * for. Static text only.
  */
-export function TagsGuidePanel({ onDismiss }: Readonly<TagsGuidePanelProps>) {
+export function TagsGuidePanel({ onDismiss, nested = false }: Readonly<TagsGuidePanelProps>) {
+  const Heading = nested ? 'h3' : 'h2';
   return (
     <section
       aria-label="How tags work"
       data-testid="tags-guide"
       className="flex flex-col gap-2 rounded-2xl border border-[var(--accent)] bg-[var(--accent-soft)] p-4 text-sm"
     >
-      <h2 className="text-base font-bold">How tags work</h2>
+      <Heading className="text-base font-bold">How tags work</Heading>
       <ul className="flex list-disc flex-col gap-1 pl-5 text-xs">
         <li>
-          A tag is a note&apos;s <strong>category</strong>, such as <code>Grammar</code> or{' '}
+          Tags work like categories: a label on a note, such as <code>Grammar</code> or{' '}
           <code>Food</code>. A note can have several.
         </li>
         <li>
@@ -28,12 +31,8 @@ export function TagsGuidePanel({ onDismiss }: Readonly<TagsGuidePanelProps>) {
           When you bring in cards, columns named Category 1, Category 2 and so on, or Tags, become
           tags.
         </li>
-        <li>
-          Pick a category in Browse to filter the list, or in a Study set to study just those.
-        </li>
-        <li>
-          In Manage categories you can rename, merge or delete a category for every note at once.
-        </li>
+        <li>Pick a tag in Browse to filter the list, or in a Study set to study just those.</li>
+        <li>In Manage tags you can rename, merge or delete a tag for every note at once.</li>
       </ul>
       <div>
         <button
