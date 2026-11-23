@@ -111,6 +111,7 @@ function setup(localEvents: FlashEvent[] = []) {
     reviewsSinceSyncRef: ref(0),
     lastLocalSnapshotCountRef: ref(0),
     lastSyncCompletedAtRef: ref(0),
+    collectionChoiceEpochRef: ref(0),
     enqueuePersist: async (task: () => Promise<void>) => task(),
     onStateMutated: () => {},
     onReplaceState: () => {},
@@ -176,6 +177,101 @@ describe('asking before adopting a different collection', () => {
   });
 });
 
+describe('a sync already in flight when the user answers', () => {
+  /** Holds every transport call until `release()`, so a sync can be caught mid-flight. */
+  function gate(t: ReturnType<typeof setup>) {
+    let release!: () => void;
+    const opened = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    const { list, read } = t.transport;
+    t.transport.list = async (prefix: string) => {
+      entered();
+      await opened;
+      return list(prefix);
+    };
+    t.transport.read = async (path: string) => {
+      entered();
+      await opened;
+      return read(path);
+    };
+    return { release, reached };
+  }
+
+  async function pendingChoice() {
+    const t = setup();
+    await saveAddDeviceExpectation(t.storage as never, {
+      provider: 'dropbox',
+      collectionId: EXPECTED,
+    });
+    await runSyncCycle(t.ctx, 'dropbox');
+    expect(t.state().collectionChoice).toBeDefined();
+    return t;
+  }
+
+  it('"Keep this device\'s cards" is not undone by a sync that read the old link', async () => {
+    const t = await pendingChoice();
+    const g = gate(t);
+    // An automatic sync starts while the question is open; it has read the link already.
+    const stale = runSyncCycle(t.ctx, 'dropbox');
+    await g.reached;
+
+    const { clearAddDeviceExpectation } = await import('../src/sync/addDeviceExpectation.ts');
+    await answerCollectionChoice({
+      choice: 'local',
+      latch: () => void (t.ctx.collectionChoiceEpochRef.current += 1),
+      disconnect: () => disconnectActiveSync(t.ctx, () => t.ctx.metaRef.current),
+      clearLink: () => clearAddDeviceExpectation(t.storage as never),
+      sync: async () => {},
+      setSyncState: (u) => t.ctx.setSyncState(u as never),
+    });
+    g.release();
+    await stale;
+
+    expect(t.state().collectionChoice).toBeUndefined();
+    expect(t.state().provider).toBe('none');
+    expect(t.state().status).toBe('disconnected');
+    expect(t.state().readOnly).toBe(false);
+    expect(t.transport.writes).toEqual([]);
+  });
+
+  it('"Use the synced collection" is not re-asked by a sync that read the old link', async () => {
+    const t = await pendingChoice();
+    const g = gate(t);
+    const stale = runSyncCycle(t.ctx, 'dropbox');
+    await g.reached;
+
+    const { clearAddDeviceExpectation } = await import('../src/sync/addDeviceExpectation.ts');
+    // The answer's own sync waits behind the stale one, as executeSync queues it.
+    await answerCollectionChoice({
+      choice: 'synced',
+      latch: () => void (t.ctx.collectionChoiceEpochRef.current += 1),
+      disconnect: async () => {},
+      clearLink: () => clearAddDeviceExpectation(t.storage as never),
+      sync: async () => {},
+      setSyncState: (u) => t.ctx.setSyncState(u as never),
+    });
+    g.release();
+    await stale;
+    expect(t.state().collectionChoice).toBeUndefined();
+    expect(t.state().readOnly).toBe(false);
+
+    await runSyncCycle(t.ctx, 'dropbox');
+    expect(t.state().collectionChoice).toBeUndefined();
+    expect(t.state().status).toBe('synced');
+    expect(t.ctx.cursorRef.current?.collectionId).toBe(REMOTE);
+  });
+
+  it('a sync that starts after the answer still asks when the link is still stored', async () => {
+    // The latch only drops results of syncs begun before the answer.
+    const t = await pendingChoice();
+    t.ctx.collectionChoiceEpochRef.current += 1;
+    t.ctx.setSyncState({ ...t.state(), collectionChoice: undefined } as never);
+    await runSyncCycle(t.ctx, 'dropbox');
+    expect(t.state().collectionChoice).toBeDefined();
+  });
+});
+
 describe('use the synced collection keeps the device own events', () => {
   it('pushes every local event into the synced collection and binds to it', async () => {
     const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', 1_000));
@@ -194,6 +290,7 @@ describe('use the synced collection keeps the device own events', () => {
     const { clearAddDeviceExpectation } = await import('../src/sync/addDeviceExpectation.ts');
     await answerCollectionChoice({
       choice: 'synced',
+      latch: () => {},
       disconnect: async () => {},
       clearLink: () => clearAddDeviceExpectation(t.storage as never),
       sync: () => runSyncCycle(t.ctx, 'dropbox'),
@@ -231,6 +328,7 @@ describe('answerCollectionChoice', () => {
       run: (choice: 'synced' | 'local') =>
         answerCollectionChoice({
           choice,
+          latch: () => void order.push('latch'),
           disconnect: async () => {
             order.push('disconnect');
             if (opts.disconnectFails) throw new Error('sign-out failed');
@@ -248,20 +346,20 @@ describe('answerCollectionChoice', () => {
   it('keep: disconnects first, then forgets the link, and never syncs', async () => {
     const h = harness();
     await h.run('local');
-    expect(h.order).toEqual(['disconnect', 'clearLink']);
+    expect(h.order).toEqual(['latch', 'disconnect', 'clearLink']);
   });
 
   it('keep: a failing disconnect leaves the link stored and the question open', async () => {
     const h = harness({ disconnectFails: true });
     await expect(h.run('local')).rejects.toThrow('sign-out failed');
-    expect(h.order).toEqual(['disconnect']);
+    expect(h.order).toEqual(['latch', 'disconnect']);
     expect(h.state().collectionChoice).toBeDefined();
   });
 
   it('use synced: forgets the link, clears the question and read-only, then syncs', async () => {
     const h = harness();
     await h.run('synced');
-    expect(h.order).toEqual(['clearLink', 'setState', 'sync']);
+    expect(h.order).toEqual(['latch', 'clearLink', 'setState', 'sync']);
     expect(h.state().collectionChoice).toBeUndefined();
     expect(h.state().errorMessage).toBeUndefined();
     expect(h.state().readOnly).toBe(false);
