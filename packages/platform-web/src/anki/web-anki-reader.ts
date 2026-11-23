@@ -1,4 +1,5 @@
 import type { AnkiPackageReader, AnkiPackageReadStage } from '@flash/platform';
+import type { AnkiCollectionPlan } from '@flash/core/anki-export';
 import { AnkiImportError, type AnkiImportErrorCode, type AnkiRawPackage } from '@flash/core/anki';
 import {
   transferableInput,
@@ -80,6 +81,12 @@ export class WebAnkiPackageReader implements AnkiPackageReader {
         transferableInput(bytes),
       );
     });
+  }
+
+  /** `.apkg` export: writes `collection.anki2` in its own short-lived sql.js Worker. */
+  async writeCollection(plan: AnkiCollectionPlan): Promise<Uint8Array> {
+    const { WebAnkiCollectionWriter } = await import('./apkg-writer.ts');
+    return new WebAnkiCollectionWriter().write(plan);
   }
 }
 

@@ -1,3 +1,4 @@
+import { parseRuby } from '../../parsers/ruby.ts';
 import { convertAnkiFuriganaRun, type AnkiFuriganaOutput } from './furigana.ts';
 
 /**
@@ -168,8 +169,11 @@ function decodeEntityBody(body: string): string | undefined {
   return NAMED_ENTITIES.get(body);
 }
 
-/** Decodes HTML character references (named subset + numeric). Unknown ones stay literal. */
-export function decodeHtmlEntities(text: string): string {
+/**
+ * Decodes HTML character references (named subset + numeric). Unknown ones stay literal.
+ * `mapDecoded`, when given, rewrites each decoded reference (the importer guards ruby syntax).
+ */
+export function decodeHtmlEntities(text: string, mapDecoded?: (decoded: string) => string): string {
   if (!text.includes('&')) return text;
   let out = '';
   let pos = 0;
@@ -181,7 +185,7 @@ export function decodeHtmlEntities(text: string): string {
       out += text.slice(pos, amp + 1);
       pos = amp + 1;
     } else {
-      out += text.slice(pos, amp) + decoded;
+      out += text.slice(pos, amp) + (mapDecoded ? mapDecoded(decoded) : decoded);
       pos = semi + 1;
     }
   }
@@ -213,7 +217,7 @@ function extractSounds(text: string, sounds: string[]): string {
     if (start === -1) break;
     const end = text.indexOf(']', start + 7);
     if (end === -1) break;
-    const name = text.slice(start + 7, end).trim();
+    const name = decodeHtmlEntities(text.slice(start + 7, end)).trim();
     if (name) sounds.push(name);
     out += text.slice(pos, start);
     pos = end + 1;
@@ -343,14 +347,17 @@ class FieldTextBuilder {
   /** Ends the current text run (every tag is a run boundary). */
   flush(): void {
     if (!this.run) return;
-    const raw = this.run;
+    const raw = this.run.replace(GUARD_RE, '');
     this.run = '';
-    let text = decodeHtmlEntities(collapseWhitespace(raw)).replaceAll(' ', ' ');
-    text = extractSounds(text, this.sounds);
+    // Sounds and furigana are read before other entities are decoded, as Anki does: an escaped
+    // `&#91;abc&#93;` is literal text in Anki, not furigana. `&nbsp;` still ends a ruby base.
+    // Decoded ruby syntax characters stay placeholders until `finish` (see `resolveGuarded`).
+    const spaced = collapseWhitespace(raw).replace(/&nbsp;|\u00a0/gi, ' ');
+    let text = extractSounds(spaced, this.sounds);
     if (this.options.furigana) {
       text = convertAnkiFuriganaRun(text, this.options.furiganaOutput ?? 'ruby');
     }
-    this.append(text);
+    this.append(decodeHtmlEntities(text, guardRubySyntax).replaceAll('\u00a0', ' '));
   }
 
   private append(text: string): void {
@@ -419,12 +426,66 @@ class FieldTextBuilder {
       .map((line) => line.trim())
       .join('\n');
     return {
-      text: collapseBlankLines(text).trim(),
+      text: resolveGuarded(collapseBlankLines(text).trim()),
       images: this.images,
       sounds: this.sounds,
       droppedActiveContent: this.droppedActiveContent,
     };
   }
+}
+
+/**
+ * Ruby and cloze syntax characters that came from an entity (`&#91;`, `&#124;`, …). Anki shows
+ * them as plain text, but as literal characters here they could form this app's ruby
+ * (`漢字&#91;かんじ&#93;` → `漢字[かんじ]`, or `A&#124;B[えーびー]` → `{A|B|えーびー}`). While a
+ * field is built they are noncharacters U+FDD0–U+FDD4 (stripped from the input first); `finish`
+ * turns them back into the literal characters when that changes no ruby or cloze, and into
+ * their fullwidth lookalikes (`［］｛｝｜`) when it would.
+ */
+const GUARDED_CHARS = ['[', ']', '{', '}', '|'];
+const FULLWIDTH_CHARS = ['［', '］', '｛', '｝', '｜'];
+const GUARD_BASE = 0xfdd0;
+const GUARD_RE = /[﷐-﷔]/g;
+
+function guardRubySyntax(decoded: string): string {
+  const i = GUARDED_CHARS.indexOf(decoded);
+  return i === -1 ? decoded : String.fromCharCode(GUARD_BASE + i);
+}
+
+function unguard(text: string, chars: readonly string[]): string {
+  return text.replace(GUARD_RE, (ch) => chars[ch.charCodeAt(0) - GUARD_BASE] ?? '');
+}
+
+/** The ruby structure of `text`, with adjacent text segments merged (for comparing). */
+function rubyShape(text: string, restore: (s: string) => string): string {
+  const out: string[] = [];
+  let pending = '';
+  for (const seg of parseRuby(text)) {
+    if (seg.type === 'text') {
+      pending += restore(seg.value);
+      continue;
+    }
+    out.push(`t:${pending}`, `r:${restore(seg.base)}|${restore(seg.reading)}`);
+    pending = '';
+  }
+  out.push(`t:${pending}`);
+  return JSON.stringify(out);
+}
+
+function countOf(text: string, needle: string): number {
+  return text.split(needle).length - 1;
+}
+
+function resolveGuarded(text: string): string {
+  if (!/[﷐-﷔]/.test(text)) return text;
+  const literal = unguard(text, GUARDED_CHARS);
+  const safe = unguard(text, FULLWIDTH_CHARS);
+  const sameRuby =
+    rubyShape(text, (s) => unguard(s, GUARDED_CHARS)) === rubyShape(literal, (s) => s);
+  const sameCloze =
+    countOf(literal, '{{') === countOf(safe, '{{') &&
+    countOf(literal, '}}') === countOf(safe, '}}');
+  return sameRuby && sameCloze ? literal : safe;
 }
 
 /** At most one empty line in a row. */

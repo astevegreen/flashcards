@@ -278,3 +278,48 @@ test.describe('Phase 12 Anki import panel layout stability', () => {
     });
   }
 });
+
+test.describe('Anki .apkg export', () => {
+  test('exports a deck as .apkg that imports back on another device', async ({ page }) => {
+    await page.goto('/?device=apkgexport');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await openLibrary(page);
+    await page.getByTestId('import-anki-btn').click();
+    await pickApkg(page, 'basic-reversed.apkg');
+    await expect(page.getByTestId('anki-import-status')).toHaveAttribute('data-phase', 'done', {
+      timeout: 30_000,
+    });
+
+    const row = page.locator('[data-testid^="deck-row-"]', { hasText: ANKI_DECK });
+    await row.getByRole('button', { name: 'Options' }).click();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('[data-testid^="export-deck-anki-btn-"]').click(),
+    ]);
+    expect(download.suggestedFilename()).toBe('japanese-vocab.apkg');
+    await expect(page.getByTestId('library-status')).toContainText(
+      'Exported 2 notes to japanese-vocab.apkg',
+      { timeout: 30_000 },
+    );
+    const exported = await download.path();
+
+    // A fresh device imports the exported file: same notes, deck and card templates.
+    await page.goto('/?device=apkgexportback');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await openLibrary(page);
+    await page.getByTestId('import-anki-btn').click();
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.getByTestId('anki-pick-file-btn').click(),
+    ]);
+    await chooser.setFiles(exported);
+    const status = page.getByTestId('anki-import-status');
+    await expect(status).toHaveAttribute('data-phase', 'ready', { timeout: 30_000 });
+    await page.getByTestId('anki-import-btn').click();
+    await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
+    await expect(status).toContainText('Imported 2 notes into 1 deck');
+    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await expect(page.getByTestId('browse-list')).toContainText('犬');
+    await expect(page.getByTestId('browse-list')).toContainText('猫');
+  });
+});

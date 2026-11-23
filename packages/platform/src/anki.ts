@@ -1,4 +1,5 @@
 import type { AnkiRawPackage } from '@flash/core/anki';
+import type { AnkiCollectionPlan } from '@flash/core/anki-export';
 
 /**
  * Phase 12 Anki `.apkg` reader. The web implementation unzips (with caps) and opens the SQLite
@@ -17,4 +18,10 @@ export interface AnkiPackageReader {
       onStage?: (stage: AnkiPackageReadStage) => void;
     },
   ): Promise<AnkiRawPackage>;
+  /**
+   * `.apkg` export: writes the SQLite collection (`collection.anki2`) from the rows
+   * `@flash/core/anki-export` plans. It lives on the reader (the same lazy sql.js service) rather
+   * than behind its own platform getter, so the export adds nothing to the study-screen bundle.
+   */
+  writeCollection?(plan: AnkiCollectionPlan): Promise<Uint8Array>;
 }

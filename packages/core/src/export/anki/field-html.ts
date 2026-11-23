@@ -189,8 +189,11 @@ export function ankiTags(tags: readonly string[]): string[] {
 
 /**
  * The Anki note GUID for a note. Notes that came from Anki (`source_key` `anki:<guid>`) get their
- * original GUID back, so importing the export into the same Anki profile updates those notes
- * instead of duplicating them. Every other note uses its own stable id.
+ * original GUID back, so the profile they came from doesn't get duplicates. Anki updates such a
+ * note only when it arrives with the note type it has there: the `.apkg` export reuses the
+ * Anki note type id, and Anki matches it while its fields and card types are unchanged. A GUID
+ * that arrives under a different note type is a conflict, and Anki skips that note unless
+ * "Merge note types" is ticked. Every other note uses its own stable id.
  */
 export function ankiGuid(note: Note): string {
   if (note.source_key.startsWith('anki:') && note.source_key.length > 5) {

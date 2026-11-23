@@ -49,6 +49,7 @@ function DeckOptionsPanel({
   noteType,
   onUpdateSettings,
   onExportDeck,
+  onExportDeckForAnki,
   onArchiveDeck,
   onAddLayout,
   onUpdateLayout,
@@ -60,6 +61,7 @@ function DeckOptionsPanel({
     patch: { name?: string; archived?: boolean; settings?: Partial<DeckSettings> },
   ) => void;
   onExportDeck: (deck: Deck) => void;
+  onExportDeckForAnki?: ((deck: Deck) => void) | undefined;
   onArchiveDeck: (deck: Deck) => void;
   onAddLayout: (layout: Layout, deckId: string) => void;
   onUpdateLayout: (layout: Layout) => void;
@@ -642,6 +644,16 @@ function DeckOptionsPanel({
         >
           Export Deck (.flashpkg)
         </button>
+        {onExportDeckForAnki && (
+          <button
+            type="button"
+            data-testid={`export-deck-anki-btn-${deck.id}`}
+            onClick={() => onExportDeckForAnki(deck)}
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--surface-2)]"
+          >
+            Export for Anki (.apkg)
+          </button>
+        )}
         {deck.source?.kind === 'google_sheets' &&
           deck.source.uri?.startsWith('https://docs.google.com/spreadsheets/') && (
             <a
@@ -813,6 +825,16 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       await platform.files.downloadFile(`${slug}.flashpkg`, bytes, 'application/zip');
       await markBackupCompleted();
       setStatusMessage(`Exported "${deck.name}" as ${slug}.flashpkg.`);
+      setErrorMessage(null);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleExportDeckForAnki = async (deck: Deck) => {
+    try {
+      const { exportAnkiApkg } = await import('../export/ankiApkgExport.ts');
+      setStatusMessage(await exportAnkiApkg(platform, state, { deckIds: [deck.id] }));
       setErrorMessage(null);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -1117,6 +1139,11 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
                   noteType={state.noteTypes.get(deck.note_type_id)}
                   onUpdateSettings={updateDeckSettings}
                   onExportDeck={(d) => void handleExportDeck(d)}
+                  onExportDeckForAnki={
+                    platform.getAnkiPackageReader
+                      ? (d) => void handleExportDeckForAnki(d)
+                      : undefined
+                  }
                   onArchiveDeck={handleArchiveDeck}
                   onUpdateLayout={(layout) => upsertLayout(layout)}
                   onAddLayout={(layout, dId) => {
