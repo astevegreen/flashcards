@@ -1813,6 +1813,19 @@ export async function scanSingleLocalFolder(
       }
 
       // 4. Tabular files: .csv, .tsv, or read-only .xlsx
+      // A file whose deck is archived is left alone, like linked Sheets and OneDrive files. The
+      // cache isn't updated, so the file is read again once the deck is restored.
+      const tabularDeck = state.decks.get(
+        cached?.deckId ?? uuidv5(FLASH_NAMESPACE_UUID, `local:${folder.id}:${file.relativePath}`),
+      );
+      if (tabularDeck?.archived) {
+        warnings.push({
+          code: 'deck_archived',
+          message: archivedDeckRefreshMessage(tabularDeck.name),
+          file: file.relativePath,
+        });
+        continue;
+      }
       const isXlsx = file.kind === 'xlsx';
       let grid: string[][];
       let delimiter: ',' | '\t' = file.kind === 'tsv' ? '\t' : ',';

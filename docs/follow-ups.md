@@ -206,11 +206,11 @@ Defaults the 2026-11-23 agents picked. Each stays shipped until the owner decide
 
 ### #19 Linked OneDrive sources
 
-- [ ] 4 SonarCloud complexity and await-in-loop items are left.
-- [ ] Unlink is per device: another device that syncs the deck re-lists it.
-- [ ] Apply on an archived deck says "already up to date".
+- [x] The 4 SonarCloud items: `handleApplyReconciliation`, `linkOneDriveFile` and `refreshSingleOneDriveSource` are split into helpers. The OneDrive refresh loop stays one file at a time on purpose (downloads of up to 50 MB, Graph throttling) and carries `NOSONAR (S9382)`. The complexity counts were done by hand; Sonar hasn't been run on it.
+- [x] **Unlink syncs** through a new `SourceUnlinked` event, for Google Sheets, Google Docs, OneDrive and `.flashpkg` URLs. It shares the last-writer-wins slot with `SourceLinked`, and builds that don't know it keep it as unknown and fold it in when they load a snapshot. Folders and catalogs stay per device. Known gaps: a relink recorded by another device before it receives the unlink wins; builds without the event keep re-listing the source; a `.flashpkg` subscription saved on another device isn't pruned.
+- [x] Refreshing or applying to an archived deck shows a "Deck archived" pill, and Refresh all lists it under "Not refreshed". Google Sheets on archived decks are no longer refreshed at all, the same rule as OneDrive. Linked local folders now skip the `.csv`/`.tsv`/`.xlsx` files of an archived deck too (a `deck_archived` warning, read again after a restore), and Apply & Import on one keeps the prompt and asks for a restore first.
 - [ ] Real Microsoft Graph is unverified.
-- [ ] `.xlsx` links can't be read on phone and Tauri shells; they are skipped quietly.
+- [x] `.xlsx` links on phone and Tauri shells show a "Can't read here" pill and are listed under "Not refreshed". No error banner.
 
 ### #20 Sync and devices
 
