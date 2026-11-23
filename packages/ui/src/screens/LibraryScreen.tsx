@@ -4,7 +4,6 @@ import {
   getDeckFolder,
   getDeckOrganization,
   getDeckPreset,
-  getEffectiveDeckSettings,
   getEnabledLayoutsForDeck,
   listDeckFolders,
   listDeckPresets,
@@ -28,6 +27,7 @@ import { LayoutRequiredFieldList } from '../library/LayoutRequiredFieldList.tsx'
 import { RubyDisplaySelect } from '../library/RubyDisplaySelect.tsx';
 import { DeckOrganizationPanel } from '../library/DeckOrganizationPanel.tsx';
 import { useDeckOrganization } from '../library/useDeckOrganization.ts';
+import { setStudyFilter } from '../study/filterStore.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
@@ -93,7 +93,7 @@ function DeckOptionsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion],
   );
-  const effectiveRetention = getEffectiveDeckSettings(state, deck).target_retention;
+
   const rubyLanguage = useActiveLanguages().hasFeature('ruby');
   const [rescheduleStatus, setRescheduleStatus] = useState<string | null>(null);
   const [newPerDayDraft, setNewPerDayDraft] = useState(String(deck.settings.new_cards_per_day));
@@ -506,7 +506,7 @@ function DeckOptionsPanel({
             if (
               typeof window !== 'undefined' &&
               !window.confirm(
-                `Reschedule every card in "${deck.name}" using the current target retention (${effectiveRetention})? Past review history is kept; only due dates are recalculated.`,
+                `Reschedule every card in "${deck.name}" using the current target retention (${deck.settings.target_retention})? Past review history is kept; only due dates are recalculated.`,
               )
             ) {
               return;
@@ -777,12 +777,11 @@ function DeckOptionsPanel({
 }
 
 export interface LibraryScreenProps {
-  onStudyDeck: (deckId: string) => void;
-  /** "Study folder": one session over every deck in a folder. */
-  onStudyFolder?: (folder: { name: string; deckIds: string[] }) => void;
+  /** `undefined` = all decks (used by "Study folder", which also sets a Study filter). */
+  onStudyDeck: (deckId: string | undefined) => void;
 }
 
-export function LibraryScreen({ onStudyDeck, onStudyFolder }: LibraryScreenProps) {
+export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const {
     platform,
     state,
@@ -1166,11 +1165,19 @@ export function LibraryScreen({ onStudyDeck, onStudyFolder }: LibraryScreenProps
               {totals.due} due
             </span>
           </div>
-          {folderId && folderDecks.length > 0 && onStudyFolder && (
+          {folderId && folderDecks.length > 0 && (
             <button
               type="button"
               data-testid={`study-folder-${folderId}`}
-              onClick={() => onStudyFolder({ name: title, deckIds: folderDecks.map((d) => d.id) })}
+              onClick={() => {
+                // One session over the folder's decks, as a Study filter on "All decks".
+                setStudyFilter({
+                  label: title,
+                  filter: { deckIds: folderDecks.map((d) => d.id) },
+                  scope: { deckId: undefined },
+                });
+                onStudyDeck(undefined);
+              }}
               className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
             >
               Study folder

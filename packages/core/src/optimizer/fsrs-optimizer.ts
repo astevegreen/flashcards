@@ -12,7 +12,6 @@ import {
 } from '../events/replay.ts';
 import type { DeckFSRSParamsChangedPayload } from '../events/types.ts';
 import type { ReviewRating, ReviewRecord } from '../model/types.ts';
-import { getEffectiveDeckSettings } from '../decks/fold.ts';
 import { resolveDayStartHour } from '../study/queue.ts';
 import { getStudyDayIndex } from '../fsrs/scheduler.ts';
 
@@ -322,9 +321,7 @@ export function buildOptimizedParamsPayload(
     effective_from: options.nowMs,
     params: {
       ...current,
-      request_retention: deck
-        ? getEffectiveDeckSettings(state, deck).target_retention
-        : current.request_retention,
+      request_retention: deck?.settings.target_retention ?? current.request_retention,
       w: [...weights],
     },
   };

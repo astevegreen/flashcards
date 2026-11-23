@@ -8,8 +8,9 @@ import type {
   DeckFSRSParamsChangedPayload,
   DeckPresetSavedPayload,
   DeckPresetSettings,
+  DeckSettingsChangedPayload,
 } from '../events/types.ts';
-import type { Deck, DeckSettings } from '../model/types.ts';
+import type { Deck } from '../model/types.ts';
 import {
   getDeckOrganization,
   normalizeDeckGroupName,
@@ -25,9 +26,10 @@ export * from './fold.ts';
  * Shared deck option presets and one level of deck folders: payload builders, listings and the
  * FSRS fan-out. The fold itself is in `./fold.ts`.
  *
- * Presets and FSRS: a preset's target retention and weights never reach replay directly. When a
- * preset changes, or a deck joins one, the app appends one ordinary `DeckFSRSParamsChanged` per
- * member deck whose active parameters differ ({@link buildPresetParamsPayloads}). Each deck keeps
+ * A preset never reaches the study queue or replay directly. When a preset changes, or a deck
+ * joins one, the app appends ordinary per-deck events for the member decks that differ: a
+ * `DeckSettingsChanged` with the preset's limits and retention ({@link buildPresetSettingsPayloads})
+ * and a `DeckFSRSParamsChanged` with its retention and weights ({@link buildPresetParamsPayloads}). Each deck keeps
  * its own versioned parameter history, so every review still replays under the version it was
  * recorded with, and decks that never join a preset behave exactly as before.
  */
@@ -179,9 +181,29 @@ export function presetSeedFromDeck(
 }
 
 /**
- * The own-settings patch a deck gets when it leaves a preset (or the preset is deleted), so it
- * keeps studying with the same limits and retention until the user edits them.
+ * The per-deck `DeckSettingsChanged` payloads that copy a preset's daily limits and target
+ * retention into the own settings of `deckIds`, for the decks where any of them differ. The study
+ * queue only reads `deck.settings`, so this is how a preset's limits take effect, and a deck that
+ * leaves the preset simply keeps them.
  */
-export function ownSettingsFromPreset(preset: DeckPreset): Partial<DeckSettings> {
-  return { ...preset.settings };
+export function buildPresetSettingsPayloads(
+  state: CollectionState,
+  preset: Pick<DeckPreset, 'settings'>,
+  deckIds: readonly string[],
+): DeckSettingsChangedPayload[] {
+  const out: DeckSettingsChangedPayload[] = [];
+  for (const deckId of [...deckIds].sort(cmpStr)) {
+    const own = state.decks.get(deckId)?.settings;
+    if (!own) continue;
+    const s = preset.settings;
+    if (
+      own.new_cards_per_day === s.new_cards_per_day &&
+      own.max_reviews_per_day === s.max_reviews_per_day &&
+      own.target_retention === s.target_retention
+    ) {
+      continue;
+    }
+    out.push({ deck_id: deckId, settings: { ...s } });
+  }
+  return out;
 }

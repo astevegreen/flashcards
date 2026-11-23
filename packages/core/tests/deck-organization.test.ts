@@ -3,15 +3,14 @@ import {
   buildDeckFolderSavedPayload,
   buildDeckPresetSavedPayload,
   buildPresetParamsPayloads,
+  buildPresetSettingsPayloads,
   getDeckFolder,
   getDeckOrganization,
   getDeckPreset,
-  getEffectiveDeckSettings,
   listDeckFolders,
   listDeckPresets,
   listFolderDecks,
   listPresetDeckIds,
-  ownSettingsFromPreset,
   presetSeedFromDeck,
 } from '../src/decks/organization.ts';
 import {
@@ -73,10 +72,8 @@ describe('deck organization fold', () => {
     const state = replayAllEvents(events);
     expect(listDeckPresets(state)).toEqual([]);
     expect(listDeckFolders(state)).toEqual([]);
-    const deck = state.decks.get(KO);
-    expect(deck).toBeDefined();
-    if (!deck) return;
-    expect(getEffectiveDeckSettings(state, deck)).toBe(deck.settings);
+    expect(getDeckPreset(state, KO)).toBeUndefined();
+    expect(getDeckFolder(state, KO)).toBeUndefined();
   });
 
   it('keeps the new event types log-retained (older builds and snapshots preserve them)', () => {
@@ -91,7 +88,7 @@ describe('deck organization fold', () => {
     }
   });
 
-  it('applies a preset’s limits to every member deck, each deck on its own count', () => {
+  it('a preset’s limits reach the queue only through its settings fan-out, per deck', () => {
     const { factory, events } = setup();
     events.push(
       factory.create(
@@ -102,7 +99,18 @@ describe('deck organization fold', () => {
       factory.create('DeckGroupingChanged', { deck_id: KO, preset_id: 'p1' }, T0 + 1),
       factory.create('DeckGroupingChanged', { deck_id: JA, preset_id: 'p1' }, T0 + 2),
     );
-    const state = replayAllEvents(events);
+    let state = replayAllEvents(events);
+    // Grouping alone changes nothing the queue reads.
+    expect(buildStudyQueue(state, { ...SCOPE, deckId: KO }).counts.new).toBeGreaterThan(2);
+    const preset = getDeckPreset(state, KO);
+    if (!preset) throw new Error('missing preset');
+    const patches = buildPresetSettingsPayloads(state, preset, listPresetDeckIds(state, 'p1'));
+    expect(patches.map((p) => p.deck_id)).toEqual([KO, JA].sort());
+    for (const payload of patches) {
+      events.push(factory.create('DeckSettingsChanged', payload, T0 + 3));
+    }
+    state = replayAllEvents(events);
+    expect(buildPresetSettingsPayloads(state, preset, [KO, JA])).toEqual([]);
     const baseline = replayAllEvents(setup().events);
     const before = buildStudyQueue(baseline, { ...SCOPE, deckId: ZH });
     const newIn = (id: string) => buildStudyQueue(baseline, { ...SCOPE, deckId: id }).counts.new;
@@ -112,8 +120,7 @@ describe('deck organization fold', () => {
     expect(buildStudyQueue(state, { ...SCOPE, deckId: ZH }).counts.new).toBe(before.counts.new);
     expect(buildStudyQueue(state, SCOPE).counts.new).toBe(4 + othersNew);
     expect(listPresetDeckIds(state, 'p1')).toEqual([KO, JA].sort());
-    const preset = getDeckPreset(state, KO);
-    expect(preset?.settings).toEqual({
+    expect(preset.settings).toEqual({
       new_cards_per_day: 2,
       max_reviews_per_day: 200,
       target_retention: 0.9,
@@ -175,8 +182,7 @@ describe('deck organization fold', () => {
       factory.create('DeckFolderDeleted', { folder_id: 'f1' }, T0 + 4),
     );
     let state = replayAllEvents(events);
-    const deck = state.decks.get(KO);
-    expect(deck && getEffectiveDeckSettings(state, deck)).toEqual(deck?.settings);
+    expect(getDeckPreset(state, KO)).toBeUndefined();
     expect(getDeckFolder(state, KO)).toBeUndefined();
     expect(listDeckPresets(state)).toEqual([]);
 
@@ -240,7 +246,7 @@ describe('preset payload builders', () => {
     expect(buildDeckFolderSavedPayload('f', '')).toBeUndefined();
   });
 
-  it('seeds a preset from a deck and gives the settings back when the deck leaves', () => {
+  it('seeds a preset from a deck, so the deck needs no settings fan-out', () => {
     const { events } = setup();
     const state = replayAllEvents(events);
     const deck = state.decks.get(KO);
@@ -249,9 +255,8 @@ describe('preset payload builders', () => {
     expect(seed).toEqual({
       settings: { new_cards_per_day: 20, max_reviews_per_day: 200, target_retention: 0.9 },
     });
-    expect(ownSettingsFromPreset({ id: 'p', name: 'P', settings: seed.settings })).toEqual(
-      seed.settings,
-    );
+    expect(buildPresetSettingsPayloads(state, seed, [KO])).toEqual([]);
+    expect(buildPresetParamsPayloads(state, seed, [KO], NOW)).toEqual([]);
   });
 });
 

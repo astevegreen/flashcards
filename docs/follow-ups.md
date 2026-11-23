@@ -295,15 +295,15 @@ Defaults picked while building presets and folders. Each stays shipped until the
 
 - [ ] **Migration:** existing decks keep their own settings. No "Default" preset is created; a deck joins a preset only when the user picks one.
 - [ ] **What a preset holds:** new cards/day, max reviews/day, target retention and FSRS weights. New card order, layouts and the study-day start stay per deck.
-- [ ] **Limits:** each deck in a preset gets the preset's limits on its own count (20 new/day means 20 per deck), as in Anki. There is no pooled limit for the whole preset or folder.
+- [ ] **Limits:** each deck in a preset gets the preset's limits on its own count (20 new/day means 20 per deck), as in Anki. There is no pooled limit for the whole preset or folder. The app copies the preset's limits and retention into each member deck's own settings (ordinary `DeckSettingsChanged` events), so the study queue never reads presets.
 - [ ] **Weights:** a preset without optimized weights leaves each deck its own weights; the first pooled optimization sets the same weights on every deck in it. The pooled optimizer needs the usual 400 eligible reviews, counted across the preset's decks.
 - [ ] **Applying a preset:** joining a preset, or changing its retention or weights, writes one new FSRS parameters version per deck for future reviews. Existing due dates change only if the optimizer's "Reschedule existing cards" box is ticked.
 - [ ] **Leaving or deleting a preset:** the deck keeps the preset's limits and retention as its own settings.
 - [ ] **New presets:** "Save these settings as a preset" copies the deck's limits, retention and weights; a preset made in the Library panel starts at 20 / 200 / 0.90.
 - [ ] **Folders:** one level. With no folders the deck list looks as before; once one exists, unfiled decks show under "Not in a folder". Deleting a folder leaves its decks unfiled. "Study folder" is one session over the folder's decks (shown as a Study filter), each deck with its own limits.
 - [ ] **Not in `.flashpkg`:** presets and folders are not exported or imported yet.
-- [ ] **Sync gap:** a deck that joins a preset on one device while another device changes that preset's retention or weights keeps the older parameters until the preset is next edited (every edit re-applies it to all its decks).
-- [ ] **Bundle:** the preset fold adds about 1 KB gzipped to the initial study screen (157.5 of 160 KB).
+- [ ] **Sync gap:** a deck that joins a preset on one device while another device edits that preset keeps the older limits, retention or weights until the preset is next edited (every edit re-applies it to all its decks).
+- [ ] **Bundle:** nothing new loads on the study screen (156.43 KB gz before, 156.47 KB after; the 0.04 KB is lazy-chunk names). Presets, folders and their UI load with the Library.
 
 ## Leftover nits and known limitations
 

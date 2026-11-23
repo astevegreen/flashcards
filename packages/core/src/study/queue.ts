@@ -1,5 +1,4 @@
 import { isCardSuspended, type CollectionState } from '../events/replay.ts';
-import { getEffectiveDeckSettings } from '../decks/fold.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
 import type { Card, Deck } from '../model/types.ts';
 import {
@@ -411,8 +410,7 @@ function openRaisePools(
   );
   const seenByDeck = new Map<string, number>();
   for (const { card } of ordered) {
-    const deck = state.decks.get(card.deck_id);
-    const limit = deck ? getEffectiveDeckSettings(state, deck).new_cards_per_day : 0;
+    const limit = state.decks.get(card.deck_id)?.settings.new_cards_per_day ?? 0;
     const seen = (seenByDeck.get(card.deck_id) ?? 0) + 1;
     seenByDeck.set(card.deck_id, seen);
     if (seen <= limit) continue;
@@ -457,9 +455,7 @@ function selectDueCards(
     if (!deck) continue;
     const doneToday = reviewsTodayByDeck.get(card.deck_id) ?? 0;
     const queuedForDeck = queuedDueByDeck.get(card.deck_id) ?? 0;
-    if (doneToday + queuedForDeck >= getEffectiveDeckSettings(state, deck).max_reviews_per_day) {
-      continue;
-    }
+    if (doneToday + queuedForDeck >= deck.settings.max_reviews_per_day) continue;
     tryQueue(selection, card, finalDue);
     queuedDueByDeck.set(card.deck_id, queuedForDeck + 1);
   }
@@ -485,8 +481,7 @@ function selectNewCards(
     const candidates = newCardsByDeck.get(dId);
     if (!deck || !candidates) continue;
     const alreadyStarted = activity.newCardsStartedTodayByDeck.get(dId) ?? 0;
-    const newPerDay = getEffectiveDeckSettings(state, deck).new_cards_per_day;
-    const baseQuota = Math.max(0, newPerDay - alreadyStarted);
+    const baseQuota = Math.max(0, deck.settings.new_cards_per_day - alreadyStarted);
     if (baseQuota === 0 && !hasOpenPool(pools)) continue;
     const todayIndex = getStudyDayIndex(ctx.nowMs, ctx.tzOffsetMinutes, deckDayStart(ctx, deck));
     candidates.sort(
