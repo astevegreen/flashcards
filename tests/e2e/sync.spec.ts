@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { createEventFactory } from '../../packages/core/src/events/replay.ts';
 import type { FlashEvent } from '../../packages/core/src/events/types.ts';
 import { createHlcState } from '../../packages/core/src/hlc.ts';
@@ -14,6 +14,20 @@ import {
   encodeEventsSegment,
   encodeManifest,
 } from '../../packages/core/src/sync/codec.ts';
+
+/**
+ * Waits until the service worker has precached the app and controls `page`. Going offline before
+ * that leaves lazy chunks (the note editor, media players) unloadable: under load the precache can
+ * still be running when a test goes offline, and the failed dynamic import blanks the app.
+ */
+async function waitForOfflineReady(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await expect
+    .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null))
+    .toBe(true);
+}
 
 function bytesToBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64');
@@ -140,7 +154,7 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
     await expect(pageA.getByTestId('study-card')).toBeVisible();
     await expect(pageB.getByTestId('study-card')).toBeVisible();
 
-    // Wait for SW precache & run initial sync on both
+    // Run the initial sync on both
     await pageA.getByRole('button', { name: 'Settings' }).first().click();
     await pageA.getByTestId('sync-now-btn').click();
     await expect(pageA.getByTestId('sync-status-pill')).toHaveText('Synced');
@@ -161,7 +175,9 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
     const initJa = Number(await pageA.getByTestId('count-new').textContent());
     const initZh = Number(await pageB.getByTestId('count-new').textContent());
 
-    // Take both devices offline
+    // Take both devices offline, once the service worker can serve every chunk
+    await waitForOfflineReady(pageA);
+    await waitForOfflineReady(pageB);
     await context.setOffline(true);
 
     // Offline mutation on Device A: rate 1 Japanese card + edit Japanese note
@@ -180,7 +196,9 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
     await pageA.getByRole('button', { name: 'Settings' }).first().click();
     await pageA.getByTestId('sync-now-btn').click();
     await expect(pageA.getByTestId('sync-status-pill')).toHaveText('Offline (queued)');
-    expect(Number(await pageA.getByTestId('sync-pending-count').textContent())).toBeGreaterThan(0);
+    await expect
+      .poll(async () => Number(await pageA.getByTestId('sync-pending-count').textContent()))
+      .toBeGreaterThan(0);
 
     // Concurrent offline mutation on Device B: edit Mandarin note + rate 1 Mandarin card
     await pageB.keyboard.press('e');

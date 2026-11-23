@@ -173,6 +173,7 @@ export function useSyncController({
   const queuedRef = useRef<boolean>(false);
   const idlePushTimerRef = useRef<number | null>(null);
   const lastSyncCompletedAtRef = useRef<number>(initialSyncCursor?.lastSyncedAt ?? 0);
+  const collectionChoiceEpochRef = useRef<number>(0);
 
   const clearIdlePushTimer = useCallback(() => {
     if (idlePushTimerRef.current !== null) {
@@ -238,6 +239,7 @@ export function useSyncController({
       reviewsSinceSyncRef,
       lastLocalSnapshotCountRef,
       lastSyncCompletedAtRef,
+      collectionChoiceEpochRef,
       enqueuePersist,
       onStateMutated,
       onReplaceState,
@@ -535,6 +537,9 @@ export function useSyncController({
       ]);
       await answerCollectionChoice({
         choice,
+        latch: () => {
+          collectionChoiceEpochRef.current += 1;
+        },
         disconnect: disconnectSync,
         clearLink: () => clearAddDeviceExpectation(platform.storage),
         sync: executeSync,

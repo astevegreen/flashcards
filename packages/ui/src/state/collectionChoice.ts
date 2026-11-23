@@ -11,14 +11,19 @@ export type CollectionChoice = 'synced' | 'local';
  * - `synced`: forget the link (the engine then binds to the synced collection), clear the question
  *   and sync, which pushes this device's own events into that collection.
  * Neither step deletes an event.
+ *
+ * `latch` runs first, before any await: a sync already in flight read the old add-device link and
+ * would come back asking again, so the answer is latched and that stale result is dropped.
  */
 export async function answerCollectionChoice(steps: {
   choice: CollectionChoice;
+  latch: () => void;
   disconnect: () => Promise<void>;
   clearLink: () => Promise<void>;
   sync: () => Promise<void>;
   setSyncState: (update: (prev: SyncUiState) => SyncUiState) => void;
 }): Promise<void> {
+  steps.latch();
   if (steps.choice === 'local') {
     await steps.disconnect();
     await steps.clearLink();

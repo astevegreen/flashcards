@@ -202,6 +202,13 @@ test.describe('Phase 14 Sync my devices', () => {
     await syncMyDevicesFromSettings(pageC, false);
     await expect(pageC.getByTestId('add-device-collection-choice')).toBeVisible();
     await expect(pageC.getByTestId('sync-status-pill')).not.toHaveText('Synced');
+    // While the question is open, the sidebar badge leads back to it instead of syncing again.
+    await pageC.getByRole('button', { name: 'Study' }).first().click();
+    await expect(pageC.getByTestId('cloud-sync-card')).toHaveCount(0);
+    const badgeC = pageC.getByTestId('sidebar-sync-badge');
+    await expect(badgeC).toHaveText('Choose');
+    await badgeC.click();
+    await expect(pageC.getByTestId('add-device-collection-choice')).toBeVisible();
     // "Keep this device's cards" stops syncing here; the cards stay and the question is gone.
     await pageC.getByTestId('add-device-keep-local').click();
     await expect(pageC.getByTestId('add-device-collection-choice')).toHaveCount(0);
