@@ -26,6 +26,9 @@ export type AnswerMode = z.infer<typeof AnswerModeSchema>;
 export const SpeakTimingSchema = z.enum(['front', 'reveal', 'manual']);
 export type SpeakTiming = z.infer<typeof SpeakTimingSchema>;
 
+export const RubyDisplaySchema = z.enum(['both', 'readings', 'bases']);
+export type RubyDisplay = z.infer<typeof RubyDisplaySchema>;
+
 export const LayoutDefSchema = z.object({
   id: z.string().min(1),
   note_type_id: z.string().min(1),
@@ -36,6 +39,7 @@ export const LayoutDefSchema = z.object({
   speak_field: z.string().min(1).optional(),
   speak_on: SpeakTimingSchema.optional(),
   hide_furigana_on_front: z.boolean().default(false),
+  ruby_display: RubyDisplaySchema.optional(),
   enabled: z.boolean().default(true),
   cloze_typed: z.boolean().optional(),
   answer_field: z.string().min(1).optional(),

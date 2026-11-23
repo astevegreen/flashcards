@@ -500,25 +500,27 @@ describe('Anki .apkg import: review history (default OFF)', () => {
 });
 
 describe('Anki .apkg import: Phase 14 follow-ups', () => {
-  it('kana: fields keep the readings only and kanji: fields the bases only, as Anki shows them', async () => {
+  it('kana: / kanji: fields keep full ruby; the layout flag decides readings-only or bases-only', async () => {
     const { state, result } = await importFixture('kana.apkg');
     expect(activeNotes(state).map((n) => n.fields)).toEqual([
       {
-        expression: '日本語を話す',
-        reading: 'わたしはにほんごをはなします',
+        expression: '日本語[にほんご]を話[はな]す',
+        reading: '私[わたし]は日本語[にほんご]を話[はな]します',
         meaning: 'I speak Japanese',
       },
-      { expression: '食べる', reading: 'たべる', meaning: 'to eat' },
+      { expression: '食[た]べる', reading: '食[た]べる', meaning: 'to eat' },
     ]);
     expect(state.layouts.get('anki:layout:1600000000006:0')).toMatchObject({
       front_fields: ['reading'],
       reveal_steps: [['meaning']],
       hide_furigana_on_front: false,
+      ruby_display: 'readings',
     });
     expect(state.layouts.get('anki:layout:1600000000006:1')).toMatchObject({
       front_fields: ['expression'],
       reveal_steps: [['meaning']],
       hide_furigana_on_front: true,
+      ruby_display: 'bases',
     });
     const langs = state.noteTypes.get('anki:nt:1600000000006')?.fields.map((f) => f.lang);
     expect(langs).toEqual(['ja', 'ja', 'en']);

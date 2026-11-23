@@ -4,6 +4,7 @@ import {
   getEnabledLayoutsForDeck,
   uuidv7,
   type AnswerMode,
+  type RubyDisplay,
   type Deck,
   type DeckSettings,
   type Layout,
@@ -165,6 +166,7 @@ function DeckOptionsPanel({
   );
   const [speakOn, setSpeakOn] = useState<SpeakTiming>('front');
   const [clozeTyped, setClozeTyped] = useState(false);
+  const [rubyDisplay, setRubyDisplay] = useState<RubyDisplay>('both');
 
   useEffect(() => {
     setNewPerDayDraft(String(deck.settings.new_cards_per_day));
@@ -254,6 +256,7 @@ function DeckOptionsPanel({
       speak_on: layoutMode === 'listen' ? 'front' : speakOn,
       hide_furigana_on_front: layoutMode !== 'typed' && layoutMode !== 'draw',
       enabled: false,
+      ...(rubyDisplay !== 'both' ? { ruby_display: rubyDisplay } : {}),
       ...(layoutMode === 'typed' || layoutMode === 'choice' || layoutMode === 'draw'
         ? { answer_field: effectiveAnswer }
         : {}),
@@ -521,6 +524,20 @@ function DeckOptionsPanel({
             )}
           </>
         )}
+
+        <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
+          <span>Ruby shows</span>
+          <select
+            aria-label="Ruby shows"
+            value={rubyDisplay}
+            onChange={(e) => setRubyDisplay(e.target.value as RubyDisplay)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
+          >
+            <option value="both">Base + reading</option>
+            <option value="readings">Readings only</option>
+            <option value="bases">Bases only</option>
+          </select>
+        </label>
 
         {layoutMode === 'cloze' && (
           <label className="flex items-center gap-1.5 pb-1 text-xs text-[var(--muted)]">

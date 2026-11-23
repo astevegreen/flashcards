@@ -1,6 +1,12 @@
-import type { AnswerMode, FieldKind, ProvenanceDef, SpeakTiming } from '@flash/content-schema';
+import type {
+  AnswerMode,
+  FieldKind,
+  ProvenanceDef,
+  RubyDisplay,
+  SpeakTiming,
+} from '@flash/content-schema';
 
-export type { AnswerMode, FieldKind, SpeakTiming };
+export type { AnswerMode, FieldKind, RubyDisplay, SpeakTiming };
 export type Provenance = ProvenanceDef;
 
 export interface NoteTypeField {
@@ -28,6 +34,11 @@ export interface Layout {
   speak_field?: string;
   speak_on?: SpeakTiming;
   hide_furigana_on_front: boolean;
+  /**
+   * Which part of ruby the layout shows: `both` (default when absent), the `readings` alone, or
+   * the `bases` alone. Imports keep the full ruby; this decides what is displayed.
+   */
+  ruby_display?: RubyDisplay;
   enabled: boolean;
   /** For `cloze` layouts: enable composable typed-blank input by default (§5.2). */
   cloze_typed?: boolean;

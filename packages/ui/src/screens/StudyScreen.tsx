@@ -20,6 +20,7 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as DeferredSyncPromptModuleType from '../onboarding/DeferredSyncPromptSlot.tsx';
 import { useApp, type AppContextValue } from '../state/AppContext.tsx';
+import { RubyDisplayContext } from '../components/RichText.tsx';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
 import {
@@ -780,280 +781,282 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-3 sm:gap-4 short:gap-2">
-      {/* Top study header: Deck selector + Due counts + Quick actions */}
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <select
-            aria-label="Select deck to study"
-            value={activeDeckId ?? ''}
-            onChange={(e) => {
-              audio.stop();
-              setActiveDeckId(e.target.value || undefined);
-              setStudyFilter(undefined);
-              e.currentTarget.blur();
-            }}
-            className="max-w-[14rem] truncate rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none sm:max-w-xs"
-          >
-            <option value="">All Decks</option>
-            {decks.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-
-          {studyFilter ? (
-            <span
-              data-testid="study-filter-chip"
-              className="inline-flex max-w-[10rem] items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] py-0.5 pl-2.5 pr-1 text-xs font-semibold text-[var(--accent)]"
+    <RubyDisplayContext.Provider value={currentLayout?.ruby_display ?? 'both'}>
+      <section className="flex min-h-0 flex-1 flex-col gap-3 sm:gap-4 short:gap-2">
+        {/* Top study header: Deck selector + Due counts + Quick actions */}
+        <header className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <select
+              aria-label="Select deck to study"
+              value={activeDeckId ?? ''}
+              onChange={(e) => {
+                audio.stop();
+                setActiveDeckId(e.target.value || undefined);
+                setStudyFilter(undefined);
+                e.currentTarget.blur();
+              }}
+              className="max-w-[14rem] truncate rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none sm:max-w-xs"
             >
-              <span className="truncate">{studyFilter.label}</span>
+              <option value="">All Decks</option>
+              {decks.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+
+            {studyFilter ? (
+              <span
+                data-testid="study-filter-chip"
+                className="inline-flex max-w-[10rem] items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] py-0.5 pl-2.5 pr-1 text-xs font-semibold text-[var(--accent)]"
+              >
+                <span className="truncate">{studyFilter.label}</span>
+                <button
+                  type="button"
+                  data-testid="study-filter-clear"
+                  aria-label="Clear study filter"
+                  onClick={() => setStudyFilter(undefined)}
+                  className="rounded-full px-1 hover:bg-[var(--surface-2)]"
+                >
+                  ×
+                </button>
+              </span>
+            ) : (
               <button
                 type="button"
-                data-testid="study-filter-clear"
-                aria-label="Clear study filter"
-                onClick={() => setStudyFilter(undefined)}
-                className="rounded-full px-1 hover:bg-[var(--surface-2)]"
+                data-testid="study-filter-btn"
+                aria-expanded={showFilterPanel}
+                onClick={() => setShowFilterPanel((v) => !v)}
+                title="Study sets, filters and custom study (review ahead, extra new, practice)"
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
               >
-                ×
+                Filter
               </button>
-            </span>
-          ) : (
-            <button
-              type="button"
-              data-testid="study-filter-btn"
-              aria-expanded={showFilterPanel}
-              onClick={() => setShowFilterPanel((v) => !v)}
-              title="Study sets, filters and custom study (review ahead, extra new, practice)"
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
-            >
-              Filter
-            </button>
-          )}
+            )}
 
-          <div
-            aria-label="Due card counts"
-            className="flex items-center gap-1.5 text-xs font-semibold tabular-nums"
-          >
-            <span
-              title="New cards"
-              data-testid="count-new"
-              className="rounded-full bg-sky-500/15 px-2 py-0.5 text-sky-600 dark:text-sky-400"
+            <div
+              aria-label="Due card counts"
+              className="flex items-center gap-1.5 text-xs font-semibold tabular-nums"
             >
-              {queueResult.counts.new}
-            </span>
-            <span
-              title="Learning cards"
-              data-testid="count-learning"
-              className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-600 dark:text-amber-400"
-            >
-              {queueResult.counts.learning}
-            </span>
-            <span
-              title="Due review cards"
-              data-testid="count-due"
-              className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-600 dark:text-emerald-400"
-            >
-              {queueResult.counts.due}
-            </span>
+              <span
+                title="New cards"
+                data-testid="count-new"
+                className="rounded-full bg-sky-500/15 px-2 py-0.5 text-sky-600 dark:text-sky-400"
+              >
+                {queueResult.counts.new}
+              </span>
+              <span
+                title="Learning cards"
+                data-testid="count-learning"
+                className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-600 dark:text-amber-400"
+              >
+                {queueResult.counts.learning}
+              </span>
+              <span
+                title="Due review cards"
+                data-testid="count-due"
+                className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-600 dark:text-emerald-400"
+              >
+                {queueResult.counts.due}
+              </span>
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={handleToggleFurigana}
-            title="Toggle furigana / reading hints (F)"
-            aria-pressed={!hideFrontRuby}
-            className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-              !hideFrontRuby
-                ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--fg)]'
-            }`}
-          >
-            {hideFrontRuby ? 'Ruby Off' : 'Ruby On'}
-          </button>
-
-          <button
-            type="button"
-            onClick={handleUndo}
-            disabled={!canUndo(studyFilter?.session, undoStack.length)}
-            title="Undo last review (Z)"
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)] disabled:opacity-40"
-          >
-            Undo
-          </button>
-
-          {currentNote && (
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setEditingNote(currentNote)}
-              title="Edit note (E)"
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+              onClick={handleToggleFurigana}
+              title="Toggle furigana / reading hints (F)"
+              aria-pressed={!hideFrontRuby}
+              className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                !hideFrontRuby
+                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                  : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--fg)]'
+              }`}
             >
-              Edit
+              {hideFrontRuby ? 'Ruby Off' : 'Ruby On'}
             </button>
-          )}
-        </div>
-      </header>
 
-      {showFilterPanel && !studyFilter && (
-        <Suspense
-          fallback={<div className="py-4 text-center text-xs text-[var(--muted)]">Loading…</div>}
-        >
-          <LazyStudyFilterPanel
-            deckId={activeDeckId}
-            onStart={(active) => {
-              audio.stop();
-              setStudyFilter({ ...active, scope: { deckId: activeDeckId } });
-              setShowFilterPanel(false);
-            }}
-            onClose={() => setShowFilterPanel(false)}
-          />
-        </Suspense>
-      )}
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={!canUndo(studyFilter?.session, undoStack.length)}
+              title="Undo last review (Z)"
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)] disabled:opacity-40"
+            >
+              Undo
+            </button>
 
-      {/* One-time OS Offline Voice Pack setup banner (§7.1) */}
-      {audio.missingVoicePrompt && (
-        <div
-          role="status"
-          data-testid="missing-voice-banner"
-          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-900 dark:text-amber-200"
-        >
-          <span className="flex-1">{audio.missingVoicePrompt.message}</span>
-          <button
-            type="button"
-            data-testid="dismiss-missing-voice-btn"
-            onClick={() => void audio.dismissMissingVoicePrompt()}
-            className="rounded-lg border border-amber-500/40 bg-[var(--surface)] px-2.5 py-1 font-semibold text-[var(--fg)] hover:bg-[var(--surface-2)]"
-          >
-            Got it
-          </button>
-        </div>
-      )}
-
-      {/* Non-blocking Cloud TTS fallback toast */}
-      {audio.lastAudioWarning && (
-        <div
-          role="status"
-          data-testid="audio-warning-banner"
-          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs text-[var(--muted)]"
-        >
-          <span className="flex-1">{audio.lastAudioWarning}</span>
-          <button
-            type="button"
-            data-testid="dismiss-audio-warning-btn"
-            onClick={audio.dismissAudioWarning}
-            className="rounded-lg border border-[var(--border)] px-2 py-0.5 font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Main Card Surface or Caught-Up State */}
-      {!currentCard || !currentNote || !currentLayout || !currentDeck ? (
-        <CaughtUpPanel
-          message={caughtUpMessage(
-            nextLearningDueAt,
-            nowMs,
-            studyFilter,
-            queueResult.buriedNoteIds.size,
-          )}
-          learningPending={nextLearningDueAt !== undefined}
-          hasFilter={Boolean(studyFilter)}
-          canStudyAll={activeDeckId !== undefined}
-          onStudyAll={() => setActiveDeckId(undefined)}
-          onOpenLibrary={onOpenLibrary}
-        />
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-3 short:flex-row">
-          <StudyCard
-            answerMode={currentLayout.answer_mode}
-            deckName={currentDeck.name}
-            layoutLabel={layoutLabelFor(currentLayout, currentCard)}
-            isRevealed={isRevealed}
-            capturesFront={activeModePlugin.capturesFrontInteraction}
-            hint={revealHint(
-              isRevealed,
-              isFullyRevealed,
-              activeModePlugin.capturesFrontInteraction,
+            {currentNote && (
+              <button
+                type="button"
+                onClick={() => setEditingNote(currentNote)}
+                title="Edit note (E)"
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+              >
+                Edit
+              </button>
             )}
-            swipe={swipe}
-            swipeIntent={swipeIntent}
-            showSpeaker={Boolean(
-              currentAudioTarget?.attachedMediaHash || currentAudioTarget?.normalizedText,
-            )}
-            onSpeak={handleSpeak}
-            needsAiReview={needsAiReview}
-            onMarkReviewed={() => markNoteReviewed(currentNote)}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerCancel}
+          </div>
+        </header>
+
+        {showFilterPanel && !studyFilter && (
+          <Suspense
+            fallback={<div className="py-4 text-center text-xs text-[var(--muted)]">Loading…</div>}
           >
-            {/* Pluggable Answer Mode renderer (§5.2) */}
-            {activeModePlugin.render({
-              state,
-              card: currentCard,
-              note: currentNote,
-              deck: currentDeck,
-              layout: currentLayout,
-              noteType: currentNoteType,
-              fieldMetaByKey,
-              populatedRevealSteps,
-              revealStep,
-              isRevealed,
-              isFullyRevealed,
-              hideFrontRuby,
-              pinyinToneColors: state.preferences.pinyin_tone_colors,
-              studyDayIndex,
-              evaluation,
-              onRevealNext: handleRevealNext,
-              onEvaluateAndReveal: handleEvaluateAndReveal,
-              onSpeak: handleSpeak,
-            })}
-          </StudyCard>
+            <LazyStudyFilterPanel
+              deckId={activeDeckId}
+              onStart={(active) => {
+                audio.stop();
+                setStudyFilter({ ...active, scope: { deckId: activeDeckId } });
+                setShowFilterPanel(false);
+              }}
+              onClose={() => setShowFilterPanel(false)}
+            />
+          </Suspense>
+        )}
 
-          <RatingBar
-            isRevealed={isRevealed}
-            isFullyRevealed={isFullyRevealed}
-            revealStep={revealStep}
-            totalRevealSteps={totalRevealSteps}
-            ratingMode={ratingMode}
-            suggestedRating={suggestedRating}
-            intervals={intervals}
-            onRevealNext={handleRevealNext}
-            onRate={handleRate}
+        {/* One-time OS Offline Voice Pack setup banner (§7.1) */}
+        {audio.missingVoicePrompt && (
+          <div
+            role="status"
+            data-testid="missing-voice-banner"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-900 dark:text-amber-200"
+          >
+            <span className="flex-1">{audio.missingVoicePrompt.message}</span>
+            <button
+              type="button"
+              data-testid="dismiss-missing-voice-btn"
+              onClick={() => void audio.dismissMissingVoicePrompt()}
+              className="rounded-lg border border-amber-500/40 bg-[var(--surface)] px-2.5 py-1 font-semibold text-[var(--fg)] hover:bg-[var(--surface-2)]"
+            >
+              Got it
+            </button>
+          </div>
+        )}
+
+        {/* Non-blocking Cloud TTS fallback toast */}
+        {audio.lastAudioWarning && (
+          <div
+            role="status"
+            data-testid="audio-warning-banner"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs text-[var(--muted)]"
+          >
+            <span className="flex-1">{audio.lastAudioWarning}</span>
+            <button
+              type="button"
+              data-testid="dismiss-audio-warning-btn"
+              onClick={audio.dismissAudioWarning}
+              className="rounded-lg border border-[var(--border)] px-2 py-0.5 font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Main Card Surface or Caught-Up State */}
+        {!currentCard || !currentNote || !currentLayout || !currentDeck ? (
+          <CaughtUpPanel
+            message={caughtUpMessage(
+              nextLearningDueAt,
+              nowMs,
+              studyFilter,
+              queueResult.buriedNoteIds.size,
+            )}
+            learningPending={nextLearningDueAt !== undefined}
+            hasFilter={Boolean(studyFilter)}
+            canStudyAll={activeDeckId !== undefined}
+            onStudyAll={() => setActiveDeckId(undefined)}
+            onOpenLibrary={onOpenLibrary}
           />
-        </div>
-      )}
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col gap-3 short:flex-row">
+            <StudyCard
+              answerMode={currentLayout.answer_mode}
+              deckName={currentDeck.name}
+              layoutLabel={layoutLabelFor(currentLayout, currentCard)}
+              isRevealed={isRevealed}
+              capturesFront={activeModePlugin.capturesFrontInteraction}
+              hint={revealHint(
+                isRevealed,
+                isFullyRevealed,
+                activeModePlugin.capturesFrontInteraction,
+              )}
+              swipe={swipe}
+              swipeIntent={swipeIntent}
+              showSpeaker={Boolean(
+                currentAudioTarget?.attachedMediaHash || currentAudioTarget?.normalizedText,
+              )}
+              onSpeak={handleSpeak}
+              needsAiReview={needsAiReview}
+              onMarkReviewed={() => markNoteReviewed(currentNote)}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerCancel}
+            >
+              {/* Pluggable Answer Mode renderer (§5.2) */}
+              {activeModePlugin.render({
+                state,
+                card: currentCard,
+                note: currentNote,
+                deck: currentDeck,
+                layout: currentLayout,
+                noteType: currentNoteType,
+                fieldMetaByKey,
+                populatedRevealSteps,
+                revealStep,
+                isRevealed,
+                isFullyRevealed,
+                hideFrontRuby,
+                pinyinToneColors: state.preferences.pinyin_tone_colors,
+                studyDayIndex,
+                evaluation,
+                onRevealNext: handleRevealNext,
+                onEvaluateAndReveal: handleEvaluateAndReveal,
+                onSpeak: handleSpeak,
+              })}
+            </StudyCard>
 
-      {/* Deferred onboarding sync step: after the first finished session, below every control.
+            <RatingBar
+              isRevealed={isRevealed}
+              isFullyRevealed={isFullyRevealed}
+              revealStep={revealStep}
+              totalRevealSteps={totalRevealSteps}
+              ratingMode={ratingMode}
+              suggestedRating={suggestedRating}
+              intervals={intervals}
+              onRevealNext={handleRevealNext}
+              onRate={handleRate}
+            />
+          </div>
+        )}
+
+        {/* Deferred onboarding sync step: after the first finished session, below every control.
           One stable position in both branches, so it is mounted while a card is on screen. */}
-      {deferredSyncPrompt.mod && (
-        <deferredSyncPrompt.mod.DeferredSyncPromptSlot
-          storage={platform.storage}
-          provider={syncState.provider}
-          caughtUp={caughtUp}
-          readyAtScreenMount={deferredSyncPrompt.readyAtMount}
-          sessionReviewed={undoStack.length > 0}
-          onOpenSettings={onOpenSettings}
-        />
-      )}
-
-      {editingNote && (
-        <Suspense fallback={null}>
-          <LazyNoteEditDialog
-            note={editingNote}
-            noteType={state.noteTypes.get(editingDeck?.note_type_id ?? '')}
-            {...(editingDeck?.source === undefined ? {} : { deckSource: editingDeck.source })}
-            onSave={(note, fields, tags) => updateNote(note, fields, tags)}
-            onClose={() => setEditingNote(null)}
+        {deferredSyncPrompt.mod && (
+          <deferredSyncPrompt.mod.DeferredSyncPromptSlot
+            storage={platform.storage}
+            provider={syncState.provider}
+            caughtUp={caughtUp}
+            readyAtScreenMount={deferredSyncPrompt.readyAtMount}
+            sessionReviewed={undoStack.length > 0}
+            onOpenSettings={onOpenSettings}
           />
-        </Suspense>
-      )}
-    </section>
+        )}
+
+        {editingNote && (
+          <Suspense fallback={null}>
+            <LazyNoteEditDialog
+              note={editingNote}
+              noteType={state.noteTypes.get(editingDeck?.note_type_id ?? '')}
+              {...(editingDeck?.source === undefined ? {} : { deckSource: editingDeck.source })}
+              onSave={(note, fields, tags) => updateNote(note, fields, tags)}
+              onClose={() => setEditingNote(null)}
+            />
+          </Suspense>
+        )}
+      </section>
+    </RubyDisplayContext.Provider>
   );
 }
