@@ -129,12 +129,12 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
       data-testid="tag-manager"
       className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-bold">
           Manage tags{' '}
           <span className="text-sm font-normal text-[var(--muted)]">({summary.tags.length})</span>
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             data-testid="tag-manager-guide"

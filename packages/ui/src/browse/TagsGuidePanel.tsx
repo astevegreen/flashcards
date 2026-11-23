@@ -15,7 +15,7 @@ export function TagsGuidePanel({ onDismiss, nested = false }: Readonly<TagsGuide
     <section
       aria-label="How tags work"
       data-testid="tags-guide"
-      className="flex flex-col gap-2 rounded-2xl border border-[var(--accent)] bg-[var(--accent-soft)] p-4 text-sm"
+      className="flex min-w-0 flex-col gap-2 break-words rounded-2xl border border-[var(--accent)] bg-[var(--accent-soft)] p-4 text-sm"
     >
       <Heading className="text-base font-bold">How tags work</Heading>
       <ul className="flex list-disc flex-col gap-1 pl-5 text-xs">
