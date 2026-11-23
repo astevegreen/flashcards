@@ -188,6 +188,19 @@ Defaults the 2026-11-23 agents picked. Each stays shipped until the owner decide
 - [x] `CategoryExportPanel.tsx` comments say "tag" / "nested tags"; the export file-name fallback is `tag`.
 - [x] The two local e2e flakes. `sync.spec.ts` went offline before the service worker had precached, so a lazy chunk failed and the app went blank. The test now waits for the service worker (7 of 12 failed before, 16 of 16 pass after). `phase13-onboarding` now waits for the starter deck to reach IndexedDB before reloading. That flake never reproduced, so this fix is the likely cause, not a proven one.
 
+## Decisions needed (2026-11-23 nits batch)
+
+Defaults picked while clearing the leftover nits. Each stays shipped until the owner decides.
+
+- [ ] **Lazy chunks:** every `React.lazy` in `packages/ui` goes through `lazyWithRetry`: 2 retries (300 ms, then 1.2 s), and a retry as soon as the browser is back online. A chunk that still can't load shows "This part of the app isn't available offline yet. Reconnect and try again." with Retry, and Close on dialogs. Other errors inside a lazy part now show "This part of the app couldn't open. Try again." in place, instead of blanking the whole app. Card images and audio that can't load show nothing. Found through the `sync.spec.ts` flake: going offline before the first precache blanked the app.
+- [ ] **Sidebar badge** while a collection choice is pending: "Choose" (amber), tooltip "Choose a collection in Settings".
+- [ ] **Starter-deck CI check:** skips with a warning when every fetch of the pinned sources fails, rather than failing the job.
+- [ ] **`initialDrawOpen` with no CJK language:** the pad opens on Korean (Hanja).
+- [ ] **Furigana default:** based on the deck's language, not on whether Japanese is active anywhere in the collection.
+- [ ] **Typed-answer strictness with ruby:** `both` and `readings` layouts also accept the other form (see "#17" below).
+- [ ] **macOS temp sweep:** temp files must be at least an hour old before they're deleted.
+- [ ] **Dictionary shards:** loaded lazily, with an opt-in "Download all for offline" (see "Phase 10 remainder").
+
 ## Leftover nits and known limitations
 
 ### #17 Ruby for Anki `kana:` / `kanji:`
