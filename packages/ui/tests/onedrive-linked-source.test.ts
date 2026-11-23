@@ -18,6 +18,7 @@ import {
   readOneDriveTable,
   refreshSingleOneDriveSource,
   saveSourcesRegistry,
+  unlinkSource,
 } from '../src/sources/sourceRunner.ts';
 
 const enc = new TextEncoder();
@@ -306,13 +307,38 @@ describe('linked OneDrive sources: review fixes', () => {
   });
 
   it('keeps an unlinked file unlinked, and relinking brings it back', async () => {
+    const { ctx, state, emitted, fileId } = setup();
+    const { source } = await linkOneDriveFile({ id: fileId(), name: 'vocab.csv' }, ctx, {
+      noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+      language: 'ko',
+      columnMap: COLUMN_MAP,
+    });
+    const deckId = source.deckId ?? '';
+    emitted.length = 0;
+    const after = await unlinkSource('onedrive', source.id, ctx);
+    expect(after.oneDriveSources).toEqual([]);
+    expect(emitted.map((e) => [e.type, e.payload])).toEqual([
+      ['SourceUnlinked', { target_kind: 'deck', target_id: deckId }],
+    ]);
+    // The deck keeps its cards but no longer says where they came from.
+    expect(state.decks.get(deckId)?.source).toBeUndefined();
+    expect([...state.notes.values()].filter((n) => !n.archived)).toHaveLength(2);
+    expect((await loadSourcesRegistry(ctx.platform, state)).oneDriveSources).toEqual([]);
+    expect((await refreshAllSources(ctx)).registry.oneDriveSources).toEqual([]);
+
+    await linkOneDriveFile({ id: fileId(), name: 'vocab.csv' }, ctx, { columnMap: COLUMN_MAP });
+    expect(state.decks.get(deckId)?.source?.kind).toBe('onedrive_file');
+    expect((await loadSourcesRegistry(ctx.platform, state)).oneDriveSources).toHaveLength(1);
+  });
+
+  it('still honours a device-only unlink saved by a PR #19 build', async () => {
     const { ctx, state, fileId } = setup();
     await linkOneDriveFile({ id: fileId(), name: 'vocab.csv' }, ctx, {
       noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
       language: 'ko',
       columnMap: COLUMN_MAP,
     });
-    // What the Sources panel's Unlink does.
+    // What the PR #19 Sources panel's Unlink saved.
     const registry = await loadSourcesRegistry(ctx.platform, state);
     registry.oneDriveSources = [];
     registry.unlinkedOneDriveIds = [fileId()];
@@ -396,9 +422,67 @@ describe('linked OneDrive sources: review fixes', () => {
     await expect(linkOneDriveFile({ id: fileId(), name: 'vocab.csv' }, ctx)).rejects.toThrow(
       /archived.*Restore it/,
     );
-    // A background refresh leaves it alone without an error.
+    // A refresh leaves it alone without throwing, and the row says why.
     const res = await refreshSingleOneDriveSource(source, ctx, { force: true });
     expect(res.updated).toBe(false);
+    expect(source.lastError).toMatch(/archived/);
+    expect(source.skipReason).toBe('archived');
+  });
+
+  it('keeps saying an archived deck is archived, even when the file is unchanged', async () => {
+    const { ctx, state, emitted, downloads, fileId } = setup();
+    const { source } = await linkOneDriveFile({ id: fileId(), name: 'vocab.csv' }, ctx, {
+      noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+      language: 'ko',
+      columnMap: COLUMN_MAP,
+    });
+    const deck = state.decks.get(source.deckId ?? '');
+    if (!deck) throw new Error('missing deck');
+    deck.archived = true;
+    emitted.length = 0;
+    // Not forced, same content tag: used to report "synced" and clear the message.
+    await refreshSingleOneDriveSource(source, ctx);
+    expect(source).toMatchObject({ lastStatus: 'idle', skipReason: 'archived' });
+    expect(source.lastError).toMatch(/archived.*Restore it/);
+    expect(downloads()).toBe(1);
+    expect(emitted).toEqual([]);
+
+    // Refresh all names it instead of saying everything is up to date.
+    const summary = await refreshAllSources(ctx);
+    expect(summary.errors).toEqual([]);
+    expect(summary.skipped).toEqual([expect.stringMatching(/^vocab: .*archived/)]);
+
+    // Restoring the deck clears the note on the next refresh.
+    deck.archived = false;
+    await refreshSingleOneDriveSource(source, ctx);
+    expect(source.lastStatus).toBe('synced');
+    expect(source.skipReason).toBeUndefined();
+    expect(source.lastError).toBeUndefined();
+  });
+
+  it('says an archived deck is archived when a held rename is applied', async () => {
+    const { graph, ctx, state, emitted, fileId } = setup();
+    const { source } = await linkOneDriveFile({ id: fileId(), name: 'vocab.csv' }, ctx, {
+      noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+      language: 'ko',
+      columnMap: COLUMN_MAP,
+    });
+    graph.drive.put(
+      'Decks/vocab.csv',
+      enc.encode('word,definition,topic\n나모,tree,nature\n강,river,nature\n'),
+      1_700_000_300_000,
+    );
+    const held = await refreshSingleOneDriveSource(source, ctx);
+    const pending = held.pending;
+    if (!pending) throw new Error('no pending rename');
+    const deck = state.decks.get(source.deckId ?? '');
+    if (!deck) throw new Error('missing deck');
+    deck.archived = true;
+    emitted.length = 0;
+    const renameMap = { [pending.missingNotes[0]?.noteId ?? '']: '나모' };
+    const res = await refreshSingleOneDriveSource(source, ctx, { force: true, renameMap });
+    expect(res.updated).toBe(false);
+    expect(emitted).toEqual([]);
     expect(source.lastError).toMatch(/archived/);
   });
 
@@ -549,10 +633,10 @@ describe('linked OneDrive sources: round-2 fixes', () => {
     expect(res).toMatchObject({ updated: false, unreadable: true });
     expect(downloads()).toBe(0);
     expect(emitted).toEqual([]);
-    expect(source).toMatchObject({ lastStatus: 'idle' });
+    expect(source).toMatchObject({ lastStatus: 'idle', skipReason: 'unreadable' });
     expect((source as { lastError?: string }).lastError).toMatch(/save .* as CSV/i);
 
-    // Refresh all: no error line for it on every launch.
+    // Refresh all: not an error on every launch, but named as not refreshed.
     const summary = await refreshAllSources(phone as never);
     expect(summary.errors).toEqual([]);
 
@@ -631,5 +715,103 @@ describe('linked OneDrive sources: round-3 fixes', () => {
       columnMapUnsaved: true,
     });
     expect(source.deckId).toBeTruthy();
+  });
+});
+
+describe('linked OneDrive sources: follow-ups', () => {
+  /** A second device: its own state, events and registry, the same OneDrive. */
+  function secondDevice(first: ReturnType<typeof setup>) {
+    const state = createEmptyState();
+    const factory = createEventFactory('dev-b', 0, createHlcState('dev-b', 2000));
+    const emitted: KnownEvent[] = [];
+    const ctx = {
+      platform: { ...first.ctx.platform, storage: memoryStorage() } as PlatformServices,
+      getState: () => state,
+      getEventFactory: () => factory,
+      emitEvents: (events: readonly KnownEvent[]) => {
+        emitted.push(...events);
+        applyEvents(state, events);
+      },
+    };
+    return { ctx, state, emitted };
+  }
+
+  it('an unlink on one device unlinks the file on every device', async () => {
+    const a = setup();
+    const { source } = await linkOneDriveFile({ id: a.fileId(), name: 'vocab.csv' }, a.ctx, {
+      noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+      language: 'ko',
+      columnMap: COLUMN_MAP,
+    });
+    const deckId = source.deckId ?? '';
+    const b = secondDevice(a);
+    let synced = 0;
+    const syncAtoB = () => {
+      applyEvents(b.state, a.emitted.slice(synced));
+      synced = a.emitted.length;
+    };
+    syncAtoB();
+
+    // Device B lists the synced file, refreshes it and saves its own row.
+    const first = await refreshAllSources(b.ctx);
+    expect(first.registry.oneDriveSources).toMatchObject([{ itemId: a.fileId(), deckId }]);
+
+    await unlinkSource('onedrive', source.id, a.ctx);
+    syncAtoB();
+    b.emitted.length = 0;
+
+    // The file changed meanwhile: B's saved row must not pull it and link the deck again.
+    a.graph.drive.put(
+      'Decks/vocab.csv',
+      enc.encode('word,definition,topic\n나무,tree,nature\n강,river,nature\n달,moon,sky\n'),
+      1_700_000_400_000,
+    );
+    const second = await refreshAllSources(b.ctx);
+    expect(second.registry.oneDriveSources).toEqual([]);
+    expect(b.emitted).toEqual([]);
+    expect(b.state.decks.get(deckId)?.source).toBeUndefined();
+    expect((await loadSourcesRegistry(b.ctx.platform, b.state)).oneDriveSources).toEqual([]);
+    // Both devices agree.
+    expect(b.state.decks.get(deckId)).toEqual(a.state.decks.get(deckId));
+  });
+
+  it('a relink after an unlink lists the file on every device again', async () => {
+    const a = setup();
+    const { source } = await linkOneDriveFile({ id: a.fileId(), name: 'vocab.csv' }, a.ctx, {
+      noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+      language: 'ko',
+      columnMap: COLUMN_MAP,
+    });
+    await unlinkSource('onedrive', source.id, a.ctx);
+    await linkOneDriveFile({ id: a.fileId(), name: 'vocab.csv' }, a.ctx, { columnMap: COLUMN_MAP });
+    const b = secondDevice(a);
+    applyEvents(b.state, a.emitted);
+    const registry = await loadSourcesRegistry(b.ctx.platform, b.state);
+    expect(registry.oneDriveSources).toMatchObject([{ itemId: a.fileId() }]);
+  });
+
+  it('refresh all names a linked .xlsx this device cannot read', async () => {
+    const { graph, ctx } = setup();
+    graph.drive.put('Decks/sheet.xlsx', new Uint8Array([80, 75, 3, 4]), 5);
+    const id = graph.drive.files.get('Decks/sheet.xlsx')?.id ?? '';
+    const phone = {
+      ...ctx,
+      platform: {
+        ...ctx.platform,
+        getLocalFolderSources: async () => {
+          throw new Error('Local folder sources are desktop/PC-only.');
+        },
+      } as PlatformServices,
+    };
+    const registry = await loadSourcesRegistry(phone.platform);
+    registry.oneDriveSources = [
+      { id: `onedrive:${id}`, itemId: id, name: 'sheet', deckId: 'deck-pc', lastStatus: 'idle' },
+    ];
+    await saveSourcesRegistry(phone.platform, registry);
+
+    const summary = await refreshAllSources(phone);
+    expect(summary.errors).toEqual([]);
+    expect(summary.skipped).toEqual([expect.stringMatching(/^sheet: .*save "sheet.xlsx" as CSV/i)]);
+    expect(summary.registry.oneDriveSources?.[0]).toMatchObject({ skipReason: 'unreadable' });
   });
 });
