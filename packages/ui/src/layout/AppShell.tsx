@@ -5,9 +5,9 @@ import { SECURE_KEYS_LOST_MESSAGE } from '../state/secureKeysNotice.ts';
 import { applyCardTextSize, readCardTextSize } from '../study/cardTextSize.ts';
 import { getSidebarBadge, sidebarBadgeOpensSettings, sidebarBadgeTitle } from './sidebarBadge.ts';
 
-// Phase 13 study reminders (native notifications / PWA badge): lazy, renders nothing.
-const LazyReminderRuntime = lazyWithRetry(
-  () => import('../reminders/ReminderRuntime.tsx').then((m) => ({ default: m.ReminderRuntime })),
+// Study reminders (native notifications / PWA badge) and automatic backups: lazy, renders nothing.
+const LazyBackgroundRuntime = lazyWithRetry(
+  () => import('./BackgroundRuntime.tsx').then((m) => ({ default: m.BackgroundRuntime })),
   { quiet: true },
 );
 
@@ -313,7 +313,7 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
       </div>
 
       <Suspense fallback={null}>
-        <LazyReminderRuntime onBadgeChange={setStudyBadgeCount} />
+        <LazyBackgroundRuntime onBadgeChange={setStudyBadgeCount} />
       </Suspense>
 
       {/* Mobile bottom tab bar with safe-area inset (icon-only below 360 px; replaced by the rail in short windows) */}

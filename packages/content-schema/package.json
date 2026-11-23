@@ -8,6 +8,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./backup-state": {
+      "types": "./src/backup-state.ts",
+      "default": "./src/backup-state.ts"
     }
   },
   "scripts": {

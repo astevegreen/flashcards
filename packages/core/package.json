@@ -61,6 +61,10 @@
       "types": "./src/events/snapshot.ts",
       "default": "./src/events/snapshot.ts"
     },
+    "./backup": {
+      "types": "./src/backup/index.ts",
+      "default": "./src/backup/index.ts"
+    },
     "./license": {
       "types": "./src/license/index.ts",
       "default": "./src/license/index.ts"

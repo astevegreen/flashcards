@@ -7,6 +7,7 @@ import type {
   SourceColumnMapping,
   SyncCursorState,
 } from '@flash/core';
+import type { StoredBackupInfo } from '@flash/core/backup';
 import type {
   DictionaryBrowsePage,
   DictionaryBrowseQuery,
@@ -35,6 +36,7 @@ export type * from './anki.ts';
 export type * from './fsrs-optimizer.ts';
 
 export type {
+  StoredBackupInfo,
   DictionaryBrowsePage,
   DictionaryBrowseQuery,
   DictionaryBrowseSummary,
@@ -124,7 +126,26 @@ export interface Storage {
   getMedia(hash: string): Promise<MediaBlob | undefined>;
   listMediaHashes?(): Promise<string[]>;
   requestPersistence(): Promise<boolean>;
+  /**
+   * Rolling backups (`@flash/core/backup`). Optional: a storage without it takes no automatic
+   * backups. `clearAll` keeps them, so a reset can be undone by restoring one.
+   */
+  openBackupStore?(): Promise<BackupStore>;
   clearAll(): Promise<void>;
+}
+
+/** Rolling backups kept apart from the key-value store, so listing never loads an archive. */
+export interface BackupStore {
+  /**
+   * True when `navigator.storage.estimate()` counts this store and the event log (IndexedDB).
+   * Native SQLite stores leave it unset: the WebView's estimate doesn't include the database file.
+   */
+  readonly measuredByStorageEstimate?: boolean;
+  /** Newest first. */
+  list(): Promise<StoredBackupInfo[]>;
+  put(info: StoredBackupInfo, bytes: Uint8Array): Promise<void>;
+  getBytes(backupId: string): Promise<Uint8Array | undefined>;
+  delete(backupId: string): Promise<void>;
 }
 
 export interface PickedFile {

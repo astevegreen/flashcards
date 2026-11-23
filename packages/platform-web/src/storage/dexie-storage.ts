@@ -3,6 +3,7 @@ import type {
   DeviceMeta,
   LocalSnapshotRecord,
   MaterializedCardRow,
+  BackupStore,
   MediaBlob,
   Storage,
   SyncConfig,
@@ -50,7 +51,7 @@ const SYNC_CURSOR_KEY = 'sync_cursor';
 const SYNC_CONFIG_KEY = 'sync_config';
 const LATEST_SNAPSHOT_KEY = 'latest';
 
-class FlashcardsDexieDb extends Dexie {
+export class FlashcardsDexieDb extends Dexie {
   events!: Table<StoredEventRow, string>;
   cards_cache!: Table<MaterializedCardRow, string>;
   meta!: Table<StoredMetaRow, string>;
@@ -97,6 +98,8 @@ class FlashcardsDexieDb extends Dexie {
         }
         await kvTable.put({ key: LOCAL_SEQ_COUNTER_KEY, value: counter });
       });
+    // Rolling backups (lazy: ./dexie-backup-store.ts).
+    this.version(3).stores({ backups: 'backup_id, created_at', backup_blobs: 'id' });
   }
 }
 
@@ -356,6 +359,10 @@ export class DexieStorage implements Storage {
     return this.db.media.toCollection().primaryKeys();
   }
 
+  openBackupStore(): Promise<BackupStore> {
+    return import('./dexie-backup-store.ts').then((m) => m.createDexieBackupStore(this.db));
+  }
+
   async requestPersistence(): Promise<boolean> {
     try {
       if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
@@ -367,7 +374,9 @@ export class DexieStorage implements Storage {
     return false;
   }
 
+  /** Clears the collection. Backups stay, and so does the media a kept backup lists. */
   async clearAll(): Promise<void> {
+    const backups = this.db.table<{ media_hashes?: unknown }, string>('backups');
     await this.db.transaction(
       'rw',
       [
@@ -377,12 +386,19 @@ export class DexieStorage implements Storage {
         this.db.media,
         this.db.snapshots,
         this.db.kv,
+        backups,
       ],
       async () => {
+        const keep = new Set<string>();
+        for (const info of await backups.toArray()) {
+          if (!Array.isArray(info.media_hashes)) continue;
+          for (const h of info.media_hashes) if (typeof h === 'string') keep.add(h.toLowerCase());
+        }
         await this.db.events.clear();
         await this.db.cards_cache.clear();
         await this.db.meta.clear();
-        await this.db.media.clear();
+        if (keep.size === 0) await this.db.media.clear();
+        else await this.db.media.filter((m) => !keep.has(m.hash.toLowerCase())).delete();
         await this.db.snapshots.clear();
         await this.db.kv.clear();
       },

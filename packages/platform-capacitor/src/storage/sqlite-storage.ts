@@ -3,7 +3,9 @@ import type {
   DeviceMeta,
   LocalSnapshotRecord,
   MaterializedCardRow,
+  BackupStore,
   MediaBlob,
+  StoredBackupInfo,
   Storage,
   SyncConfig,
 } from '@flash/platform';
@@ -46,6 +48,20 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS kv (
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS backups (
+    backup_id TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    info_json TEXT NOT NULL,
+    bytes_b64 TEXT NOT NULL
+  )`,
+  // Archives in chunks, so no single SQL parameter or row carries a whole (up to 100 MB) backup
+  // across the native bridge. `backups.bytes_b64` stays empty for chunked rows.
+  `CREATE TABLE IF NOT EXISTS backup_chunks (
+    backup_id TEXT NOT NULL,
+    idx INTEGER NOT NULL,
+    b64 TEXT NOT NULL,
+    PRIMARY KEY (backup_id, idx)
   )`,
 ] as const;
 
@@ -128,6 +144,31 @@ function rowToEvent(row: StoredEventDbRow): FlashEvent {
  * Pure TypeScript in-memory SQLite-table emulator used for Node/Vitest tests and web fallback
  * when no native `@capacitor-community/sqlite` driver is injected.
  */
+/** Raw archive bytes per `backup_chunks` row (base64 makes each row about 1.4 MB). */
+const BACKUP_CHUNK_BYTES = 1024 * 1024;
+
+/** Media hashes the kept backups list (`StoredBackupInfo.media_hashes`), from their JSON rows. */
+function mediaKeptByBackups(infoJson: readonly string[]): Set<string> {
+  const keep = new Set<string>();
+  for (const raw of infoJson) {
+    try {
+      const info = JSON.parse(raw) as { media_hashes?: unknown };
+      if (!Array.isArray(info.media_hashes)) continue;
+      for (const h of info.media_hashes) if (typeof h === 'string') keep.add(h.toLowerCase());
+    } catch {
+      // A damaged row keeps nothing.
+    }
+  }
+  return keep;
+}
+
+/** A bound SQL parameter as text (strings as they are, anything else `String`-ed). */
+function paramText(value: unknown, fallback: string): string {
+  if (typeof value === 'string') return value;
+  if (value === undefined || value === null) return fallback;
+  return String(value as number | boolean | bigint);
+}
+
 export class InMemorySqliteDriver implements SqliteDriver {
   private events: StoredEventDbRow[] = [];
   private nextLocalSeq = 1;
@@ -144,6 +185,11 @@ export class InMemorySqliteDriver implements SqliteDriver {
   >();
   private media = new Map<string, { hash: string; mime: string; bytes_b64: string }>();
   private kv = new Map<string, string>();
+  private backups = new Map<
+    string,
+    { backup_id: string; created_at: number; info_json: string; bytes_b64: string }
+  >();
+  private backupChunks = new Map<string, string>();
 
   async execute(sql: string, params: readonly unknown[] = []): Promise<void> {
     const norm = sql.trim().replace(/\s+/g, ' ');
@@ -199,6 +245,40 @@ export class InMemorySqliteDriver implements SqliteDriver {
       this.kv.set(String(params[0] ?? ''), String(params[1] ?? 'null'));
       return;
     }
+    if (norm.startsWith('INSERT OR REPLACE INTO backups')) {
+      const backupId = paramText(params[0], '');
+      this.backups.set(backupId, {
+        backup_id: backupId,
+        created_at: Number(params[1] ?? 0),
+        info_json: paramText(params[2], 'null'),
+        bytes_b64: paramText(params[3], ''),
+      });
+      return;
+    }
+    if (norm.startsWith('INSERT INTO backup_chunks')) {
+      this.backupChunks.set(
+        `${paramText(params[0], '')}#${paramText(params[1], '0')}`,
+        paramText(params[2], ''),
+      );
+      return;
+    }
+    if (norm.startsWith('DELETE FROM backup_chunks WHERE backup_id NOT IN')) {
+      for (const key of [...this.backupChunks.keys()]) {
+        if (!this.backups.has(key.slice(0, key.lastIndexOf('#')))) this.backupChunks.delete(key);
+      }
+      return;
+    }
+    if (norm.startsWith('DELETE FROM backup_chunks WHERE backup_id =')) {
+      const prefix = `${paramText(params[0], '')}#`;
+      for (const key of [...this.backupChunks.keys()]) {
+        if (key.startsWith(prefix)) this.backupChunks.delete(key);
+      }
+      return;
+    }
+    if (norm.startsWith('DELETE FROM backups WHERE backup_id =')) {
+      this.backups.delete(paramText(params[0], ''));
+      return;
+    }
     if (norm.startsWith('DELETE FROM kv WHERE key =')) {
       this.kv.delete(String(params[0] ?? ''));
       return;
@@ -206,6 +286,10 @@ export class InMemorySqliteDriver implements SqliteDriver {
     if (norm.startsWith('DELETE FROM events')) {
       this.events = [];
       this.nextLocalSeq = 1;
+      return;
+    }
+    if (norm.startsWith('DELETE FROM media WHERE hash =')) {
+      this.media.delete(paramText(params[0], ''));
       return;
     }
     if (norm.startsWith('DELETE FROM media')) {
@@ -262,6 +346,19 @@ export class InMemorySqliteDriver implements SqliteDriver {
     }
     if (norm.startsWith('SELECT hash FROM media')) {
       return [...this.media.keys()].map((hash) => ({ hash }) as T);
+    }
+    if (norm.startsWith('SELECT info_json FROM backups')) {
+      return [...this.backups.values()]
+        .sort((a, b) => b.created_at - a.created_at)
+        .map((r) => ({ info_json: r.info_json }) as T);
+    }
+    if (norm.startsWith('SELECT b64 FROM backup_chunks WHERE backup_id = ? AND idx = ?')) {
+      const raw = this.backupChunks.get(`${paramText(params[0], '')}#${paramText(params[1], '0')}`);
+      return raw !== undefined ? ([{ b64: raw }] as T[]) : [];
+    }
+    if (norm.startsWith('SELECT bytes_b64 FROM backups WHERE backup_id = ?')) {
+      const row = this.backups.get(paramText(params[0], ''));
+      return row ? ([{ bytes_b64: row.bytes_b64 }] as T[]) : [];
     }
     if (norm.startsWith('SELECT value_json FROM kv WHERE key = ?')) {
       const raw = this.kv.get(String(params[0] ?? ''));
@@ -500,6 +597,81 @@ export class CapacitorSqliteStorage implements Storage {
     return rows.map((r) => r.hash);
   }
 
+  /** Rolling backups in the `backups` table (manifest JSON beside the archive). */
+  private orphanSweep: Promise<void> | null = null;
+
+  async openBackupStore(): Promise<BackupStore> {
+    await this.ensureReady();
+    const driver = this.driver;
+    // Chunks a failed or interrupted write left behind (no `backups` row): once per launch.
+    this.orphanSweep ??= driver
+      .execute(`DELETE FROM backup_chunks WHERE backup_id NOT IN (SELECT backup_id FROM backups)`)
+      .catch(() => undefined);
+    await this.orphanSweep;
+    return {
+      // The row is written last, so a backup is listed only once all its chunks are in. A failed
+      // write (a full disk) removes what it wrote; an interrupted one is swept at the next launch.
+      list: async () => {
+        const rows = await driver.query<{ info_json: string }>(
+          `SELECT info_json FROM backups ORDER BY created_at DESC`,
+        );
+        return rows.map((r) => JSON.parse(r.info_json) as StoredBackupInfo);
+      },
+      put: async (info, bytes) => {
+        const id = info.backup_id;
+        try {
+          await driver.execute(`DELETE FROM backups WHERE backup_id = ?`, [id]);
+          await driver.execute(`DELETE FROM backup_chunks WHERE backup_id = ?`, [id]);
+          for (let idx = 0; idx * BACKUP_CHUNK_BYTES < bytes.byteLength; idx++) {
+            const chunk = bytes.subarray(idx * BACKUP_CHUNK_BYTES, (idx + 1) * BACKUP_CHUNK_BYTES);
+            await driver.execute(
+              `INSERT INTO backup_chunks (backup_id, idx, b64) VALUES (?, ?, ?)`,
+              [id, idx, bytesToBase64(chunk)],
+            );
+          }
+          await driver.execute(
+            `INSERT OR REPLACE INTO backups (backup_id, created_at, info_json, bytes_b64) VALUES (?, ?, ?, ?)`,
+            [id, info.created_at, JSON.stringify(info), ''],
+          );
+        } catch (err) {
+          await driver
+            .execute(`DELETE FROM backup_chunks WHERE backup_id = ?`, [id])
+            .catch(() => undefined);
+          throw err;
+        }
+      },
+      getBytes: async (backupId) => {
+        const rows = await driver.query<{ bytes_b64: string }>(
+          `SELECT bytes_b64 FROM backups WHERE backup_id = ?`,
+          [backupId],
+        );
+        const row = rows[0];
+        if (!row) return undefined;
+        if (row.bytes_b64) return base64ToBytes(row.bytes_b64);
+        const parts: Uint8Array[] = [];
+        for (let idx = 0; ; idx++) {
+          const chunk = await driver.query<{ b64: string }>(
+            `SELECT b64 FROM backup_chunks WHERE backup_id = ? AND idx = ?`,
+            [backupId, idx],
+          );
+          if (!chunk[0]) break;
+          parts.push(base64ToBytes(chunk[0].b64));
+        }
+        const out = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
+        let offset = 0;
+        for (const part of parts) {
+          out.set(part, offset);
+          offset += part.byteLength;
+        }
+        return out;
+      },
+      delete: async (backupId) => {
+        await driver.execute(`DELETE FROM backup_chunks WHERE backup_id = ?`, [backupId]);
+        await driver.execute(`DELETE FROM backups WHERE backup_id = ?`, [backupId]);
+      },
+    };
+  }
+
   async requestPersistence(): Promise<boolean> {
     // Native SQLite on-device storage is inherently persistent (exempt from browser eviction).
     return true;
@@ -515,11 +687,25 @@ export class CapacitorSqliteStorage implements Storage {
     await this.driver.execute('VACUUM');
   }
 
+  /** Clears the collection. Backups stay, and so does the media a kept backup lists. */
   async clearAll(): Promise<void> {
     await this.ensureReady();
     await this.driver.execute(`DELETE FROM events`);
     await this.driver.execute(`DELETE FROM cards_cache`);
-    await this.driver.execute(`DELETE FROM media`);
+    const backupRows = await this.driver.query<{ info_json: string }>(
+      `SELECT info_json FROM backups`,
+    );
+    const keep = mediaKeptByBackups(backupRows.map((r) => r.info_json));
+    if (keep.size === 0) {
+      await this.driver.execute(`DELETE FROM media`);
+    } else {
+      const rows = await this.driver.query<{ hash: string }>(`SELECT hash FROM media`);
+      for (const { hash } of rows) {
+        if (!keep.has(hash.toLowerCase())) {
+          await this.driver.execute(`DELETE FROM media WHERE hash = ?`, [hash]);
+        }
+      }
+    }
     await this.driver.execute(`DELETE FROM kv`);
   }
 }
