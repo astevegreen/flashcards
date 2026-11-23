@@ -6,6 +6,7 @@ import {
   type LanguageFeature,
 } from '@flash/core';
 import { useEffect, useMemo, useState } from 'react';
+import type { loadOnboardingRecord } from '../onboarding/onboardingState.ts';
 import { useApp } from './AppContext.tsx';
 
 export interface ActiveLanguages {
@@ -22,6 +23,21 @@ export interface ActiveLanguages {
   hasLanguage: (language: string) => boolean;
 }
 
+type LoadOnboardingRecord = typeof loadOnboardingRecord;
+
+let onboardingLoader: Promise<LoadOnboardingRecord> | undefined;
+
+/** One shared dynamic import for every hook instance (the record itself is still read per mount). */
+function loadOnboardingLoader(): Promise<LoadOnboardingRecord> {
+  onboardingLoader ??= import('../onboarding/onboardingState.ts')
+    .then((m) => m.loadOnboardingRecord)
+    .catch((error: unknown) => {
+      onboardingLoader = undefined; // let a later mount retry after a failed chunk load
+      throw error;
+    });
+  return onboardingLoader;
+}
+
 /**
  * The collection's unarchived decks, the Settings > Languages tick boxes (synced preferences) and
  * this device's onboarding choice (UX #2). The onboarding record is read lazily so it never joins
@@ -34,8 +50,8 @@ export function useActiveLanguages(): ActiveLanguages {
 
   useEffect(() => {
     let cancelled = false;
-    void import('../onboarding/onboardingState.ts')
-      .then((m) => m.loadOnboardingRecord(platform.storage))
+    void loadOnboardingLoader()
+      .then((load) => load(platform.storage))
       .then((record) => {
         if (!cancelled) setOnboardingLanguage(record?.language);
       })
