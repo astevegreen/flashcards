@@ -138,7 +138,7 @@ Only Chromium Playwright with faked endpoints has covered these.
 ### Still open
 
 - [ ] **Check the KRDict topic attribute names on a real export.** The parser accepts `subjectCategory` / `semanticCategory` and the Korean labels (`주제 및 상황 범주`, `의미 범주`). If the first `build-packs.mjs --full` run gives no topics, find the real names in the XML and add them to `KRDICT_SUBJECT_CATEGORY_ATTS` / `KRDICT_SEMANTIC_CATEGORY_ATTS` in `scripts/packs/upstream-parsers.mjs`.
-- [ ] **Measure the full KRDict pack.** It has never been built here. Packs over 25 MiB fail the build; first-syllable sharding isn't written.
+- [ ] **Measure the full KRDict pack.** It has never been built here. `--full` now prints every file's size. **First-syllable sharding is written** (`docs/formats/packs.md`): a dictionary pack over 25 MiB gzipped (or with `--shard <id>`) becomes a version-2 index of search "stubs" plus `.sNN` shards cut at 초성 boundaries. All lookups work from the index; the shards behind the top results load lazily (at most 3 per lookup), and Settings > Packs has "Download all for offline". Still to check once built: that the index itself stays under 25 MiB (about 60% of the pack on the starter sample), and the shard count against the Pages 20k-file limit. Owner choices pending: lazy shards versus downloading them all at install, and the tunables (3-shard cap, top-12 completion, 2 MiB shards).
 - [ ] **KRDict audio licence:** not checked. Audio is skipped, and the dictionary has no speaker button, so the TTS fallback isn't wired either.
 - [x] **Related, synonym and antonym links (PR #18, 2026-11-23):** parsed from KRDict and shown as links. The `SenseRelation` attribute names (`lemma` / `writtenForm`) are unverified against a real export.
 - [x] **Korean definitions (`definitionNative`) (PR #18, 2026-11-23):** now shown.
@@ -201,7 +201,7 @@ Defaults the 2026-11-23 agents picked. Each stays shipped until the owner decide
 
 - [x] An exact `altForm` (or reading) hit now counts toward the guessed-lemma cap.
 - [x] Only hits in allowed packs count toward the cap.
-- [ ] KRDict full-pack measurement, the topic attribute check and first-syllable sharding are not done. The upstream data is a manual download.
+- [ ] KRDict full-pack measurement and the topic attribute check are not done; the upstream data is a manual download. First-syllable sharding is done (see "Phase 10 remainder").
 - [ ] The `SenseRelation` attribute (`lemma` / `writtenForm`) is unverified against a real export.
 
 ### #19 Linked OneDrive sources
