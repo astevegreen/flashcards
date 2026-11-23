@@ -156,9 +156,12 @@ function useKinds(uses: readonly AnkiFieldRef[], include: (field: string) => boo
 
 /**
  * How each furigana field is stored. Full ruby by default (the layout's `ruby_display` flag then
- * picks readings or bases). One flag per layout cannot serve a layout that shows one field
- * through `kana:` and another through `kanji:`, so there a field that is only ever shown one way
- * (anywhere) keeps what Anki displays (`kana` = reading, `kanji` = base), as before the flag.
+ * picks readings or bases). One flag per layout cannot serve a layout whose furigana fields are
+ * shown in two or more different ways (e.g. one through `kana:`, another through `kanji:`), so
+ * there a field that is only ever shown one way (anywhere) keeps what Anki displays (`kana` =
+ * reading, `kanji` = base), as before the flag. A `{{type:F}}` field shown only one way elsewhere
+ * is reduced too: its typed answer is graded against the stored text, which no layout flag may
+ * turn into the other half.
  */
 function furiganaFields(sides: readonly TemplateSides[]): Map<string, AnkiFuriganaOutput> {
   const global = new Map<string, Set<string>>();
@@ -180,10 +183,13 @@ function furiganaFields(sides: readonly TemplateSides[]): Map<string, AnkiFuriga
     if (useKinds(uses, hasFurigana).size < 2) continue;
     for (const use of uses) reduceIfSingleKind(out, use.field, global.get(use.field));
   }
+  for (const { q, a } of sides) {
+    for (const field of [...q.typed, ...a.typed]) reduceIfSingleKind(out, field, global.get(field));
+  }
   return out;
 }
 
-/** In a `kana:`/`kanji:`-mixing layout, a field shown only one way keeps that reduction. */
+/** A field shown only one way (`kana:` or `kanji:`) keeps that reduction. */
 function reduceIfSingleKind(
   out: Map<string, AnkiFuriganaOutput>,
   field: string,

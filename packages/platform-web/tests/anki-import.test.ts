@@ -542,9 +542,20 @@ describe('Anki .apkg import: Phase 14 follow-ups', () => {
     }
     const basesLayout = state.layouts.get(basesId);
     if (basesLayout) basesLayout.ruby_display = 'both';
+    // …and its notes were imported reduced (readings / bases only).
+    const reduced = (n: { fields: Record<string, string> }) => {
+      n.fields.expression = n.fields.expression?.replace(/\[[^\]]*\]/g, '') ?? '';
+      n.fields.reading = n.fields.reading?.replace(/\[[^\]]*\]/g, '') ?? '';
+    };
+    for (const n of state.notes.values()) reduced(n);
     const again = importInto(state, raw, { nowMs: NOW + 60_000 }, 'device-a');
     expect(eventsOfType(again.events, 'LayoutChanged').map((e) => e.payload.layout.id)).toEqual([
       readingsId,
+    ]);
+    // The re-import upgrades the notes to full ruby.
+    expect(activeNotes(state).map((n) => n.fields.expression)).toEqual([
+      '日本語[にほんご]を話[はな]す',
+      '食[た]べる',
     ]);
     expect(state.layouts.get(readingsId)?.ruby_display).toBe('readings');
     expect(state.layouts.get(basesId)?.ruby_display).toBe('both');

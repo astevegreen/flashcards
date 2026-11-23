@@ -113,6 +113,42 @@ describe('Anki import keeps full ruby and flags the layout', () => {
   });
 });
 
+describe('typed answers are not turned into the other half of the ruby', () => {
+  it('a typed field shown through kana: elsewhere stays reduced to the reading', () => {
+    const m = model('{{kana:Reading}}', '{{Meaning}}');
+    m.templates.push({
+      ord: 1,
+      name: 'Card 2',
+      qfmt: '{{kanji:Expression}}{{type:Reading}}',
+      afmt: '{{Meaning}}',
+    });
+    const p = planAnkiModel(m, [NOTE], {
+      templateOrdsWithCards: new Set([0, 1]),
+      collectionUsesKana: true,
+      isUsableMedia: () => false,
+    });
+    expect(p.notes[0]?.texts[1]?.text).toBe('わたしは');
+    expect(p.layouts[1]?.layout.ruby_display).toBe('bases');
+    expect(p.layouts[1]?.layout.answer_mode).toBe('typed');
+  });
+
+  it('same with a meaning-only prompt: the typed reading stays kana', () => {
+    const m = model('{{kana:Reading}}', '{{Meaning}}');
+    m.templates.push({
+      ord: 1,
+      name: 'Card 2',
+      qfmt: '{{Meaning}}{{type:Reading}}',
+      afmt: '{{Meaning}}',
+    });
+    const p = planAnkiModel(m, [NOTE], {
+      templateOrdsWithCards: new Set([0, 1]),
+      collectionUsesKana: true,
+      isUsableMedia: () => false,
+    });
+    expect(p.notes[0]?.texts[1]?.text).toBe('わたしは');
+  });
+});
+
 describe('stripRuby with a display flag', () => {
   it('keeps bases by default and readings for the readings flag', () => {
     expect(stripRuby('日本語[にほんご]を{食べる|たべる}')).toBe('日本語を食べる');
