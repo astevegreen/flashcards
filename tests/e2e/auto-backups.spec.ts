@@ -2,8 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Rolling backups: the app takes a dated snapshot on its own shortly after launch, the snapshot
- * survives "Reset Local Device Data", and restoring it (previewed, then confirmed) brings the
- * whole collection back.
+ * survives "Reset Local Device Data", a restore pulls from sync before it plans, and restoring
+ * (previewed, then confirmed) brings an archived deck back.
  */
 
 const dbNameFor = (page: Page) => `flashcards-db-${new URL(page.url()).searchParams.get('device')}`;
@@ -29,7 +29,7 @@ async function countBackups(page: Page): Promise<number> {
 }
 
 test.describe('Automatic backups', () => {
-  test('takes a daily snapshot on its own and restores it after a reset', async ({ page }) => {
+  test('takes a daily snapshot on its own, survives a reset, and restores it', async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto('/?device=autobackup');
     await expect(page.getByTestId('study-card')).toBeVisible();
@@ -46,9 +46,22 @@ test.describe('Automatic backups', () => {
     await expect(page.getByText('Local device storage cleared.')).toBeVisible();
     expect(await countBackups(page)).toBe(1);
 
+    // Dev mode syncs over the in-browser channel: the restore pulls first, which already brings
+    // the collection back, so the plan is empty.
     await row.getByRole('button', { name: 'Restore…' }).click();
     const confirm = panel.getByTestId('restore-confirm');
-    await expect(confirm).toContainText('Bring back 5 decks');
+    await expect(confirm).toContainText('Your collection already matches this backup');
+    await expect(confirm).toContainText('may survive it');
+    await confirm.getByRole('button', { name: 'Cancel' }).click();
+
+    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Options' }).first().click();
+    await page.locator('[data-testid^="archive-deck-btn-"]').first().click();
+    await expect(page.locator('[data-testid^="deck-row-"]')).toHaveCount(4);
+
+    await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
+    await row.getByRole('button', { name: 'Restore…' }).click();
+    await expect(confirm).toContainText('Change 1 deck back');
     // Dev mode syncs over the in-browser channel, so the button says where the restore goes.
     await confirm.getByRole('button', { name: 'Restore on all devices' }).click();
     await expect(panel.getByRole('status')).toContainText('Restored the backup');
