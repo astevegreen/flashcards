@@ -156,7 +156,7 @@ export async function writeAnkiCsvZip(
   let missing = 0;
   for (const file of plan.media) {
     // Backpressure: read the next file only once the sink has taken the previous one.
-    await zip.flush();
+    await zip.flush(); // NOSONAR (S9382)
     const bytes = await readMedia(file.hash);
     if (!bytes) {
       missing += 1;

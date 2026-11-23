@@ -224,7 +224,7 @@ describe('Export for Anki CSV', () => {
         );
       },
     );
-    expect(inFlightAtRead.length).toBe(plan.media.length);
+    expect(inFlightAtRead).toHaveLength(plan.media.length);
     expect(inFlightAtRead.every((n) => n === 0)).toBe(true);
     expect(inFlight).toBe(0);
     const joined = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));

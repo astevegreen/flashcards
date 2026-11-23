@@ -265,10 +265,11 @@ async function streamZippable(
     for (let at = 0; at < bytes.byteLength; at += PACK_STEP_BYTES) {
       const end = Math.min(at + PACK_STEP_BYTES, bytes.byteLength);
       file.push(bytes.subarray(at, end), end === bytes.byteLength);
-      await drain();
-      await pause();
+      // Sequential on purpose: backpressure, then a yield to rendering.
+      await drain(); // NOSONAR (S9382)
+      await pause(); // NOSONAR (S9382)
     }
-    await drain();
+    await drain(); // NOSONAR (S9382)
     if (failure) throw failure;
   }
   archive.end();
@@ -319,7 +320,9 @@ export async function packBackupAsync(
   const { manifest } = await packBackupStream(
     built,
     opts,
-    (chunk) => void parts.push(chunk),
+    (chunk) => {
+      parts.push(chunk);
+    },
     pause,
   );
   return { manifest, bytes: joinChunks(parts) };

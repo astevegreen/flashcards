@@ -177,8 +177,10 @@ export async function saveStoredBackupFile(
     if (blobs) {
       missingMedia = (await withBackupMediaStream(bytes, blobs, emit, yieldToHost)).missingMedia;
     } else {
+      // One slice at a time, so the sink is never handed more than it has taken.
       for (let at = 0; at < bytes.byteLength; at += SAVE_STEP_BYTES) {
-        await emit(bytes.subarray(at, Math.min(at + SAVE_STEP_BYTES, bytes.byteLength)));
+        const slice = bytes.subarray(at, Math.min(at + SAVE_STEP_BYTES, bytes.byteLength));
+        await emit(slice); // NOSONAR (S9382)
       }
     }
     return { fileName };
