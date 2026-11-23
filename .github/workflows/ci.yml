@@ -73,9 +73,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v6
+
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: pnpm
+
+      # build-starter-decks.mjs imports prettier (and the scripts' other workspace deps).
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Restore pinned starter sources
         id: sources-cache
