@@ -32,6 +32,7 @@ const STATE_FILTER_OPTIONS: ReadonlyArray<{ value: CardStateKind; label: string 
   { value: 'review', label: 'Review' },
   { value: 'suspended', label: 'Suspended' },
   { value: 'leech', label: 'Leech' },
+  { value: 'empty', label: 'Empty' },
 ];
 
 const isUnreviewedAiNote = (note: Note) =>
@@ -527,11 +528,13 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                   const noteCardIds = state.cardIdsByNote.get(note.id);
                   const cardCount = noteCardIds?.size ?? 0;
                   let suspendedCount = 0;
+                  let emptyCount = 0;
                   let isLeech = false;
                   for (const cardId of noteCardIds ?? []) {
                     if (isCardSuspended(state, cardId)) suspendedCount += 1;
                     const card = state.cards.get(cardId);
                     if (card && isLeechCard(card)) isLeech = true;
+                    if (card?.empty === true) emptyCount += 1;
                   }
                   const allSuspended = cardCount > 0 && suspendedCount === cardCount;
 
@@ -599,6 +602,15 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                               className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-[11px] font-semibold text-[var(--muted)]"
                             >
                               {allSuspended ? 'Suspended' : `${suspendedCount} suspended`}
+                            </span>
+                          )}
+                          {emptyCount > 0 && (
+                            <span
+                              data-testid="browse-empty-badge"
+                              title="A field this card needs is empty, so it is not studied. Its history is kept."
+                              className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-[11px] font-semibold text-[var(--muted)]"
+                            >
+                              {emptyCount === 1 ? 'Empty' : `${emptyCount} empty`}
                             </span>
                           )}
                           {isLeech && (

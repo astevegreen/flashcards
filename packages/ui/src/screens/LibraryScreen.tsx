@@ -18,6 +18,7 @@ import { Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { CoursesPanel } from '../components/CoursesPanel.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
+import { LayoutRequiredFieldList } from '../library/LayoutRequiredFieldList.tsx';
 import { RubyDisplaySelect } from '../library/RubyDisplaySelect.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
@@ -452,6 +453,13 @@ function DeckOptionsPanel({
             ))}
           </div>
         )}
+
+      <LayoutRequiredFieldList
+        deckId={deck.id}
+        layouts={noteTypeLayouts}
+        noteType={noteType}
+        onUpdateLayout={onUpdateLayout}
+      />
 
       {/* Add Answer Mode Layout (§5.2) */}
       <form

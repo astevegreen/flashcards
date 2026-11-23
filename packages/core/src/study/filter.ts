@@ -23,7 +23,8 @@ export const LEECH_LAPSE_THRESHOLD = 8;
  */
 export const LEECH_CATEGORY = 'leech';
 
-export type CardStateKind = 'new' | 'learning' | 'review' | 'due' | 'suspended' | 'leech';
+/** `empty`: the layout's required field is empty; the card keeps its history but is not studied. */
+export type CardStateKind = 'new' | 'learning' | 'review' | 'due' | 'suspended' | 'leech' | 'empty';
 
 export const CARD_STATE_KINDS: readonly CardStateKind[] = [
   'new',
@@ -32,6 +33,7 @@ export const CARD_STATE_KINDS: readonly CardStateKind[] = [
   'due',
   'suspended',
   'leech',
+  'empty',
 ];
 
 export type CategoryMatchMode = 'any' | 'all' | 'none';
@@ -371,10 +373,12 @@ export function getCardStateKinds(
 ): Set<CardStateKind> {
   const kinds = new Set<CardStateKind>();
   const s = card.schedule;
-  if (s.state === 0) kinds.add('new');
+  // An empty card is never studied, so it has no study state of its own (only `empty`).
+  if (card.empty === true) kinds.add('empty');
+  else if (s.state === 0) kinds.add('new');
   else if (s.state === 1 || s.state === 3) kinds.add('learning');
   else kinds.add('review');
-  if (s.state !== 0) {
+  if (card.empty !== true && s.state !== 0) {
     const dayStart = effectiveDayStart(state, card.deck_id, ctx);
     if (s.due < getNextStudyDayRolloverMs(ctx.nowMs, ctx.tzOffsetMinutes, dayStart)) {
       kinds.add('due');
@@ -595,8 +599,8 @@ export function filterCards(
     if (deckSet && !deckSet.has(card.deck_id)) continue;
     const note = activeNoteOf(state, card);
     if (!note) continue;
-    // Suspended cards are never studied, even when the filter explicitly asks for them.
-    if (ctx.excludeSuspended && isCardSuspended(state, card.id)) continue;
+    // Suspended and empty cards are never studied, even when the filter explicitly asks for them.
+    if (ctx.excludeSuspended && (card.empty === true || isCardSuspended(state, card.id))) continue;
     if (!cardMatches(state, card, note, filter, ctx)) continue;
     matched.push(card);
   }

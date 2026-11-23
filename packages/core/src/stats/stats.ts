@@ -347,7 +347,7 @@ function reviewStudyDay(r: ReviewRecord, calendar: StatsCalendar): number {
 
 /**
  * Due forecast: every non-new card lands on its due study day (overdue folds into today).
- * Suspended cards never come due (Phase 9), so they are left out of the forecast only; their
+ * Suspended and empty cards never come due (Phase 9), so they are left out of the forecast only; their
  * history still counts towards reviews, retention and maturity.
  */
 function addCardToForecast(
@@ -357,7 +357,7 @@ function addCardToForecast(
   calendar: StatsCalendar,
   acc: StatsAccumulator,
 ): void {
-  if (card.schedule.state === 0 || isCardSuspended(state, card.id)) return;
+  if (card.schedule.state === 0 || card.empty === true || isCardSuspended(state, card.id)) return;
   const dueDay = getStudyDayIndex(card.schedule.due, tzOffsetMinutes, calendar.dayStart);
   const rel = dueDay - calendar.today;
   if (rel < 0) acc.overdue += 1;

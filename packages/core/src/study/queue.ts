@@ -227,7 +227,7 @@ function eligibleDeckOf(
   const { state } = ctx;
   if (deckId !== undefined && card.deck_id !== deckId) return undefined;
   if (allowedCardIds !== undefined && !allowedCardIds.has(card.id)) return undefined;
-  if (isCardSuspended(state, card.id)) return undefined;
+  if (card.empty === true || isCardSuspended(state, card.id)) return undefined;
   const deck = state.decks.get(card.deck_id);
   if (!deck || deck.archived) return undefined;
   const note = state.notes.get(card.note_id);

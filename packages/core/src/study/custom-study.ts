@@ -546,7 +546,9 @@ function isAheadCandidate(
 ): boolean {
   if (deckId !== undefined && card.deck_id !== deckId) return false;
   if (allowed !== undefined && !allowed.has(card.id)) return false;
-  if (card.schedule.state === 0 || isCardSuspended(state, card.id)) return false;
+  if (card.schedule.state === 0 || card.empty === true || isCardSuspended(state, card.id)) {
+    return false;
+  }
   const deck = state.decks.get(card.deck_id);
   const note = state.notes.get(card.note_id);
   return Boolean(deck && !deck.archived && note && !note.archived);

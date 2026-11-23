@@ -44,6 +44,12 @@ export interface Layout {
   cloze_typed?: boolean;
   /** Explicit field key evaluated in `typed` / `choice` modes (defaults to `reveal_steps[0][0]`). */
   answer_field?: string;
+  /**
+   * Optional card rule: make this layout's card for a note only when this field is filled
+   * (`model/optional-cards.ts`). A card that already has review history is kept, flagged
+   * {@link Card.empty}, when the field is emptied later.
+   */
+  required_field?: string;
 }
 
 export type NewCardOrder = 'source' | 'random';
@@ -160,6 +166,12 @@ export interface Card {
   schedule: CardScheduleState;
   last_reviewed_at?: number;
   last_reviewed_tz_offset?: number;
+  /**
+   * Set when the layout's `required_field` is empty but the card has active review history: the
+   * card is kept with its schedule, left out of Study, and shown as "empty" in Browse. Filling
+   * the field again clears it. Never set on cards without history (those are not made at all).
+   */
+  empty?: true;
 }
 
 export interface ReviewRecord {

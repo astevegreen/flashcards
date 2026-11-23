@@ -2,6 +2,7 @@ export * from './ids.ts';
 export * from './hlc.ts';
 export * from './model/types.ts';
 export * from './model/presets.ts';
+export * from './model/optional-cards.ts';
 export * from './events/types.ts';
 export * from './events/replay.ts';
 export * from './events/snapshot.ts';

@@ -168,12 +168,21 @@ export function NoteDetailPane({ note, onEdit }: Readonly<NoteDetailPaneProps>) 
                   {card.variant > 0 ? ` · c${card.variant}` : ''}
                 </span>
                 <span className="flex flex-wrap items-center gap-2 text-[var(--muted)]">
-                  <span>{learningStateLabel(kinds)}</span>
-                  <span>{dueLabel(card, kinds, nowMs)}</span>
+                  {!kinds.has('empty') && <span>{learningStateLabel(kinds)}</span>}
+                  {!kinds.has('empty') && <span>{dueLabel(card, kinds, nowMs)}</span>}
                   <span>
                     {card.schedule.reps} reviews · {card.schedule.lapses} lapses
                   </span>
                   {kinds.has('suspended') && <span className="font-semibold">Suspended</span>}
+                  {kinds.has('empty') && (
+                    <span
+                      data-testid="browse-detail-card-empty"
+                      title={`${fields.find((f) => f.key === layout?.required_field)?.label ?? 'A required field'} is empty, so this card is not studied. Its history is kept; fill the field to study it again.`}
+                      className="font-semibold"
+                    >
+                      Empty
+                    </span>
+                  )}
                   {kinds.has('leech') && (
                     <span className="font-semibold text-rose-700 dark:text-rose-300">Leech</span>
                   )}

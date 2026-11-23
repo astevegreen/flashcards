@@ -6,6 +6,7 @@ import {
 import { compareHlc, tickHlc, type HlcState } from '../hlc.ts';
 import { deriveCardId, uuidv7 } from '../ids.ts';
 import { normalizeLanguage } from '../languages/normalize.ts';
+import { hasOptionalCardRules, layoutRuleMet } from '../model/optional-cards.ts';
 import { BUILTIN_LAYOUTS, BUILTIN_NOTE_TYPES } from '../model/presets.ts';
 import { extractClozeNumbers } from '../parsers/cloze.ts';
 import {
@@ -483,6 +484,155 @@ export function getVariantsForNoteLayout(note: Note, layout: Layout): number[] {
   return [...found].sort((a, b) => a - b);
 }
 
+/** True when the card has at least one review that is not undone. */
+function hasActiveReviews(state: CollectionState, cardId: string): boolean {
+  const list = state.reviewsByCard.get(cardId);
+  if (!list) return false;
+  return list.some((r) => !state.undoneReviewIds.has(r.review_id));
+}
+
+interface DerivedCardSets {
+  rebuiltIds: Set<string>;
+  replayedCards: Set<string>;
+  changedCards: Set<string>;
+  removedCards: Set<string>;
+}
+
+interface PlannedCard {
+  cardId: string;
+  layout: Layout;
+  variant: number;
+  empty: boolean;
+}
+
+/**
+ * The cards one note gets from the deck's enabled layouts. A layout whose usable
+ * `required_field` is empty (`model/optional-cards.ts`) makes no card, unless that card already
+ * has active reviews: then it is kept with its history and flagged `empty` (hidden from Study,
+ * listed in Browse). Depends only on replayed state, so every device derives the same cards.
+ */
+function planNoteCards(
+  state: CollectionState,
+  note: Note,
+  enabledLayouts: readonly Layout[],
+): PlannedCard[] {
+  const out: PlannedCard[] = [];
+  for (const layout of enabledLayouts) {
+    const ruleMet = layoutRuleMet(note, layout, state.noteTypes.get(layout.note_type_id));
+    for (const variant of getVariantsForNoteLayout(note, layout)) {
+      const cardId = deriveCardId(note.id, layout.id, variant);
+      if (!ruleMet && !hasActiveReviews(state, cardId)) continue;
+      out.push({ cardId, layout, variant, empty: !ruleMet });
+    }
+  }
+  return out;
+}
+
+function deriveNoteCards(
+  state: CollectionState,
+  note: Note,
+  deckId: string,
+  enabledLayouts: readonly Layout[],
+  sets: DerivedCardSets,
+): void {
+  for (const { cardId, layout, variant, empty } of planNoteCards(state, note, enabledLayouts)) {
+    setCardInState(state, {
+      id: cardId,
+      note_id: note.id,
+      deck_id: deckId,
+      layout_id: layout.id,
+      variant,
+      schedule: createInitialSchedule(0),
+      ...(empty ? { empty: true as const } : {}),
+    });
+    replaySingleCard(state, cardId);
+    sets.rebuiltIds.add(cardId);
+    sets.replayedCards.add(cardId);
+    sets.changedCards.add(cardId);
+    sets.removedCards.delete(cardId);
+  }
+}
+
+/** Enabled layouts of the deck that carry a `required_field` (usable or not). */
+function ruleLayoutsForDeck(state: CollectionState, deck: Deck): Layout[] {
+  return getEnabledLayoutsForDeck(state, deck).filter(
+    (l) => l.required_field !== undefined && l.required_field !== '',
+  );
+}
+
+/**
+ * Notes owning `cardIds` (cards with reviews but no derived card) through a layout whose
+ * `required_field` is empty. Such a review may arrive by sync after the field was emptied; the
+ * note is then rebuilt so the card comes back as `empty`, exactly as a full replay would make it.
+ * Costs nothing when no layout has a rule.
+ */
+function findNotesOfRuleSkippedCards(
+  state: CollectionState,
+  cardIds: ReadonlySet<string>,
+): Set<string> {
+  const noteIds = new Set<string>();
+  if (cardIds.size === 0 || !hasOptionalCardRules(state.layouts.values())) return noteIds;
+  for (const deck of state.decks.values()) {
+    if (deck.archived) continue;
+    const ruleLayouts = ruleLayoutsForDeck(state, deck);
+    if (ruleLayouts.length === 0) continue;
+    for (const noteId of state.noteIdsByDeck.get(deck.id) ?? []) {
+      const note = state.notes.get(noteId);
+      if (!note || note.archived || note.deck_id !== deck.id) continue;
+      for (const layout of ruleLayouts) {
+        if (layoutRuleMet(note, layout, state.noteTypes.get(layout.note_type_id))) continue;
+        for (const variant of getVariantsForNoteLayout(note, layout)) {
+          if (cardIds.has(deriveCardId(note.id, layout.id, variant))) noteIds.add(note.id);
+        }
+      }
+    }
+  }
+  return noteIds;
+}
+
+/**
+ * Re-derives, after snapshot hydration, the cards of every note in a deck with a rule layout
+ * whose stored cards differ from what replay would derive. A snapshot saved by a build that
+ * predates optional cards keeps a synced `required_field` on the layout but derived every card;
+ * this makes hydrating it equal to a full replay. Snapshots of this build already match, so the
+ * pass only compares card ids and `empty` flags. No-op when no layout has a rule.
+ */
+export function canonicalizeOptionalCards(state: CollectionState): void {
+  if (!hasOptionalCardRules(state.layouts.values())) return;
+  const sets: DerivedCardSets = {
+    rebuiltIds: new Set(),
+    replayedCards: new Set(),
+    changedCards: new Set(),
+    removedCards: new Set(),
+  };
+  for (const deck of state.decks.values()) {
+    if (deck.archived || ruleLayoutsForDeck(state, deck).length === 0) continue;
+    const enabledLayouts = getEnabledLayoutsForDeck(state, deck);
+    for (const noteId of state.noteIdsByDeck.get(deck.id) ?? []) {
+      const note = state.notes.get(noteId);
+      if (!note || note.archived || note.deck_id !== deck.id) continue;
+      const planned = planNoteCards(state, note, enabledLayouts);
+      const stored = state.cardIdsByNote.get(note.id);
+      const matches =
+        (stored?.size ?? 0) === planned.length &&
+        planned.every(
+          (p) =>
+            stored?.has(p.cardId) === true &&
+            (state.cards.get(p.cardId)?.empty === true) === p.empty,
+        );
+      if (!matches) {
+        rebuildCardsForNote(
+          state,
+          note.id,
+          sets.changedCards,
+          sets.removedCards,
+          sets.replayedCards,
+        );
+      }
+    }
+  }
+}
+
 function rebuildCardsForDeck(
   state: CollectionState,
   deckId: string,
@@ -506,25 +656,12 @@ function rebuildCardsForDeck(
       for (const noteId of deckNoteIds) {
         const note = state.notes.get(noteId);
         if (!note || note.deck_id !== deckId || note.archived) continue;
-        for (const layout of enabledLayouts) {
-          const variants = getVariantsForNoteLayout(note, layout);
-          for (const variant of variants) {
-            const cardId = deriveCardId(note.id, layout.id, variant);
-            setCardInState(state, {
-              id: cardId,
-              note_id: note.id,
-              deck_id: deckId,
-              layout_id: layout.id,
-              variant,
-              schedule: createInitialSchedule(0),
-            });
-            replaySingleCard(state, cardId);
-            rebuiltIds.add(cardId);
-            replayedCards.add(cardId);
-            changedCards.add(cardId);
-            removedCards.delete(cardId);
-          }
-        }
+        deriveNoteCards(state, note, deckId, enabledLayouts, {
+          rebuiltIds,
+          replayedCards,
+          changedCards,
+          removedCards,
+        });
       }
     }
   }
@@ -557,25 +694,12 @@ function rebuildCardsForNote(
     const deck = state.decks.get(note.deck_id);
     if (deck && !deck.archived) {
       const enabledLayouts = getEnabledLayoutsForDeck(state, deck);
-      for (const layout of enabledLayouts) {
-        const variants = getVariantsForNoteLayout(note, layout);
-        for (const variant of variants) {
-          const cardId = deriveCardId(note.id, layout.id, variant);
-          setCardInState(state, {
-            id: cardId,
-            note_id: note.id,
-            deck_id: deck.id,
-            layout_id: layout.id,
-            variant,
-            schedule: createInitialSchedule(0),
-          });
-          replaySingleCard(state, cardId);
-          rebuiltIds.add(cardId);
-          replayedCards.add(cardId);
-          changedCards.add(cardId);
-          removedCards.delete(cardId);
-        }
-      }
+      deriveNoteCards(state, note, deck.id, enabledLayouts, {
+        rebuiltIds,
+        replayedCards,
+        changedCards,
+        removedCards,
+      });
     }
   }
 
@@ -687,6 +811,13 @@ function applyNoteTypeChanged(
       fields: nt.fields.map((f) => ({ ...f })),
     });
     collector?.noteTypeIds.add(nt.id);
+    // A rule only counts for a field the note type has, so its decks re-derive their cards.
+    const typeLayouts = [...state.layouts.values()].filter((l) => l.note_type_id === nt.id);
+    if (hasOptionalCardRules(typeLayouts)) {
+      for (const deck of state.decks.values()) {
+        if (deck.note_type_id === nt.id) ctx.dirtyDecks.add(deck.id);
+      }
+    }
   }
 }
 
@@ -1592,13 +1723,29 @@ export function applyEventsWithCollector(
       rebuildCardsForNote(state, noteId, changedCards, removedCards, replayedCards);
     }
   }
+  const underivedCards = new Set<string>();
+  const emptyCardNotes = new Set<string>();
   for (const cardId of dirtyCards) {
     if (replayedCards.has(cardId)) continue;
+    const existing = state.cards.get(cardId);
+    if (existing?.empty === true) {
+      // An undo may leave an empty card with no history; rebuilding its note drops it.
+      emptyCardNotes.add(existing.note_id);
+      continue;
+    }
     const updated = replaySingleCard(state, cardId);
     if (updated) {
       changedCards.add(cardId);
       removedCards.delete(cardId);
+    } else if (state.reviewsByCard.has(cardId)) {
+      underivedCards.add(cardId);
     }
+  }
+  for (const noteId of findNotesOfRuleSkippedCards(state, underivedCards)) {
+    emptyCardNotes.add(noteId);
+  }
+  for (const noteId of emptyCardNotes) {
+    rebuildCardsForNote(state, noteId, changedCards, removedCards, replayedCards);
   }
 
   return {
