@@ -202,11 +202,12 @@ On 2026-11-23 an agent compared the app with Anki, about 25 features. This secti
 - **A public shared-deck site like AnkiWeb.** It needs an always-on server, which breaks the zero-server design. It also brings moderation work and copyright risk. Sharing stays with `.flashpkg` files, shared folders, starter decks and Family Library catalogs.
 - **Image occlusion and LaTeX/MathJax.** Little value for language study.
 
-### Open: export to other apps
+### Export to other apps (owner approved, 2026-11-23)
 
-- [ ] **Export beyond CSV and `.flashpkg`. Owner decision pending.** Owner question: is `.apkg` only for Anki users, and is there an open format? No open format with media and review history is widely adopted. CSV/TSV is the common format that most apps import, but it carries no media and no history. `.apkg` is in practice the main exchange format: Anki on every platform reads it, and some other apps import it too. Proposed, in two steps:
-  1. An "Export for Anki" option on CSV export that writes Anki's header lines (`#separator`, `#deck column`, `#tags column` and similar) and puts the media files in a zip alongside. Plain CSV stays the default, because other apps would read those header lines as data.
-  2. `.apkg` export of notes, media and tags, with review history later.
+No open format with media and review history is widely adopted. CSV/TSV is the common format that most apps import, but it carries no media and no history. `.apkg` is in practice the main exchange format: Anki on every platform reads it, and some other apps import it too. **To build**, in this order:
+
+- [ ] **"Export for Anki" option on CSV export.** It writes Anki's header lines (`#separator`, `#deck column`, `#tags column` and similar) and puts the media files in a zip alongside. Plain CSV stays the default, because other apps would read those header lines as data.
+- [ ] **`.apkg` export** of notes, media and tags. Review history comes later.
 
 ## Decisions needed (2026-11-23 batch)
 
