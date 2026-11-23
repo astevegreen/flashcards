@@ -25,7 +25,11 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useState, type FormEv
 import { RichText } from '../components/RichText.tsx';
 import { DrawLookupPanel } from '../drawing/DrawLookupPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
-import { useDrawScripts, type DrawScriptLang } from '../drawing/useDrawScripts.ts';
+import {
+  drawToolsVisible,
+  useDrawScripts,
+  type DrawScriptLang,
+} from '../drawing/useDrawScripts.ts';
 import { ShowAllLanguagesSwitch } from '../packs/ShowAllLanguagesSwitch.tsx';
 import { homeSummariesFor, searchPackIds, useVisiblePacks } from './useVisiblePacks.ts';
 import { DictionaryBrowseHeader, DictionaryHome } from './DictionaryHome.tsx';
@@ -826,8 +830,10 @@ export function DictionaryPanel({
     scripts: drawScripts,
     lang: drawLang,
     setLang: setDrawLang,
-    show: showDrawTools,
+    show: languageShowsDrawTools,
   } = useDrawScripts();
+  // A caller that explicitly opens the pad is honoured even when no CJK language is active.
+  const showDrawTools = drawToolsVisible(languageShowsDrawTools, initialDrawOpen);
   const [direction, setDirection] = useState<DictionaryDirection>(readLookupDirection);
   const chooseDirection = (next: DictionaryDirection): void => {
     setDirection(next);
@@ -1230,7 +1236,7 @@ export function DictionaryPanel({
           )}
         </div>
 
-        {showDraw && showDrawTools && (
+        {showDraw && showDrawTools && drawScripts.length > 0 && (
           <label className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
             <span>Draw script:</span>
             <select
