@@ -19,6 +19,9 @@ export interface GraphDriveItem {
   name?: string;
   size?: number;
   lastModifiedDateTime?: string;
+  eTag?: string;
+  cTag?: string;
+  webUrl?: string;
   folder?: { childCount?: number };
   file?: { mimeType?: string };
   '@microsoft.graph.downloadUrl'?: string;

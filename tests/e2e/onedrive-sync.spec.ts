@@ -109,6 +109,56 @@ test.describe('Phase 12 OneDrive storage connector (fake Graph)', () => {
     await context.close();
   });
 
+  test('a linked OneDrive spreadsheet maps its columns, then refreshes like a Google Sheet', async ({
+    browser,
+  }) => {
+    const fakes: MicrosoftFakes = { graph: new FakeGraphServer(), exchanges: [] };
+    const enc = new TextEncoder();
+    fakes.graph.drive.put(
+      'Decks/Linked.csv',
+      enc.encode(['word,meaning', '고양이,cat', '강아지,puppy', ''].join('\n')),
+      1,
+    );
+
+    const context = await browser.newContext();
+    await installMicrosoftFakes(context, fakes, () => `device=odlink`);
+    const page = await context.newPage();
+    await page.goto(`/?device=odlink`);
+    await expect(page.getByTestId('study-card')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByTestId('onedrive-import-btn').click();
+    await page.getByTestId('onedrive-grant-access-btn').click();
+    await expect(page.getByTestId('study-card')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByTestId('onedrive-import-btn').click();
+    await page.getByTestId('onedrive-folder-Decks').click();
+    await page.getByTestId('onedrive-link-Linked.csv').click();
+    await expect(page.getByTestId('onedrive-link-mapping')).toBeVisible();
+    await page.getByTestId('onedrive-link-confirm-btn').click();
+    await expect(page.getByText('Linked "Linked.csv" from OneDrive')).toBeVisible();
+
+    const linkedId = fakes.graph.drive.files.get('Decks/Linked.csv')?.id ?? '';
+    const row = page.getByTestId(`onedrive-source-row-${linkedId}`);
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('Synced');
+
+    // The file changes in OneDrive; Refresh pulls it.
+    fakes.graph.drive.put(
+      'Decks/Linked.csv',
+      enc.encode(['word,meaning', '고양이,cat', '강아지,puppy', '토끼,rabbit', ''].join('\n')),
+      2,
+    );
+    await row.getByRole('button', { name: 'Refresh' }).click();
+    await expect(page.getByText('Refreshed "Linked" (1 note change(s))')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Study' }).first().click();
+    await page.getByLabel('Select deck to study').selectOption({ label: 'Linked' });
+    await expect(page.getByTestId('count-new')).toHaveText('3');
+    await context.close();
+  });
+
   test('the OneDrive picker keeps one height from lazy load to a long listing', async ({
     browser,
   }) => {

@@ -128,6 +128,10 @@ class FakeTree {
       size: file.bytes.byteLength,
       file: { mimeType: 'application/octet-stream' },
       lastModifiedDateTime: new Date(file.modifiedAt).toISOString(),
+      // Changes with the bytes (a size + mtime stand-in for Graph's content tag).
+      cTag: `c:${file.id}:${file.bytes.byteLength}:${file.modifiedAt}`,
+      eTag: `e:${file.id}:${file.bytes.byteLength}:${file.modifiedAt}`,
+      webUrl: `https://onedrive.live.com/fake/${encodeURIComponent(path)}`,
     };
   }
 

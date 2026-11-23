@@ -76,3 +76,34 @@ describe('GraphOneDriveFilePicker (Files.Read, §15 Phase 12)', () => {
     await expect(picker.listFolder()).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
   });
 });
+
+describe('GraphOneDriveFilePicker linked-source reads', () => {
+  it('reads file info with a content tag that changes with the bytes', async () => {
+    const { graph, picker } = setup();
+    const id = graph.drive.files.get('vocab.xlsx')?.id ?? '';
+    const before = await picker.getFileInfo(id);
+    expect(before).toMatchObject({ id, name: 'vocab.xlsx', size: 4 });
+    expect(before.contentTag).toBeTruthy();
+    expect(before.webUrl).toContain('vocab.xlsx');
+    expect((await picker.getFileInfo(id)).contentTag).toBe(before.contentTag);
+    graph.drive.put('vocab.xlsx', new Uint8Array([80, 75, 5, 6, 7]), 5);
+    expect((await picker.getFileInfo(id)).contentTag).not.toBe(before.contentTag);
+  });
+
+  it('downloads by id without the bearer token and refuses oversized or unsupported files', async () => {
+    const { graph, picker } = setup({ maxBytes: 64 });
+    const csvId = graph.drive.files.get('Decks/korean.csv')?.id ?? '';
+    const picked = await picker.downloadById(csvId);
+    expect(picked.name).toBe('korean.csv');
+    expect(picked.bytes.byteLength).toBeGreaterThan(0);
+    expect(graph.authLeaks).toEqual([]);
+    const docxId = graph.drive.files.get('Decks/notes.docx')?.id ?? '';
+    await expect(picker.downloadById(docxId)).rejects.toThrow(/not a \.csv/);
+    await expect(picker.downloadById(csvId, 99)).rejects.toThrow(/50 MB/);
+  });
+
+  it('maps a missing file to a Graph failure', async () => {
+    const { picker } = setup();
+    await expect(picker.getFileInfo('nope')).rejects.toThrow(/OneDrive lookup/);
+  });
+});

@@ -64,7 +64,13 @@ export interface DeckFSRSParamsVersion {
 }
 
 export type SourceKind =
-  'google_sheets' | 'google_docs' | 'local_file' | 'package' | 'package_url' | 'native';
+  | 'google_sheets'
+  | 'google_docs'
+  | 'onedrive_file'
+  | 'local_file'
+  | 'package'
+  | 'package_url'
+  | 'native';
 
 export interface SourceRef {
   kind: SourceKind;

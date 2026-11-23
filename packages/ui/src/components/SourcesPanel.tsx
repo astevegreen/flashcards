@@ -4,6 +4,7 @@ import type {
   CatalogPackageInfo,
   LinkedGoogleSource,
   LinkedLocalFolder,
+  LinkedOneDriveSource,
   PackageSubscription,
   PendingXlsxReconciliation,
   SourcesRegistry,
@@ -94,6 +95,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
 
   const [registry, setRegistry] = useState<SourcesRegistry>({
     googleSources: [],
+    oneDriveSources: [],
     localFolders: [],
     packageSubscriptions: [],
     catalogs: [],
@@ -238,6 +240,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
 
   const totalSources =
     registry.googleSources.length +
+    (registry.oneDriveSources?.length ?? 0) +
     registry.localFolders.length +
     registry.packageSubscriptions.length +
     registry.catalogs.length;
@@ -471,6 +474,40 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
+  const handleRefreshOneDriveOne = async (src: LinkedOneDriveSource) => {
+    setBusy(true);
+    onErrorMessage(null);
+    try {
+      const { loadSourcesRegistry, refreshSingleOneDriveSource, saveSourcesRegistry } =
+        await import('../sources/sourceRunner.ts');
+      const nextReg = await loadSourcesRegistry(platform, state);
+      const target = nextReg.oneDriveSources?.find((s) => s.id === src.id);
+      if (!target) return;
+      try {
+        const res = await refreshSingleOneDriveSource(target, makeRunnerCtx(), { force: true });
+        if (target.lastStatus === 'permission_required') {
+          onErrorMessage(target.lastError ?? 'Allow OneDrive file access to refresh this source.');
+        } else {
+          onStatusMessage(
+            res.updated
+              ? `Refreshed "${target.name}" (${res.notesTouched} note change(s)).`
+              : `"${target.name}" is already up to date.`,
+          );
+        }
+      } catch (err) {
+        target.lastStatus = 'error';
+        target.lastError = err instanceof Error ? err.message : String(err);
+        onErrorMessage(target.lastError);
+      }
+      await saveSourcesRegistry(platform, nextReg);
+      setRegistry(nextReg);
+    } catch (err) {
+      onErrorMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleRefreshFolderOne = async (folder: LinkedLocalFolder) => {
     setBusy(true);
     onErrorMessage(null);
@@ -538,11 +575,16 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
-  const handleUnlink = async (kind: 'google' | 'folder' | 'package' | 'catalog', id: string) => {
+  const handleUnlink = async (
+    kind: 'google' | 'onedrive' | 'folder' | 'package' | 'catalog',
+    id: string,
+  ) => {
     const { loadSourcesRegistry, saveSourcesRegistry } = await import('../sources/sourceRunner.ts');
     const nextReg = await loadSourcesRegistry(platform, state);
     if (kind === 'google') {
       nextReg.googleSources = nextReg.googleSources.filter((s) => s.id !== id);
+    } else if (kind === 'onedrive') {
+      nextReg.oneDriveSources = (nextReg.oneDriveSources ?? []).filter((s) => s.id !== id);
     } else if (kind === 'folder') {
       nextReg.localFolders = nextReg.localFolders.filter((f) => f.id !== id);
       const adapter = await platform.getLocalFolderSources();
@@ -601,8 +643,9 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         <div>
           <h2 className="text-sm font-semibold">Linked Sources & Subscriptions</h2>
           <p className="text-xs text-[var(--muted)]">
-            Pull updates from Google Sheets/Docs, PC local folders (including <code>Inbox/</code>),
-            or subscribed <code>.flashpkg</code> URLs. Everything stays cached offline.
+            Pull updates from Google Sheets/Docs, OneDrive spreadsheets, PC local folders (including{' '}
+            <code>Inbox/</code>), or subscribed <code>.flashpkg</code> URLs. Everything stays cached
+            offline.
           </p>
         </div>
 
@@ -763,10 +806,10 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
             aria-expanded={showOneDrivePicker}
             disabled={busy}
             onClick={() => setShowOneDrivePicker((v) => !v)}
-            title="Import a .csv, .tsv, .xlsx or .flashpkg file from your OneDrive"
+            title="Import a .csv, .tsv, .xlsx or .flashpkg file from your OneDrive, or link a spreadsheet so it refreshes"
             className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-40"
           >
-            Import from OneDrive
+            OneDrive file…
           </button>
         )}
 
@@ -1005,6 +1048,62 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
                     type="button"
                     disabled={busy}
                     onClick={() => void handleUnlink('google', src.id)}
+                    className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--muted)] hover:text-rose-600"
+                  >
+                    Unlink
+                  </button>
+                </div>
+              </div>
+              <WarningsDisclosure warnings={src.warnings} />
+            </div>
+          ))}
+
+          {(registry.oneDriveSources ?? []).map((src) => (
+            <div
+              key={src.id}
+              data-testid={`onedrive-source-row-${src.itemId}`}
+              className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--muted)]">
+                      OneDrive
+                    </span>
+                    <span className="truncate text-xs font-semibold">{src.name}</span>
+                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                      Read-only
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${getStatusPillClass(src.lastStatus)}`}
+                    >
+                      {formatStatusLabel(src.lastStatus)}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-[var(--muted)]">
+                    Last synced:{' '}
+                    {src.lastSyncedAt ? new Date(src.lastSyncedAt).toLocaleString() : 'Never'}
+                  </div>
+                  {src.lastError && (
+                    <div className="mt-1 text-[11px] text-rose-600 dark:text-rose-400">
+                      {src.lastError}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleRefreshOneDriveOne(src)}
+                    className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] font-medium hover:bg-[var(--surface-2)] disabled:opacity-40"
+                  >
+                    Refresh
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleUnlink('onedrive', src.id)}
                     className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--muted)] hover:text-rose-600"
                   >
                     Unlink
