@@ -316,8 +316,15 @@ function emitModel(e: Emitter, state: CollectionState, plan: ModelPlan): boolean
   const noteType = mergedNoteType(state.noteTypes.get(plan.noteTypeId), plan.noteType);
   if (noteType) emit(e, 'NoteTypeChanged', { note_type: noteType });
   for (const { layout } of plan.layouts) {
-    // Existing layouts keep the user's own changes (enabled, answer mode, …).
-    if (!state.layouts.has(layout.id)) emit(e, 'LayoutChanged', { layout });
+    const existing = state.layouts.get(layout.id);
+    if (!existing) {
+      emit(e, 'LayoutChanged', { layout });
+    } else if (existing.ruby_display === undefined && layout.ruby_display !== undefined) {
+      // Notes are re-imported with full ruby, so a layout made before the flag existed (or a
+      // reduced one) needs it to keep showing what its template did. Other changes stay the
+      // user's own (enabled, answer mode, …); a flag the user set is never overwritten.
+      emit(e, 'LayoutChanged', { layout: { ...existing, ruby_display: layout.ruby_display } });
+    }
   }
   return noteType !== undefined;
 }

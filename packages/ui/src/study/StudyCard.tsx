@@ -1,4 +1,6 @@
+import type { RubyDisplay } from '@flash/core';
 import type { ReactNode } from 'react';
+import { RubyDisplayContext } from '../components/RichText.tsx';
 import { SpeakerButton } from '../components/SpeakerButton.tsx';
 
 export type SwipeIntent = 'again' | 'good' | 'easy' | null;
@@ -11,6 +13,8 @@ export interface StudyCardSwipe {
 
 export interface StudyCardProps {
   answerMode: string;
+  /** The layout's ruby flag, applied to every field rendered inside the card. */
+  rubyDisplay?: RubyDisplay | undefined;
   deckName: string;
   layoutLabel: string;
   isRevealed: boolean;
@@ -46,6 +50,7 @@ const INTENT_BORDER: Record<Exclude<SwipeIntent, null>, string> = {
  */
 export function StudyCard({
   answerMode,
+  rubyDisplay,
   deckName,
   layoutLabel,
   isRevealed,
@@ -132,7 +137,9 @@ export function StudyCard({
         className="card-scroll min-h-0 flex-1"
       >
         <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 pb-5 pt-2 text-center sm:gap-6 sm:px-8 sm:pb-8">
-          {children}
+          <RubyDisplayContext.Provider value={rubyDisplay ?? 'both'}>
+            {children}
+          </RubyDisplayContext.Provider>
           {hint && <p className="text-xs text-[var(--muted)]">{hint}</p>}
         </div>
       </div>

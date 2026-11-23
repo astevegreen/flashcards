@@ -1,4 +1,4 @@
-import { stripCloze, stripRuby } from '@flash/core';
+import { stripCloze, stripRuby, type RubyDisplay } from '@flash/core';
 
 /**
  * Auto-fit card text (Phase 13). The heavy lifting is CSS: every `card-fit-*` class in
@@ -10,13 +10,17 @@ import { stripCloze, stripRuby } from '@flash/core';
 export type CardTextRole = 'prompt' | 'answer' | 'detail';
 
 /** Number of user-perceived characters once ruby readings and cloze markup are removed. */
-export function visibleTextLength(value: string): number {
-  const plain = stripRuby(stripCloze(value)).replace(/\s+/g, ' ').trim();
+export function visibleTextLength(value: string, rubyDisplay?: RubyDisplay): number {
+  const plain = stripRuby(stripCloze(value), rubyDisplay).replace(/\s+/g, ' ').trim();
   return [...plain].length;
 }
 
-export function cardTextFitTier(value: string, role: CardTextRole = 'prompt'): string {
-  const len = visibleTextLength(value);
+export function cardTextFitTier(
+  value: string,
+  role: CardTextRole = 'prompt',
+  rubyDisplay?: RubyDisplay,
+): string {
+  const len = visibleTextLength(value, rubyDisplay);
   if (role === 'detail') return len > 120 ? 'd long' : 'd';
   if (role === 'answer') return len <= 12 ? 'a1' : len <= 60 ? 'a2' : 'a3 long';
   if (len <= 2) return 'p1';
@@ -27,8 +31,12 @@ export function cardTextFitTier(value: string, role: CardTextRole = 'prompt'): s
 }
 
 /** `className` for a card field: `card-fit card-fit-<tier>` (plus `card-fit-long` for paragraphs). */
-export function cardTextFitClass(value: string, role: CardTextRole = 'prompt'): string {
-  return `card-fit ${cardTextFitTier(value, role)
+export function cardTextFitClass(
+  value: string,
+  role: CardTextRole = 'prompt',
+  rubyDisplay?: RubyDisplay,
+): string {
+  return `card-fit ${cardTextFitTier(value, role, rubyDisplay)
     .split(' ')
     .map((t) => `card-fit-${t}`)
     .join(' ')}`;

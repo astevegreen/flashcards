@@ -1,5 +1,8 @@
-import { parsePinyin, parseRuby } from '@flash/core';
-import { memo } from 'react';
+import { applyRubyDisplay, parsePinyin, parseRuby, type RubyDisplay } from '@flash/core';
+import { createContext, memo, useContext } from 'react';
+
+/** The studied layout's ruby flag; screens outside a study card keep the default (`both`). */
+export const RubyDisplayContext = createContext<RubyDisplay>('both');
 
 export interface RichTextProps {
   text: string;
@@ -29,6 +32,7 @@ export const RichText = memo(function RichText({
   pinyinToneColors = true,
   className,
 }: RichTextProps) {
+  const rubyDisplay = useContext(RubyDisplayContext);
   if (!text) return null;
 
   if (lang === 'zh-Latn-pinyin') {
@@ -48,7 +52,7 @@ export const RichText = memo(function RichText({
     );
   }
 
-  const segments = parseRuby(text);
+  const segments = applyRubyDisplay(parseRuby(text), rubyDisplay);
   return (
     <span lang={lang} className={className}>
       {segments.map((seg, idx) =>

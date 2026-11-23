@@ -1,4 +1,4 @@
-import type { Deck, Layout, Note, NoteType, SpeakTiming } from '../model/types.ts';
+import type { Deck, Layout, Note, NoteType, RubyDisplay, SpeakTiming } from '../model/types.ts';
 import { stripCloze } from '../parsers/cloze.ts';
 import { stripRuby } from '../parsers/ruby.ts';
 import { sha256Hex, sha256String } from '../sources/hash.ts';
@@ -96,11 +96,12 @@ export function toBcp47SpeechTag(lang: string): string {
 /**
  * Normalizes raw note/page text for deterministic TTS synthesis & cache keying (§7.1).
  * Strips cloze markers (`{{c1::...}}`) and inline ruby readings (`漢字[かんじ]`, `{今日|きょう}`),
- * applies NFKC normalization, and collapses whitespace.
+ * applies NFKC normalization, and collapses whitespace. A layout with `ruby_display: 'readings'`
+ * speaks the readings instead of the bases.
  */
-export function normalizeTtsText(rawText: string): string {
+export function normalizeTtsText(rawText: string, rubyDisplay?: RubyDisplay): string {
   if (!rawText) return '';
-  return stripRuby(stripCloze(rawText)).normalize('NFKC').replace(/\s+/g, ' ').trim();
+  return stripRuby(stripCloze(rawText), rubyDisplay).normalize('NFKC').replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -281,7 +282,7 @@ export function resolveCardAudioTarget(
     }
   }
 
-  const normalizedText = normalizeTtsText(rawText);
+  const normalizedText = normalizeTtsText(rawText, layout.ruby_display);
   const lang = normalizeAudioLang(chosenLang ?? deck.language);
   const bcp47Lang = toBcp47SpeechTag(lang);
 

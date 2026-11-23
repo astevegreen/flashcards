@@ -500,31 +500,65 @@ describe('Anki .apkg import: review history (default OFF)', () => {
 });
 
 describe('Anki .apkg import: Phase 14 follow-ups', () => {
-  it('kana: fields keep the readings only and kanji: fields the bases only, as Anki shows them', async () => {
+  it('kana: / kanji: fields keep full ruby; the layout flag decides readings-only or bases-only', async () => {
     const { state, result } = await importFixture('kana.apkg');
     expect(activeNotes(state).map((n) => n.fields)).toEqual([
       {
-        expression: '日本語を話す',
-        reading: 'わたしはにほんごをはなします',
+        expression: '日本語[にほんご]を話[はな]す',
+        reading: '私[わたし]は日本語[にほんご]を話[はな]します',
         meaning: 'I speak Japanese',
       },
-      { expression: '食べる', reading: 'たべる', meaning: 'to eat' },
+      { expression: '食[た]べる', reading: '食[た]べる', meaning: 'to eat' },
     ]);
     expect(state.layouts.get('anki:layout:1600000000006:0')).toMatchObject({
       front_fields: ['reading'],
       reveal_steps: [['meaning']],
       hide_furigana_on_front: false,
+      ruby_display: 'readings',
     });
     expect(state.layouts.get('anki:layout:1600000000006:1')).toMatchObject({
       front_fields: ['expression'],
       reveal_steps: [['meaning']],
       hide_furigana_on_front: true,
+      ruby_display: 'bases',
     });
     const langs = state.noteTypes.get('anki:nt:1600000000006')?.fields.map((f) => f.lang);
     expect(langs).toEqual(['ja', 'ja', 'en']);
     expect(result.warnings).toContain(
       '1 media file(s) referenced by notes are not in the package.',
     );
+  });
+
+  it('a re-import gives existing layouts the ruby flag, but never overwrites one the user set', async () => {
+    const raw = await read('kana.apkg');
+    const state = createEmptyState();
+    importInto(state, raw);
+    const readingsId = 'anki:layout:1600000000006:0';
+    const basesId = 'anki:layout:1600000000006:1';
+    // Layouts made before the flag existed have none; the user set `both` on another one.
+    for (const id of [readingsId, basesId]) {
+      const old = state.layouts.get(id);
+      if (old) delete old.ruby_display;
+    }
+    const basesLayout = state.layouts.get(basesId);
+    if (basesLayout) basesLayout.ruby_display = 'both';
+    // …and its notes were imported reduced (readings / bases only).
+    const reduced = (n: { fields: Record<string, string> }) => {
+      n.fields.expression = n.fields.expression?.replace(/\[[^\]]*\]/g, '') ?? '';
+      n.fields.reading = n.fields.reading?.replace(/\[[^\]]*\]/g, '') ?? '';
+    };
+    for (const n of state.notes.values()) reduced(n);
+    const again = importInto(state, raw, { nowMs: NOW + 60_000 }, 'device-a');
+    expect(eventsOfType(again.events, 'LayoutChanged').map((e) => e.payload.layout.id)).toEqual([
+      readingsId,
+    ]);
+    // The re-import upgrades the notes to full ruby.
+    expect(activeNotes(state).map((n) => n.fields.expression)).toEqual([
+      '日本語[にほんご]を話[はな]す',
+      '食[た]べる',
+    ]);
+    expect(state.layouts.get(readingsId)?.ruby_display).toBe('readings');
+    expect(state.layouts.get(basesId)?.ruby_display).toBe('both');
   });
 
   it('suspended cards (queue -1) import as CardSuspended; buried cards import as normal', async () => {

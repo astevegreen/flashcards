@@ -213,12 +213,12 @@ test.describe('Phase 14 Anki follow-ups', () => {
     // Wide enough for the Browse detail pane, which lists every field of the note.
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.getByRole('button', { name: 'Browse' }).first().click();
-    const row = page.locator('[data-testid^="browse-row-"]', { hasText: '日本語を話す' });
+    const row = page.locator('[data-testid^="browse-row-"]', { hasText: '日本語' });
     await row.locator('[data-testid^="browse-show-"]').click();
     const detail = page.getByTestId('browse-detail');
-    // Expression is shown through {{kanji:}} (kanji only), Reading through {{kana:}} (kana only).
-    await expect(detail.getByTestId('browse-detail-headline')).toHaveText('日本語を話す');
-    await expect(detail).toContainText('わたしはにほんごをはなします');
+    // Browse shows the full ruby the import kept (the kana:/kanji: reduction is a per-layout flag).
+    await expect(detail.getByTestId('browse-detail-headline')).toContainText('日本語');
+    await expect(detail).toContainText('にほんご');
     await expect(detail).not.toContainText('[');
   });
 });

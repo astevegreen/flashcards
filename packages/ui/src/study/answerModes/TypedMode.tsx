@@ -53,8 +53,8 @@ function TypedModeView({
               data-testid={`front-field-${fieldKey}`}
               className={
                 idx === 0
-                  ? `whitespace-pre-wrap font-semibold tracking-tight ${cardTextFitClass(value, 'answer')}`
-                  : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail')}`
+                  ? `whitespace-pre-wrap font-semibold tracking-tight ${cardTextFitClass(value, 'answer', layout.ruby_display)}`
+                  : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail', layout.ruby_display)}`
               }
             >
               <CardFieldValue
@@ -76,6 +76,7 @@ function TypedModeView({
         <LazyTypedAnswerPanel
           cardId={card.id}
           expectedRaw={expectedRaw}
+          {...(layout.ruby_display ? { rubyDisplay: layout.ruby_display } : {})}
           lang={answerLang}
           isRevealed={isRevealed}
           placeholder={`Type ${answerMeta?.label ?? answerFieldKey}…`}

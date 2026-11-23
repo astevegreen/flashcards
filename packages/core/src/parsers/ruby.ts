@@ -18,6 +18,8 @@
  *    - `{日本|に|ほん}` -> ruby("日", "に") + ruby("本", "ほん")
  */
 
+import type { RubyDisplay } from '../model/types.ts';
+
 export type RubySegment =
   { type: 'text'; value: string } | { type: 'ruby'; base: string; reading: string };
 
@@ -193,8 +195,29 @@ export function convertAnkiRuby(input: string): string {
   );
 }
 
-export function stripRuby(input: string): string {
+/**
+ * Applies a layout's ruby display flag to parsed segments: `both` keeps the ruby, `readings`
+ * shows each reading as plain text, `bases` shows each base as plain text. Adjacent text merges.
+ */
+export function applyRubyDisplay(
+  segments: readonly RubySegment[],
+  mode: RubyDisplay | undefined,
+): RubySegment[] {
+  if (mode === undefined || mode === 'both') return [...segments];
+  const out: RubySegment[] = [];
+  for (const seg of segments) {
+    if (seg.type === 'ruby') pushText(out, mode === 'readings' ? seg.reading : seg.base);
+    else pushText(out, seg.value);
+  }
+  return out;
+}
+
+export function stripRuby(input: string, display?: RubyDisplay): string {
+  const showReadings = display === 'readings';
   return parseRuby(input)
-    .map((seg) => (seg.type === 'ruby' ? seg.base : seg.value))
+    .map((seg) => {
+      if (seg.type === 'text') return seg.value;
+      return showReadings ? seg.reading : seg.base;
+    })
     .join('');
 }

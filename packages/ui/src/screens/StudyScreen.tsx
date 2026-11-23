@@ -660,9 +660,13 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     }
   }, [stopAudio, studyFilter, undoLastReview]);
 
+  // A layout that shows only readings or only bases has no ruby to hide, so F does nothing there.
+  const rubyFlagged =
+    currentLayout?.ruby_display === 'readings' || currentLayout?.ruby_display === 'bases';
   const handleToggleFurigana = useCallback(() => {
+    if (rubyFlagged) return;
     setFuriganaOverride((prev) => !(prev ?? hideFrontRuby));
-  }, [hideFrontRuby]);
+  }, [hideFrontRuby, rubyFlagged]);
 
   // Desktop keyboard shortcuts (§5.1 & §5.2)
   useEffect(() => {
@@ -866,13 +870,18 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           <button
             type="button"
             onClick={handleToggleFurigana}
-            title="Toggle furigana / reading hints (F)"
+            disabled={rubyFlagged}
+            title={
+              rubyFlagged
+                ? 'This layout shows readings or bases only (set in Deck options)'
+                : 'Toggle furigana / reading hints (F)'
+            }
             aria-pressed={!hideFrontRuby}
             className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
               !hideFrontRuby
                 ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
                 : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--fg)]'
-            }`}
+            } disabled:opacity-40`}
           >
             {hideFrontRuby ? 'Ruby Off' : 'Ruby On'}
           </button>
@@ -973,6 +982,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         <div className="flex min-h-0 flex-1 flex-col gap-3 short:flex-row">
           <StudyCard
             answerMode={currentLayout.answer_mode}
+            rubyDisplay={currentLayout.ruby_display}
             deckName={currentDeck.name}
             layoutLabel={layoutLabelFor(currentLayout, currentCard)}
             isRevealed={isRevealed}

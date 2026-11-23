@@ -4,6 +4,7 @@ import {
   getEnabledLayoutsForDeck,
   uuidv7,
   type AnswerMode,
+  type RubyDisplay,
   type Deck,
   type DeckSettings,
   type Layout,
@@ -16,6 +17,7 @@ import { canCreateOrImportDeck } from '@flash/core/license';
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { CoursesPanel } from '../components/CoursesPanel.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
+import { RubyDisplaySelect } from '../library/RubyDisplaySelect.tsx';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { ANKI_IMPORT_PANEL_HEIGHT } from '../import/anki-import-layout.ts';
@@ -36,6 +38,7 @@ function DeckOptionsPanel({
   onExportDeck,
   onArchiveDeck,
   onAddLayout,
+  onUpdateLayout,
 }: {
   deck: Deck;
   noteType: NoteType | undefined;
@@ -46,6 +49,7 @@ function DeckOptionsPanel({
   onExportDeck: (deck: Deck) => void;
   onArchiveDeck: (deck: Deck) => void;
   onAddLayout: (layout: Layout, deckId: string) => void;
+  onUpdateLayout: (layout: Layout) => void;
 }) {
   const { platform, state, stateVersion, rescheduleDeck } = useApp();
   const [rescheduleStatus, setRescheduleStatus] = useState<string | null>(null);
@@ -143,6 +147,12 @@ function DeckOptionsPanel({
     }
   };
 
+  const noteTypeLayouts = useMemo(
+    () => [...state.layouts.values()].filter((l) => l.note_type_id === deck.note_type_id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, stateVersion, deck.note_type_id],
+  );
+
   // New Answer Mode Layout form
   const textFields = useMemo(
     () =>
@@ -165,6 +175,7 @@ function DeckOptionsPanel({
   );
   const [speakOn, setSpeakOn] = useState<SpeakTiming>('front');
   const [clozeTyped, setClozeTyped] = useState(false);
+  const [rubyDisplay, setRubyDisplay] = useState<RubyDisplay>('both');
 
   useEffect(() => {
     setNewPerDayDraft(String(deck.settings.new_cards_per_day));
@@ -254,6 +265,7 @@ function DeckOptionsPanel({
       speak_on: layoutMode === 'listen' ? 'front' : speakOn,
       hide_furigana_on_front: layoutMode !== 'typed' && layoutMode !== 'draw',
       enabled: false,
+      ...(rubyDisplay !== 'both' ? { ruby_display: rubyDisplay } : {}),
       ...(layoutMode === 'typed' || layoutMode === 'choice' || layoutMode === 'draw'
         ? { answer_field: effectiveAnswer }
         : {}),
@@ -261,6 +273,7 @@ function DeckOptionsPanel({
     };
     onAddLayout(newLayout, deck.id);
     setLayoutName('');
+    setRubyDisplay('both');
   };
 
   return (
@@ -404,6 +417,27 @@ function DeckOptionsPanel({
         <LazyFsrsOptimizerPanel deck={deck} />
       </Suspense>
 
+      {noteTypeLayouts.length > 0 && (
+        <div
+          data-testid={`layout-ruby-list-${deck.id}`}
+          className="flex flex-col gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3"
+        >
+          <div className="text-xs font-semibold text-[var(--fg)]">Layouts: ruby display</div>
+          {noteTypeLayouts.map((l) => (
+            <label key={l.id} className="flex items-center justify-between gap-2 text-xs">
+              <span className="min-w-0 truncate text-[var(--muted)]">
+                {l.name} ({l.answer_mode})
+              </span>
+              <RubyDisplaySelect
+                label={`Ruby shows for ${l.name}`}
+                value={l.ruby_display ?? 'both'}
+                onChange={(next) => onUpdateLayout({ ...l, ruby_display: next })}
+              />
+            </label>
+          ))}
+        </div>
+      )}
+
       {/* Add Answer Mode Layout (§5.2) */}
       <form
         onSubmit={handleCreateLayout}
@@ -521,6 +555,11 @@ function DeckOptionsPanel({
             )}
           </>
         )}
+
+        <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
+          <span>Ruby shows</span>
+          <RubyDisplaySelect value={rubyDisplay} onChange={setRubyDisplay} />
+        </label>
 
         {layoutMode === 'cloze' && (
           <label className="flex items-center gap-1.5 pb-1 text-xs text-[var(--muted)]">
@@ -1054,6 +1093,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
                   onUpdateSettings={updateDeckSettings}
                   onExportDeck={(d) => void handleExportDeck(d)}
                   onArchiveDeck={handleArchiveDeck}
+                  onUpdateLayout={(layout) => upsertLayout(layout)}
                   onAddLayout={(layout, dId) => {
                     upsertLayout(layout, dId);
                     setStatusMessage(`Added "${layout.name}" (${layout.answer_mode}) layout.`);
