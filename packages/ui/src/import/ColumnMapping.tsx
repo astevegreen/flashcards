@@ -11,6 +11,7 @@ import {
   type ColumnGuess,
   type ColumnGuessReason,
   type ColumnTarget,
+  type MappedRow,
   type MappingProblems,
 } from '@flash/core/import-mapping';
 import { useMemo, useState } from 'react';
@@ -66,7 +67,7 @@ export function useColumnMapping(
   noteType: NoteType,
   options: { forceHeaderRow?: boolean; saved?: readonly (ColumnTarget | undefined)[] } = {},
 ): ColumnMappingState {
-  const [headerChoice, setHasHeaderRow] = useState<boolean | null>(null);
+  const [headerChoice, setHeaderChoice] = useState<boolean | null>(null);
   const hasHeaderRow =
     options.forceHeaderRow === true || (headerChoice ?? looksLikeHeaderRow(grid, noteType));
   const guess = useMemo(
@@ -89,7 +90,7 @@ export function useColumnMapping(
   const problems = mappingProblems(targets, noteType);
   return {
     hasHeaderRow,
-    setHasHeaderRow,
+    setHasHeaderRow: setHeaderChoice,
     columns,
     targets,
     headers: columns.map((c) => c.header),
@@ -124,6 +125,20 @@ function problemLines(problems: MappingProblems, noteType: NoteType): string[] {
   }
   if (problems.duplicateCardId) lines.push('Only one column can be the Card ID.');
   return lines;
+}
+
+/**
+ * Preview rows keyed by what they hold (the preview is rebuilt as a whole, so rows have no other
+ * identity); a repeated row gets a `#n` suffix.
+ */
+export function keyedPreviewRows(rows: readonly MappedRow[]): { key: string; row: MappedRow }[] {
+  const seen = new Map<string, number>();
+  return rows.map((row) => {
+    const base = JSON.stringify([row.fields, row.tags, row.cardId]);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return { key: n === 0 ? base : `${base}#${n}`, row };
+  });
 }
 
 function clip(value: string): string {
@@ -200,6 +215,10 @@ export function ColumnMappingView({
           Guessed for you. Change any that are wrong: Category columns become tags, Add to Notes
           keeps a column as “name: value” lines.
         </p>
+        <p data-testid="bring-map-tags-hint" className="text-[11px] text-[var(--muted)]">
+          Tags are categories: use “::” to nest them, like Grammar::Particles. You can filter by
+          them in Browse.
+        </p>
       </div>
       {!headerRowFixed && (
         <label className="flex min-w-0 items-center gap-1.5">
@@ -255,12 +274,8 @@ export function ColumnMappingView({
           <p className="text-[11px] text-[var(--muted)]">No row has a value in a chosen column.</p>
         ) : (
           <ol data-testid="bring-map-preview" className="flex flex-col gap-1">
-            {preview.map((row, i) => (
-              // The preview is rebuilt as a whole; its rows have no identity of their own.
-              <li
-                key={`preview-${i}`}
-                className="rounded-md bg-[var(--surface-2)] px-2 py-1 text-[11px]"
-              >
+            {keyedPreviewRows(preview).map(({ key, row }) => (
+              <li key={key} className="rounded-md bg-[var(--surface-2)] px-2 py-1 text-[11px]">
                 {noteType.fields
                   .filter((f) => row.fields[f.key])
                   .map((f) => (
