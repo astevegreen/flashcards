@@ -7,7 +7,8 @@ import { DEFAULT_DECK_SETTINGS } from '../model/types.ts';
  * Fold of the log-retained deck organization events (`DeckPresetSaved`, `DeckPresetDeleted`,
  * `DeckFolderSaved`, `DeckFolderDeleted`, `DeckGroupingChanged`) kept in `state.unknownEvents`.
  *
- * Every field is a last-writer-wins register ordered by `(hlc, event id)`, so the result depends
+ * Every field is a last-writer-wins register ordered by `(hlc, event id)`, except that a save the
+ * user wrote beats any save a package import wrote (`from_package`). The result depends
  * only on the set of events: any delivery order, chunking, duplication or snapshot hydration gives
  * the same answer on every device. A delete is final: a preset or folder is live once saved and
  * until any delete, and a save with a later HLC than the delete (an edit made concurrently on
@@ -64,8 +65,23 @@ function later(a: UnknownEvent | undefined, b: UnknownEvent): boolean {
   return c > 0 || (c === 0 && b.id > a.id);
 }
 
+function fromPackage(ev: UnknownEvent): boolean {
+  return (ev.payload as { from_package?: unknown } | null)?.from_package === true;
+}
+
+/**
+ * Whether `b` replaces `a` in a field register: a save the user wrote beats any save a package
+ * import wrote (`from_package`), whatever their HLCs; within each kind the later one wins. So an
+ * import on a device that has not synced the user's edits never overwrites them.
+ */
+function beats(a: UnknownEvent | undefined, b: UnknownEvent): boolean {
+  if (a === undefined) return true;
+  if (fromPackage(a) !== fromPackage(b)) return fromPackage(a);
+  return later(a, b);
+}
+
 function put<T>(reg: Reg<T>, ev: UnknownEvent, v: T | undefined): Reg<T> {
-  return v !== undefined && later(reg?.ev, ev) ? { ev, v } : reg;
+  return v !== undefined && beats(reg?.ev, ev) ? { ev, v } : reg;
 }
 
 /** Trims and collapses whitespace; `undefined` when nothing is left. */
@@ -241,4 +257,45 @@ export function getDeckPreset(state: CollectionState, deckId: string): DeckPrese
   const org = getDeckOrganization(state);
   const id = org.presetByDeck.get(deckId);
   return id === undefined ? undefined : org.presets.get(id);
+}
+
+/** Ids the log ever deleted, and decks that ever had a preset or folder assignment. */
+export interface DeckOrganizationHistory {
+  deletedPresetIds: Set<string>;
+  deletedFolderIds: Set<string>;
+  /** Decks with any `DeckGroupingChanged` carrying `preset_id` (including `null`). */
+  decksWithPresetHistory: Set<string>;
+  /** Decks with any `DeckGroupingChanged` carrying `folder_id` (including `null`). */
+  decksWithFolderHistory: Set<string>;
+}
+
+/**
+ * What the user ever did with presets and folders, beyond the live fold: a deleted preset or
+ * folder stays deleted (deletes are final), and a deck whose preset or folder was ever set keeps
+ * the user's choice. Imports and restores use it so they never overrule the user.
+ */
+export function getDeckOrganizationHistory(state: CollectionState): DeckOrganizationHistory {
+  const out: DeckOrganizationHistory = {
+    deletedPresetIds: new Set(),
+    deletedFolderIds: new Set(),
+    decksWithPresetHistory: new Set(),
+    decksWithFolderHistory: new Set(),
+  };
+  for (const ev of state.unknownEvents) {
+    const p = ev.payload as Record<string, unknown> | null;
+    if (typeof p !== 'object' || p === null) continue;
+    if (ev.type === 'DeckPresetDeleted') {
+      const id = str(p['preset_id']);
+      if (id !== undefined) out.deletedPresetIds.add(id);
+    } else if (ev.type === 'DeckFolderDeleted') {
+      const id = str(p['folder_id']);
+      if (id !== undefined) out.deletedFolderIds.add(id);
+    } else if (ev.type === 'DeckGroupingChanged') {
+      const deckId = str(p['deck_id']);
+      if (deckId === undefined) continue;
+      if (p['preset_id'] !== undefined) out.decksWithPresetHistory.add(deckId);
+      if (p['folder_id'] !== undefined) out.decksWithFolderHistory.add(deckId);
+    }
+  }
+  return out;
 }

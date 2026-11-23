@@ -1,0 +1,61 @@
+{
+  "package_id": "pkg:travel",
+  "name": "Korean Core + Hanja",
+  "version": "1.0.0",
+  "format_version": 1,
+  "languages": [
+    "ko"
+  ],
+  "decks": [
+    {
+      "id": "16dde1a5-eaf9-594c-8a07-a8fd737579df",
+      "name": "Korean Core + Hanja",
+      "file": "decks/korean-core-hanja-1.jsonl",
+      "note_type_id": "preset:vocab-ko",
+      "language": "ko",
+      "description": "Airport words.",
+      "preset_id": "preset-daily",
+      "folder_id": "folder-ko"
+    }
+  ],
+  "presets": [
+    {
+      "id": "preset-daily",
+      "name": "Daily",
+      "settings": {
+        "new_cards_per_day": 7,
+        "max_reviews_per_day": 70,
+        "target_retention": 0.85
+      },
+      "w": [
+        0.212,
+        1.2931,
+        2.3065,
+        8.2956,
+        6.4133,
+        0.8334,
+        3.0194,
+        0.001,
+        1.8722,
+        0.1666,
+        0.796,
+        1.4835,
+        0.0614,
+        0.2629,
+        1.6483,
+        0.6014,
+        1.8729,
+        0.5425,
+        0.0912,
+        0.0658,
+        0.1542
+      ]
+    }
+  ],
+  "folders": [
+    {
+      "id": "folder-ko",
+      "name": "Korean"
+    }
+  ]
+}

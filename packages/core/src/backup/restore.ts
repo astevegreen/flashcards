@@ -10,6 +10,9 @@ import type {
   ReviewRecord,
 } from '../model/types.ts';
 import { compareCodeUnits } from '../study/queue.ts';
+import { getDeckDescription } from '../decks/description.ts';
+import { getDeckOrganization, getDeckOrganizationHistory, type DeckPreset } from '../decks/fold.ts';
+import { FLASH_NAMESPACE_UUID, uuidv5 } from '../ids.ts';
 
 /**
  * Restoring a backup appends NEW events (authored by this device, at the current time) that move
@@ -18,6 +21,12 @@ import { compareCodeUnits } from '../study/queue.ts';
  * the `pre-restore` snapshot taken just before, and converges under the usual LWW rules:
  *
  * - decks, notes, layouts, note types, pages, courses and preferences get the backup's values;
+ * - deck descriptions come back as the user's own text (so a package description never beats
+ *   them); presets and folders get the backup's names and values, and every backup deck goes back
+ *   to its preset and folder. A preset or folder deleted since the backup can't come back under
+ *   its id (a delete is final), and a preset's weights can't be cleared, so those come back as a
+ *   new preset or folder (with an id derived from the old one). Presets and folders
+ *   made since the backup stay: decks the backup has leave them, and nothing is deleted;
  * - decks and notes the backup does not have are archived (nothing is ever deleted);
  * - reviews the backup has and the collection lost are recorded again with their original
  *   `review_id` (replay dedupes by id, so devices that still have them are unaffected);
@@ -25,8 +34,9 @@ import { compareCodeUnits } from '../study/queue.ts';
  *   never does it).
  *
  * Not restorable this way: a review that was undone after the backup (an undo is final), pages
- * the backup lacks (pages have no archive), Study Sets and practice sessions (log-retained
- * events), and deck fields added after this module (they are carried by their own events).
+ * the backup lacks (pages have no archive), presets and folders the backup lacks (they stay),
+ * Study Sets and practice sessions (log-retained events), and deck fields added after this module
+ * that no step here covers (they are carried by their own events).
  */
 
 export type RestoreStep = {
@@ -55,6 +65,11 @@ export interface RestoreSummary {
   coursesChanged: number;
   mediaAdded: number;
   preferencesChanged: boolean;
+  descriptionsChanged: number;
+  presetsChanged: number;
+  foldersChanged: number;
+  /** Decks moved back to the preset or folder they had. */
+  groupingsChanged: number;
 }
 
 export interface RestorePlan {
@@ -107,6 +122,10 @@ function emptySummary(): RestoreSummary {
     coursesChanged: 0,
     mediaAdded: 0,
     preferencesChanged: false,
+    descriptionsChanged: 0,
+    presetsChanged: 0,
+    foldersChanged: 0,
+    groupingsChanged: 0,
   };
 }
 
@@ -458,6 +477,104 @@ function planMediaAndPreferences(ctx: PlanContext): void {
   }
 }
 
+function planDescriptions(ctx: PlanContext): void {
+  const { current, backup, steps, summary } = ctx;
+  for (const deck of backup.decks.values()) {
+    const wanted = getDeckDescription(backup, deck.id);
+    if (wanted === getDeckDescription(current, deck.id)) continue;
+    // Written as the user's own text: a package description never wins over it.
+    steps.push({
+      type: 'DeckDescriptionChanged',
+      payload: { deck_id: deck.id, description: wanted },
+    });
+    summary.descriptionsChanged += 1;
+  }
+}
+
+/**
+ * The id a backup preset or folder comes back under: its own, unless that id was deleted since
+ * (a delete is final) or `usable` rejects the live one; then the first of a fixed chain of ids
+ * derived from it that is free or usable. Deterministic, so planning again is a fixed point.
+ */
+function restoredGroupId<T>(
+  kind: 'preset' | 'folder',
+  id: string,
+  live: ReadonlyMap<string, T>,
+  deleted: ReadonlySet<string>,
+  usable: (now: T) => boolean,
+): string {
+  for (let n = 0; ; n++) {
+    const candidate = n === 0 ? id : uuidv5(FLASH_NAMESPACE_UUID, `restore:${kind}:${id}:${n}`);
+    const now = live.get(candidate);
+    if (now !== undefined ? usable(now) : !deleted.has(candidate)) return candidate;
+  }
+}
+
+/** One backup preset: its id in the restored collection (see the module comment). */
+function planPreset(ctx: PlanContext, preset: DeckPreset, deleted: ReadonlySet<string>): string {
+  const live = getDeckOrganization(ctx.current).presets;
+  // A preset's weights can't be cleared: one with weights can't hold a backup preset without.
+  const id = restoredGroupId('preset', preset.id, live, deleted, (now) => {
+    return now.w === undefined || preset.w !== undefined;
+  });
+  const base = live.get(id);
+  const payload: EventPayloadMap['DeckPresetSaved'] = { preset_id: id };
+  if (base?.name !== preset.name) payload.name = preset.name;
+  const settings: Partial<DeckPreset['settings']> = {};
+  for (const key of ['new_cards_per_day', 'max_reviews_per_day', 'target_retention'] as const) {
+    if (base?.settings[key] !== preset.settings[key]) settings[key] = preset.settings[key];
+  }
+  if (Object.keys(settings).length > 0) payload.settings = settings;
+  if (preset.w && !same(base?.w, preset.w)) payload.w = [...preset.w];
+  if (Object.keys(payload).length > 1) {
+    ctx.steps.push({ type: 'DeckPresetSaved', payload });
+    ctx.summary.presetsChanged += 1;
+  }
+  return id;
+}
+
+function planFolders(ctx: PlanContext, deleted: ReadonlySet<string>): Map<string, string> {
+  const { current, backup, steps, summary } = ctx;
+  const ids = new Map<string, string>();
+  const live = getDeckOrganization(current).folders;
+  for (const folder of getDeckOrganization(backup).folders.values()) {
+    const id = restoredGroupId('folder', folder.id, live, deleted, () => true);
+    ids.set(folder.id, id);
+    if (live.get(id)?.name !== folder.name) {
+      steps.push({ type: 'DeckFolderSaved', payload: { folder_id: id, name: folder.name } });
+      summary.foldersChanged += 1;
+    }
+  }
+  return ids;
+}
+
+function planOrganization(ctx: PlanContext): void {
+  const { current, backup, steps, summary } = ctx;
+  const history = getDeckOrganizationHistory(current);
+  const backupOrg = getDeckOrganization(backup);
+  const currentOrg = getDeckOrganization(current);
+  const presetIds = new Map<string, string>();
+  for (const preset of backupOrg.presets.values()) {
+    presetIds.set(preset.id, planPreset(ctx, preset, history.deletedPresetIds));
+  }
+  const folderIds = planFolders(ctx, history.deletedFolderIds);
+  for (const deck of backup.decks.values()) {
+    const backupPreset = backupOrg.presetByDeck.get(deck.id);
+    const backupFolder = backupOrg.folderByDeck.get(deck.id);
+    const wantPreset = backupPreset === undefined ? null : (presetIds.get(backupPreset) ?? null);
+    const wantFolder = backupFolder === undefined ? null : (folderIds.get(backupFolder) ?? null);
+    const payload: EventPayloadMap['DeckGroupingChanged'] = { deck_id: deck.id };
+    if ((currentOrg.presetByDeck.get(deck.id) ?? null) !== wantPreset)
+      payload.preset_id = wantPreset;
+    if ((currentOrg.folderByDeck.get(deck.id) ?? null) !== wantFolder)
+      payload.folder_id = wantFolder;
+    if (Object.keys(payload).length > 1) {
+      steps.push({ type: 'DeckGroupingChanged', payload });
+      summary.groupingsChanged += 1;
+    }
+  }
+}
+
 /** Plans the events that bring `current` to the content of `backup` (see the module comment). */
 export function planBackupRestore(
   current: CollectionState,
@@ -475,6 +592,8 @@ export function planBackupRestore(
   planModel(ctx);
   planDecks(ctx);
   planFsrsParams(ctx);
+  planDescriptions(ctx);
+  planOrganization(ctx);
   planPages(ctx);
   planCourses(ctx);
   planMediaAndPreferences(ctx);
