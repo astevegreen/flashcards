@@ -179,21 +179,45 @@ export function createFileBridge(): CapacitorFileBridge {
   return {
     pickFile: async (opts): Promise<PickedFile | null> => {
       const types = acceptToTypes(opts?.accept);
+      const maxBytes = opts?.maxBytes;
+      // With a size limit the picker returns only the size and path first, so a file over the
+      // limit is never read (a 300 MB file read as base64 can exhaust a phone's WebView memory).
+      const readData = maxBytes === undefined;
       const res = await FilePicker.pickFiles({
         limit: 1,
-        readData: true,
+        readData,
         ...(types ? { types } : {}),
       }).catch((err: unknown) => {
         if (err instanceof Error && /cancel/i.test(err.message)) return { files: [] };
         throw err;
       });
       const file = res.files[0];
-      if (!file?.data) return null;
-      return {
-        name: file.name,
-        bytes: base64ToBytes(file.data),
-        ...(file.mimeType ? { mime: file.mimeType } : {}),
-      };
+      if (!file) return null;
+      const mime = file.mimeType ? { mime: file.mimeType } : {};
+      if (maxBytes !== undefined && file.size > maxBytes) {
+        return {
+          name: file.name,
+          bytes: new Uint8Array(0),
+          size: file.size,
+          tooLarge: true,
+          ...mime,
+        };
+      }
+      let data = file.data;
+      if (data === undefined && file.path) {
+        const read = await Filesystem.readFile({ path: file.path });
+        data = typeof read.data === 'string' ? read.data : undefined;
+        if (data === undefined && read.data instanceof Blob) {
+          return {
+            name: file.name,
+            bytes: new Uint8Array(await read.data.arrayBuffer()),
+            size: file.size,
+            ...mime,
+          };
+        }
+      }
+      if (data === undefined) return null;
+      return { name: file.name, bytes: base64ToBytes(data), size: file.size, ...mime };
     },
     saveAndShareFile: async ({ filename, data }) => {
       const written = await Filesystem.writeFile({

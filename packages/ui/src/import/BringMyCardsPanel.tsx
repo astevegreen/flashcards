@@ -104,8 +104,11 @@ function InputView({
   const busy = busyName !== null;
 
   const handlePick = async () => {
-    const picked = await platform.files.pickFile();
-    if (picked) onFile(picked.name, picked.bytes);
+    // The limit is checked before the file is read, so a huge file never reaches memory.
+    const picked = await platform.files.pickFile({ maxBytes: MAX_IMPORT_BYTES });
+    if (!picked) return;
+    if (picked.tooLarge) onTooLarge(picked.name);
+    else onFile(picked.name, picked.bytes);
   };
 
   const handleDrop = async (e: DragEvent<HTMLDivElement>) => {

@@ -89,7 +89,10 @@ export function createMicrosoftLoopbackBridge(
       }
       throw new Error(`Microsoft token endpoint returned ${res.status}: ${detail}`);
     }
+    // A refresh that rotates nothing keeps the current token; a new sign-in without one must not
+    // leave an older token behind (it may belong to another account).
     if (data.refresh_token) await config.tokenStore.set(data.refresh_token);
+    else if (!isRefresh) await config.tokenStore.delete();
     return { accessToken: data.access_token, expiresInSeconds: data.expires_in ?? 3600 };
   };
 

@@ -198,7 +198,13 @@ export function createDesktopFiles(fsBridge: TauriFsBridge): Files {
         ...(extensions.length > 0 ? { filters: [{ name: 'Supported files', extensions }] } : {}),
       });
       if (typeof picked !== 'string') return null;
-      return { name: baseName(picked), bytes: await readFile(picked) };
+      const name = baseName(picked);
+      if (options?.maxBytes !== undefined) {
+        const { size } = await stat(picked);
+        if (size > options.maxBytes)
+          return { name, bytes: new Uint8Array(0), size, tooLarge: true };
+      }
+      return { name, bytes: await readFile(picked) };
     },
     downloadFile: async (filename, data) => {
       const target = await saveDialog({ defaultPath: filename });
@@ -343,7 +349,9 @@ export function createLoopbackOAuthPlugin(config: LoopbackOAuthConfig): TauriLoo
           code_verifier: verifier,
           redirect_uri: redirectUri,
         });
+        // Never keep an older refresh token (possibly another account) past a new sign-in.
         if (tokens.refresh_token) await config.tokenStore.set(tokens.refresh_token);
+        else await config.tokenStore.delete();
         return {
           accessToken: tokens.access_token,
           expiresInSeconds: tokens.expires_in,

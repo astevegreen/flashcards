@@ -254,6 +254,33 @@ test.describe('Phase 14 Sync my devices', () => {
     await contextB.close();
   });
 
+  test('an empty new device whose first sync fails is offered onboarding once the user closes Sync my devices', async ({
+    browser,
+  }) => {
+    test.setTimeout(60_000);
+    const fakes: MicrosoftFakes = { graph: new FakeGraphServer(), exchanges: [] };
+    const context = await browser.newContext();
+    await installMicrosoftFakes(context, fakes, () => '');
+    // OneDrive is down: every Graph call fails, so the first sync never learns a collection id.
+    await context.route('https://graph.microsoft.com/**', (route) =>
+      route.fulfill({ status: 500, body: 'unavailable' }),
+    );
+    const page = await context.newPage();
+    await page.goto(`/?sync=onedrive&col=${OTHER_COLLECTION}`);
+    await page.getByTestId('sync-my-devices-primary').click();
+    await expect(page.getByTestId('sidebar-sync-badge')).toHaveText('Sync Error', {
+      timeout: 30_000,
+    });
+    // Still waiting to join: Sync my devices stays open and onboarding is not offered.
+    await expect(page.getByTestId('sync-my-devices')).toBeVisible();
+    await expect(page.getByTestId('onboarding')).toHaveCount(0);
+    // Closing it is the user's choice to start here instead.
+    await page.getByTestId('empty-sync-my-devices-btn').click();
+    await expect(page.getByTestId('onboarding')).toBeVisible();
+    await expect(page.getByTestId('sync-my-devices')).toHaveCount(0);
+    await context.close();
+  });
+
   test('Reset Local Device Data after opening a link behaves like a fresh install', async ({
     page,
   }) => {

@@ -1,7 +1,7 @@
-import type { Files, PickedFile } from '@flash/platform';
+import type { Files, PickedFile, PickFileOptions } from '@flash/platform';
 
 export class WebFiles implements Files {
-  pickFile(options?: { accept?: string }): Promise<PickedFile | null> {
+  pickFile(options?: PickFileOptions): Promise<PickedFile | null> {
     return new Promise((resolve) => {
       const input = document.createElement('input');
       input.type = 'file';
@@ -18,6 +18,11 @@ export class WebFiles implements Files {
         const file = input.files?.[0];
         if (!file) {
           done(null);
+          return;
+        }
+        const maxBytes = options?.maxBytes;
+        if (maxBytes !== undefined && file.size > maxBytes) {
+          done({ name: file.name, bytes: new Uint8Array(0), size: file.size, tooLarge: true });
           return;
         }
         const buf = await file.arrayBuffer();
