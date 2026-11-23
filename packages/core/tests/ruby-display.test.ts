@@ -3,10 +3,10 @@ import { normalizeTtsText } from '../src/audio/tts.ts';
 import { applyEvents, createEmptyState, createEventFactory } from '../src/events/replay.ts';
 import { createHlcState } from '../src/hlc.ts';
 import { exportFlashpkg, importFlashpkg } from '../src/import/flashpkg.ts';
-import { BUILTIN_NOTE_TYPE_IDS } from '../src/model/presets.ts';
+import { BUILTIN_LAYOUTS, BUILTIN_NOTE_TYPE_IDS } from '../src/model/presets.ts';
 import { expandAnswerCandidates, matchTypedAnswer } from '../src/study/answer-match.ts';
 import { applyRubyDisplay, parseRuby, stripRuby } from '../src/parsers/ruby.ts';
-import type { RubyDisplay } from '../src/model/types.ts';
+import type { Layout, RubyDisplay } from '../src/model/types.ts';
 import { planAnkiModel } from '../src/import/anki/model-plan.ts';
 import type { AnkiModel, AnkiNote } from '../src/import/anki/types.ts';
 
@@ -65,9 +65,14 @@ const NOTE = {
   fields: ['日本語[にほんご]', ' 私[わたし]は', 'x'],
 } as unknown as AnkiNote;
 
-function plan(qfmt: string, afmt: string) {
-  return planAnkiModel(model(qfmt, afmt), [NOTE], {
-    templateOrdsWithCards: new Set([0]),
+/** Plans a model whose first card is (q, a); `second` adds Card 2 as [q, a]. */
+function plan(qfmt: string, afmt: string, second?: [string, string]) {
+  const m = model(qfmt, afmt);
+  if (second) {
+    m.templates.push({ ord: 1, name: 'Card 2', qfmt: second[0], afmt: second[1] });
+  }
+  return planAnkiModel(m, [NOTE], {
+    templateOrdsWithCards: new Set(second ? [0, 1] : [0]),
     collectionUsesKana: true,
     isUsableMedia: () => false,
   });
@@ -87,13 +92,7 @@ describe('Anki import keeps full ruby and flags the layout', () => {
   });
 
   it('a field shown through kana: and kanji: on different layouts keeps ruby and a flag per layout', () => {
-    const m = model('{{kana:Reading}}', '{{Meaning}}');
-    m.templates.push({ ord: 1, name: 'Card 2', qfmt: '{{kanji:Reading}}', afmt: '{{Meaning}}' });
-    const p = planAnkiModel(m, [NOTE], {
-      templateOrdsWithCards: new Set([0, 1]),
-      collectionUsesKana: true,
-      isUsableMedia: () => false,
-    });
+    const p = plan('{{kana:Reading}}', '{{Meaning}}', ['{{kanji:Reading}}', '{{Meaning}}']);
     expect(p.layouts.map((l) => l.layout.ruby_display)).toEqual(['readings', 'bases']);
     expect(p.notes[0]?.texts[1]?.text).toBe('私[わたし]は');
   });
@@ -115,36 +114,20 @@ describe('Anki import keeps full ruby and flags the layout', () => {
 
 describe('typed answers are not turned into the other half of the ruby', () => {
   it('a typed field shown through kana: elsewhere stays reduced to the reading', () => {
-    const m = model('{{kana:Reading}}', '{{Meaning}}');
-    m.templates.push({
-      ord: 1,
-      name: 'Card 2',
-      qfmt: '{{kanji:Expression}}{{type:Reading}}',
-      afmt: '{{Meaning}}',
-    });
-    const p = planAnkiModel(m, [NOTE], {
-      templateOrdsWithCards: new Set([0, 1]),
-      collectionUsesKana: true,
-      isUsableMedia: () => false,
-    });
+    const p = plan('{{kana:Reading}}', '{{Meaning}}', [
+      '{{kanji:Expression}}{{type:Reading}}',
+      '{{Meaning}}',
+    ]);
     expect(p.notes[0]?.texts[1]?.text).toBe('わたしは');
     expect(p.layouts[1]?.layout.ruby_display).toBe('bases');
     expect(p.layouts[1]?.layout.answer_mode).toBe('typed');
   });
 
   it('same with a meaning-only prompt: the typed reading stays kana', () => {
-    const m = model('{{kana:Reading}}', '{{Meaning}}');
-    m.templates.push({
-      ord: 1,
-      name: 'Card 2',
-      qfmt: '{{Meaning}}{{type:Reading}}',
-      afmt: '{{Meaning}}',
-    });
-    const p = planAnkiModel(m, [NOTE], {
-      templateOrdsWithCards: new Set([0, 1]),
-      collectionUsesKana: true,
-      isUsableMedia: () => false,
-    });
+    const p = plan('{{kana:Reading}}', '{{Meaning}}', [
+      '{{Meaning}}{{type:Reading}}',
+      '{{Meaning}}',
+    ]);
     expect(p.notes[0]?.texts[1]?.text).toBe('わたしは');
   });
 });
@@ -192,15 +175,10 @@ describe('flag-aware consumers', () => {
         'LayoutChanged',
         {
           layout: {
+            ...(BUILTIN_LAYOUTS[0] as Layout),
             id: 'layout:custom:ruby',
             note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
-            name: 'Readings',
-            front_fields: ['word'],
-            reveal_steps: [['meaning']],
-            answer_mode: 'flip',
-            hide_furigana_on_front: false,
             ruby_display: 'readings',
-            enabled: true,
           },
         },
         t0 + 1,
