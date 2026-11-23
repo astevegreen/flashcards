@@ -14,7 +14,11 @@ import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
 import { LeechAutoSuspendSetting } from '../study/LeechSettings.tsx';
 import { OneDriveSyncButtons } from '../sync/OneDriveSyncButtons.tsx';
-import { SettingsAddDevice, SettingsSyncMyDevices } from '../sync/SettingsSyncBlocks.tsx';
+import {
+  SettingsAddDevice,
+  SettingsSyncMyDevices,
+  useActiveSyncChoice,
+} from '../sync/SettingsSyncBlocks.tsx';
 import { describeSyncProvider } from '../sync/syncProviderLabel.ts';
 
 const LazyPackManagerPanel = lazy(() =>
@@ -229,6 +233,7 @@ export function SettingsScreen() {
   };
 
   const isSyncConnected = syncState.provider !== 'none';
+  const activeSyncChoice = useActiveSyncChoice();
   const providerLabel = describeSyncProvider(syncState.provider, syncState.localFolderName);
 
   const handleSyncNow = async () => {
@@ -449,11 +454,11 @@ export function SettingsScreen() {
             data-testid="sync-status-pill"
             className={`min-w-[6.5rem] shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-center text-xs font-semibold ${getSyncPillClass(syncState.status)}`}
           >
-            {formatSyncStatusLabel(syncState.status)}
+            {syncState.collectionChoice ? 'Choose below' : formatSyncStatusLabel(syncState.status)}
           </span>
         </div>
 
-        {syncState.readOnly && (
+        {syncState.readOnly && !syncState.collectionChoice && (
           <div
             role="alert"
             className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300"
@@ -517,7 +522,7 @@ export function SettingsScreen() {
             </button>
           )}
 
-          {syncState.provider !== 'google_drive' && (
+          {syncState.provider !== 'google_drive' && activeSyncChoice !== 'google_drive' && (
             <button
               type="button"
               data-testid="connect-google-drive-btn"
@@ -545,18 +550,20 @@ export function SettingsScreen() {
             </button>
           )}
 
-          {platform.dropboxConfigured && syncState.provider !== 'dropbox' && (
-            <button
-              type="button"
-              data-testid="connect-dropbox-btn"
-              disabled={syncBusy}
-              onClick={() => void handleConnectDropbox()}
-              title="Sync privately via your Dropbox App Folder"
-              className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
-            >
-              Connect Dropbox
-            </button>
-          )}
+          {platform.dropboxConfigured &&
+            syncState.provider !== 'dropbox' &&
+            activeSyncChoice !== 'dropbox' && (
+              <button
+                type="button"
+                data-testid="connect-dropbox-btn"
+                disabled={syncBusy}
+                onClick={() => void handleConnectDropbox()}
+                title="Sync privately via your Dropbox App Folder"
+                className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
+              >
+                Connect Dropbox
+              </button>
+            )}
 
           {syncState.provider === 'dropbox' && syncState.status === 'reconnect_required' && (
             <button
@@ -569,32 +576,40 @@ export function SettingsScreen() {
             </button>
           )}
 
-          <OneDriveSyncButtons busy={syncBusy} onError={setError} />
+          <OneDriveSyncButtons
+            busy={syncBusy}
+            hideConnect={activeSyncChoice === 'onedrive'}
+            onError={setError}
+          />
 
-          {platform.iCloudSyncSupported && syncState.provider !== 'icloud' && (
-            <button
-              type="button"
-              data-testid="connect-icloud-btn"
-              disabled={syncBusy}
-              onClick={() => void handleConnectICloud()}
-              title="Sync privately via your iCloud Drive (no sign-in needed)"
-              className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
-            >
-              Use iCloud Drive
-            </button>
-          )}
+          {platform.iCloudSyncSupported &&
+            syncState.provider !== 'icloud' &&
+            activeSyncChoice !== 'icloud' && (
+              <button
+                type="button"
+                data-testid="connect-icloud-btn"
+                disabled={syncBusy}
+                onClick={() => void handleConnectICloud()}
+                title="Sync privately via your iCloud Drive (no sign-in needed)"
+                className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
+              >
+                Use iCloud Drive
+              </button>
+            )}
 
-          {platform.supportsLocalFolderSync && syncState.provider !== 'local_folder' && (
-            <button
-              type="button"
-              data-testid="connect-local-folder-btn"
-              disabled={syncBusy}
-              onClick={() => void handleConnectLocalFolder()}
-              className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
-            >
-              Connect Local Folder (PC)
-            </button>
-          )}
+          {platform.supportsLocalFolderSync &&
+            syncState.provider !== 'local_folder' &&
+            activeSyncChoice !== 'local_folder' && (
+              <button
+                type="button"
+                data-testid="connect-local-folder-btn"
+                disabled={syncBusy}
+                onClick={() => void handleConnectLocalFolder()}
+                className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
+              >
+                Connect Local Folder (PC)
+              </button>
+            )}
 
           {syncState.provider === 'local_folder' && syncState.status === 'reconnect_required' && (
             <button

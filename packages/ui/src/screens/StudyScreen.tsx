@@ -53,8 +53,8 @@ const LazyEmptyCollection = lazy(() =>
 // remount (back from Settings) has it synchronously.
 type DeferredSyncPromptModule = typeof DeferredSyncPromptModuleType;
 let loadedDeferredSyncPrompt: DeferredSyncPromptModule | undefined;
-/** An add-device link sends a device with cards to Settings once per page load. */
-let addDeviceLinkRouted = false;
+/** An add-device link sends a device with cards to Settings once (per link, so a second link opened inside a native shell routes too). */
+let addDeviceLinkRouted: unknown;
 
 function useDeferredSyncPromptModule(
   storage: Parameters<DeferredSyncPromptModule['preloadDeferredSyncPrompt']>[0],
@@ -375,8 +375,10 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   // load. An empty collection shows it in place instead.
   const hasDecks = decks.length > 0;
   useEffect(() => {
-    if (addDeviceLinkRouted || !addDeviceLink || !hasDecks || !onOpenSettings) return;
-    addDeviceLinkRouted = true;
+    if (addDeviceLinkRouted === addDeviceLink || !addDeviceLink || !hasDecks || !onOpenSettings) {
+      return;
+    }
+    addDeviceLinkRouted = addDeviceLink;
     onOpenSettings();
   }, [addDeviceLink, hasDecks, onOpenSettings]);
 

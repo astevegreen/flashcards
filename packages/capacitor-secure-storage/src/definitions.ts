@@ -8,10 +8,16 @@
  * - Web: every secret method rejects with `UNAVAILABLE`. Nothing is ever written to browser storage.
  */
 export interface FlashSecureStoragePlugin {
-  /** Reads a secret. `value` is `null` when the key has never been set (or could not be decrypted). */
-  get(options: { key: string }): Promise<{ value: string | null }>;
-  /** Writes (or replaces) a secret. */
-  set(options: { key: string; value: string }): Promise<void>;
+  /**
+   * Reads a secret. `value` is `null` when the key has never been set (or could not be decrypted).
+   * `lost` is `true` (Android) when a stored secret was dropped because the Keystore key was lost.
+   */
+  get(options: { key: string }): Promise<{ value: string | null; lost?: boolean }>;
+  /**
+   * Writes (or replaces) a secret. Resolves `{ lost: true }` (Android) when the Keystore key was
+   * lost and the secrets it sealed were dropped first.
+   */
+  set(options: { key: string; value: string }): Promise<{ lost?: boolean } | undefined>;
   /** Deletes a secret. Deleting a missing key succeeds. */
   remove(options: { key: string }): Promise<void>;
   /**

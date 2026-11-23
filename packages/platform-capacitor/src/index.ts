@@ -54,7 +54,9 @@ export {
 export { ICloudDriveSyncTransport, type ICloudDocumentPlugin } from './sync/icloud-transport.ts';
 export { createSecureKvRouting, type SecureKvRouting } from './secure/secure-kv-storage.ts';
 export {
+  adaptSecureStoragePlugin,
   MICROSOFT_REFRESH_TOKEN_KEY,
+  SECURE_KEYS_LOST_KV_KEY,
   SECURE_KV_KEYS,
   type LegacyPreferenceEntry,
   type NativeSecureStorage,

@@ -14,6 +14,7 @@ import {
 } from '../secure/secure-launch.ts';
 import {
   MICROSOFT_REFRESH_TOKEN_KEY,
+  SECURE_KEYS_LOST_KV_KEY,
   SECURE_KV_KEYS,
   type MobilePlatform,
 } from '../secure/secure-store.ts';
@@ -25,6 +26,7 @@ import {
   createMlKitInkPlugin,
   createNativeSecureStorage,
   createStoreBillingPlugin,
+  createAddDeviceUrlSource,
   createSystemBrowserLauncher,
   openCapacitorSqliteDriver,
 } from './plugins.ts';
@@ -71,7 +73,11 @@ export async function bootCapacitorPlatform(
   const platformName = Capacitor.getPlatform();
   const mobilePlatform: MobilePlatform = platformName === 'ios' ? 'ios' : 'android';
   const database = new CapacitorSqliteStorage(await openCapacitorSqliteDriver());
-  const secureStorage = createNativeSecureStorage();
+  // The sign-in secrets were dropped because the Keystore key was lost: leave a plain flag so the
+  // app can explain once why the user has to sign in again (no secret in it).
+  const secureStorage = createNativeSecureStorage(() =>
+    database.setKv(SECURE_KEYS_LOST_KV_KEY, { at: Date.now() }),
+  );
   const secureKv = createSecureKvRouting({
     inner: database,
     secureStore: secureStorage,
@@ -125,6 +131,7 @@ export async function bootCapacitorPlatform(
 
   return {
     ...composeNativePlatform(native, base),
+    onAddDeviceUrl: createAddDeviceUrlSource(),
     ...(loadOneDrive ? lazyOneDriveFields(loadOneDrive) : {}),
     // Phase 13 study reminders: OS local notifications (the PWA only shows an in-app badge).
     studyReminderDelivery: 'os-scheduled',

@@ -82,6 +82,13 @@ public class SecureStoragePlugin extends Plugin {
         return result;
     }
 
+    /** A read that found nothing because the Keystore key was lost: the app tells the user once. */
+    private static JSObject lostResult() {
+        JSObject result = valueResult(null);
+        result.put("lost", true);
+        return result;
+    }
+
     @PluginMethod
     public void get(PluginCall call) {
         String key = requireKey(call);
@@ -101,13 +108,13 @@ public class SecureStoragePlugin extends Plugin {
             // where the key does not exist). The value can never be recovered, so drop it.
             Logger.warn(TAG, "Dropping a stored secret that can no longer be decrypted");
             prefs().edit().remove(entry).commit();
-            call.resolve(valueResult(null));
+            call.resolve(lostResult());
         } catch (KeystoreCipher.KeyUnusableException e) {
             // The key was invalidated (some devices do this after an OS update) and has been deleted.
             // Nothing sealed with it can be read again, so drop it all and let the user sign in again.
             Logger.warn(TAG, "The Keystore key is unusable; dropping every stored secret");
             dropAllEntries();
-            call.resolve(valueResult(null));
+            call.resolve(lostResult());
         } catch (GeneralSecurityException | IOException e) {
             call.reject("Could not read from secure storage", "KEYSTORE_ERROR", e);
         }
@@ -126,22 +133,31 @@ public class SecureStoragePlugin extends Plugin {
         }
         String entry = ENTRY_PREFIX + key;
         try {
-            String sealed = encryptWithRecovery(entry, value);
+            boolean[] keyWasLost = new boolean[1];
+            String sealed = encryptWithRecovery(entry, value, keyWasLost);
             if (!prefs().edit().putString(entry, sealed).commit()) {
                 call.reject("Could not write to secure storage", "STORAGE_ERROR");
                 return;
             }
-            call.resolve();
+            if (keyWasLost[0]) {
+                JSObject result = new JSObject();
+                result.put("lost", true);
+                call.resolve(result);
+            } else {
+                call.resolve();
+            }
         } catch (GeneralSecurityException | IOException e) {
             call.reject("Could not write to secure storage", "KEYSTORE_ERROR", e);
         }
     }
 
     /** Encrypts; if the Keystore key was lost, drops the unreadable entries and retries once with a new key. */
-    private String encryptWithRecovery(String entry, String value) throws GeneralSecurityException, IOException {
+    private String encryptWithRecovery(String entry, String value, boolean[] keyWasLost)
+        throws GeneralSecurityException, IOException {
         try {
             return cipher.encrypt(entry, value);
         } catch (KeystoreCipher.KeyUnusableException e) {
+            keyWasLost[0] = true;
             Logger.warn(TAG, "The Keystore key is unusable; dropping every stored secret and creating a new key");
             dropAllEntries();
             return cipher.encrypt(entry, value);

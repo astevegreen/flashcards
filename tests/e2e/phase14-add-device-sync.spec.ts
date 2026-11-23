@@ -28,7 +28,7 @@ async function expectNoSidewaysScroll(page: Page): Promise<void> {
 }
 
 /** Signs in through "Sync my devices" (the link's provider is preselected) and waits for sync. */
-async function syncMyDevicesFromSettings(page: Page): Promise<void> {
+async function syncMyDevicesFromSettings(page: Page, expectSynced = true): Promise<void> {
   await openSettings(page);
   const flow = page.getByTestId('cloud-sync-card').getByTestId('sync-my-devices');
   await expect(flow.getByTestId('sync-my-devices-link-note')).toContainText('OneDrive');
@@ -38,7 +38,7 @@ async function syncMyDevicesFromSettings(page: Page): Promise<void> {
   await expect(page.getByTestId('study-card')).toBeVisible();
   await openSettings(page);
   await expect(page.getByText('OneDrive (App Folder)')).toBeVisible();
-  await expect(page.getByTestId('sync-status-pill')).toHaveText('Synced');
+  if (expectSynced) await expect(page.getByTestId('sync-status-pill')).toHaveText('Synced');
 }
 
 /** Device A: dev-seeded cards, connected to the faked OneDrive and synced once. */
@@ -140,6 +140,8 @@ test.describe('Phase 14 Sync my devices', () => {
     await expect(flow.getByTestId('sync-my-devices-primary')).toHaveText('Sync my devices');
     await expect(flow).toContainText('Uses Google Drive.');
     await expect(page.getByTestId('connect-local-folder-btn')).toBeVisible();
+    // Google Drive is what the main button connects, so it has no second Connect button.
+    await expect(page.getByTestId('connect-google-drive-btn')).toHaveCount(0);
     // Nothing syncs yet, so there is no add-device code to show.
     await expect(page.getByTestId('add-device-btn')).toHaveCount(0);
   });
@@ -191,30 +193,40 @@ test.describe('Phase 14 Sync my devices', () => {
       'Connected to the same collection as your other device.',
     );
 
-    // Device C opens a link to a collection this account does not hold: it is told so.
+    // Device C opens a link to a collection this account does not hold: it is asked first, and
+    // nothing is joined, pulled or pushed until it answers.
     const contextC = await browser.newContext();
     await installMicrosoftFakes(contextC, fakes, () => 'device=adc');
     const pageC = await contextC.newPage();
     await pageC.goto(`/?sync=onedrive&col=${OTHER_COLLECTION}&device=adc`);
-    await syncMyDevicesFromSettings(pageC);
-    await expect(pageC.getByTestId('add-device-collection-check')).toHaveAttribute(
-      'data-check',
-      'mismatch',
-    );
-    // Someone who means to keep this collection dismisses the notice, and it stays gone.
-    await pageC.getByTestId('add-device-collection-dismiss').click();
-    await expect(pageC.getByTestId('add-device-collection-check')).toHaveCount(0);
-    // The stored link is deleted asynchronously: reload only once IndexedDB no longer holds it.
+    await syncMyDevicesFromSettings(pageC, false);
+    await expect(pageC.getByTestId('add-device-collection-choice')).toBeVisible();
+    await expect(pageC.getByTestId('sync-status-pill')).not.toHaveText('Synced');
+    // "Keep this device's cards" stops syncing here; the cards stay and the question is gone.
+    await pageC.getByTestId('add-device-keep-local').click();
+    await expect(pageC.getByTestId('add-device-collection-choice')).toHaveCount(0);
+    await expect(pageC.getByTestId('connect-onedrive-btn')).toBeVisible();
     await expect.poll(() => storedAddDeviceLink(pageC, 'flashcards-db-adc')).toBe(false);
     await pageC.reload();
+    await expect(pageC.getByTestId('study-card')).toBeVisible();
     await openSettings(pageC);
-    await expect(pageC.getByText('OneDrive (App Folder)')).toBeVisible();
-    await expect(pageC.getByTestId('add-device-collection-check')).toHaveCount(0);
+    await expect(pageC.getByTestId('add-device-collection-choice')).toHaveCount(0);
+
+    // Device D opens the same kind of link and chooses the synced collection: it joins it.
+    const contextD = await browser.newContext();
+    await installMicrosoftFakes(contextD, fakes, () => 'device=add');
+    const pageD = await contextD.newPage();
+    await pageD.goto(`/?sync=onedrive&col=${OTHER_COLLECTION}&device=add`);
+    await syncMyDevicesFromSettings(pageD, false);
+    await pageD.getByTestId('add-device-use-synced').click();
+    await expect(pageD.getByTestId('sync-status-pill')).toHaveText('Synced');
+    await expect(pageD.getByTestId('add-device-collection-choice')).toHaveCount(0);
 
     expect(fakes.graph.authLeaks).toEqual([]);
     await contextA.close();
     await contextB.close();
     await contextC.close();
+    await contextD.close();
   });
 
   test('an empty new device joins through the link and its sign-in redirect, never offered onboarding', async ({
