@@ -2,6 +2,10 @@ packages:
   - 'apps/*'
   - 'packages/*'
   - 'tools/*'
+# The same virtual-store folder names on every OS (pnpm defaults to 60 on Windows, 120 elsewhere), so
+# the paths `cap sync` writes into apps/mobile (capacitor.settings.gradle, CapApp-SPM/Package.swift)
+# are identical on Windows, macOS and the Linux CI runners.
+virtualStoreDirMaxLength: 60
 allowBuilds:
   esbuild: true
   workerd: true
