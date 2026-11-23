@@ -3,6 +3,7 @@ import { normalizeAddedTag } from '../events/tag-adds.ts';
 import type { NoteTagsAddedPayload } from '../events/types.ts';
 import { normalizeLanguage } from '../languages/normalize.ts';
 import type { Note, NoteType } from '../model/types.ts';
+import { stripRichText } from '../parsers/rich-text.ts';
 import { parseRuby } from '../parsers/ruby.ts';
 
 /**
@@ -51,12 +52,13 @@ const WIDTH_AND_JAMO_VARIANTS = /[\u3131-\u318e\uff01-\uffef]+/gu;
  *
  * Ruby keeps its base (`学校[がっこう]` -> `学校`), except in Korean decks, where the Hangul side
  * wins (`學校[학교]` -> `학교`), so a Hanja-annotated note matches a plain Hangul one.
+
  *
- * TODO: once the field editor's rich-text markup parser lands in `packages/core/src/parsers/`,
- * strip its markup here too (use its strip helper) so bold / colour spans don't hide a match.
+ * The field editor's rich-text markup is stripped first (`{b:학교}` -> `학교`), cloze answers
+ * included, so bold / colour spans don't hide a match.
  */
 export function normalizeDuplicateKey(value: string, language?: string): string {
-  const folded = value
+  const folded = stripRichText(value)
     .normalize('NFC')
     .replace(WIDTH_AND_JAMO_VARIANTS, (run) => run.normalize('NFKC'))
     .normalize('NFC');

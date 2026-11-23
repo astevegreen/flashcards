@@ -19,6 +19,7 @@ import {
   type AnkiMediaFile,
   type AnkiRichTextConverter,
 } from './field-html.ts';
+import { ankiRichTextToHtml } from './rich-text-html.ts';
 import { cmpCodeUnits as compareCodeUnits } from './select.ts';
 
 /**
@@ -69,6 +70,7 @@ export interface AnkiApkgExportOptions {
   nowMs?: number;
   /** File name for the package (default from the single deck's name, else `flashcards`). */
   name?: string;
+  /** Converter for rich-text markup in text fields (default: `ankiRichTextToHtml`). */
   richText?: AnkiRichTextConverter;
 }
 
@@ -508,7 +510,7 @@ function noteFieldsHtml(
   media: AnkiMediaNamer,
   richText: AnkiRichTextConverter | undefined,
 ): string[] {
-  const ctx = { media, ...(richText ? { richText } : {}) };
+  const ctx = { media, richText: richText ?? ankiRichTextToHtml };
   return noteType.fields.map((f: NoteTypeField) => ankiFieldHtml(note.fields[f.key], f, ctx));
 }
 

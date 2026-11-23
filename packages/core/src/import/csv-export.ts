@@ -1,5 +1,6 @@
 import type { CollectionState } from '../events/replay.ts';
 import type { Note, NoteType } from '../model/types.ts';
+import { stripRichText } from '../parsers/rich-text.ts';
 import { normalizeTagList } from '../tags/index.ts';
 
 export interface CsvExportOptions {
@@ -11,6 +12,12 @@ export interface CsvExportOptions {
   delimiter?: ',' | '\t';
   /** Prefix a UTF-8 BOM so Excel opens Hangul / CJK text correctly (default `true`). */
   bom?: boolean;
+  /**
+   * Keep the field editor's rich-text markup (`{b:…}`, `{red:…}`) as typed (default `false`: it is
+   * stripped, since other apps show the braces). Ruby (`漢字[かな]`) and cloze are kept either way.
+   * Keep it for a copy that is meant to be imported back into this app.
+   */
+  keepRichText?: boolean;
 }
 
 export interface CsvExportResult {
@@ -100,7 +107,10 @@ export function exportCsv(state: CollectionState, options: CsvExportOptions): Cs
     const tags = tagLists[idx] ?? [];
     const cells = [
       note.source_key || note.id,
-      ...fields.map((f) => note.fields[f.key] ?? ''),
+      ...fields.map((f) => {
+        const value = note.fields[f.key] ?? '';
+        return options.keepRichText ? value : stripRichText(value);
+      }),
       ...Array.from({ length: categoryColumns }, (_, i) => tags[i] ?? ''),
     ];
     lines.push(cells.map((c) => escapeCell(c, delimiter)).join(delimiter));
