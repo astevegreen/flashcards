@@ -149,8 +149,8 @@ function ClozeModeView({
               data-testid={`front-field-${fieldKey}`}
               className={
                 idx === 0
-                  ? `whitespace-pre-wrap font-semibold tracking-tight ${cardTextFitClass(value)}`
-                  : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail')}`
+                  ? `whitespace-pre-wrap font-semibold tracking-tight ${cardTextFitClass(value, 'prompt', layout.ruby_display)}`
+                  : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail', layout.ruby_display)}`
               }
             >
               <ClozeText

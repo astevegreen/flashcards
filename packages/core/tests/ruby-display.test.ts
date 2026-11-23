@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { applyRubyDisplay, parseRuby, type RubyDisplay } from '../src/parsers/ruby.ts';
+import { normalizeTtsText } from '../src/audio/tts.ts';
+import { applyEvents, createEmptyState, createEventFactory } from '../src/events/replay.ts';
+import { createHlcState } from '../src/hlc.ts';
+import { exportFlashpkg, importFlashpkg } from '../src/import/flashpkg.ts';
+import { BUILTIN_NOTE_TYPE_IDS } from '../src/model/presets.ts';
+import { expandAnswerCandidates, matchTypedAnswer } from '../src/study/answer-match.ts';
+import { applyRubyDisplay, parseRuby, stripRuby } from '../src/parsers/ruby.ts';
+import type { RubyDisplay } from '../src/model/types.ts';
 import { planAnkiModel } from '../src/import/anki/model-plan.ts';
 import type { AnkiModel, AnkiNote } from '../src/import/anki/types.ts';
 
@@ -79,12 +86,94 @@ describe('Anki import keeps full ruby and flags the layout', () => {
     expect(p.notes[0]?.texts[0]?.text).toBe('日本語[にほんご]');
   });
 
-  it('mixed filters on one layout keep both', () => {
+  it('a field shown through kana: and kanji: on different layouts keeps ruby and a flag per layout', () => {
+    const m = model('{{kana:Reading}}', '{{Meaning}}');
+    m.templates.push({ ord: 1, name: 'Card 2', qfmt: '{{kanji:Reading}}', afmt: '{{Meaning}}' });
+    const p = planAnkiModel(m, [NOTE], {
+      templateOrdsWithCards: new Set([0, 1]),
+      collectionUsesKana: true,
+      isUsableMedia: () => false,
+    });
+    expect(p.layouts.map((l) => l.layout.ruby_display)).toEqual(['readings', 'bases']);
+    expect(p.notes[0]?.texts[1]?.text).toBe('私[わたし]は');
+  });
+
+  it('a layout mixing a kana: field and a kanji: field reduces each at import (old behaviour)', () => {
     const p = plan('{{kana:Reading}}{{kanji:Expression}}', '{{Meaning}}');
     expect(p.layouts[0]?.layout.ruby_display).toBeUndefined();
-    const q = plan('{{kana:Reading}}', '{{Reading}}');
-    expect(q.layouts[0]?.layout.ruby_display).toBeUndefined();
-    const r = plan('{{furigana:Reading}}', '{{Meaning}}');
-    expect(r.layouts[0]?.layout.ruby_display).toBeUndefined();
+    expect(p.notes[0]?.texts[0]?.text).toBe('日本語');
+    expect(p.notes[0]?.texts[1]?.text).toBe('わたしは');
+  });
+
+  it('a field also shown plain, or through furigana:, keeps both', () => {
+    expect(plan('{{kana:Reading}}', '{{Reading}}').layouts[0]?.layout.ruby_display).toBeUndefined();
+    expect(
+      plan('{{furigana:Reading}}', '{{Meaning}}').layouts[0]?.layout.ruby_display,
+    ).toBeUndefined();
+  });
+});
+
+describe('stripRuby with a display flag', () => {
+  it('keeps bases by default and readings for the readings flag', () => {
+    expect(stripRuby('日本語[にほんご]を{食べる|たべる}')).toBe('日本語を食べる');
+    expect(stripRuby('日本語[にほんご]を{食べる|たべる}', 'bases')).toBe('日本語を食べる');
+    expect(stripRuby('日本語[にほんご]を{食べる|たべる}', 'readings')).toBe('にほんごをたべる');
+  });
+});
+
+describe('flag-aware consumers', () => {
+  it('typed answers match the readings on a readings layout', () => {
+    const opts = { lang: 'ja' };
+    expect(matchTypedAnswer('にほん', '日本[にほん]', opts).correct).toBe(false);
+    expect(
+      matchTypedAnswer('にほん', '日本[にほん]', { ...opts, rubyDisplay: 'readings' }).correct,
+    ).toBe(true);
+    expect(expandAnswerCandidates('日本[にほん]', 'readings')).toEqual(['にほん']);
+  });
+
+  it('TTS speaks the readings only on a readings layout', () => {
+    expect(normalizeTtsText('日本[にほん]')).toBe('日本');
+    expect(normalizeTtsText('日本[にほん]', 'readings')).toBe('にほん');
+  });
+
+  it('exports and re-imports ruby_display through .flashpkg', () => {
+    const t0 = Date.UTC(2026, 5, 2, 10, 0, 0);
+    const state = createEmptyState();
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    applyEvents(state, [
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: 'd1',
+          name: 'Ruby Deck',
+          note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+          language: 'ko',
+          created_at: t0,
+        },
+        t0,
+      ),
+      factory.create(
+        'LayoutChanged',
+        {
+          layout: {
+            id: 'layout:custom:ruby',
+            note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+            name: 'Readings',
+            front_fields: ['word'],
+            reveal_steps: [['meaning']],
+            answer_mode: 'flip',
+            hide_furigana_on_front: false,
+            ruby_display: 'readings',
+            enabled: true,
+          },
+        },
+        t0 + 1,
+      ),
+    ]);
+    const zip = exportFlashpkg(state, { name: 'RubyPkg' });
+    const fresh = createEmptyState();
+    const f2 = createEventFactory('dev-b', 0, createHlcState('dev-b', t0 + 100));
+    applyEvents(fresh, importFlashpkg(zip, fresh, f2, { nowMs: t0 + 100 }).events);
+    expect(fresh.layouts.get('layout:custom:ruby')?.ruby_display).toBe('readings');
   });
 });

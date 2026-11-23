@@ -18,6 +18,8 @@
  *    - `{日本|に|ほん}` -> ruby("日", "に") + ruby("本", "ほん")
  */
 
+import type { RubyDisplay } from '../model/types.ts';
+
 export type RubySegment =
   { type: 'text'; value: string } | { type: 'ruby'; base: string; reading: string };
 
@@ -199,7 +201,7 @@ export function convertAnkiRuby(input: string): string {
  */
 export function applyRubyDisplay(
   segments: readonly RubySegment[],
-  mode: 'both' | 'readings' | 'bases' | undefined,
+  mode: RubyDisplay | undefined,
 ): RubySegment[] {
   if (mode === undefined || mode === 'both') return [...segments];
   const out: RubySegment[] = [];
@@ -210,8 +212,12 @@ export function applyRubyDisplay(
   return out;
 }
 
-export function stripRuby(input: string): string {
+export function stripRuby(input: string, display?: RubyDisplay): string {
+  const showReadings = display === 'readings';
   return parseRuby(input)
-    .map((seg) => (seg.type === 'ruby' ? seg.base : seg.value))
+    .map((seg) => {
+      if (seg.type === 'text') return seg.value;
+      return showReadings ? seg.reading : seg.base;
+    })
     .join('');
 }

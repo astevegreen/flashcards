@@ -1,7 +1,13 @@
 import type { FieldKind, Layout, NoteType, NoteTypeField, RubyDisplay } from '../../model/types.ts';
 import { isHanCodePoint } from '../../parsers/ruby.ts';
+import type { AnkiFuriganaOutput } from './furigana.ts';
 import { ankiHtmlToText, type AnkiFieldText } from './html.ts';
-import { FURIGANA_FILTERS, parseAnkiTemplate, type AnkiTemplateSide } from './template.ts';
+import {
+  FURIGANA_FILTERS,
+  parseAnkiTemplate,
+  type AnkiFieldRef,
+  type AnkiTemplateSide,
+} from './template.ts';
 import type { AnkiModel, AnkiModelTemplate, AnkiNote } from './types.ts';
 
 /**
@@ -9,9 +15,11 @@ import type { AnkiModel, AnkiModelTemplate, AnkiNote } from './types.ts';
  * - every Anki field becomes a field (key from its name, label = the name);
  * - a field whose notes embed `<img>` / `[sound:]` gets companion `image` / `audio` fields, one
  *   per reference (`front_image`, `front_image_2`, …), since a field here holds one media file;
- * - furigana (`furigana:` / `kana:` / `kanji:`) is always stored as full ruby; the Layout's
+ * - furigana (`furigana:` / `kana:` / `kanji:`) is stored as full ruby; the Layout's
  *   `ruby_display` flag shows the readings alone when every furigana field on it goes through
- *   `{{kana:F}}`, the bases alone when all go through `{{kanji:F}}`, and both otherwise;
+ *   `{{kana:F}}`, the bases alone when all go through `{{kanji:F}}`, and both otherwise. Only on a
+ *   layout mixing `kana:` and `kanji:` fields, a field shown just one way keeps that reduction
+ *   (one flag cannot serve both);
  * - every card template becomes a Layout: fields on the question side are the front, the other
  *   fields on the answer side are revealed; `{{type:F}}` -> typed mode, cloze models -> cloze,
  *   `{{tts …:F}}` -> `speak_field`, `{{kanji:F}}` on the front -> furigana hidden on the front.
@@ -24,8 +32,8 @@ export interface FieldPlan {
   ord: number;
   name: string;
   key: string;
-  /** A template shows this field through a furigana filter (its notes keep full ruby). */
-  furigana: boolean;
+  /** How Anki furigana in this field is stored; absent when no template filter asks for it. */
+  furigana?: AnkiFuriganaOutput;
   /** Companion image fields, in reference order. */
   imageKeys: string[];
   /** Companion audio fields, in reference order. */
@@ -137,26 +145,62 @@ function useKind(filters: readonly string[]): string {
   return filters.find((f) => FURIGANA_FILTERS.has(f)) ?? 'plain';
 }
 
-/** Field names any template shows through a furigana filter (their notes keep full ruby). */
-function furiganaFields(sides: readonly TemplateSides[]): Set<string> {
-  const out = new Set<string>();
+/** Distinct ways the given uses show furigana fields (`kana`, `kanji`, `furigana`, `plain`, …). */
+function useKinds(uses: readonly AnkiFieldRef[], include: (field: string) => boolean): Set<string> {
+  const kinds = new Set<string>();
+  for (const use of uses) {
+    if (include(use.field)) kinds.add(useKind(use.filters));
+  }
+  return kinds;
+}
+
+/**
+ * How each furigana field is stored. Full ruby by default (the layout's `ruby_display` flag then
+ * picks readings or bases). One flag per layout cannot serve a layout that shows one field
+ * through `kana:` and another through `kanji:`, so there a field that is only ever shown one way
+ * (anywhere) keeps what Anki displays (`kana` = reading, `kanji` = base), as before the flag.
+ */
+function furiganaFields(sides: readonly TemplateSides[]): Map<string, AnkiFuriganaOutput> {
+  const global = new Map<string, Set<string>>();
   for (const { q, a } of sides) {
     for (const use of [...q.uses, ...a.uses]) {
-      if (use.filters.some((f) => FURIGANA_FILTERS.has(f))) out.add(use.field);
+      const set = global.get(use.field) ?? new Set<string>();
+      set.add(useKind(use.filters));
+      global.set(use.field, set);
+    }
+  }
+  const hasFurigana = (field: string): boolean => {
+    const kinds = global.get(field);
+    return kinds !== undefined && [...kinds].some((k) => k !== 'plain');
+  };
+  const out = new Map<string, AnkiFuriganaOutput>();
+  for (const field of global.keys()) if (hasFurigana(field)) out.set(field, 'ruby');
+  for (const { q, a } of sides) {
+    const uses = [...q.uses, ...a.uses];
+    const kinds = useKinds(uses, hasFurigana);
+    if (kinds.size < 2) continue;
+    for (const use of uses) {
+      const only = global.get(use.field);
+      if (!hasFurigana(use.field) || only?.size !== 1) continue;
+      if (only.has('kana')) out.set(use.field, 'kana');
+      else if (only.has('kanji')) out.set(use.field, 'kanji');
     }
   }
   return out;
 }
 
 /**
- * What one template shows of ruby: only readings when every use of a furigana field goes through
- * `kana:`, only bases when all go through `kanji:`; any mix (or a plain use) shows both.
+ * What one template shows of the fields stored as ruby: only readings when every use goes
+ * through `kana:`, only bases when all go through `kanji:`; any mix (or a plain use) shows both.
  */
-function rubyDisplayOf(sides: TemplateSides, furigana: ReadonlySet<string>): RubyDisplay {
-  const kinds = new Set<string>();
-  for (const use of [...sides.q.uses, ...sides.a.uses]) {
-    if (furigana.has(use.field)) kinds.add(useKind(use.filters));
-  }
+function rubyDisplayOf(
+  sides: TemplateSides,
+  furigana: ReadonlyMap<string, AnkiFuriganaOutput>,
+): RubyDisplay {
+  const kinds = useKinds(
+    [...sides.q.uses, ...sides.a.uses],
+    (field) => furigana.get(field) === 'ruby',
+  );
   if (kinds.size === 1 && kinds.has('kana')) return 'readings';
   if (kinds.size === 1 && kinds.has('kanji')) return 'bases';
   return 'both';
@@ -212,7 +256,7 @@ function recordStats(s: FieldStats | undefined, text: AnkiFieldText): void {
 function convertNotes(
   model: AnkiModel,
   notes: readonly AnkiNote[],
-  furigana: ReadonlySet<string>,
+  furigana: ReadonlyMap<string, AnkiFuriganaOutput>,
   isUsable: (name: string) => boolean,
 ): { converted: ConvertedNote[]; stats: FieldStats[]; extra: number; dropped: number } {
   const stats: FieldStats[] = model.fields.map(() => ({
@@ -225,8 +269,10 @@ function convertNotes(
   let dropped = 0;
   const converted = notes.map((note) => {
     const texts = model.fields.map((field, i) => {
+      const output = furigana.get(field.name);
       const text = ankiHtmlToText(note.fields[i] ?? '', {
-        furigana: furigana.has(field.name),
+        furigana: output !== undefined,
+        ...(output ? { furiganaOutput: output } : {}),
       });
       extra += capMedia(text, isUsable);
       recordStats(stats[i], text);
@@ -260,11 +306,12 @@ function planFields(
     stat: stats[i],
   }));
   return plans.map(({ field, key, stat }) => {
+    const output = furigana.get(field.name);
     return {
       ord: field.ord,
       name: field.name,
       key,
-      furigana: furigana.has(field.name),
+      ...(output ? { furigana: output } : {}),
       imageKeys: mediaKeys(`${key}_image`, stat?.images ?? 0, used),
       audioKeys: mediaKeys(`${key}_audio`, stat?.sounds ?? 0, used),
       lang: tts.get(field.name) ?? (stat ? detectLang(stat.scripts, collectionUsesKana) : 'en'),
@@ -331,7 +378,7 @@ function buildLayout(
   byName: ReadonlyMap<string, FieldPlan>,
   firstKey: string,
   enabled: boolean,
-  furigana: ReadonlySet<string>,
+  furigana: ReadonlyMap<string, AnkiFuriganaOutput>,
 ): Layout {
   const { tmpl, q, a } = sides;
   const typedName = q.typed[0];

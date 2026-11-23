@@ -7,6 +7,7 @@
 import { toHiragana, toKana } from 'wanakana';
 import { stripCloze } from '../parsers/cloze.ts';
 import { formatPinyin } from '../parsers/pinyin.ts';
+import type { RubyDisplay } from '../model/types.ts';
 import { stripRuby } from '../parsers/ruby.ts';
 
 export interface AnswerMatchOptions {
@@ -15,6 +16,8 @@ export interface AnswerMatchOptions {
   jaKanaEquivalent?: boolean;
   /** Mandarin: ignore pinyin tone marks/numbers (default false). */
   zhIgnoreTones?: boolean;
+  /** The layout's ruby flag: with `readings` the expected answer is the readings, not the bases. */
+  rubyDisplay?: RubyDisplay;
 }
 
 export type DiffOpType = 'equal' | 'insert' | 'delete';
@@ -290,8 +293,8 @@ function diffEditCost(ops: readonly DiffOp[]): number {
 /**
  * Expands `expectedRaw` (stripping ruby/cloze, splitting `;`/`|`, expanding `(...)`) into displayable candidates.
  */
-export function expandAnswerCandidates(expectedRaw: string): string[] {
-  const cleaned = stripRuby(stripCloze(expectedRaw)).trim();
+export function expandAnswerCandidates(expectedRaw: string, rubyDisplay?: RubyDisplay): string[] {
+  const cleaned = stripRuby(stripCloze(expectedRaw), rubyDisplay).trim();
   if (!cleaned) return [];
   const alternates = splitAlternates(cleaned);
   const candidates: string[] = [];
@@ -320,7 +323,7 @@ export function matchTypedAnswer(
   expectedRaw: string,
   options: AnswerMatchOptions,
 ): AnswerMatchResult {
-  const candidates = expandAnswerCandidates(expectedRaw);
+  const candidates = expandAnswerCandidates(expectedRaw, options.rubyDisplay);
   const normalizedInput = normalizeForMatching(input, options);
 
   if (candidates.length === 0) {

@@ -1,6 +1,6 @@
 import { parseMediaHashUri } from '@flash/core';
-import { lazy, Suspense } from 'react';
-import { RichText } from '../../components/RichText.tsx';
+import { lazy, Suspense, useContext } from 'react';
+import { RichText, RubyDisplayContext } from '../../components/RichText.tsx';
 import { useApp } from '../../state/AppContext.tsx';
 import { cardTextFitClass } from '../fitText.ts';
 import type { FieldMeta } from './types.ts';
@@ -85,6 +85,7 @@ export function RevealedBackSteps({
   pinyinToneColors,
   extraFrontFields,
 }: RevealedBackStepsProps) {
+  const rubyDisplay = useContext(RubyDisplayContext);
   return (
     <div
       data-testid="card-back"
@@ -102,8 +103,8 @@ export function RevealedBackSteps({
                 data-testid={`back-front-field-${fieldKey}`}
                 className={
                   idx === 0
-                    ? `whitespace-pre-wrap font-semibold ${cardTextFitClass(value, 'answer')}`
-                    : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail')}`
+                    ? `whitespace-pre-wrap font-semibold ${cardTextFitClass(value, 'answer', rubyDisplay)}`
+                    : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail', rubyDisplay)}`
                 }
               >
                 <CardFieldValue
@@ -138,10 +139,10 @@ export function RevealedBackSteps({
                 data-testid={`back-field-${fieldKey}`}
                 className={
                   isPrimaryBack
-                    ? `whitespace-pre-wrap font-medium ${cardTextFitClass(value, 'answer')}`
+                    ? `whitespace-pre-wrap font-medium ${cardTextFitClass(value, 'answer', rubyDisplay)}`
                     : fieldKey === 'reading' || fieldKey === 'hanja' || fieldKey === 'eumhun'
-                      ? `whitespace-pre-wrap text-[var(--accent)] ${cardTextFitClass(value, 'answer')}`
-                      : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail')}`
+                      ? `whitespace-pre-wrap text-[var(--accent)] ${cardTextFitClass(value, 'answer', rubyDisplay)}`
+                      : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail', rubyDisplay)}`
                 }
               >
                 <CardFieldValue

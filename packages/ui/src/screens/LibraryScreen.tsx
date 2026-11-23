@@ -17,6 +17,7 @@ import { canCreateOrImportDeck } from '@flash/core/license';
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { CoursesPanel } from '../components/CoursesPanel.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
+import { RubyDisplaySelect } from '../library/RubyDisplaySelect.tsx';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { ANKI_IMPORT_PANEL_HEIGHT } from '../import/anki-import-layout.ts';
@@ -37,6 +38,7 @@ function DeckOptionsPanel({
   onExportDeck,
   onArchiveDeck,
   onAddLayout,
+  onUpdateLayout,
 }: {
   deck: Deck;
   noteType: NoteType | undefined;
@@ -47,6 +49,7 @@ function DeckOptionsPanel({
   onExportDeck: (deck: Deck) => void;
   onArchiveDeck: (deck: Deck) => void;
   onAddLayout: (layout: Layout, deckId: string) => void;
+  onUpdateLayout: (layout: Layout) => void;
 }) {
   const { platform, state, stateVersion, rescheduleDeck } = useApp();
   const [rescheduleStatus, setRescheduleStatus] = useState<string | null>(null);
@@ -143,6 +146,12 @@ function DeckOptionsPanel({
       setPrecachingStrokes(false);
     }
   };
+
+  const noteTypeLayouts = useMemo(
+    () => [...state.layouts.values()].filter((l) => l.note_type_id === deck.note_type_id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, stateVersion, deck.note_type_id],
+  );
 
   // New Answer Mode Layout form
   const textFields = useMemo(
@@ -264,6 +273,7 @@ function DeckOptionsPanel({
     };
     onAddLayout(newLayout, deck.id);
     setLayoutName('');
+    setRubyDisplay('both');
   };
 
   return (
@@ -407,6 +417,27 @@ function DeckOptionsPanel({
         <LazyFsrsOptimizerPanel deck={deck} />
       </Suspense>
 
+      {noteTypeLayouts.length > 0 && (
+        <div
+          data-testid={`layout-ruby-list-${deck.id}`}
+          className="flex flex-col gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3"
+        >
+          <div className="text-xs font-semibold text-[var(--fg)]">Layouts: ruby display</div>
+          {noteTypeLayouts.map((l) => (
+            <label key={l.id} className="flex items-center justify-between gap-2 text-xs">
+              <span className="min-w-0 truncate text-[var(--muted)]">
+                {l.name} ({l.answer_mode})
+              </span>
+              <RubyDisplaySelect
+                label={`Ruby shows for ${l.name}`}
+                value={l.ruby_display ?? 'both'}
+                onChange={(next) => onUpdateLayout({ ...l, ruby_display: next })}
+              />
+            </label>
+          ))}
+        </div>
+      )}
+
       {/* Add Answer Mode Layout (§5.2) */}
       <form
         onSubmit={handleCreateLayout}
@@ -527,16 +558,7 @@ function DeckOptionsPanel({
 
         <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
           <span>Ruby shows</span>
-          <select
-            aria-label="Ruby shows"
-            value={rubyDisplay}
-            onChange={(e) => setRubyDisplay(e.target.value as RubyDisplay)}
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
-          >
-            <option value="both">Base + reading</option>
-            <option value="readings">Readings only</option>
-            <option value="bases">Bases only</option>
-          </select>
+          <RubyDisplaySelect value={rubyDisplay} onChange={setRubyDisplay} />
         </label>
 
         {layoutMode === 'cloze' && (
@@ -1071,6 +1093,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
                   onUpdateSettings={updateDeckSettings}
                   onExportDeck={(d) => void handleExportDeck(d)}
                   onArchiveDeck={handleArchiveDeck}
+                  onUpdateLayout={(layout) => upsertLayout(layout)}
                   onAddLayout={(layout, dId) => {
                     upsertLayout(layout, dId);
                     setStatusMessage(`Added "${layout.name}" (${layout.answer_mode}) layout.`);

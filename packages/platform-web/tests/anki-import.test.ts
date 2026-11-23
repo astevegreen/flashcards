@@ -529,6 +529,27 @@ describe('Anki .apkg import: Phase 14 follow-ups', () => {
     );
   });
 
+  it('a re-import gives existing layouts the ruby flag, but never overwrites one the user set', async () => {
+    const raw = await read('kana.apkg');
+    const state = createEmptyState();
+    importInto(state, raw);
+    const readingsId = 'anki:layout:1600000000006:0';
+    const basesId = 'anki:layout:1600000000006:1';
+    // Layouts made before the flag existed have none; the user set `both` on another one.
+    for (const id of [readingsId, basesId]) {
+      const old = state.layouts.get(id);
+      if (old) delete old.ruby_display;
+    }
+    const basesLayout = state.layouts.get(basesId);
+    if (basesLayout) basesLayout.ruby_display = 'both';
+    const again = importInto(state, raw, { nowMs: NOW + 60_000 }, 'device-a');
+    expect(eventsOfType(again.events, 'LayoutChanged').map((e) => e.payload.layout.id)).toEqual([
+      readingsId,
+    ]);
+    expect(state.layouts.get(readingsId)?.ruby_display).toBe('readings');
+    expect(state.layouts.get(basesId)?.ruby_display).toBe('both');
+  });
+
   it('suspended cards (queue -1) import as CardSuspended; buried cards import as normal', async () => {
     const { state, result } = await importFixture('suspended.apkg');
     const deckId = ankiDeckId('1600000000700', '1600000000001');

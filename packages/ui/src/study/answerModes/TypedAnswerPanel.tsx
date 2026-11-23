@@ -1,3 +1,4 @@
+import type { RubyDisplay } from '@flash/core';
 import {
   convertJaRomajiLive,
   matchTypedAnswer,
@@ -10,6 +11,7 @@ import type { AnswerEvaluation } from './types.ts';
 export interface TypedAnswerPanelProps {
   cardId: string;
   expectedRaw: string;
+  rubyDisplay?: RubyDisplay;
   lang: string;
   isRevealed: boolean;
   placeholder?: string;
@@ -23,6 +25,7 @@ export interface TypedAnswerPanelProps {
 export default function TypedAnswerPanel({
   cardId,
   expectedRaw,
+  rubyDisplay,
   lang,
   isRevealed,
   placeholder = 'Type your answer…',
@@ -56,6 +59,7 @@ export default function TypedAnswerPanel({
       lang,
       jaKanaEquivalent,
       zhIgnoreTones,
+      ...(rubyDisplay ? { rubyDisplay } : {}),
     });
     setResult(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -67,6 +71,7 @@ export default function TypedAnswerPanel({
       lang,
       jaKanaEquivalent,
       zhIgnoreTones,
+      ...(rubyDisplay ? { rubyDisplay } : {}),
     });
     setResult(evaluated);
     onEvaluateAndReveal({
