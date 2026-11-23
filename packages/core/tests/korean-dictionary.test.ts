@@ -401,7 +401,15 @@ describe('Phase 10 pack codec (backwards compatible optional fields)', () => {
             {
               equivalents: ['eat'],
               definition: 'To take food.',
+              definitionNative: ' 음식을 입으로 삼키다. ',
               examples: [{ text: '밥을 먹다.', type: 'phrase' }, { text: '' }, { type: 'x' }],
+              relations: [
+                { type: 'synonym', word: '드시다' },
+                { type: 'antonym', word: '' },
+                { type: 'bogus', word: 'x' },
+                { type: 'related', word: '식사' },
+                'junk',
+              ],
               source: 'krdict',
             },
             { equivalents: [], source: 'evil' },
@@ -426,7 +434,12 @@ describe('Phase 10 pack codec (backwards compatible optional fields)', () => {
         {
           equivalents: ['eat'],
           definition: 'To take food.',
+          definitionNative: '음식을 입으로 삼키다.',
           examples: [{ text: '밥을 먹다.', type: 'phrase' }],
+          relations: [
+            { type: 'synonym', word: '드시다' },
+            { type: 'related', word: '식사' },
+          ],
           source: 'krdict',
         },
       ],

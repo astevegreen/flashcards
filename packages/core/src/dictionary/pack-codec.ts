@@ -12,6 +12,7 @@ import type {
   DecodedPackPayload,
   DictionaryEntry,
   DictionaryExample,
+  DictionaryRelation,
   DictionaryLevel,
   DictionaryPackId,
   DictionaryPackManifest,
@@ -209,6 +210,22 @@ function decodeExamples(val: unknown): DictionaryExample[] {
   return examples;
 }
 
+const RELATION_TYPES: ReadonlySet<string> = new Set(['synonym', 'antonym', 'related']);
+const MAX_RELATIONS_PER_SENSE = 12;
+
+function decodeRelations(val: unknown): DictionaryRelation[] {
+  if (!Array.isArray(val)) return [];
+  const out: DictionaryRelation[] = [];
+  for (const raw of val) {
+    if (out.length >= MAX_RELATIONS_PER_SENSE) break;
+    const r = asRecord(raw);
+    const word = r ? cleanString(r['word']) : undefined;
+    if (!r || !word || typeof r['type'] !== 'string' || !RELATION_TYPES.has(r['type'])) continue;
+    out.push({ type: r['type'] as DictionaryRelation['type'], word });
+  }
+  return out;
+}
+
 /** One sense, or `undefined` when it carries neither an equivalent nor a definition. */
 function decodeSense(raw: unknown): DictionarySense | undefined {
   const s = asRecord(raw);
@@ -218,6 +235,7 @@ function decodeSense(raw: unknown): DictionarySense | undefined {
   const definitionNative = cleanString(s['definitionNative']);
   if (equivalents.length === 0 && !definition && !definitionNative) return undefined;
   const examples = decodeExamples(s['examples']);
+  const relations = decodeRelations(s['relations']);
   const source =
     typeof s['source'] === 'string' && SENSE_SOURCES.has(s['source'])
       ? (s['source'] as DictionarySenseSource)
@@ -227,6 +245,7 @@ function decodeSense(raw: unknown): DictionarySense | undefined {
     ...(definition ? { definition } : {}),
     ...(definitionNative ? { definitionNative } : {}),
     ...(examples.length > 0 ? { examples } : {}),
+    ...(relations.length > 0 ? { relations } : {}),
     ...(source ? { source } : {}),
   };
 }
