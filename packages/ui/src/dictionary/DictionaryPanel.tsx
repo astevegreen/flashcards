@@ -17,6 +17,7 @@ import type {
   DictionaryBrowseSummary,
   DictionaryDirection,
   DictionaryLevel,
+  DictionaryRelationType,
   DictionarySense,
   DictionarySenseSource,
 } from '@flash/core/dictionary';
@@ -390,7 +391,74 @@ function EntryHeadline(props: EntryLangProps & { onLookup: (text: string) => voi
   );
 }
 
-function SenseItem({ sense, index }: { sense: DictionarySense; index: number }) {
+const RELATION_LABEL: Record<DictionaryRelationType, string> = {
+  synonym: 'Synonyms',
+  antonym: 'Antonyms',
+  related: 'See also',
+};
+const RELATION_ORDER: readonly DictionaryRelationType[] = ['synonym', 'antonym', 'related'];
+
+/** The Korean definition and the synonym / antonym / related-word links of one sense. */
+function SenseExtras({
+  sense,
+  onLookup,
+  testIds,
+  textClass,
+}: Readonly<{
+  sense: DictionarySense;
+  onLookup: (text: string) => void;
+  testIds: boolean;
+  textClass: string;
+}>) {
+  return (
+    <>
+      {sense.definitionNative && (
+        <p
+          lang="ko"
+          data-testid={testIds ? 'dict-definition-native' : undefined}
+          className={`${textClass} text-[var(--fg)]`}
+        >
+          {sense.definitionNative}
+        </p>
+      )}
+      {RELATION_ORDER.map((type) => {
+        const words = sense.relations?.filter((r) => r.type === type) ?? [];
+        if (words.length === 0) return null;
+        return (
+          <p
+            key={type}
+            data-testid={testIds ? `dict-relations-${type}` : undefined}
+            className={`${textClass} flex flex-wrap items-baseline gap-x-1.5 text-[var(--muted)]`}
+          >
+            <span>{RELATION_LABEL[type]}:</span>
+            {words.map((r) => (
+              <button
+                key={r.word}
+                type="button"
+                lang="ko"
+                aria-label={`Look up ${r.word}`}
+                onClick={() => onLookup(r.word)}
+                className="rounded px-0.5 text-[var(--accent)] underline decoration-dotted underline-offset-2 hover:bg-[var(--accent-soft)]"
+              >
+                {r.word}
+              </button>
+            ))}
+          </p>
+        );
+      })}
+    </>
+  );
+}
+
+function SenseItem({
+  sense,
+  index,
+  onLookup,
+}: {
+  sense: DictionarySense;
+  index: number;
+  onLookup: (text: string) => void;
+}) {
   return (
     <li className="text-sm">
       <div className="flex flex-wrap items-baseline gap-1.5">
@@ -410,6 +478,7 @@ function SenseItem({ sense, index }: { sense: DictionarySense; index: number }) 
       {sense.definition && sense.equivalents.length > 0 && (
         <p className="text-xs text-[var(--muted)]">{sense.definition}</p>
       )}
+      <SenseExtras sense={sense} onLookup={onLookup} testIds textClass="text-xs" />
       {sense.examples && sense.examples.length > 0 && (
         <ul className="mt-0.5 flex flex-col gap-0.5 border-l-2 border-[var(--border)] pl-2 text-xs">
           {sense.examples.map((ex, exIdx) => (
@@ -432,14 +501,20 @@ function SenseItem({ sense, index }: { sense: DictionarySense; index: number }) 
 }
 
 /** Numbered per-sense list for word packs, or the flat meanings line. */
-function EntrySenses({ entry }: { entry: DictionaryEntry }) {
+function EntrySenses({
+  entry,
+  onLookup,
+}: {
+  entry: DictionaryEntry;
+  onLookup: (text: string) => void;
+}) {
   if (!entry.senses || entry.senses.length === 0) {
     return <p className="mt-1 text-sm text-[var(--fg)]">{entry.meanings.join('; ')}</p>;
   }
   return (
     <ol data-testid={`dict-senses-${entry.headword}`} className="mt-1.5 flex flex-col gap-1.5">
       {entry.senses.map((sense, senseIdx) => (
-        <SenseItem key={senseIdx} sense={sense} index={senseIdx} />
+        <SenseItem key={senseIdx} sense={sense} index={senseIdx} onLookup={onLookup} />
       ))}
     </ol>
   );
@@ -663,7 +738,7 @@ function DictionaryResultRow({
             onLookup={onLookup}
           />
           <div className="@lg:hidden">
-            <EntrySenses entry={entry} />
+            <EntrySenses entry={entry} onLookup={onLookup} />
           </div>
           {/* Split view: a one-line gloss; the full senses are in the detail pane */}
           <p className="mt-1 hidden truncate text-sm text-[var(--fg)] @lg:block">
@@ -1354,7 +1429,15 @@ function DetailMeta({ entry }: { entry: DictionaryEntry }) {
   );
 }
 
-function DetailSense({ sense, index }: { sense: DictionarySense; index: number }) {
+function DetailSense({
+  sense,
+  index,
+  onLookup,
+}: {
+  sense: DictionarySense;
+  index: number;
+  onLookup: (text: string) => void;
+}) {
   return (
     <li className="text-base">
       <div className="flex flex-wrap items-baseline gap-1.5">
@@ -1371,6 +1454,7 @@ function DetailSense({ sense, index }: { sense: DictionarySense; index: number }
       {sense.definition && sense.equivalents.length > 0 && (
         <p className="text-sm text-[var(--muted)]">{sense.definition}</p>
       )}
+      <SenseExtras sense={sense} onLookup={onLookup} testIds={false} textClass="text-sm" />
       {sense.examples && sense.examples.length > 0 && (
         <ul className="mt-1 flex flex-col gap-1 border-l-2 border-[var(--border)] pl-3 text-sm">
           {sense.examples.map((ex, exIdx) => (
@@ -1438,7 +1522,7 @@ function DictionaryEntryDetail({
       {entry.senses && entry.senses.length > 0 ? (
         <ol className="flex flex-col gap-3">
           {entry.senses.map((sense, senseIdx) => (
-            <DetailSense key={senseIdx} sense={sense} index={senseIdx} />
+            <DetailSense key={senseIdx} sense={sense} index={senseIdx} onLookup={onLookup} />
           ))}
         </ol>
       ) : (

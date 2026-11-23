@@ -6,6 +6,7 @@ import {
   toJamoKey,
   type KoreanQueryAnalysis,
 } from './korean.ts';
+import { deinflectJapanese } from './japanese.ts';
 import type {
   DictionaryDirection,
   DictionaryEntry,
@@ -162,6 +163,7 @@ export interface DictionarySearchPlan {
 }
 
 const MAX_HEADWORD_CANDIDATES = 400;
+const MAX_JAPANESE_PREFIX_TOKENS = 10;
 
 /** Code-unit order (not localeCompare) so results are identical on every machine and locale. */
 function compareCodeUnits(a: string, b: string): number {
@@ -169,7 +171,11 @@ function compareCodeUnits(a: string, b: string): number {
 }
 
 /** Prefix-index tokens for a query, most specific first, without duplicates. */
-function planPrefixTokens(q: DictionarySearchPlan['query'], ko: KoreanQueryAnalysis): string[] {
+function planPrefixTokens(
+  q: DictionarySearchPlan['query'],
+  ko: KoreanQueryAnalysis,
+  ja: ReadonlyMap<string, number>,
+): string[] {
   const tokens = new Set<string>();
   const add = (tok: string | undefined): void => {
     if (tok) tokens.add(tok);
@@ -188,6 +194,10 @@ function planPrefixTokens(q: DictionarySearchPlan['query'], ko: KoreanQueryAnaly
   if (q.latinCompact.length >= 2) add(q.latinCompact);
   if (ko.jamoKey && ko.jamoKey.length >= 2) add(ko.jamoKey);
   for (const p of ko.romanizedJamoPrefixes) add(p);
+  // Deinflected Japanese lemmas, so a kana-only query reaches the lemma's reading (たべた → たべる).
+  // Guessed prefixes must not exhaust the storage candidate cap: keep the likeliest few.
+  const likeliest = [...ja].sort((a, b) => a[1] - b[1]).slice(0, MAX_JAPANESE_PREFIX_TOKENS);
+  for (const [lemma] of likeliest) add(foldKatakanaToHiragana(lemma.toLowerCase()));
   return [...tokens];
 }
 
@@ -195,8 +205,10 @@ function planPrefixTokens(q: DictionarySearchPlan['query'], ko: KoreanQueryAnaly
 function planHeadwordCandidates(
   q: DictionarySearchPlan['query'],
   ko: KoreanQueryAnalysis,
+  ja: ReadonlyMap<string, number>,
 ): string[] {
   const ranked: Array<[string, number]> = [];
+  for (const [lemma, steps] of ja) ranked.push([lemma, steps]);
   for (const [lemma, steps] of ko.lemmas) {
     if (lemma !== q.raw) ranked.push([lemma, steps]);
   }
@@ -224,10 +236,11 @@ export function planDictionarySearch(
 ): DictionarySearchPlan {
   const q = normalizeDictionaryQuery(rawQuery);
   const ko = analyzeKoreanQuery(q.raw, direction);
+  const ja = deinflectJapanese(q.raw);
   return {
     query: q,
-    prefixTokens: planPrefixTokens(q, ko),
-    headwordCandidates: planHeadwordCandidates(q, ko),
+    prefixTokens: planPrefixTokens(q, ko, ja),
+    headwordCandidates: planHeadwordCandidates(q, ko, ja),
   };
 }
 
@@ -269,6 +282,70 @@ function deinflectionScore(
   return Math.max(lemmaScore, formScore);
 }
 
+/** Compares readings kana-insensitively, ignoring JMdict's `.` / `・` okurigana dots. */
+function foldReading(r: string): string {
+  return foldKatakanaToHiragana(r.normalize('NFC').toLowerCase()).replace(/[.・\-\s]+/g, '');
+}
+
+/** A deinflected Japanese query, prepared once per ranking (not per entry). */
+interface JapaneseQuery {
+  lemmas: ReadonlyMap<string, number>;
+  /** Kana-folded lemma → steps, for matching readings. */
+  folded: ReadonlyMap<string, number>;
+  /**
+   * Ceiling for deinflection hits. Set below an exact headword / reading match when some
+   * candidate already is one, so a dictionary-form query (`かえる`) keeps its exact words on top
+   * and guessed lemmas (`買う`) only follow.
+   */
+  cap: number;
+}
+
+const JAPANESE_CAP_WHEN_EXACT_HIT = 780;
+
+function buildJapaneseQuery(
+  candidates: readonly DictionaryEntry[],
+  q: NormalizedQuery,
+  lemmas: ReadonlyMap<string, number>,
+): JapaneseQuery {
+  const folded = new Map<string, number>();
+  for (const [lemma, steps] of lemmas) folded.set(foldReading(lemma), steps);
+  const hasExact =
+    lemmas.size > 0 &&
+    candidates.some((e) => {
+      const hw = e.headword.normalize('NFC').toLowerCase();
+      return hw === q.lower || readingMatchesExactly(e, q);
+    });
+  return { lemmas, folded, cap: hasExact ? JAPANESE_CAP_WHEN_EXACT_HIT : Number.POSITIVE_INFINITY };
+}
+
+/**
+ * Japanese deinflection (`食べた` → 食べる): the entry's headword, or one of its readings, is a
+ * deinflected lemma of the query. Reading hits rank below headword hits (kana readings are shared
+ * by many unrelated words), and both stay under `cap`.
+ */
+function japaneseDeinflectionScore(entry: DictionaryEntry, ja: JapaneseQuery): number {
+  if (ja.lemmas.size === 0) return 0;
+  let best = 0;
+  const hwSteps = ja.lemmas.get(entry.headword);
+  if (hwSteps !== undefined) best = 950 - hwSteps * 5;
+  for (const r of entry.readings) {
+    const steps = ja.folded.get(foldReading(r));
+    if (steps !== undefined) best = Math.max(best, 930 - steps * 5);
+  }
+  return Math.min(best, ja.cap);
+}
+
+/** Order-aware exact English gloss match for entries without per-sense data (ja, zh-Hans). */
+function glossEquivalentScore(entry: DictionaryEntry, ko: KoreanQueryAnalysis): number {
+  const english = ko.english;
+  if (!english || entry.senses) return 0;
+  if (entry.packId !== 'dict-jmdict' && entry.packId !== 'dict-cc-cedict') return 0;
+  const idx = entry.meanings.findIndex((m) =>
+    m.split(/[;,/]+/).some((part) => normalizeEnglishEquivalent(part) === english),
+  );
+  return idx >= 0 ? 800 - Math.min(idx, 5) * 4 : 0;
+}
+
 function romanizationScore(hw: string, ko: KoreanQueryAnalysis, romanizationCap: number): number {
   const romCost = ko.romanized.get(hw);
   if (romCost === undefined) return 0;
@@ -308,12 +385,15 @@ function hangulKeyScore(hw: string, ko: KoreanQueryAnalysis): number {
 function koreanMatchScore(
   entry: DictionaryEntry,
   ko: KoreanQueryAnalysis,
+  ja: JapaneseQuery,
   rawQuery: string,
   romanizationCap: number,
 ): number {
   return Math.max(
     0,
     deinflectionScore(entry, ko, rawQuery),
+    japaneseDeinflectionScore(entry, ja),
+    glossEquivalentScore(entry, ko),
     romanizationScore(entry.headword, ko, romanizationCap),
     englishEquivalentScore(entry, ko),
     hangulKeyScore(entry.headword, ko),
@@ -438,6 +518,7 @@ export function rankDictionaryResults(
   const limit = Math.max(1, Math.min(200, opts.limit ?? 50));
   const allowedPacks = opts.packIds && opts.packIds.length > 0 ? new Set(opts.packIds) : null;
   const ko = analyzeKoreanQuery(q.raw, opts.direction);
+  const ja = buildJapaneseQuery(candidates, q, deinflectJapanese(q.raw));
   const romanizationCap = romanizationCapFor(candidates, ko, q.lower, allowedPacks);
 
   const scored: Array<{ entry: DictionaryEntry; score: number }> = [];
@@ -448,7 +529,7 @@ export function rankDictionaryResults(
     let score = baseMatchScore(entry, q);
     // Korean-specific matches (deinflection, romanization, 초성, jamo prefix, English equivalents)
     if (q.lower && score < 1000) {
-      score = Math.max(score, koreanMatchScore(entry, ko, q.raw, romanizationCap));
+      score = Math.max(score, koreanMatchScore(entry, ko, ja, q.raw, romanizationCap));
     }
     if (score <= 0) continue;
 
