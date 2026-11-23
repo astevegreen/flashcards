@@ -325,7 +325,8 @@ function nonEmptyStrings(val: unknown): string[] | undefined {
 
 function positiveNumber(val: unknown, integer: boolean): number | undefined {
   if (typeof val !== 'number' || val <= 0) return undefined;
-  return (integer ? Number.isInteger(val) : Number.isFinite(val)) ? val : undefined;
+  const valid = integer ? Number.isInteger(val) : Number.isFinite(val);
+  return valid ? val : undefined;
 }
 
 function trimmedNonEmpty(val: unknown): string | undefined {
