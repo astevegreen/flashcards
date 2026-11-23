@@ -43,11 +43,11 @@ test.describe('Phase 10 Korean dictionary (KRDict starter pack)', () => {
     await expect(meokda.getByTestId('dict-level-먹다')).toContainText('초급');
     await expect(meokda.getByTestId('dict-pron-먹다')).toHaveText('[먹따]');
     await expect(meokda.getByTestId('dict-senses-먹다')).toContainText('eat');
-    // The first sense's Korean definition is the app's own wording; the second sense is KRDict's.
+    // The first sense's Korean definition is the app's own wording; the starter fixture is hand-written, so its other senses are App too.
     const sources = meokda.getByTestId('dict-sense-source');
     await expect(sources.first()).toHaveText('App');
     await expect(sources.first()).toHaveAttribute('title', /^Written for this app/);
-    await expect(sources.nth(1)).toHaveText('KRDict');
+    await expect(sources.nth(1)).toHaveText('App');
     await expect(meokda.getByTestId('dict-example').first()).toContainText('밥을 먹다.');
     // Korean definition and related-word links; a link looks that word up.
     await expect(meokda.getByTestId('dict-definition-native').first()).toContainText(
