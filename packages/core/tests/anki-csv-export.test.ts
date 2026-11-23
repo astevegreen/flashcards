@@ -4,9 +4,14 @@ import {
   ankiFieldNames,
   ankiTags,
   planAnkiCsvExport,
+  ANKI_MEDIA_MIME_BY_EXT,
+  AnkiMediaNamer,
   rubyTextToAnkiHtml,
-  zipAnkiCsvExport,
+  writeAnkiCsvZip,
+  type AnkiCsvExportPlan,
 } from '../src/export/anki/index.ts';
+import { escapeCsvCell } from '../src/export/anki/select.ts';
+import { SAFE_MEDIA_MIME_BY_EXT } from '../src/import/media-types.ts';
 import { ankiHtmlToText } from '../src/import/anki/html.ts';
 import { parseDelimitedText } from '../src/import/csv.ts';
 import { decodeUtf8 } from '../src/ids.ts';
@@ -144,25 +149,73 @@ describe('Export for Anki CSV', () => {
     expect(plan.text).toContain('<b>today</b>');
   });
 
-  it('zips the CSV, the media it uses and a README', () => {
+  it('quotes a cell that starts with # (Anki reads such a line as a comment)', () => {
+    expect(escapeCsvCell('#abc', ',')).toBe('"#abc"');
+    expect(escapeCsvCell('a#b', ',')).toBe('a#b');
+    const guidState = buildAnkiExportState();
+    const note = guidState.notes.get('note-2');
+    if (!note) throw new Error('fixture');
+    guidState.notes.set('note-2', { ...note, source_key: 'anki:#hash91' });
+    const plan = planAnkiCsvExport(guidState, { deckId: VOCAB_DECK, noteIds: ['note-2'] });
+    const row = plan.text.split('\r\n')[7] ?? '';
+    expect(row.startsWith('"#hash91",')).toBe(true);
+  });
+
+  it('only names media whose extension is on the importers allow-list', () => {
+    expect([...ANKI_MEDIA_MIME_BY_EXT]).toEqual([...SAFE_MEDIA_MIME_BY_EXT]);
+    const bad = buildAnkiExportState();
+    const hash = 'a'.repeat(64);
+    for (const ext of ['png/../../x', 'mp3]', 'svg', 'constructor']) {
+      bad.media.set(hash, { hash, ext, mime: 'image/png', size: 1 } as never);
+      const namer = new AnkiMediaNamer(bad);
+      expect(namer.file(hash)).toBeUndefined();
+      expect(namer.unknown.has(hash)).toBe(true);
+    }
+    bad.media.set('../x', { hash: '../x', ext: 'png', mime: 'image/png', size: 1 } as never);
+    expect(new AnkiMediaNamer(bad).file('../x')).toBeUndefined();
+  });
+
+  it('zips the CSV, the media it uses and a README', async () => {
     const plan = planAnkiCsvExport(state, { deckId: VOCAB_DECK });
-    const result = zipAnkiCsvExport(plan, new Map([[PNG_HASH, PNG]]));
+    const { result, zip, reads } = await streamZip(plan, new Map([[PNG_HASH, PNG]]));
     expect(result.fileName).toBe('japanese-vocab-anki.zip');
     expect(result.mediaCount).toBe(1);
     expect(result.missingMediaCount).toBe(2); // the MP3 bytes + the unlisted image
-    const files = unzipSync(result.zip);
+    expect(reads).toEqual(plan.media.map((m) => m.hash));
+    const files = unzipSync(zip);
     expect(Object.keys(files).sort()).toEqual(
       ['README.txt', 'collection.media/' + `${PNG_HASH}.png`, 'japanese-vocab.csv'].sort(),
     );
     expect(decodeUtf8(files['japanese-vocab.csv'] ?? new Uint8Array())).toBe(plan.text);
     expect(files[`collection.media/${PNG_HASH}.png`]).toEqual(PNG);
-    const full = zipAnkiCsvExport(
+    const full = await streamZip(
       plan,
       new Map([
         [PNG_HASH, PNG],
         [MP3_HASH, MP3],
       ]),
     );
-    expect(full.mediaCount).toBe(2);
+    expect(full.result.mediaCount).toBe(2);
   });
 });
+
+/** Runs the streaming zip writer and joins its chunks, recording the order media was read. */
+async function streamZip(plan: AnkiCsvExportPlan, media: Map<string, Uint8Array>) {
+  const chunks: Uint8Array[] = [];
+  const reads: string[] = [];
+  const result = await writeAnkiCsvZip(
+    plan,
+    async (hash) => {
+      reads.push(hash);
+      return media.get(hash);
+    },
+    (chunk) => chunks.push(chunk.slice()),
+  );
+  const zip = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let offset = 0;
+  for (const c of chunks) {
+    zip.set(c, offset);
+    offset += c.length;
+  }
+  return { result, zip, reads };
+}

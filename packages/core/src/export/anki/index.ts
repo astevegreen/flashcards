@@ -5,12 +5,15 @@
 export {
   ankiExportSlug,
   planAnkiCsvExport,
-  zipAnkiCsvExport,
+  writeAnkiCsvZip,
   type AnkiCsvExportOptions,
+  type AnkiCsvZipOptions,
+  type AnkiMediaReader,
   type AnkiCsvExportPlan,
   type AnkiCsvExportZip,
 } from './csv.ts';
 export {
+  ANKI_MEDIA_MIME_BY_EXT,
   AnkiMediaNamer,
   ankiFieldHtml,
   ankiFieldNames,
@@ -23,3 +26,4 @@ export {
   type AnkiMediaFile,
   type AnkiRichTextConverter,
 } from './field-html.ts';
+export { AnkiZipTooLargeError, AnkiZipWriter, crc32 } from './zip-writer.ts';

@@ -1,7 +1,7 @@
-import { zipSync, type Zippable } from 'fflate';
 import type { CollectionState } from '../../events/replay.ts';
 import { encodeUtf8 } from '../../ids.ts';
 import { escapeCsvCell, selectDeckNotes } from './select.ts';
+import { AnkiZipWriter } from './zip-writer.ts';
 import {
   AnkiMediaNamer,
   ankiFieldHtml,
@@ -42,14 +42,13 @@ export interface AnkiCsvExportPlan {
   /** Base name for files (`<deck slug>`). */
   slug: string;
   noteCount: number;
-  /** Media the notes use; fetch these hashes and pass them to {@link zipAnkiCsvExport}. */
+  /** Media the notes use; read by {@link writeAnkiCsvZip}. */
   media: AnkiMediaFile[];
   /** Notes referenced media the collection does not list (exported without it). */
   unknownMediaCount: number;
 }
 
 export interface AnkiCsvExportZip {
-  zip: Uint8Array;
   fileName: string;
   mediaCount: number;
   /** Media the notes use but whose bytes were not available on this device. */
@@ -130,30 +129,42 @@ const README = `Export for Anki
    collection.media folder (in Anki: Tools > Check Media > View Files shows where it is).
 `;
 
-/** Zips the CSV, the media files whose bytes are known, and a README for Anki. */
-export function zipAnkiCsvExport(
+/** Reads one media file's bytes by hash (`undefined` when this device doesn't have it). */
+export type AnkiMediaReader = (hash: string) => Promise<Uint8Array | undefined>;
+
+export interface AnkiCsvZipOptions {
+  /** File modification time in the zip (defaults to 1980-01-01). */
+  modifiedMs?: number;
+}
+
+/**
+ * Streams the zip: the CSV, a README for Anki, then each media file as it is read. Media is
+ * read one file at a time and handed to `emit` straight away, so the caller never holds all of
+ * it (or a finished archive) in memory.
+ */
+export async function writeAnkiCsvZip(
   plan: AnkiCsvExportPlan,
-  mediaBytes: ReadonlyMap<string, Uint8Array>,
-): AnkiCsvExportZip {
-  const csvName = `${plan.slug}.csv`;
-  const files: Zippable = {
-    [csvName]: encodeUtf8(plan.text),
-    'README.txt': encodeUtf8(README.replace(/\n/g, '\r\n')),
-  };
+  readMedia: AnkiMediaReader,
+  emit: (chunk: Uint8Array) => void,
+  options: AnkiCsvZipOptions = {},
+): Promise<AnkiCsvExportZip> {
+  const zip = new AnkiZipWriter(emit, options.modifiedMs);
+  zip.add(`${plan.slug}.csv`, encodeUtf8(plan.text), true);
+  zip.add('README.txt', encodeUtf8(README.replace(/\n/g, '\r\n')), true);
   let mediaCount = 0;
   let missing = 0;
   for (const file of plan.media) {
-    const bytes = mediaBytes.get(file.hash);
+    const bytes = await readMedia(file.hash);
     if (!bytes) {
       missing += 1;
       continue;
     }
     // Images and audio are already compressed: store them.
-    files[`collection.media/${file.name}`] = [bytes, { level: 0 }];
+    zip.add(`collection.media/${file.name}`, bytes);
     mediaCount += 1;
   }
+  zip.finish();
   return {
-    zip: zipSync(files, { level: 6 }),
     fileName: `${plan.slug}-anki.zip`,
     mediaCount,
     missingMediaCount: missing + plan.unknownMediaCount,

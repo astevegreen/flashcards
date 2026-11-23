@@ -161,9 +161,21 @@ export interface ImageProcessOptions {
   maxInputBytes?: number;
 }
 
+/** The part of a DOM `Blob` that `Files.downloadBlob` needs (this package has no DOM types). */
+export interface DownloadableBlob {
+  readonly size: number;
+  readonly type: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
 export interface Files {
   pickFile(options?: PickFileOptions): Promise<PickedFile | null>;
   downloadFile(filename: string, data: Uint8Array, mimeType: string): Promise<void>;
+  /**
+   * Optional: saves a file built as a `Blob` (pass a real DOM Blob) without copying it into one
+   * array first, for large exports. Without it, callers read the Blob and use `downloadFile`.
+   */
+  downloadBlob?(filename: string, blob: DownloadableBlob): Promise<void>;
   /** Optional PC local folder picker (Phase 3). */
   pickDirectory?(): Promise<unknown>;
 }

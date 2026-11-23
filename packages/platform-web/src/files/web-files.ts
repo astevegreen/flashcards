@@ -1,4 +1,4 @@
-import type { Files, PickedFile, PickFileOptions } from '@flash/platform';
+import type { DownloadableBlob, Files, PickedFile, PickFileOptions } from '@flash/platform';
 
 export class WebFiles implements Files {
   pickFile(options?: PickFileOptions): Promise<PickedFile | null> {
@@ -40,8 +40,12 @@ export class WebFiles implements Files {
   async downloadFile(filename: string, data: Uint8Array, mimeType: string): Promise<void> {
     const copy = new Uint8Array(data.byteLength);
     copy.set(data);
-    const blob = new Blob([copy], { type: mimeType });
-    const url = URL.createObjectURL(blob);
+    await this.downloadBlob(filename, new Blob([copy], { type: mimeType }));
+  }
+
+  /** Saves a Blob as is (no copy), so large exports stay in the browser's Blob storage. */
+  async downloadBlob(filename: string, blob: DownloadableBlob): Promise<void> {
+    const url = URL.createObjectURL(blob as Blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;

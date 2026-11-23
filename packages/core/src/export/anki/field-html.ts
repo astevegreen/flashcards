@@ -39,6 +39,24 @@ export interface AnkiMediaFile {
 }
 
 /**
+ * The media types the exports write: the same allow-list as `SAFE_MEDIA_MIME_BY_EXT` in
+ * `import/media-types.ts` (a test keeps them equal). It's a copy because importing that module
+ * here splits a shared chunk and grows the study-screen bundle (§8). A `Map`, so inherited keys
+ * such as `constructor` never match.
+ */
+export const ANKI_MEDIA_MIME_BY_EXT: ReadonlyMap<string, string> = new Map([
+  ['png', 'image/png'],
+  ['jpg', 'image/jpeg'],
+  ['jpeg', 'image/jpeg'],
+  ['webp', 'image/webp'],
+  ['gif', 'image/gif'],
+  ['mp3', 'audio/mpeg'],
+  ['ogg', 'audio/ogg'],
+  ['wav', 'audio/wav'],
+  ['m4a', 'audio/mp4'],
+]);
+
+/**
  * Names media files for Anki and remembers which ones the exported notes use. `<sha256>.<ext>`
  * is unique, stable across exports (Anki keeps one copy per name) and needs no original name.
  */
@@ -60,8 +78,10 @@ export class AnkiMediaNamer {
     if (existing) return existing;
     const entry = this.state.media.get(key) ?? this.state.media.get(hash);
     const ext = entry?.ext.toLowerCase().replace(/^\./, '') ?? '';
-    const mime = entry?.mime;
-    if (!entry || !mime || !ext) {
+    // The extension comes from synced `MediaAdded` events (only type-checked), and it ends up in
+    // zip paths and `[sound:…]`: only the importers' allow-list passes, and the hash must be hex.
+    const mime = ANKI_MEDIA_MIME_BY_EXT.get(ext);
+    if (!entry || !mime || !/^[0-9a-f]+$/.test(key)) {
       this.unknown.add(key);
       return undefined;
     }

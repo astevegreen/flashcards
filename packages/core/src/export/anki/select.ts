@@ -32,9 +32,18 @@ export function selectDeckNotes(state: CollectionState, options: NoteSelection):
   return notes.sort((a, b) => a.created_order - b.created_order || cmpCodeUnits(a.id, b.id));
 }
 
-/** Quotes a CSV / TSV cell when it holds a quote, the delimiter or a line break. */
+/**
+ * Quotes a CSV / TSV cell when it holds a quote, the delimiter or a line break, or starts with
+ * `#`: Anki's CSV reader treats a line starting with `#` as a comment and drops the row, and a
+ * base91 GUID re-exported from Anki can start with `#`.
+ */
 export function escapeCsvCell(value: string, delimiter: string): string {
-  if (value.includes('"') || value.includes(delimiter) || /[\r\n]/.test(value)) {
+  if (
+    value.startsWith('#') ||
+    value.includes('"') ||
+    value.includes(delimiter) ||
+    /[\r\n]/.test(value)
+  ) {
     return `"${value.replaceAll('"', '""')}"`;
   }
   return value;
