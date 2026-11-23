@@ -27,14 +27,14 @@ export function useVisiblePacks(
   installedPacks: readonly InstalledPackInfo[],
   selectedPack: PackFilter,
 ): VisiblePacks {
-  const { languages } = useActiveLanguages();
+  const { languages, known } = useActiveLanguages();
   const [showAllLanguages, setShowAllLanguages] = useShowAllLanguages();
   const visiblePacks = useMemo(
     () =>
       showAllLanguages
         ? [...installedPacks]
-        : installedPacks.filter((p) => isPackForActiveLanguages(languages, p)),
-    [languages, installedPacks, showAllLanguages],
+        : installedPacks.filter((p) => isPackForActiveLanguages(languages, p, known)),
+    [languages, known, installedPacks, showAllLanguages],
   );
   const hiddenPackCount = installedPacks.length - visiblePacks.length;
   const selectedVisible = visiblePacks.some((p) => p.id === selectedPack);

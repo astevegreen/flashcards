@@ -5,11 +5,13 @@ import {
   createEventFactory,
   replayAllEvents,
 } from '../src/events/replay.ts';
+import { computeStatePatch, mergeStatePatch } from '../src/events/patch.ts';
 import { deserializeCollectionState, serializeCollectionState } from '../src/events/snapshot.ts';
 import { createHlcState } from '../src/hlc.ts';
 import {
   deriveActiveLanguages,
   deriveDeckLanguages,
+  hasLanguageChoices,
   hasRubyMarkup,
   isLanguageActive,
   isLanguageFeatureActive,
@@ -206,6 +208,114 @@ describe('Settings > Languages choices', () => {
   });
 });
 
+describe('Settings > Languages choices converge', () => {
+  function choiceEvents() {
+    const a = createEventFactory('dev-a', 0, createHlcState('dev-a', 1000));
+    const b = createEventFactory('dev-b', 0, createHlcState('dev-b', 1000));
+    return [
+      a.create(
+        'PreferencesChanged',
+        { preferences: { languages: { ja: false, 'ja-JP': true } } },
+        1000,
+      ),
+      b.create('PreferencesChanged', { preferences: { languages: { JA: false } } }, 1001),
+      b.create('PreferencesChanged', { preferences: { languages: { 'zh-CN': true } } }, 1002),
+      a.create('PreferencesChanged', { preferences: { languages: { zh: false, ko: true } } }, 1003),
+      a.create('PreferencesChanged', { preferences: { languages: { 'ko-KR': false } } }, 1004),
+    ];
+  }
+
+  function permutations<T>(items: readonly T[]): T[][] {
+    if (items.length <= 1) return [[...items]];
+    return items.flatMap((item, i) =>
+      permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]),
+    );
+  }
+
+  it('normalizes keys before last-writer-wins, so every delivery order and a snapshot agree', () => {
+    const events = choiceEvents();
+    const expected = replayAllEvents(events).preferences.languages;
+    expect(expected).toEqual({ ja: false, 'zh-Hans': false, ko: false });
+
+    for (const order of permutations(events)) {
+      const state = createEmptyState();
+      for (const event of order) applyEvents(state, [event]);
+      expect(state.preferences.languages).toEqual(expected);
+    }
+
+    // Half applied, snapshotted and restored, then the rest (in reverse) on top.
+    for (let cut = 0; cut <= events.length; cut += 1) {
+      const head = createEmptyState();
+      applyEvents(head, events.slice(0, cut));
+      const restored = deserializeCollectionState(serializeCollectionState(head));
+      applyEvents(restored, [...events.slice(cut)].reverse());
+      expect(restored.preferences.languages).toEqual(expected);
+    }
+  });
+
+  it('aliases inside one event resolve the same way everywhere (code-unit-last raw key wins)', () => {
+    const f = createEventFactory('dev', 0, createHlcState('dev', 1000));
+    const forward = replayAllEvents([
+      f.create(
+        'PreferencesChanged',
+        { preferences: { languages: { ja: false, 'ja-JP': true } } },
+        1,
+      ),
+    ]);
+    const g = createEventFactory('dev', 0, createHlcState('dev', 1000));
+    const backward = replayAllEvents([
+      g.create(
+        'PreferencesChanged',
+        { preferences: { languages: { 'ja-JP': true, ja: false } } },
+        1,
+      ),
+    ]);
+    expect(forward.preferences.languages).toEqual({ ja: true });
+    expect(backward.preferences.languages).toEqual({ ja: true });
+  });
+
+  it('survives a computeStatePatch / mergeStatePatch round trip (Worker to main thread)', () => {
+    const worker = createEmptyState();
+    const main = createEmptyState();
+    const events = choiceEvents();
+    const patch = computeStatePatch(worker, events);
+    expect(patch.preferences?.languages).toEqual({ ja: false, 'zh-Hans': false, ko: false });
+    mergeStatePatch(main, patch);
+    expect(main.preferences.languages).toEqual(worker.preferences.languages);
+    // The merged copy is independent of the patch object.
+    const patched = patch.preferences?.languages;
+    if (patched) patched['ja'] = true;
+    expect(patched?.['ja']).toBe(true);
+    expect(main.preferences.languages?.['ja']).toBe(false);
+  });
+});
+
+describe('every box unticked', () => {
+  it('shows no language-specific options; only "no information at all" shows everything', () => {
+    const chosen = { ja: false, ko: false, 'zh-Hans': false, en: false };
+    const active = deriveActiveLanguages([{ language: 'ja', archived: true }], {
+      onboardingLanguage: 'ko',
+      chosen,
+    });
+    expect(active).toEqual([]);
+    const known = active.length > 0 || hasLanguageChoices(chosen);
+    expect(known).toBe(true);
+    for (const feature of ['ruby', 'pinyin', 'tones', 'handwriting'] as const) {
+      expect(isLanguageFeatureActive(active, feature, known)).toBe(false);
+    }
+    expect(isLanguageActive(active, 'ja', known)).toBe(false);
+    expect(isPackForActiveLanguages(active, { kind: 'dictionary', language: 'ko' }, known)).toBe(
+      false,
+    );
+
+    // No decks, no onboarding, no choices: nothing is known, everything is offered.
+    expect(hasLanguageChoices(undefined)).toBe(false);
+    expect(hasLanguageChoices({})).toBe(false);
+    expect(isLanguageFeatureActive([], 'ruby', hasLanguageChoices({}))).toBe(true);
+    expect(isLanguageFeatureActive([], 'ruby')).toBe(true);
+  });
+});
+
 describe('isLanguageFeatureActive', () => {
   it('shows everything when no language is known', () => {
     expect(isLanguageFeatureActive([], 'ruby')).toBe(true);
@@ -248,17 +358,17 @@ describe('offline packs by language', () => {
   const kanjiVg = { kind: 'strokes', language: 'ja', script: 'ja' };
   const mmah = { kind: 'strokes', language: 'zh-Hans', script: 'zh-Hans' };
 
-  it('a dictionary serves its own language; the Chinese stroke pack also serves Hanja', () => {
+  it('a dictionary serves its own language; both stroke packs also serve Hanja lookup', () => {
     expect(packLanguages(hanja)).toEqual(['ko']);
-    expect(packLanguages(kanjiVg)).toEqual(['ja']);
+    expect(packLanguages(kanjiVg)).toEqual(['ja', 'ko']);
     expect(packLanguages(mmah)).toEqual(['zh-Hans', 'ko']);
   });
 
-  it('a Korean-only collection gets the Hanja dictionary and Hanja strokes only', () => {
+  it('a Korean-only collection keeps the Hanja dictionary and both stroke packs, not Kanji or Chinese dictionaries', () => {
     const shown = [hanja, kanji, cedict, kanjiVg, mmah].filter((p) =>
       isPackForActiveLanguages(['ko'], p),
     );
-    expect(shown).toEqual([hanja, mmah]);
+    expect(shown).toEqual([hanja, kanjiVg, mmah]);
   });
 
   it('shows every pack while nothing is known, and a pack with no language', () => {

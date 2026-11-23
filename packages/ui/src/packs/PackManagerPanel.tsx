@@ -90,14 +90,19 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
   const totalBytes = installed.reduce((sum, p) => sum + p.byteSize, 0);
 
   // UX #2: only packs for the languages in use, unless "Show all languages" is on (this device).
-  const { languages } = useActiveLanguages();
+  const { languages, known } = useActiveLanguages();
   const [showAllLanguages, setShowAllLanguages] = useShowAllLanguages();
   const shown = (pack: { kind: string; language: string; script?: string | undefined }) =>
-    showAllLanguages || isPackForActiveLanguages(languages, pack);
+    showAllLanguages || isPackForActiveLanguages(languages, pack, known);
   const catalogPacks = catalog ? catalog.packs.filter(shown) : [];
   const installedPacks = installed.filter(shown);
+  // Hidden by language: catalog rows, plus installed packs the catalog does not list.
+  const catalogIds = new Set(catalog?.packs.map((p) => p.id));
+  const hiddenInstalledOffCatalog = installed.filter(
+    (p) => !catalogIds.has(p.id) && !shown(p),
+  ).length;
   const hiddenCount = catalog
-    ? catalog.packs.length - catalogPacks.length
+    ? catalog.packs.length - catalogPacks.length + hiddenInstalledOffCatalog
     : installed.length - installedPacks.length;
 
   const handleSaveCatalogUrl = async (e: FormEvent) => {

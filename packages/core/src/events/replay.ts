@@ -5,6 +5,7 @@ import {
 } from '../fsrs/scheduler.ts';
 import { compareHlc, tickHlc, type HlcState } from '../hlc.ts';
 import { deriveCardId, uuidv7 } from '../ids.ts';
+import { normalizeLanguage } from '../languages/normalize.ts';
 import { BUILTIN_LAYOUTS, BUILTIN_NOTE_TYPES } from '../model/presets.ts';
 import { extractClozeNumbers } from '../parsers/cloze.ts';
 import {
@@ -1328,19 +1329,28 @@ function applyDrawingModePreferences(ctx: ApplyEventContext, pref: PreferencesPa
   return changed;
 }
 
+function compareRawKeys(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
 /** Per-language Settings > Languages choices; returns true when any entry was applied. */
 function applyLanguageChoicePreferences(ctx: ApplyEventContext, pref: PreferencesPatch): boolean {
   const { state, hlc, collector } = ctx;
+  if (typeof pref.languages !== 'object' || pref.languages === null) return false;
   let changed = false;
-  if (typeof pref.languages === 'object' && pref.languages !== null) {
-    for (const [langKey, on] of Object.entries(pref.languages)) {
-      if (
-        typeof on === 'boolean' &&
-        shouldApplyLww(state, `prefs:languages:${langKey}`, hlc, collector)
-      ) {
-        state.preferences.languages = { ...state.preferences.languages, [langKey]: on };
-        changed = true;
-      }
+  // Keys are normalized (`ja-JP` -> `ja`) before the LWW check, so aliases share one register.
+  // Aliases inside one event resolve deterministically: the code-unit-last raw key wins.
+  const byCode = new Map<string, boolean>();
+  const entries = Object.entries(pref.languages).sort(([a], [b]) => compareRawKeys(a, b));
+  for (const [rawKey, on] of entries) {
+    const code = normalizeLanguage(rawKey);
+    if (code && typeof on === 'boolean') byCode.set(code, on);
+  }
+  for (const [code, on] of byCode) {
+    if (shouldApplyLww(state, `prefs:languages:${code}`, hlc, collector)) {
+      state.preferences.languages = { ...state.preferences.languages, [code]: on };
+      changed = true;
     }
   }
   return changed;

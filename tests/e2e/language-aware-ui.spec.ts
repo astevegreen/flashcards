@@ -195,10 +195,11 @@ test.describe('Language-aware options (UX #2)', () => {
       await expect(page.getByTestId('pack-row-dict-hanja-unihan')).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 15_000 });
 
-    // Korean only: the Hanja dictionary and the Hanja (Make Me a Hanzi) strokes; no Kanji.
+    // Korean only: the Hanja dictionary and both stroke packs (Hanja lookup reads both); no Kanji
+    // or Chinese dictionaries.
     await expect(page.getByTestId('pack-row-strokes-zh-mmah')).toBeVisible();
     await expect(page.getByTestId('pack-row-dict-kanjidic2')).toHaveCount(0);
-    await expect(page.getByTestId('pack-row-strokes-ja-kanjivg')).toHaveCount(0);
+    await expect(page.getByTestId('pack-row-strokes-ja-kanjivg')).toBeVisible();
     await expect(page.getByTestId('pack-row-dict-cc-cedict')).toHaveCount(0);
 
     const showAll = page.getByTestId('pack-show-all-languages');

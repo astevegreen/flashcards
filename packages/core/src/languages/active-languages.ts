@@ -1,6 +1,7 @@
 import { BUILTIN_NOTE_TYPE_IDS } from '../model/presets.ts';
 import { parseRuby } from '../parsers/ruby.ts';
 import { compareCodeUnits } from '../study/queue.ts';
+import { normalizeLanguage } from './normalize.ts';
 
 /**
  * "Active languages" (UX #2): the languages a collection is actually used for. Options that only
@@ -38,11 +39,7 @@ const LANGUAGE_NEUTRAL_NOTE_TYPE_IDS: ReadonlySet<string> = new Set([
   BUILTIN_NOTE_TYPE_IDS.GRAMMAR,
 ]);
 
-/** Maps a language tag to the code the app uses: `ja-JP` -> `ja`, `zh`/`zh-CN` -> `zh-Hans`. */
-export function normalizeLanguage(tag: string): string {
-  const primary = tag.trim().toLowerCase().split(/[-_]/)[0] ?? '';
-  return primary === 'zh' ? 'zh-Hans' : primary;
-}
+export { normalizeLanguage };
 
 interface DeckLike {
   readonly language: string;
@@ -126,20 +123,35 @@ export function deriveActiveLanguages(
 }
 
 /**
- * True when `feature` should be offered. With no known language at all (an empty collection that
- * skipped onboarding) nothing can be inferred, so every feature stays visible.
+ * True when the user has made any Settings > Languages choice. With every box unticked and no
+ * deck, the active list is empty but that is a choice (show no language-specific options), not
+ * "nothing known yet".
+ */
+export function hasLanguageChoices(chosen: Readonly<Record<string, boolean>> | undefined): boolean {
+  return Object.values(chosen ?? {}).some((on) => typeof on === 'boolean');
+}
+
+/**
+ * True when `feature` should be offered. Only with no information at all (`known` false: no
+ * language and no Settings choice, e.g. an empty collection that skipped onboarding) is every
+ * feature shown. `known` defaults to "some language is active".
  */
 export function isLanguageFeatureActive(
   active: readonly string[],
   feature: LanguageFeature,
+  known: boolean = active.length > 0,
 ): boolean {
-  if (active.length === 0) return true;
+  if (!known) return true;
   return LANGUAGE_FEATURE_LANGUAGES[feature].some((lang) => active.includes(lang));
 }
 
 /** True when `language` is active (or nothing is known yet, so everything is offered). */
-export function isLanguageActive(active: readonly string[], language: string): boolean {
-  return active.length === 0 || active.includes(normalizeLanguage(language));
+export function isLanguageActive(
+  active: readonly string[],
+  language: string,
+  known: boolean = active.length > 0,
+): boolean {
+  return !known || active.includes(normalizeLanguage(language));
 }
 
 interface PackLike {
@@ -149,18 +161,22 @@ interface PackLike {
 }
 
 /**
- * Languages an offline pack serves. A dictionary serves its own language. The Chinese stroke pack
- * (Make Me a Hanzi) also serves Korean, since Hanja drawing uses it.
+ * Languages an offline pack serves. A dictionary serves its own language. Both stroke packs
+ * (Make Me a Hanzi and KanjiVG) also serve Korean: Hanja handwriting lookup reads both indexes.
  */
 export function packLanguages(pack: PackLike): string[] {
   const code = normalizeLanguage(pack.script ?? pack.language);
-  if (pack.kind === 'strokes' && code === 'zh-Hans') return ['zh-Hans', 'ko'];
+  if (pack.kind === 'strokes' && (code === 'zh-Hans' || code === 'ja')) return [code, 'ko'];
   return code ? [code] : [];
 }
 
 /** True when an offline pack serves an active language (or nothing is known yet). */
-export function isPackForActiveLanguages(active: readonly string[], pack: PackLike): boolean {
-  if (active.length === 0) return true;
+export function isPackForActiveLanguages(
+  active: readonly string[],
+  pack: PackLike,
+  known: boolean = active.length > 0,
+): boolean {
+  if (!known) return true;
   const langs = packLanguages(pack);
   return langs.length === 0 || langs.some((lang) => active.includes(lang));
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 /**
  * "Show all languages" for the offline pack manager and the dictionary pack filters (UX #2): by
@@ -24,15 +24,47 @@ function writeShowAll(on: boolean): void {
   }
 }
 
+/**
+ * One shared value for every mounted switch: same-tab instances are told through the listener
+ * set, other tabs through the `storage` event. The in-memory value still works when storage is
+ * blocked.
+ */
+let current: boolean | undefined;
+const listeners = new Set<() => void>();
+
+function getShowAll(): boolean {
+  current ??= readShowAll();
+  return current;
+}
+
+function notify(): void {
+  for (const listener of listeners) listener();
+}
+
+function onStorage(e: StorageEvent): void {
+  if (e.key !== null && e.key !== SHOW_ALL_KEY) return;
+  current = readShowAll();
+  notify();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  if (listeners.size === 1) globalThis.addEventListener?.('storage', onStorage);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) globalThis.removeEventListener?.('storage', onStorage);
+  };
+}
+
+export function setShowAllLanguages(on: boolean): void {
+  current = on;
+  writeShowAll(on);
+  notify();
+}
+
 export function useShowAllLanguages(): [boolean, (on: boolean) => void] {
-  const [showAll, setShowAll] = useState(readShowAll);
-  return [
-    showAll,
-    (on) => {
-      setShowAll(on);
-      writeShowAll(on);
-    },
-  ];
+  const showAll = useSyncExternalStore(subscribe, getShowAll, () => false);
+  return [showAll, setShowAllLanguages];
 }
 
 export function ShowAllLanguagesSwitch({

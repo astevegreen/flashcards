@@ -1,5 +1,6 @@
 import {
   deriveActiveLanguages,
+  hasLanguageChoices,
   isLanguageActive,
   isLanguageFeatureActive,
   type LanguageFeature,
@@ -8,8 +9,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useApp } from './AppContext.tsx';
 
 export interface ActiveLanguages {
-  /** Normalized, sorted codes; empty while nothing is known (then every option is offered). */
+  /** Normalized, sorted codes of the active languages. */
   languages: readonly string[];
+  /**
+   * False only with no information at all (no language and no Settings choice): then every option
+   * is offered. With every box unticked it is true, so no language-specific option shows.
+   */
+  known: boolean;
   /** Whether a language-specific option group should be shown. */
   hasFeature: (feature: LanguageFeature) => boolean;
   /** Whether options for one language should be shown. */
@@ -40,15 +46,18 @@ export function useActiveLanguages(): ActiveLanguages {
   }, [platform]);
 
   return useMemo(() => {
+    const chosen = state.preferences.languages;
     const languages = deriveActiveLanguages(state.decks.values(), {
       onboardingLanguage,
       noteTypes: state.noteTypes,
-      chosen: state.preferences.languages,
+      chosen,
     });
+    const known = languages.length > 0 || hasLanguageChoices(chosen);
     return {
       languages,
-      hasFeature: (feature) => isLanguageFeatureActive(languages, feature),
-      hasLanguage: (language) => isLanguageActive(languages, language),
+      known,
+      hasFeature: (feature) => isLanguageFeatureActive(languages, feature, known),
+      hasLanguage: (language) => isLanguageActive(languages, language, known),
     };
     // `state` is mutated in place; `stateVersion` marks each change.
     // eslint-disable-next-line react-hooks/exhaustive-deps

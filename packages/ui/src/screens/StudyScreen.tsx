@@ -3,7 +3,6 @@ import {
   compareCodeUnits,
   formatIntervalLabel,
   getStudyDayIndex,
-  hasRubyMarkup,
   previewIntervals,
   resolveCardAudioTarget,
   resolveDayStartHour,
@@ -23,6 +22,7 @@ import type * as DeferredSyncPromptModuleType from '../onboarding/DeferredSyncPr
 import { useApp, type AppContextValue } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
+import { showRubyToggle } from '../study/rubyToggle.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
 import {
   isStudyFilterInScope,
@@ -542,10 +542,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
 
   // Ruby (furigana, pinyin) is offered for ja/zh. Korean shows Hanja as plain text, so a Korean
   // card gets the toggle only when ruby already stored in it is hidden on the front.
-  const frontRubyHidden =
-    Boolean(currentLayout?.hide_furigana_on_front) &&
-    Boolean(currentLayout?.front_fields.some((k) => hasRubyMarkup(currentNote?.fields[k] ?? '')));
-  const showFuriganaToggle = rubyLanguage || frontRubyHidden;
+  const showFuriganaToggle = showRubyToggle(rubyLanguage, currentLayout, currentNote);
   const hideFrontRuby =
     furiganaOverride ?? (!isRevealed && Boolean(currentLayout?.hide_furigana_on_front));
 
