@@ -12,16 +12,19 @@ import type {
   ReviewRecord,
 } from '../model/types.ts';
 import {
-  canonicalizeOptionalCards,
-  foldMediaRemovedFromUnknown,
-  foldSourceUnlinkedFromUnknown,
   getTotalAppliedEventCount,
   type CollectionState,
   type PendingDeckPatch,
   type PendingPagePatch,
 } from './replay.ts';
-import { foldSuspensionEventsFromUnknown } from './suspension.ts';
-import { canonicalizeAllTagAddNotes, foldTagAddEventsFromUnknown } from './tag-adds.ts';
+import {
+  canonicalizeAllTagAddNotes,
+  canonicalizeOptionalCards,
+  foldMediaRemovedFromUnknown,
+  foldSourceUnlinkedFromUnknown,
+  foldSuspensionEventsFromUnknown,
+  foldTagAddEventsFromUnknown,
+} from './snapshot-upgrade.ts';
 import { compareHlc } from '../hlc.ts';
 import { SERIALIZED_STATE_FORMAT_VERSION } from './snapshot-format.ts';
 import type { UnknownEvent } from './types.ts';

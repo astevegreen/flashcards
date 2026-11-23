@@ -2,7 +2,6 @@ import { compareHlc } from '../hlc.ts';
 import type { Note } from '../model/types.ts';
 import { compareCodeUnits } from '../study/queue.ts';
 import type { CollectionState } from './replay.ts';
-import type { UnknownEvent } from './types.ts';
 
 /**
  * `NoteTagsAdded` (set-union tag adds, used for automatic `leech` tagging and its backfill).
@@ -87,7 +86,7 @@ function addToIndex(index: Map<string, Set<string>>, noteId: string, tag: string
   else index.set(noteId, new Set([tag]));
 }
 
-function tagAddIndex(state: CollectionState): Map<string, Set<string>> {
+export function tagAddIndex(state: CollectionState): Map<string, Set<string>> {
   let index = tagAddIndexes.get(state);
   if (!index) {
     index = new Map();
@@ -172,43 +171,4 @@ export function canonicalizeNoteTags(state: CollectionState, note: Note): boolea
 /** True when the note has any add register (cheap pre-check before {@link canonicalizeNoteTags}). */
 export function noteHasTagAdds(state: CollectionState, noteId: string): boolean {
   return (tagAddIndex(state).get(noteId)?.size ?? 0) > 0;
-}
-
-/**
- * Re-derives `note.tags` for every note that has an add register. Hydration runs this because a
- * snapshot written by an older build may carry the registers verbatim in `fieldHlcs` while that
- * build rewrote `note.tags` on a later `NoteUpserted` without knowing the add (newer than the tags
- * register, so it should still show). One pass over the add index.
- */
-export function canonicalizeAllTagAddNotes(state: CollectionState): void {
-  for (const noteId of tagAddIndex(state).keys()) {
-    const note = state.notes.get(noteId);
-    if (note) canonicalizeNoteTags(state, note);
-  }
-}
-
-/**
- * Upgrade path for snapshots written by builds that predate `NoteTagsAdded`: they kept those
- * events in `unknownEvents` (below the snapshot watermark, never replayed again). Folds them into
- * the add registers and the notes' tags, and returns the events that remain unknown.
- */
-export function foldTagAddEventsFromUnknown(
-  state: CollectionState,
-  unknownEvents: readonly UnknownEvent[],
-): UnknownEvent[] {
-  const remaining: UnknownEvent[] = [];
-  const touched = new Set<string>();
-  for (const ev of unknownEvents) {
-    if (ev.type !== NOTE_TAGS_ADDED) {
-      remaining.push(ev);
-      continue;
-    }
-    const applied = applyTagAddRegisters(state, ev.payload, ev.hlc);
-    if (applied) touched.add(applied.noteId);
-  }
-  for (const noteId of touched) {
-    const note = state.notes.get(noteId);
-    if (note) canonicalizeNoteTags(state, note);
-  }
-  return remaining;
 }

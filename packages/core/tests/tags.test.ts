@@ -12,7 +12,7 @@ import { createHlcState } from '../src/hlc.ts';
 import { deriveNoteId } from '../src/ids.ts';
 import { buildEventsFromCsv, exportCsv } from '../src/import/csv.ts';
 import { BUILTIN_NOTE_TYPES } from '../src/model/presets.ts';
-import { filterNoteIds } from '../src/study/filter.ts';
+import { filterNoteIds } from '../src/study/filter-lists.ts';
 import { filterBrowseNoteIds } from '../src/tags/browse.ts';
 import { createBulkEvents, planBulkNoteAction, type BulkEventDraft } from '../src/tags/bulk.ts';
 import {

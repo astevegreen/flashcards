@@ -7,7 +7,8 @@ import type { SyncProviderKind } from '@flash/platform';
  * (`sync/v1/manifest.json` `collection_id`, §4.2). Never a token, secret, email or account name:
  * the new device signs in by itself.
  *
- * Kept tiny and dependency-free: the app reads (and strips) the params once at startup.
+ * Kept tiny and dependency-free: the app reads (and strips) the params once at startup. Building
+ * and checking links (Settings only) lives in `addDeviceLinkShare.ts`, off the initial chunk (§8).
  */
 
 /** Providers a new device can be pointed at (dev-only channels are never shared). */
@@ -26,26 +27,18 @@ export const ADD_DEVICE_PROVIDER_PARAM = 'sync';
 export const ADD_DEVICE_COLLECTION_PARAM = 'col';
 
 /** Short, human-readable codes used in the link, keyed both ways. */
-const CODE_TO_PROVIDER = new Map<string, AddDeviceProvider>([
+export const CODE_TO_PROVIDER = new Map<string, AddDeviceProvider>([
   ['google', 'google_drive'],
   ['dropbox', 'dropbox'],
   ['onedrive', 'onedrive'],
   ['icloud', 'icloud'],
   ['folder', 'local_folder'],
 ]);
-const PROVIDER_TO_CODE = new Map<SyncProviderKind, string>(
-  [...CODE_TO_PROVIDER].map(([code, provider]) => [provider, code]),
-);
-
 /** `col-` + a lowercase RFC 9562 UUID, as the sync engine generates (`col-${uuidv7()}`). */
 const COLLECTION_ID_RE = /^col-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export function isShareableCollectionId(value: unknown): value is string {
   return typeof value === 'string' && value.length === 40 && COLLECTION_ID_RE.test(value);
-}
-
-export function isAddDeviceProvider(value: unknown): value is AddDeviceProvider {
-  return typeof value === 'string' && PROVIDER_TO_CODE.has(value as SyncProviderKind);
 }
 
 /**
@@ -79,30 +72,8 @@ export function stripAddDeviceParams(href: string): string {
   return url.toString();
 }
 
-/** Builds the link a new device opens: `<base>?sync=<provider>&col=<collection id>`. */
-export function buildAddDeviceUrl(base: string, link: AddDeviceLink): string {
-  const url = new URL(base);
-  url.search = '';
-  url.hash = '';
-  url.searchParams.set(ADD_DEVICE_PROVIDER_PARAM, PROVIDER_TO_CODE.get(link.provider) ?? '');
-  if (link.collectionId !== undefined && isShareableCollectionId(link.collectionId)) {
-    url.searchParams.set(ADD_DEVICE_COLLECTION_PARAM, link.collectionId);
-  }
-  return url.toString();
-}
-
 /** Scheme and host of the native add-device deep link (`flashcards://add-device?...`). */
 export const ADD_DEVICE_DEEP_LINK_BASE = 'flashcards://add-device';
-
-/** The link a native shell shows as QR code and copyable text; the same two values as the web link. */
-export function buildAddDeviceDeepLink(link: AddDeviceLink): string {
-  const params = new URLSearchParams();
-  params.set(ADD_DEVICE_PROVIDER_PARAM, PROVIDER_TO_CODE.get(link.provider) ?? '');
-  if (link.collectionId !== undefined && isShareableCollectionId(link.collectionId)) {
-    params.set(ADD_DEVICE_COLLECTION_PARAM, link.collectionId);
-  }
-  return `${ADD_DEVICE_DEEP_LINK_BASE}?${params.toString()}`;
-}
 
 /**
  * Reads a `flashcards://add-device?...` link the OS opened the app with. Plain string checks, not
@@ -167,20 +138,4 @@ export function consumeAddDeviceLinkFromLocation(): AddDeviceLink | undefined {
     typeof window === 'undefined' ? undefined : takeAddDeviceLink(window.location, window.history);
   consumed = { link };
   return link;
-}
-
-export type AddDeviceCollectionCheck = 'not_applicable' | 'pending' | 'match' | 'mismatch';
-
-/**
- * After the new device connects: did it reach the collection the other device showed? Only
- * meaningful once this device syncs with the link's provider and has learnt a collection id.
- */
-export function checkAddDeviceCollection(
-  expected: AddDeviceLink | undefined,
-  current: { provider: SyncProviderKind; collectionId: string | undefined },
-): AddDeviceCollectionCheck {
-  if (expected?.collectionId === undefined) return 'not_applicable';
-  if (current.provider !== expected.provider) return 'not_applicable';
-  if (current.collectionId === undefined) return 'pending';
-  return current.collectionId === expected.collectionId ? 'match' : 'mismatch';
 }

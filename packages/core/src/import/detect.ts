@@ -1,4 +1,4 @@
-import { decodeUtf8 } from '../ids.ts';
+import { decodeUtf8 } from '../utf8-decode.ts';
 import { parseDelimitedText } from './csv.ts';
 import { listZipEntryNames } from './zip-entries.ts';
 

@@ -10,13 +10,8 @@ import {
 } from '../src/events/replay.ts';
 import type { KnownEvent } from '../src/events/types.ts';
 import { compareHlc, createHlcState } from '../src/hlc.ts';
-import {
-  decodeUtf8,
-  deriveCardId,
-  deriveNoteId,
-  FLASH_NAMESPACE_UUID,
-  uuidv5,
-} from '../src/ids.ts';
+import { decodeUtf8 } from '../src/utf8-decode.ts';
+import { deriveCardId, deriveNoteId, FLASH_NAMESPACE_UUID, uuidv5 } from '../src/ids.ts';
 import { exportFlashpkg, importFlashpkg } from '../src/import/flashpkg.ts';
 import type { ReviewRating } from '../src/model/types.ts';
 import { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } from '../src/samples/decks.ts';
@@ -29,7 +24,6 @@ import {
 } from '../src/study/custom-study.ts';
 import {
   filterCards,
-  filterNoteIds,
   LEECH_LAPSE_THRESHOLD,
   normalizeCardFilter,
   planLeechTag,
@@ -38,6 +32,7 @@ import {
   splitHardestCriterion,
   type CardFilter,
 } from '../src/study/filter.ts';
+import { filterNoteIds } from '../src/study/filter-lists.ts';
 import { buildStudyQueue, compareCodeUnits } from '../src/study/queue.ts';
 import { planStudySetTagRewrites, rewriteStudySetFilter } from '../src/study/study-set-tags.ts';
 import { resolveTagOperation, type TagOperation } from '../src/tags/index.ts';

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { compareHlc, createHlcState, parseHlc, receiveHlc, tickHlc } from '../src/hlc.ts';
+import { compareHlc, createHlcState, tickHlc } from '../src/hlc.ts';
+import { parseHlc, receiveHlc } from '../src/hlc-merge.ts';
 import {
   deriveCardId,
   deriveNoteId,

@@ -1,6 +1,7 @@
 import { Gunzip, gzipSync } from 'fflate';
 import type { FlashEvent } from '../events/types.ts';
-import { decodeUtf8, encodeUtf8 } from '../ids.ts';
+import { encodeUtf8 } from '../ids.ts';
+import { decodeUtf8 } from '../utf8-decode.ts';
 import {
   APP_SYNC_VERSION,
   SYNC_FORMAT_VERSION,

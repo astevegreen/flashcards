@@ -223,7 +223,7 @@ No open format with media and review history is widely adopted. CSV/TSV is the c
 
 In priority order. Items already recorded elsewhere in this file are only pointed to here.
 
-1. [ ] **Size headroom first.** Initial study-screen JS is about 159.3 of 160 KB gz after #42. Before the next feature lands, move something out of the initial bundle (a lazy chunk for a Library-only panel, say) and get back to at least 3 KB headroom.
+1. [x] **Size headroom first.** Initial study-screen JS is about 159.3 of 160 KB gz after #42. Before the next feature lands, move something out of the initial bundle (a lazy chunk for a Library-only panel, say) and get back to at least 3 KB headroom. Done: the web platform's on-demand service getters load from one lazy `lazy-services.ts`, and code only lazy screens use was split out of modules Study imports (filter presets and lists, snapshot upgrades, HLC merge, content hashes, UTF-8 decoder, add-device link building, pack languages). Now 155.99 KB gz (4.0 KB headroom).
 2. [ ] **Presets, folders and descriptions in `.flashpkg` and backups.** See "Not in `.flashpkg`" under presets and folders, and "Packages" under deck descriptions. A restore from backup should bring them back too.
 3. [ ] **Rich text in duplicate keys and Anki export.** `normalizeDuplicateKey` (`packages/core/src/tags/duplicates.ts`) has a comment asking for the rich-text strip helper; the Anki CSV and `.apkg` writers take an `AnkiRichTextConverter` that nothing passes yet, so marks export as typed.
 4. [ ] **`.apkg` review history.** The revlog item above.

@@ -29,12 +29,12 @@ import {
   normalizeStudySetName,
 } from '../src/study/custom-study.ts';
 import {
-  applyFilterPreset,
   filterCards,
   LEECH_LAPSE_THRESHOLD,
   normalizeCardFilter,
   shouldAutoSuspendLeech,
 } from '../src/study/filter.ts';
+import { applyFilterPreset } from '../src/study/filter-lists.ts';
 import { getExtraNewCardsToday } from '../src/study/custom-study.ts';
 import { buildStudyQueue } from '../src/study/queue.ts';
 

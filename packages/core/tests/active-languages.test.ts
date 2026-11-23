@@ -15,12 +15,11 @@ import {
   hasRubyMarkup,
   isLanguageActive,
   isLanguageFeatureActive,
-  isPackForActiveLanguages,
   noteTypeLanguages,
   normalizeLanguage,
-  packLanguages,
   SUPPORTED_LANGUAGES,
 } from '../src/languages/active-languages.ts';
+import { isPackForActiveLanguages, packLanguages } from '../src/languages/pack-languages.ts';
 import { BUILTIN_NOTE_TYPE_IDS, BUILTIN_NOTE_TYPES } from '../src/model/presets.ts';
 import { buildSampleDeckEvents, sampleDeckId } from '../src/samples/decks.ts';
 

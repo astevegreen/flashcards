@@ -511,7 +511,7 @@ interface PlannedCard {
  * has active reviews: then it is kept with its history and flagged `empty` (hidden from Study,
  * listed in Browse). Depends only on replayed state, so every device derives the same cards.
  */
-function planNoteCards(
+export function planNoteCards(
   state: CollectionState,
   note: Note,
   enabledLayouts: readonly Layout[],
@@ -554,7 +554,7 @@ function deriveNoteCards(
 }
 
 /** Enabled layouts of the deck that carry a `required_field` (usable or not). */
-function ruleLayoutsForDeck(state: CollectionState, deck: Deck): Layout[] {
+export function ruleLayoutsForDeck(state: CollectionState, deck: Deck): Layout[] {
   return getEnabledLayoutsForDeck(state, deck).filter(
     (l) => l.required_field !== undefined && l.required_field !== '',
   );
@@ -588,49 +588,6 @@ function findNotesOfRuleSkippedCards(
     }
   }
   return noteIds;
-}
-
-/**
- * Re-derives, after snapshot hydration, the cards of every note in a deck with a rule layout
- * whose stored cards differ from what replay would derive. A snapshot saved by a build that
- * predates optional cards keeps a synced `required_field` on the layout but derived every card;
- * this makes hydrating it equal to a full replay. Snapshots of this build already match, so the
- * pass only compares card ids and `empty` flags. No-op when no layout has a rule.
- */
-export function canonicalizeOptionalCards(state: CollectionState): void {
-  if (!hasOptionalCardRules(state.layouts.values())) return;
-  const sets: DerivedCardSets = {
-    rebuiltIds: new Set(),
-    replayedCards: new Set(),
-    changedCards: new Set(),
-    removedCards: new Set(),
-  };
-  for (const deck of state.decks.values()) {
-    if (deck.archived || ruleLayoutsForDeck(state, deck).length === 0) continue;
-    const enabledLayouts = getEnabledLayoutsForDeck(state, deck);
-    for (const noteId of state.noteIdsByDeck.get(deck.id) ?? []) {
-      const note = state.notes.get(noteId);
-      if (!note || note.archived || note.deck_id !== deck.id) continue;
-      const planned = planNoteCards(state, note, enabledLayouts);
-      const stored = state.cardIdsByNote.get(note.id);
-      const matches =
-        (stored?.size ?? 0) === planned.length &&
-        planned.every(
-          (p) =>
-            stored?.has(p.cardId) === true &&
-            (state.cards.get(p.cardId)?.empty === true) === p.empty,
-        );
-      if (!matches) {
-        rebuildCardsForNote(
-          state,
-          note.id,
-          sets.changedCards,
-          sets.removedCards,
-          sets.replayedCards,
-        );
-      }
-    }
-  }
 }
 
 function rebuildCardsForDeck(
@@ -674,7 +631,7 @@ function rebuildCardsForDeck(
   }
 }
 
-function rebuildCardsForNote(
+export function rebuildCardsForNote(
   state: CollectionState,
   noteId: string,
   changedCards: Set<string>,
@@ -1319,7 +1276,10 @@ function applyMediaAdded(ctx: ApplyEventContext, payload: EventPayloadMap['Media
   collector?.mediaHashes.add(normHash);
 }
 
-function applyMediaRemoved(ctx: ApplyEventContext, payload: EventPayloadMap['MediaRemoved']): void {
+export function applyMediaRemoved(
+  ctx: ApplyEventContext,
+  payload: EventPayloadMap['MediaRemoved'],
+): void {
   const { state, hlc, collector } = ctx;
   if (typeof payload.hash !== 'string') return;
   const normHash = payload.hash.toLowerCase();
@@ -1372,7 +1332,7 @@ function applySourceLinked(ctx: ApplyEventContext, p: EventPayloadMap['SourceLin
  * register (shared with `SourceLinked`, so an older link arriving later stays out). Before the
  * deck/page exists, the buffered source is dropped instead. Malformed payloads are ignored.
  */
-function applySourceUnlinkedAt(
+export function applySourceUnlinkedAt(
   state: CollectionState,
   payload: unknown,
   hlc: string,
@@ -1396,51 +1356,6 @@ function applySourceUnlinkedAt(
     delete pending.source;
     (kind === 'deck' ? collector?.pendingDeckPatchKeys : collector?.pendingPagePatchKeys)?.add(id);
   }
-}
-
-/**
- * Upgrade path for snapshots written by builds that predate `SourceUnlinked`: they kept those
- * events in `unknownEvents` (below the snapshot watermark, never replayed again). Applies them
- * and returns the events that remain unknown.
- */
-export function foldSourceUnlinkedFromUnknown(
-  state: CollectionState,
-  unknownEvents: readonly UnknownEvent[],
-): UnknownEvent[] {
-  const remaining: UnknownEvent[] = [];
-  for (const ev of unknownEvents) {
-    if (ev.type === 'SourceUnlinked') {
-      applySourceUnlinkedAt(state, ev.payload, ev.hlc);
-    } else {
-      remaining.push(ev);
-    }
-  }
-  return remaining;
-}
-
-/** Applies `MediaRemoved` events a snapshot from an older build kept as unknown. */
-export function foldMediaRemovedFromUnknown(
-  state: CollectionState,
-  unknownEvents: readonly UnknownEvent[],
-): UnknownEvent[] {
-  const remaining: UnknownEvent[] = [];
-  for (const ev of unknownEvents) {
-    if (ev.type === 'MediaRemoved' && ev.payload !== null && typeof ev.payload === 'object') {
-      applyMediaRemoved(
-        {
-          state,
-          hlc: ev.hlc,
-          dirtyCards: new Set(),
-          dirtyDecks: new Set(),
-          dirtyNotes: new Set(),
-        },
-        ev.payload as EventPayloadMap['MediaRemoved'],
-      );
-    } else {
-      remaining.push(ev);
-    }
-  }
-  return remaining;
 }
 
 type PreferencesPatch = EventPayloadMap['PreferencesChanged']['preferences'];

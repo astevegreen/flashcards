@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
-import { checkAddDeviceCollection, isAddDeviceProvider } from './addDeviceLink.ts';
+import { checkAddDeviceCollection, isAddDeviceProvider } from './addDeviceLinkShare.ts';
 import {
   addDeviceExpectationResource,
   clearAddDeviceExpectation,

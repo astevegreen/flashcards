@@ -1,9 +1,6 @@
 import type { Storage } from '@flash/platform';
-import {
-  isAddDeviceProvider,
-  isShareableCollectionId,
-  type AddDeviceLink,
-} from './addDeviceLink.ts';
+import { isShareableCollectionId, type AddDeviceLink } from './addDeviceLink.ts';
+import { isAddDeviceProvider } from './addDeviceLinkShare.ts';
 
 /**
  * The add-device link this device was opened with, kept in the device's own key-value store (never

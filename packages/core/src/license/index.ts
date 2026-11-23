@@ -1,4 +1,5 @@
-import { decodeUtf8, encodeUtf8 } from '../ids.ts';
+import { encodeUtf8 } from '../ids.ts';
+import { decodeUtf8 } from '../utf8-decode.ts';
 
 export const FREE_TIER_MAX_DECKS = 2;
 export const UNLOCK_PRODUCT_ID = 'unlock_full';
