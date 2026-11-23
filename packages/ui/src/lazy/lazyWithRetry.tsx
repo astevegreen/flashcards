@@ -52,7 +52,7 @@ export function lazyWithRetry<T extends ComponentType<any>>(
 
   function LazyWithRetry(props: P) {
     // Re-render here on Retry so the child element points at the fresh lazy component.
-    const [, setAttempt] = useState(0);
+    const [attempt, setAttempt] = useState(0);
     const onRetry = () => {
       reset();
       setAttempt((n) => n + 1);
@@ -65,7 +65,7 @@ export function lazyWithRetry<T extends ComponentType<any>>(
         onRetry,
         onClose: typeof close === 'function' ? () => (close as () => void)() : undefined,
       },
-      createElement(current, props),
+      createElement(current, { ...props, key: attempt }),
     );
   }
   return LazyWithRetry;

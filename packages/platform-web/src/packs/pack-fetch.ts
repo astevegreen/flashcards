@@ -1,46 +1,63 @@
 import { assertSafePackUrl } from '@flash/core/dictionary';
 
+function declaredLength(res: Response): number | undefined {
+  const header = res.headers.get('content-length');
+  const declared = header ? Number.parseInt(header, 10) : Number.NaN;
+  return Number.isFinite(declared) && declared > 0 ? declared : undefined;
+}
+
+function concatChunks(chunks: readonly Uint8Array[], length: number): Uint8Array {
+  const out = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+async function readStreamWithCap(
+  body: ReadableStream<Uint8Array>,
+  maxBytes: number,
+  totalBytes: number | undefined,
+  onProgress?: (loaded: number, total?: number) => void,
+): Promise<Uint8Array> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let loaded = 0;
+  try {
+    while (true) {
+      // A stream is read in order, one chunk at a time.
+      const { done, value } = await reader.read(); // NOSONAR (S9382)
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      loaded += value.byteLength;
+      if (loaded > maxBytes) {
+        await reader.cancel().catch(() => {}); // NOSONAR (S9382)
+        throw new Error(`Pack download exceeded maximum allowed size (${maxBytes} bytes).`);
+      }
+      chunks.push(value);
+      onProgress?.(loaded, totalBytes);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return concatChunks(chunks, loaded);
+}
+
 /** Reads a pack download with a hard byte cap (declared length and streamed bytes, §13). */
 export async function readResponseWithCap(
   res: Response,
   maxBytes: number,
   onProgress?: (loaded: number, total?: number) => void,
 ): Promise<Uint8Array> {
-  const contentLengthHeader = res.headers.get('content-length');
-  const declared = contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : NaN;
-  const totalBytes = Number.isFinite(declared) && declared > 0 ? declared : undefined;
+  const totalBytes = declaredLength(res);
   if (totalBytes !== undefined && totalBytes > maxBytes) {
     throw new Error(`Pack download exceeds maximum allowed size (${maxBytes} bytes).`);
   }
 
   if (res.body && typeof res.body.getReader === 'function') {
-    const reader = res.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let loaded = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value && value.byteLength > 0) {
-          loaded += value.byteLength;
-          if (loaded > maxBytes) {
-            await reader.cancel().catch(() => {});
-            throw new Error(`Pack download exceeded maximum allowed size (${maxBytes} bytes).`);
-          }
-          chunks.push(value);
-          onProgress?.(loaded, totalBytes);
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    const out = new Uint8Array(loaded);
-    let offset = 0;
-    for (const chunk of chunks) {
-      out.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return out;
+    return readStreamWithCap(res.body, maxBytes, totalBytes, onProgress);
   }
 
   const buf = new Uint8Array(await res.arrayBuffer());

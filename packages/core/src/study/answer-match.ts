@@ -315,20 +315,30 @@ export function expandAnswerCandidates(expectedRaw: string, rubyDisplay?: RubyDi
   for (const reduction of rubyReductions(rubyDisplay)) {
     const cleaned = stripRuby(plain, reduction).trim();
     if (!cleaned) continue;
-    for (const alt of splitAlternates(cleaned)) {
-      for (const expanded of expandOptionalSegments(alt)) {
-        if (!seen.has(expanded)) {
-          seen.add(expanded);
-          candidates.push(expanded);
-          if (candidates.length >= MAX_TOTAL_CANDIDATES) {
-            return candidates;
-          }
-        }
-      }
+    for (const expanded of splitAlternates(cleaned).flatMap(expandOptionalSegments)) {
+      if (seen.has(expanded)) continue;
+      seen.add(expanded);
+      candidates.push(expanded);
+      if (candidates.length >= MAX_TOTAL_CANDIDATES) return candidates;
     }
   }
 
   return candidates;
+}
+
+const PINYIN_LETTERS = /^[a-züāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ\s]+$/i;
+
+/** Whether `normalizedInput` equals `normCand`, or (Chinese pinyin) does so ignoring spaces. */
+function matchesCandidate(
+  normalizedInput: string,
+  normCand: string,
+  isZhPinyin: boolean,
+  compactInput: string,
+): boolean {
+  if (normalizedInput === normCand) return true;
+  return (
+    isZhPinyin && PINYIN_LETTERS.test(normCand) && compactInput === normCand.replace(/\s+/g, '')
+  );
 }
 
 /**
@@ -368,14 +378,7 @@ export function matchTypedAnswer(
     const normCand = normalizeForMatching(cand, options);
     if (normCand.length === 0) continue;
 
-    const exactMatch = normalizedInput === normCand;
-    const pinyinSpaceMatch =
-      !exactMatch &&
-      isZhPinyin &&
-      /^[a-züāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ\s]+$/i.test(normCand) &&
-      compactInput === normCand.replace(/\s+/g, '');
-
-    if (exactMatch || pinyinSpaceMatch) {
+    if (matchesCandidate(normalizedInput, normCand, isZhPinyin, compactInput)) {
       return {
         correct: true,
         suggestedRating: 3,

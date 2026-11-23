@@ -100,29 +100,45 @@ export class DictionaryShardLoader {
   ): Promise<DictionaryEntry[]> {
     const stubs = entries.filter((e) => e.stub);
     if (stubs.length === 0) return [...entries];
-    const maxShards = opts.maxShards ?? Number.POSITIVE_INFINITY;
-    const states = new Map<DictionaryPackId, StoredShardState | undefined>();
-    const wanted: Array<[StoredShardState, string]> = [];
-    const seen = new Set<string>();
-    for (const entry of stubs) {
-      if (!states.has(entry.packId)) {
-        states.set(entry.packId, await this.packStorage.getShardState(entry.packId));
-      }
-      const state = states.get(entry.packId);
-      const shard = state ? findShardForHeadword(state.sharding, entry.headword) : undefined;
-      if (!state || !shard || state.loaded.includes(shard.key)) continue;
-      const id = `${entry.packId}\u0001${shard.key}`;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      if (wanted.length >= maxShards) break;
-      wanted.push([state, shard.key]);
-    }
+    const wanted = await this.pickShardsToLoad(stubs, opts.maxShards ?? Number.POSITIVE_INFINITY);
     if (wanted.length === 0) return [...entries];
     await Promise.allSettled(wanted.map(([state, key]) => this.loadShard(state, key)));
     const fresh = await this.packStorage.getDictionaryEntriesByIds(stubs.map((e) => e.id));
     const full = new Map<string, DictionaryEntry>();
     for (const row of fresh) if (row && !row.stub) full.set(row.id, row);
     return entries.map((e) => full.get(e.id) ?? e);
+  }
+
+  /** The first `maxShards` distinct shards the `stubs` need that are not on the device yet. */
+  private async pickShardsToLoad(
+    stubs: readonly DictionaryEntry[],
+    maxShards: number,
+  ): Promise<Array<[StoredShardState, string]>> {
+    const packIds = [...new Set(stubs.map((e) => e.packId))];
+    const states = new Map<DictionaryPackId, StoredShardState | undefined>(
+      await Promise.all(
+        packIds.map(
+          async (id) =>
+            [id, await this.packStorage.getShardState(id)] as [
+              DictionaryPackId,
+              StoredShardState | undefined,
+            ],
+        ),
+      ),
+    );
+    const wanted: Array<[StoredShardState, string]> = [];
+    const seen = new Set<string>();
+    for (const entry of stubs) {
+      const state = states.get(entry.packId);
+      const shard = state ? findShardForHeadword(state.sharding, entry.headword) : undefined;
+      if (!state || !shard || state.loaded.includes(shard.key)) continue;
+      const id = `${entry.packId}${shard.key}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      if (wanted.length >= maxShards) break;
+      wanted.push([state, shard.key]);
+    }
+    return wanted;
   }
 
   /** Downloads every shard of `packId` not on the device yet, one at a time. */
@@ -138,9 +154,11 @@ export class DictionaryShardLoader {
     let info: InstalledPackInfo | undefined;
     for (const shard of missing) {
       onProgress?.({ phase: 'downloading', loadedBytes: doneBytes, totalBytes });
-      info = await this.loadShard(state, shard.key, (loaded) => {
+      // Shards download one at a time on purpose: it caps concurrent requests and memory.
+      const onShardProgress = (loaded: number) => {
         onProgress?.({ phase: 'downloading', loadedBytes: doneBytes + loaded, totalBytes });
-      });
+      };
+      info = await this.loadShard(state, shard.key, onShardProgress); // NOSONAR (S9382)
       doneBytes += shard.compressed_bytes;
       if (!info) throw new Error(`${packId} changed while its shards were downloading.`);
     }

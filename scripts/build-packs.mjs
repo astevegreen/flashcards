@@ -1254,6 +1254,90 @@ function buildLicensesText(versions = {}) {
   return lines.join('\n');
 }
 
+/** Writes a stroke pack's per-character files; returns their URL template. */
+function writeCharFilesFor(outDir, prefix, meta, payload, charFileNotice) {
+  const charDir = join(outDir, 'strokes', meta.script);
+  mkdirSync(charDir, { recursive: true });
+  for (const [ch, data] of Object.entries(payload.characters)) {
+    const body = charFileNotice ? { ...data, notice: charFileNotice } : data;
+    writeFileSync(join(charDir, `${charToHex5(ch)}.json`), JSON.stringify(body), 'utf8');
+  }
+  return `${prefix}/strokes/${meta.script}/{hex5}.json`;
+}
+
+/** Splits a dictionary pack into an index plus shards and writes them; returns the index stats. */
+function writeShardedPack({
+  outDir,
+  meta,
+  payload,
+  entryCount,
+  encoded,
+  sharding,
+  build,
+  problems,
+}) {
+  logPackSize(`${meta.filename} (unsharded, not written)`, entryCount, encoded);
+  const built = build({
+    manifest: payload.manifest,
+    entries: payload.entries,
+    indexFile: meta.filename,
+    maxShardBytes: Math.min(sharding.shardBytes, sharding.maxFileBytes),
+    encode: encodeGzipJson,
+  });
+  const stats = built.index.encoded;
+  writeFileSync(join(outDir, meta.filename), stats.bytes);
+  logPackSize(`${meta.filename} (index)`, entryCount, stats);
+  problems.push(...limitProblems(meta.filename, stats, entryCount, sharding.maxFileBytes));
+  for (const s of built.shards) {
+    writeFileSync(join(outDir, s.descriptor.file), s.encoded.bytes);
+    const range = s.descriptor.from ? `${s.descriptor.from}–${s.descriptor.to}` : 'non-Hangul';
+    logPackSize(`  ${s.descriptor.file} ${range}`, s.descriptor.entry_count, s.encoded);
+    problems.push(
+      ...limitProblems(
+        s.descriptor.file,
+        s.encoded,
+        s.descriptor.entry_count,
+        sharding.maxFileBytes,
+      ),
+    );
+  }
+  const shards = {
+    scheme: built.sharding.scheme,
+    count: built.shards.length,
+    compressed_bytes: built.shards.reduce((n, s) => n + s.encoded.compressed_bytes, 0),
+    uncompressed_bytes: built.shards.reduce((n, s) => n + s.encoded.uncompressed_bytes, 0),
+  };
+  console.log(
+    `  ${''.padEnd(36)} ${String(built.shards.length).padStart(7)} shards   ${formatSize(shards.compressed_bytes).padStart(10)} gz in total`,
+  );
+  return { stats, shards };
+}
+
+/** The `packs.json` row for one written pack. */
+function catalogEntry({ m, meta, prefix, stats, entryCount, charTemplate, shards }) {
+  return {
+    id: m.id,
+    kind: m.kind,
+    name: m.name,
+    description: m.description,
+    version: m.version,
+    language: m.language,
+    ...(m.script ? { script: m.script } : {}),
+    url: `${prefix}/${meta.filename}`,
+    compressed_bytes: stats.compressed_bytes,
+    uncompressed_bytes: stats.uncompressed_bytes,
+    entry_count: entryCount,
+    sha256: stats.sha256,
+    license_name: m.license_name,
+    license_url: m.license_url,
+    attribution: m.attribution,
+    source_url: m.source_url,
+    ...(meta.optional ? { optional: true } : {}),
+    ...(charTemplate ? { char_url_template: charTemplate } : {}),
+    ...(shards ? { shards } : {}),
+  };
+}
+
 /**
  * Writes every pack, optional per-character stroke files, `packs.json` and `LICENSES.txt`.
  * `urlPrefix` is either a same-origin path (`/packs`) or an absolute https base URL.
@@ -1273,22 +1357,18 @@ async function emitPacks({
   const prefix = urlPrefix.replace(/\/+$/, '');
   const problems = [];
   const catalogPacks = [];
+  // Loaded once up front (a dictionary pack may need it) instead of inside the pack loop.
+  const hasDictionary = packs.some((p) => PACK_META[p.id].kind === 'dictionary');
+  const buildShardedDictionaryPack = hasDictionary ? await loadShardBuilder() : undefined;
 
   for (const { id, payload, entryCount, charFileNotice } of packs) {
     const meta = PACK_META[id];
-    let charTemplate;
-    if (meta.kind === 'strokes' && writeCharFiles) {
-      const charDir = join(outDir, 'strokes', meta.script);
-      mkdirSync(charDir, { recursive: true });
-      for (const [ch, data] of Object.entries(payload.characters)) {
-        const body = charFileNotice ? { ...data, notice: charFileNotice } : data;
-        writeFileSync(join(charDir, `${charToHex5(ch)}.json`), JSON.stringify(body), 'utf8');
-      }
-      charTemplate = `${prefix}/strokes/${meta.script}/{hex5}.json`;
-    }
+    const charTemplate =
+      meta.kind === 'strokes' && writeCharFiles
+        ? writeCharFilesFor(outDir, prefix, meta, payload, charFileNotice)
+        : undefined;
 
     const encoded = encodeGzipJson(payload);
-    const m = payload.manifest;
     removeStaleShards(outDir, meta.filename);
     let stats = encoded;
     let shards;
@@ -1296,67 +1376,24 @@ async function emitPacks({
       meta.kind === 'dictionary' &&
       (encoded.compressed_bytes > sharding.maxFileBytes || sharding.force.has(id));
     if (shard) {
-      logPackSize(`${meta.filename} (unsharded, not written)`, entryCount, encoded);
-      const buildShardedDictionaryPack = await loadShardBuilder();
-      const built = buildShardedDictionaryPack({
-        manifest: m,
-        entries: payload.entries,
-        indexFile: meta.filename,
-        maxShardBytes: Math.min(sharding.shardBytes, sharding.maxFileBytes),
-        encode: encodeGzipJson,
-      });
-      stats = built.index.encoded;
-      writeFileSync(join(outDir, meta.filename), stats.bytes);
-      logPackSize(`${meta.filename} (index)`, entryCount, stats);
-      problems.push(...limitProblems(meta.filename, stats, entryCount, sharding.maxFileBytes));
-      for (const s of built.shards) {
-        writeFileSync(join(outDir, s.descriptor.file), s.encoded.bytes);
-        const range = s.descriptor.from ? `${s.descriptor.from}–${s.descriptor.to}` : 'non-Hangul';
-        logPackSize(`  ${s.descriptor.file} ${range}`, s.descriptor.entry_count, s.encoded);
-        problems.push(
-          ...limitProblems(
-            s.descriptor.file,
-            s.encoded,
-            s.descriptor.entry_count,
-            sharding.maxFileBytes,
-          ),
-        );
-      }
-      shards = {
-        scheme: built.sharding.scheme,
-        count: built.shards.length,
-        compressed_bytes: built.shards.reduce((n, s) => n + s.encoded.compressed_bytes, 0),
-        uncompressed_bytes: built.shards.reduce((n, s) => n + s.encoded.uncompressed_bytes, 0),
-      };
-      console.log(
-        `  ${''.padEnd(36)} ${String(built.shards.length).padStart(7)} shards   ${formatSize(shards.compressed_bytes).padStart(10)} gz in total`,
-      );
+      ({ stats, shards } = writeShardedPack({
+        outDir,
+        meta,
+        payload,
+        entryCount,
+        encoded,
+        sharding,
+        build: buildShardedDictionaryPack,
+        problems,
+      }));
     } else {
       writeFileSync(join(outDir, meta.filename), encoded.bytes);
       logPackSize(meta.filename, entryCount, encoded);
       problems.push(...limitProblems(meta.filename, encoded, entryCount, sharding.maxFileBytes));
     }
-    catalogPacks.push({
-      id: m.id,
-      kind: m.kind,
-      name: m.name,
-      description: m.description,
-      version: m.version,
-      language: m.language,
-      ...(m.script ? { script: m.script } : {}),
-      url: `${prefix}/${meta.filename}`,
-      compressed_bytes: stats.compressed_bytes,
-      uncompressed_bytes: stats.uncompressed_bytes,
-      entry_count: entryCount,
-      sha256: stats.sha256,
-      license_name: m.license_name,
-      license_url: m.license_url,
-      attribution: m.attribution,
-      source_url: m.source_url,
-      ...(meta.optional ? { optional: true } : {}),
-      ...(charTemplate ? { char_url_template: charTemplate } : {}),
-      ...(shards ? { shards } : {}),
-    });
+    catalogPacks.push(
+      catalogEntry({ m: payload.manifest, meta, prefix, stats, entryCount, charTemplate, shards }),
+    );
   }
 
   if (problems.length > 0) {
@@ -1624,6 +1661,29 @@ function parseSize(raw, flag) {
   return bytes;
 }
 
+/** Flags that take no value: how each changes the options. */
+const CLI_SWITCHES = {
+  '--full': (opts) => (opts.full = true),
+  '--starter': (opts) => (opts.full = false),
+  '--no-char-files': (opts) => (opts.charFiles = false),
+  '--skip-jmdict': (opts) => (opts.jmdict = false),
+};
+
+/** Flags that take a value: how each applies it to the options. */
+const CLI_VALUE_FLAGS = {
+  '--input': (opts, v) => (opts.input = resolve(v)),
+  '--out': (opts, v) => (opts.out = resolve(v)),
+  '--base-url': (opts, v) => (opts.baseUrl = v),
+  '--max-file-size': (opts, v, flag) => (opts.sharding.maxFileBytes = parseSize(v, flag)),
+  '--shard-size': (opts, v, flag) => (opts.sharding.shardBytes = parseSize(v, flag)),
+  '--shard': (opts, id) => {
+    if (PACK_META[id]?.kind !== 'dictionary') {
+      throw new Error(`--shard expects a dictionary pack id (got "${id}")`);
+    }
+    opts.sharding.force.add(id);
+  },
+};
+
 function parseCli(argv) {
   const sharding = { ...DEFAULT_SHARDING, force: new Set() };
   const opts = {
@@ -1637,22 +1697,9 @@ function parseCli(argv) {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--full') opts.full = true;
-    else if (a === '--starter') opts.full = false;
-    else if (a === '--input') opts.input = resolve(argv[++i]);
-    else if (a === '--out') opts.out = resolve(argv[++i]);
-    else if (a === '--base-url') opts.baseUrl = argv[++i];
-    else if (a === '--no-char-files') opts.charFiles = false;
-    else if (a === '--skip-jmdict') opts.jmdict = false;
-    else if (a === '--max-file-size') sharding.maxFileBytes = parseSize(argv[++i], a);
-    else if (a === '--shard-size') sharding.shardBytes = parseSize(argv[++i], a);
-    else if (a === '--shard') {
-      const id = argv[++i];
-      if (PACK_META[id]?.kind !== 'dictionary') {
-        throw new Error(`--shard expects a dictionary pack id (got "${id}")`);
-      }
-      sharding.force.add(id);
-    } else throw new Error(`Unknown argument "${a}"`);
+    if (Object.hasOwn(CLI_SWITCHES, a)) CLI_SWITCHES[a](opts);
+    else if (Object.hasOwn(CLI_VALUE_FLAGS, a)) CLI_VALUE_FLAGS[a](opts, argv[++i], a);
+    else throw new Error(`Unknown argument "${a}"`);
   }
   if (opts.baseUrl !== undefined && !/^https:\/\/[^/\s]+/.test(opts.baseUrl)) {
     throw new Error(`--base-url must be an absolute https:// URL (got "${opts.baseUrl}")`);

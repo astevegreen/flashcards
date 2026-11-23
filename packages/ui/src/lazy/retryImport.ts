@@ -23,11 +23,12 @@ export async function retryImport<T>(
   const wait = options.wait ?? waitForRetry;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await loader();
+      // Retries must run one after another, never in parallel.
+      return await loader(); // NOSONAR (S9382)
     } catch (error) {
       const delay = delays[attempt];
       if (delay === undefined) throw error;
-      await wait(delay);
+      await wait(delay); // NOSONAR (S9382)
     }
   }
 }

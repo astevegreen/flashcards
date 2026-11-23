@@ -154,7 +154,7 @@ export class DexiePackStorage {
    * Writes one shard's full rows over their stubs and marks the shard loaded. Does nothing and
    * returns `undefined` when the pack was reinstalled or removed while the shard downloaded.
    */
-  async putDictionaryShard(
+  putDictionaryShard(
     packId: DictionaryPackId,
     installedAt: number,
     key: string,
@@ -196,9 +196,7 @@ export class DexiePackStorage {
   }
 
   /** Rows by id, in the order given (`undefined` for ids no longer stored). */
-  async getDictionaryEntriesByIds(
-    ids: readonly string[],
-  ): Promise<Array<DictionaryEntry | undefined>> {
+  getDictionaryEntriesByIds(ids: readonly string[]): Promise<Array<DictionaryEntry | undefined>> {
     return this.db.dict_entries.bulkGet([...ids]);
   }
 

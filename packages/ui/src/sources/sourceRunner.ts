@@ -1097,7 +1097,8 @@ function addOneDriveSource(
     ...(options?.language !== undefined ? { language: options.language } : {}),
     lastStatus: 'idle',
   };
-  (registry.oneDriveSources ??= []).push(source);
+  registry.oneDriveSources ??= [];
+  registry.oneDriveSources.push(source);
   return source;
 }
 

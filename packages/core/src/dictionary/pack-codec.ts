@@ -323,6 +323,15 @@ function nonEmptyStrings(val: unknown): string[] | undefined {
   return Array.isArray(val) ? val.filter((x): x is string => isNonEmptyString(x)) : undefined;
 }
 
+function positiveNumber(val: unknown, integer: boolean): number | undefined {
+  if (typeof val !== 'number' || val <= 0) return undefined;
+  return (integer ? Number.isInteger(val) : Number.isFinite(val)) ? val : undefined;
+}
+
+function trimmedNonEmpty(val: unknown): string | undefined {
+  return isNonEmptyString(val) ? val.trim() : undefined;
+}
+
 /** One pack entry, or `undefined` when it has no headword. */
 function decodeDictionaryEntry(rawEntry: unknown): RawDictionaryEntry | undefined {
   if (!rawEntry || typeof rawEntry !== 'object') return undefined;
@@ -332,18 +341,10 @@ function decodeDictionaryEntry(rawEntry: unknown): RawDictionaryEntry | undefine
   const meanings = nonEmptyStrings(e['meanings']) ?? [];
   const altForms = nonEmptyStrings(e['altForms']);
   const eumhun = nonEmptyStrings(e['eumhun']);
-  const strokeCount =
-    typeof e['strokeCount'] === 'number' &&
-    Number.isInteger(e['strokeCount']) &&
-    e['strokeCount'] > 0
-      ? e['strokeCount']
-      : undefined;
-  const radical = isNonEmptyString(e['radical']) ? e['radical'].trim() : undefined;
-  const grade = isNonEmptyString(e['grade']) ? e['grade'].trim() : undefined;
-  const frequency =
-    typeof e['frequency'] === 'number' && Number.isFinite(e['frequency']) && e['frequency'] > 0
-      ? e['frequency']
-      : undefined;
+  const strokeCount = positiveNumber(e['strokeCount'], true);
+  const radical = trimmedNonEmpty(e['radical']);
+  const grade = trimmedNonEmpty(e['grade']);
+  const frequency = positiveNumber(e['frequency'], false);
 
   return {
     headword: e['headword'].normalize('NFC').trim(),
@@ -357,6 +358,11 @@ function decodeDictionaryEntry(rawEntry: unknown): RawDictionaryEntry | undefine
     ...(frequency !== undefined ? { frequency } : {}),
     ...decodeWordPackFields(e),
   };
+}
+
+function compareCodeUnits(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 /** Validates a sharded index's `manifest.sharding` against the index's entry count. */
@@ -386,7 +392,7 @@ function decodeSharding(raw: unknown, entryCount: number): DictionaryShardingInf
     if (shard.from !== undefined && shard.to !== undefined) ranges.push([shard.from, shard.to]);
     else restShards++;
   }
-  ranges.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  ranges.sort((a, b) => compareCodeUnits(a[0], b[0]));
   const overlaps = ranges.some((r, i) => i > 0 && (ranges[i - 1]?.[1] ?? '') >= r[0]);
   if (restShards > 1 || overlaps) {
     throw new PackValidationError('Sharded pack manifest has overlapping shards.');
@@ -428,8 +434,7 @@ export function decodeDictionaryShard(
   });
   const header = asRecord(root['shard']);
   if (
-    !header ||
-    header['format_version'] !== SHARDED_PACK_FORMAT_VERSION ||
+    header?.['format_version'] !== SHARDED_PACK_FORMAT_VERSION ||
     header['pack_id'] !== expected.packId ||
     header['version'] !== expected.version ||
     header['key'] !== shard.key
@@ -575,55 +580,63 @@ function parseJsonPack(
   return parsed as Record<string, unknown>;
 }
 
+function decodeDictionaryRoot(
+  root: Record<string, unknown>,
+  manifestObj: Record<string, unknown>,
+): DecodedPackPayload {
+  const sharded = manifestObj['format_version'] === SHARDED_PACK_FORMAT_VERSION;
+  const rawEntries = checkedEntryArray(root['entries']);
+  const entries: RawDictionaryEntry[] = [];
+  for (const rawEntry of rawEntries) {
+    const entry = decodeDictionaryEntry(rawEntry);
+    if (entry) entries.push(entry);
+    else if (sharded) {
+      // Index rows are matched to shard rows by position, so none may be dropped.
+      throw new PackValidationError('Sharded pack index contains an invalid entry.');
+    }
+  }
+  const manifest = manifestObj as unknown as DictionaryPackManifest & { id: DictionaryPackId };
+  if (sharded) manifest.sharding = decodeSharding(manifestObj['sharding'], entries.length);
+  else delete manifest.sharding;
+  return { manifest, entries };
+}
+
+function decodeStrokeRoot(
+  root: Record<string, unknown>,
+  manifestObj: Record<string, unknown>,
+): DecodedPackPayload {
+  if (manifestObj['script'] !== 'ja' && manifestObj['script'] !== 'zh-Hans') {
+    throw new PackValidationError(
+      `Stroke pack manifest must declare script "ja" or "zh-Hans", got "${String(manifestObj['script'])}".`,
+    );
+  }
+  const rawChars = root['characters'];
+  if (!rawChars || typeof rawChars !== 'object' || Array.isArray(rawChars)) {
+    throw new PackValidationError('Stroke pack must contain a "characters" map.');
+  }
+  const characters: Record<string, { strokes: string[]; medians: number[][][] }> = {};
+  let count = 0;
+  for (const [ch, data] of Object.entries(rawChars as Record<string, unknown>)) {
+    if (!ch || [...ch].length !== 1) continue;
+    if (!isValidHanziStrokeData(data)) continue;
+    characters[ch] = { strokes: data.strokes, medians: data.medians };
+    count++;
+    if (count > PACK_SECURITY_LIMITS.maxEntries) {
+      throw new PackValidationError('Stroke pack exceeds maximum character cap.');
+    }
+  }
+  return {
+    manifest: manifestObj as unknown as StrokePackManifest & { id: StrokePackId },
+    characters,
+  };
+}
+
 function decodePackRoot(
   root: Record<string, unknown>,
   manifestObj: Record<string, unknown>,
 ): DecodedPackPayload {
-  if (manifestObj['kind'] === 'dictionary') {
-    const sharded = manifestObj['format_version'] === SHARDED_PACK_FORMAT_VERSION;
-    const rawEntries = checkedEntryArray(root['entries']);
-    const entries: RawDictionaryEntry[] = [];
-    for (const rawEntry of rawEntries) {
-      const entry = decodeDictionaryEntry(rawEntry);
-      if (entry) entries.push(entry);
-      else if (sharded) {
-        // Index rows are matched to shard rows by position, so none may be dropped.
-        throw new PackValidationError('Sharded pack index contains an invalid entry.');
-      }
-    }
-    const manifest = manifestObj as unknown as DictionaryPackManifest & { id: DictionaryPackId };
-    if (sharded) manifest.sharding = decodeSharding(manifestObj['sharding'], entries.length);
-    else delete manifest.sharding;
-    return { manifest, entries };
-  }
-
-  if (manifestObj['kind'] === 'strokes') {
-    if (manifestObj['script'] !== 'ja' && manifestObj['script'] !== 'zh-Hans') {
-      throw new PackValidationError(
-        `Stroke pack manifest must declare script "ja" or "zh-Hans", got "${String(manifestObj['script'])}".`,
-      );
-    }
-    const rawChars = root['characters'];
-    if (!rawChars || typeof rawChars !== 'object' || Array.isArray(rawChars)) {
-      throw new PackValidationError('Stroke pack must contain a "characters" map.');
-    }
-    const characters: Record<string, { strokes: string[]; medians: number[][][] }> = {};
-    let count = 0;
-    for (const [ch, data] of Object.entries(rawChars as Record<string, unknown>)) {
-      if (!ch || [...ch].length !== 1) continue;
-      if (!isValidHanziStrokeData(data)) continue;
-      characters[ch] = { strokes: data.strokes, medians: data.medians };
-      count++;
-      if (count > PACK_SECURITY_LIMITS.maxEntries) {
-        throw new PackValidationError('Stroke pack exceeds maximum character cap.');
-      }
-    }
-    return {
-      manifest: manifestObj as unknown as StrokePackManifest & { id: StrokePackId },
-      characters,
-    };
-  }
-
+  if (manifestObj['kind'] === 'dictionary') return decodeDictionaryRoot(root, manifestObj);
+  if (manifestObj['kind'] === 'strokes') return decodeStrokeRoot(root, manifestObj);
   throw new PackValidationError(`Unknown pack kind "${String(manifestObj['kind'])}".`);
 }
 

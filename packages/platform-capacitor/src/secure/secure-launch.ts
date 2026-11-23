@@ -60,7 +60,8 @@ export async function markStoredSecretsAtLaunch(options: {
   if (options.platform !== 'ios') return;
   for (const key of options.keys) {
     try {
-      await options.secureStorage.get(key);
+      // Keychain reads go one at a time on purpose, so launch never fires a burst of them.
+      await options.secureStorage.get(key); // NOSONAR (S9382)
     } catch {
       // Best effort: the next read of this key tries again.
     }

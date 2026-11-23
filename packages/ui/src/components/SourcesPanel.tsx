@@ -104,6 +104,26 @@ export interface SourcesPanelProps {
   onErrorMessage: (msg: string | null) => void;
 }
 
+/** The status line after "Refresh all" finished without errors. */
+function refreshAllStatusMessage(summary: {
+  importedNotes: number;
+  importedPages: number;
+  inboxImported: number;
+  skipped: readonly string[];
+}): string {
+  const parts: string[] = [];
+  if (summary.importedNotes > 0) parts.push(`${summary.importedNotes} note change(s)`);
+  if (summary.importedPages > 0) parts.push(`${summary.importedPages} page(s)`);
+  if (summary.inboxImported > 0) parts.push(`${summary.inboxImported} Inbox package(s)`);
+  // Sources left alone on purpose (archived deck, Excel file this device can't read).
+  const skipped = summary.skipped.length > 0;
+  let done = skipped
+    ? 'The other linked sources are up to date.'
+    : 'All linked sources are up to date.';
+  if (parts.length > 0) done = `Refreshed sources: ${parts.join(', ')}.`;
+  return skipped ? `${done} Not refreshed: ${summary.skipped.join(' | ')}` : done;
+}
+
 export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelProps) {
   const { platform, state, stateVersion, entitlement, emitEvents, getEventFactory } = useApp();
 
@@ -453,17 +473,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       if (summary.errors.length > 0) {
         onErrorMessage(summary.errors.join(' | '));
       } else {
-        const parts: string[] = [];
-        if (summary.importedNotes > 0) parts.push(`${summary.importedNotes} note change(s)`);
-        if (summary.importedPages > 0) parts.push(`${summary.importedPages} page(s)`);
-        if (summary.inboxImported > 0) parts.push(`${summary.inboxImported} Inbox package(s)`);
-        // Sources left alone on purpose (archived deck, Excel file this device can't read).
-        const skipped = summary.skipped.length > 0;
-        let done = skipped
-          ? 'The other linked sources are up to date.'
-          : 'All linked sources are up to date.';
-        if (parts.length > 0) done = `Refreshed sources: ${parts.join(', ')}.`;
-        onStatusMessage(skipped ? `${done} Not refreshed: ${summary.skipped.join(' | ')}` : done);
+        onStatusMessage(refreshAllStatusMessage(summary));
       }
     } catch (err) {
       onErrorMessage(err instanceof Error ? err.message : String(err));
