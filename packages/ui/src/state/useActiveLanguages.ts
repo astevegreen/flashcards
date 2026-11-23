@@ -17,9 +17,10 @@ export interface ActiveLanguages {
 }
 
 /**
- * The collection's decks plus this device's onboarding choice (UX #2). The onboarding record is
- * read lazily so it never joins the initial bundle; the decks alone already cover every collection
- * that has one. Nothing stored is changed: a hidden option keeps its saved value.
+ * The collection's unarchived decks, the Settings > Languages tick boxes (synced preferences) and
+ * this device's onboarding choice (UX #2). The onboarding record is read lazily so it never joins
+ * the initial bundle; the decks alone already cover every collection that has one. Nothing stored
+ * is changed: a hidden option keeps its saved value.
  */
 export function useActiveLanguages(): ActiveLanguages {
   const { state, stateVersion, platform } = useApp();
@@ -39,11 +40,11 @@ export function useActiveLanguages(): ActiveLanguages {
   }, [platform]);
 
   return useMemo(() => {
-    const languages = deriveActiveLanguages(
-      state.decks.values(),
+    const languages = deriveActiveLanguages(state.decks.values(), {
       onboardingLanguage,
-      state.noteTypes,
-    );
+      noteTypes: state.noteTypes,
+      chosen: state.preferences.languages,
+    });
     return {
       languages,
       hasFeature: (feature) => isLanguageFeatureActive(languages, feature),

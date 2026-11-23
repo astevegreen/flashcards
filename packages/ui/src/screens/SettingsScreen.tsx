@@ -9,6 +9,7 @@ import { canCreateOrImportDeck, canUseCloudSync } from '@flash/core/license';
 import type { InstalledPackInfo, TtsProviderKind } from '@flash/platform';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
+import { LanguagesCard } from '../components/LanguagesCard.tsx';
 import { StudyRemindersSetting } from '../reminders/StudyRemindersSetting.tsx';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
@@ -659,6 +660,9 @@ export function SettingsScreen() {
         {/* Phase 14: "Add a device" (QR code + link) and the add-device collection check. */}
         <SettingsAddDevice />
       </div>
+
+      {/* Languages (UX #2): which languages' options are shown */}
+      <LanguagesCard active={active} />
 
       {/* Study preferences */}
       <div className="flex flex-col gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">

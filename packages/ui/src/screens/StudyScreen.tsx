@@ -3,6 +3,7 @@ import {
   compareCodeUnits,
   formatIntervalLabel,
   getStudyDayIndex,
+  hasRubyMarkup,
   previewIntervals,
   resolveCardAudioTarget,
   resolveDayStartHour,
@@ -539,8 +540,12 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCard?.id]);
 
-  // Ruby (furigana, Hanja, pinyin) is offered for ja/ko/zh, and always where the layout hides it.
-  const showFuriganaToggle = rubyLanguage || Boolean(currentLayout?.hide_furigana_on_front);
+  // Ruby (furigana, pinyin) is offered for ja/zh. Korean shows Hanja as plain text, so a Korean
+  // card gets the toggle only when ruby already stored in it is hidden on the front.
+  const frontRubyHidden =
+    Boolean(currentLayout?.hide_furigana_on_front) &&
+    Boolean(currentLayout?.front_fields.some((k) => hasRubyMarkup(currentNote?.fields[k] ?? '')));
+  const showFuriganaToggle = rubyLanguage || frontRubyHidden;
   const hideFrontRuby =
     furiganaOverride ?? (!isRevealed && Boolean(currentLayout?.hide_furigana_on_front));
 

@@ -5,8 +5,11 @@ import type {
   PackId,
   PackInstallProgress,
 } from '@flash/platform';
+import { isPackForActiveLanguages } from '@flash/core';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { useActiveLanguages } from '../state/useActiveLanguages.ts';
+import { ShowAllLanguagesSwitch, useShowAllLanguages } from './ShowAllLanguagesSwitch.tsx';
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -85,6 +88,17 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
 
   const installedById = new Map(installed.map((p) => [p.id, p]));
   const totalBytes = installed.reduce((sum, p) => sum + p.byteSize, 0);
+
+  // UX #2: only packs for the languages in use, unless "Show all languages" is on (this device).
+  const { languages } = useActiveLanguages();
+  const [showAllLanguages, setShowAllLanguages] = useShowAllLanguages();
+  const shown = (pack: { kind: string; language: string; script?: string | undefined }) =>
+    showAllLanguages || isPackForActiveLanguages(languages, pack);
+  const catalogPacks = catalog ? catalog.packs.filter(shown) : [];
+  const installedPacks = installed.filter(shown);
+  const hiddenCount = catalog
+    ? catalog.packs.length - catalogPacks.length
+    : installed.length - installedPacks.length;
 
   const handleSaveCatalogUrl = async (e: FormEvent) => {
     e.preventDefault();
@@ -238,10 +252,19 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
         </button>
       </form>
 
+      {(catalog || installed.length > 0) && (
+        <ShowAllLanguagesSwitch
+          testId="pack-show-all-languages"
+          checked={showAllLanguages}
+          onChange={setShowAllLanguages}
+          hiddenCount={hiddenCount}
+        />
+      )}
+
       {/* Catalog Pack List */}
       {catalog ? (
         <div className="flex flex-col gap-2">
-          {catalog.packs.map((entry) => {
+          {catalogPacks.map((entry) => {
             const local = installedById.get(entry.id);
             const hasUpdate = Boolean(local && local.version !== entry.version);
             const isBusy = busyPackId === entry.id;
@@ -315,7 +338,7 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
         </div>
       ) : installed.length > 0 ? (
         <div className="flex flex-col gap-2">
-          {installed.map((local) => (
+          {installedPacks.map((local) => (
             <div
               key={local.id}
               data-testid={`pack-row-${local.id}`}

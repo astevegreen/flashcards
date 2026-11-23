@@ -1328,6 +1328,24 @@ function applyDrawingModePreferences(ctx: ApplyEventContext, pref: PreferencesPa
   return changed;
 }
 
+/** Per-language Settings > Languages choices; returns true when any entry was applied. */
+function applyLanguageChoicePreferences(ctx: ApplyEventContext, pref: PreferencesPatch): boolean {
+  const { state, hlc, collector } = ctx;
+  let changed = false;
+  if (typeof pref.languages === 'object' && pref.languages !== null) {
+    for (const [langKey, on] of Object.entries(pref.languages)) {
+      if (
+        typeof on === 'boolean' &&
+        shouldApplyLww(state, `prefs:languages:${langKey}`, hlc, collector)
+      ) {
+        state.preferences.languages = { ...(state.preferences.languages ?? {}), [langKey]: on };
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
 function applyPreferencesChanged(
   ctx: ApplyEventContext,
   payload: EventPayloadMap['PreferencesChanged'],
@@ -1337,6 +1355,7 @@ function applyPreferencesChanged(
   let changed = applyScalarPreferences(ctx, pref);
   if (applyTtsVoicePreferences(ctx, pref)) changed = true;
   if (applyDrawingModePreferences(ctx, pref)) changed = true;
+  if (applyLanguageChoicePreferences(ctx, pref)) changed = true;
   if (changed && collector) {
     collector.preferencesChanged = true;
   }
