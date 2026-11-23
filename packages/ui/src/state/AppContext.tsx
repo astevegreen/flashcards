@@ -57,6 +57,7 @@ import {
 import { SECURE_KEYS_LOST_KV_KEY } from './secureKeysNotice.ts';
 import { priorOfMediaEdits } from './mediaEditPrior.ts';
 import { createMediaReAddQueue, type MediaReAddQueue } from './mediaReAddQueue.ts';
+import { createPersistQueue, type PersistQueue } from './persistQueue.ts';
 import { snapshotWriteAllowed } from './rebuildSignal.ts';
 import { useAudioController, type AudioController } from './useAudioController.ts';
 import { isLeechBackfillReady } from './leechBackfillGate.ts';
@@ -222,8 +223,7 @@ export function AppProvider({
   const entitlementRef = useRef<EntitlementState>(DEFAULT_PERSONAL_ENTITLEMENT);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [activeDeckId, setActiveDeckId] = useState<string | undefined>(undefined);
-  const persistChainRef = useRef<Promise<void>>(Promise.resolve());
-  const persistPendingRef = useRef(0);
+  const [persistQueue] = useState<PersistQueue>(createPersistQueue);
   const lastLocalSnapEventsRef = useRef<number>(getTotalAppliedEventCount(collectionState));
   // A Check database rebuild saved after this start keeps its snapshot (see rebuildSignal.ts).
   const [startedAtMs] = useState(() => Date.now());
@@ -281,36 +281,16 @@ export function AppProvider({
     });
   }, [openedAddDeviceLink, platform.storage]);
 
-  const enqueuePersist = useCallback((task: () => Promise<void>): Promise<void> => {
-    const invoke = (): Promise<void> => {
-      try {
-        return task();
-      } catch (err) {
-        return Promise.reject(err);
-      }
-    };
-    const started =
-      persistPendingRef.current === 0 ? invoke() : persistChainRef.current.then(invoke, invoke);
-    persistPendingRef.current += 1;
-    const next = started
-      .catch((err) => {
-        console.error('Failed to persist to storage:', err);
-      })
-      .finally(() => {
-        persistPendingRef.current -= 1;
-      });
-    persistChainRef.current = next;
-    return next;
-  }, []);
+  const enqueuePersist = useCallback(
+    (task: () => Promise<void>): Promise<void> => persistQueue.enqueue(task),
+    [persistQueue],
+  );
 
   const whenSaved = useCallback(async () => {
     // Re-adds still being planned emit their events first.
     await mediaReAddsRef.current?.flush();
-    while (persistPendingRef.current > 0) {
-      // A write queued while waiting extends the chain: wait for that one too.
-      await persistChainRef.current; // NOSONAR (S9382)
-    }
-  }, []);
+    await persistQueue.whenSaved();
+  }, [persistQueue]);
 
   // Files an edit starts to use are added again (mediaReAdds.ts, lazy). A batch whose chunk failed
   // to load stays queued and is retried on the next edit or sync.

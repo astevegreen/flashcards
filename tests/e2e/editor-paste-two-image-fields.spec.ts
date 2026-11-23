@@ -163,7 +163,12 @@ test.describe('Paste and drop images into a note with two image fields', () => {
     // Dropped on a text field: ignored, but the browser must not open the file.
     expect(await transfer(word, 'drop')).toBe(true);
 
-    await expect(dialog.getByTestId('media-image')).toHaveCount(0);
+    // Processing is asynchronous, so prove nothing landed anywhere by a real paste afterwards:
+    // once it has rendered in field A, field B and the dialog hold no other image.
+    await transfer(dialog.getByTestId('image-drop-pic_a'), 'paste');
+    await expect(dialog.getByTestId('image-drop-pic_a').getByTestId('media-image')).toBeVisible();
+    await expect(dialog.getByTestId('image-drop-pic_b').getByTestId('media-image')).toHaveCount(0);
+    await expect(dialog.getByTestId('media-image')).toHaveCount(1);
     await expect(word).toHaveValue(before);
     await expect(dialog.getByRole('alert')).toHaveCount(0);
     await expect(dialog).toBeVisible();

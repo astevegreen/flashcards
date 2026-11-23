@@ -30,14 +30,20 @@ test.describe('Reload prompt after a rebuild in another tab', () => {
     const prompt = page.getByTestId('rebuild-reload-prompt');
     await expect(prompt).toHaveCount(0);
 
-    // Another tab of this device announces; a different device's rebuild is ignored.
+    // The listener mounts lazily. Another device's rebuild is announced repeatedly across that
+    // window and must show nothing; then this device's own is announced until the prompt appears
+    // (which also shows the listener was live for the earlier messages).
     const other = await context.newPage();
     await other.goto('/?device=rebuildprompt');
-    await announce(other, 'device-someone-else');
-    await page.waitForTimeout(300);
+    for (let i = 0; i < 8; i++) {
+      await announce(other, 'device-someone-else');
+      await page.waitForTimeout(200);
+    }
     await expect(prompt).toHaveCount(0);
-    await announce(other, 'device-rebuildprompt');
-    await expect(prompt).toBeVisible();
+    await expect(async () => {
+      await announce(other, 'device-rebuildprompt');
+      await expect(prompt).toBeVisible({ timeout: 500 });
+    }).toPass();
     await expect(prompt).toContainText('rebuilt in another tab');
     await other.close();
 
@@ -50,8 +56,7 @@ test.describe('Reload prompt after a rebuild in another tab', () => {
     await expect(dialog).toHaveCount(0);
 
     const reload = prompt.getByRole('button', { name: 'Reload now' });
-    await reload.click(); // reloads quickly: the disabled state is not observable
-    await page.waitForLoadState('load');
+    await Promise.all([page.waitForEvent('load'), reload.click()]);
     await expect(page.getByTestId('study-card')).toBeVisible();
     await expect(prompt).toHaveCount(0);
 
