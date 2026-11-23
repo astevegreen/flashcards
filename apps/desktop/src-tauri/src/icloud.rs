@@ -125,6 +125,47 @@ fn millis(meta: &fs::Metadata) -> Option<f64> {
 // Listing, reading and writing (platform-independent)
 // ---------------------------------------------------------------------------
 
+fn join_rel(rel_dir: &str, name: &str) -> String {
+    if rel_dir.is_empty() {
+        name.to_string()
+    } else {
+        format!("{rel_dir}/{name}")
+    }
+}
+
+/// The listing entry for one regular file, and whether it is an iCloud placeholder; `None` for
+/// hidden files and files outside `prefix`.
+fn file_entry(
+    entry: &fs::DirEntry,
+    name: &str,
+    rel_dir: &str,
+    prefix: &str,
+) -> Option<(FileEntry, bool)> {
+    let (rel, is_placeholder) = match placeholder_target(name) {
+        Some(target) => (join_rel(rel_dir, target), true),
+        None if name.starts_with('.') => return None,
+        None => (join_rel(rel_dir, name), false),
+    };
+    if !rel.starts_with(prefix) {
+        return None;
+    }
+    let meta = entry.metadata().ok();
+    // A placeholder's own size is not the file's size; it is unknown until downloaded.
+    let size = match &meta {
+        Some(m) if !is_placeholder => m.len(),
+        _ => 0,
+    };
+    let updated_at = meta.as_ref().and_then(millis);
+    Some((
+        FileEntry {
+            path: rel,
+            size,
+            updated_at,
+        },
+        is_placeholder,
+    ))
+}
+
 /// Every file under `root` whose relative path starts with `prefix`, sorted by path. Hidden files
 /// are skipped (like the iOS walker), except iCloud placeholders, which stand for their file.
 pub fn list_files(root: &Path, prefix: &str) -> Result<Vec<FileEntry>, IcloudError> {
@@ -141,46 +182,16 @@ pub fn list_files(root: &Path, prefix: &str) -> Result<Vec<FileEntry>, IcloudErr
             let Ok(file_type) = entry.file_type() else {
                 continue;
             };
-            let join = |n: &str| {
-                if rel_dir.is_empty() {
-                    n.to_string()
-                } else {
-                    format!("{rel_dir}/{n}")
-                }
-            };
-            if file_type.is_dir() {
-                if !name.starts_with('.') {
-                    stack.push((entry.path(), join(&name)));
-                }
-                continue;
-            }
-            if !file_type.is_file() {
-                continue;
-            }
-            let (rel, is_placeholder) = match placeholder_target(&name) {
-                Some(target) => (join(target), true),
-                None if name.starts_with('.') => continue,
-                None => (join(&name), false),
-            };
-            if !rel.starts_with(prefix) {
-                continue;
-            }
-            let meta = entry.metadata().ok();
-            let file = FileEntry {
-                path: rel.clone(),
-                // A placeholder's own size is not the file's size; it is unknown until downloaded.
-                size: if is_placeholder {
-                    0
-                } else {
-                    meta.as_ref().map_or(0, |m| m.len())
-                },
-                updated_at: meta.as_ref().and_then(millis),
-            };
-            // The real file wins over its placeholder.
-            match found.get(&rel) {
-                Some((_, false)) => {}
-                _ => {
-                    found.insert(rel, (file, is_placeholder));
+            if file_type.is_dir() && !name.starts_with('.') {
+                stack.push((entry.path(), join_rel(&rel_dir, &name)));
+            } else if file_type.is_file() {
+                let Some((file, is_placeholder)) = file_entry(&entry, &name, &rel_dir, prefix)
+                else {
+                    continue;
+                };
+                // The real file wins over its placeholder.
+                if !matches!(found.get(&file.path), Some((_, false))) {
+                    found.insert(file.path.clone(), (file, is_placeholder));
                 }
             }
         }
