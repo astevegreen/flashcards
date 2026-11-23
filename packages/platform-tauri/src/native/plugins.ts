@@ -9,7 +9,7 @@ import {
   start as startOAuthServer,
 } from '@fabianlars/tauri-plugin-oauth';
 import { invoke } from '@tauri-apps/api/core';
-import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
+import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import {
   exists,
@@ -239,6 +239,45 @@ export function createSystemBrowserLauncher(): SystemBrowserLauncher {
         (unlisten as (() => void) | null)?.();
       }
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// `flashcards://add-device?...` (tauri-plugin-deep-link; the scheme is registered for every host)
+// ---------------------------------------------------------------------------
+
+/** Exact `flashcards://add-device` (any path and query), compared as plain text. */
+function isAddDeviceUrl(url: string): boolean {
+  const prefix = 'flashcards://add-device';
+  if (url.length < prefix.length || url.slice(0, prefix.length).toLowerCase() !== prefix) {
+    return false;
+  }
+  const next = url.charAt(prefix.length);
+  return next === '' || next === '/' || next === '?' || next === '#';
+}
+
+/** Every `flashcards://add-device` URL the OS opens the app with, the launch URL included. */
+export function createAddDeviceUrlSource(): (handler: (url: string) => void) => () => void {
+  return (handler) => {
+    let live = true;
+    let unlisten: (() => void) | undefined;
+    const deliver = (urls: readonly string[] | null | undefined) => {
+      if (!live) return;
+      for (const url of urls ?? []) if (isAddDeviceUrl(url)) handler(url);
+    };
+    void getCurrent()
+      .then(deliver)
+      .catch(() => undefined);
+    void onOpenUrl(deliver)
+      .then((fn) => {
+        if (live) unlisten = fn;
+        else fn();
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+      unlisten?.();
+    };
   };
 }
 

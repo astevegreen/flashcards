@@ -80,3 +80,59 @@ export const SOCIAL_LOGIN_GOOGLE_ANDROID_COPY: LegacyPreferenceEntry = {
   androidPreferencesName: 'GOOGLE_LOGIN_F13oz0I_SHARED_PERF',
   key: 'GOOGLE_LOGIN_GOOGLE_DATA_9158025e-947d-4211-ba51-40451630cc47',
 };
+
+/**
+ * Plain (non-secret) app database KV flag set when the Keystore key was lost and the stored secrets
+ * were dropped. The app shows one explanation and then deletes it. Same value as
+ * `SECURE_KEYS_LOST_KV_KEY` in `packages/ui/src/state/secureKeysNotice.ts` (a unit test checks the
+ * two constants match).
+ */
+export const SECURE_KEYS_LOST_KV_KEY = 'secure_keys_lost_v1';
+
+/** The part of the native plugin the adapter below needs (`@flash/capacitor-secure-storage`). */
+export interface SecureStoragePluginPort {
+  get(options: { key: string }): Promise<{ value: string | null; lost?: boolean }>;
+  set(options: { key: string; value: string }): Promise<{ lost?: boolean } | undefined>;
+  remove(options: { key: string }): Promise<void>;
+  removeLegacyPreference(options: { key: string; androidPreferencesName?: string }): Promise<void>;
+}
+
+/**
+ * Wraps the native plugin as a `NativeSecureStorage`. When the plugin reports that the Keystore key
+ * was lost (every stored secret dropped), `onSecretsLost` runs so the app can tell the user once why
+ * they have to sign in again. A failing callback never breaks the read or write.
+ */
+export function adaptSecureStoragePlugin(
+  plugin: SecureStoragePluginPort,
+  onSecretsLost?: () => void | Promise<void>,
+): NativeSecureStorage {
+  const notify = async (): Promise<void> => {
+    try {
+      await onSecretsLost?.();
+    } catch {
+      // Best effort: the sign-in still has to be repeated, only the explanation is lost.
+    }
+  };
+  return {
+    get: async (key) => {
+      const result = await plugin.get({ key });
+      if (result.lost === true) await notify();
+      return result.value;
+    },
+    set: async (key, value) => {
+      const result = await plugin.set({ key, value });
+      if (result && result.lost === true) await notify();
+    },
+    remove: async (key) => {
+      await plugin.remove({ key });
+    },
+    removeLegacyPreference: async (entry) => {
+      await plugin.removeLegacyPreference({
+        key: entry.key,
+        ...(entry.androidPreferencesName
+          ? { androidPreferencesName: entry.androidPreferencesName }
+          : {}),
+      });
+    },
+  };
+}

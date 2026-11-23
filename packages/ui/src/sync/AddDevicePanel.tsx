@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import {
+  buildAddDeviceDeepLink,
   buildAddDeviceUrl,
   isAddDeviceProvider,
   isShareableCollectionId,
@@ -14,9 +15,10 @@ import { syncProviderInfo } from './syncProviders.ts';
  * that tell a new device which provider and which collection to connect to. They carry nothing
  * else (no token, secret, email or account name); the new device signs in by itself.
  *
- * The link points at this web app's own address. Inside the native shells that address
- * (`capacitor://`, `tauri://`, or a `localhost` origin) means nothing on another device and no
- * app link opens the native app yet, so they show the provider to choose instead.
+ * On the web the link points at this web app's own address. Inside the native shells that address
+ * (`capacitor://`, `tauri://`, or a `localhost` origin) means nothing on another device, so they
+ * show a `flashcards://add-device` link instead, which opens the app on a device that has it
+ * installed (no App Links or universal links yet: a phone without the app gets nothing from it).
  */
 
 function isNativeShell(): boolean {
@@ -94,14 +96,31 @@ function AddDeviceBody({
     );
   }
   const base = addDeviceLinkBase();
+  const native = base === undefined && isNativeShell();
   const account =
     provider === 'icloud' ? 'uses the same Apple ID' : `signs in to the same ${info.label} account`;
-  if (base === undefined) {
+  if (base === undefined && !native) {
     return (
       <p data-testid="add-device-instructions" className={NOTE_CLASS}>
         On your new device, open the app, choose <strong>Sync my devices</strong> and pick{' '}
         <strong>{info.label}</strong>. It then {account} and gets everything from here.
       </p>
+    );
+  }
+  if (base === undefined) {
+    return (
+      <>
+        <p className={NOTE_CLASS}>
+          Install the app on your new device, then scan this code with its camera or open the link
+          there. It tells the app to use {info.label} and this collection. It contains no passwords
+          or keys: the new device {account} by itself. Or open the app there, choose{' '}
+          <strong>Sync my devices</strong> and pick <strong>{info.label}</strong>.
+        </p>
+        <ShareLink
+          url={buildAddDeviceDeepLink({ provider, collectionId })}
+          providerLabel={info.label}
+        />
+      </>
     );
   }
   return (

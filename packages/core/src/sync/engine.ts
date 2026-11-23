@@ -84,6 +84,12 @@ export interface SyncEngineOptions {
   knownMediaEntries?: readonly MediaEntry[];
   /** Max allowed media blob size in bytes (default `SYNC_MEDIA_LIMITS.maxMediaBlobBytes`). */
   maxMediaBlobBytes?: number;
+  /**
+   * The collection an add-device link named. When this device is not bound to a collection yet
+   * and the existing remote store holds a different one, the run stops with
+   * `collection_choice_required` before binding, pulling or pushing anything.
+   */
+  expectedCollectionId?: string;
 }
 
 const DEFAULT_MAX_EVENTS_PER_SEGMENT = 2000;
@@ -181,6 +187,7 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
     mediaStore,
     knownMediaEntries,
     maxMediaBlobBytes = SYNC_MEDIA_LIMITS.maxMediaBlobBytes,
+    expectedCollectionId,
   } = options;
 
   const deviceId = sanitizeDeviceId(options.deviceId);
@@ -190,10 +197,12 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
   // 1. Read or initialize sync/v1/manifest.json + compatibility gate
   // -------------------------------------------------------------------------
   let manifest: SyncManifest;
+  let manifestExisted = true;
   try {
     const manifestBytes = await transport.read(manifestPath());
     manifest = decodeManifest(manifestBytes);
   } catch (err) {
+    manifestExisted = false;
     if (!isNotFound(err)) {
       throw err;
     }
@@ -227,6 +236,26 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
       pushedSegments: 0,
       cursor,
       message: `Remote sync store belongs to collection "${manifest.collection_id}" but this device is bound to "${cursor.collectionId}".`,
+    };
+  }
+  if (
+    manifestExisted &&
+    cursor.collectionId === undefined &&
+    expectedCollectionId !== undefined &&
+    expectedCollectionId !== manifest.collection_id
+  ) {
+    // This device has not joined any collection yet and the store it reached is not the one it
+    // was told to expect. Nothing is pulled, pushed or bound: the caller asks the user first.
+    return {
+      status: 'collection_choice_required',
+      readOnly: true,
+      collectionId: manifest.collection_id,
+      manifest,
+      pulledEvents: [],
+      pushedEventCount: 0,
+      pushedSegments: 0,
+      cursor,
+      message: `Remote sync store belongs to collection "${manifest.collection_id}" but this device expected "${expectedCollectionId}".`,
     };
   }
   cursor.collectionId = manifest.collection_id;

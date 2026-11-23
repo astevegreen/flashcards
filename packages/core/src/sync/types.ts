@@ -126,7 +126,8 @@ export function createInitialSyncCursor(collectionId?: string): SyncCursorState 
   };
 }
 
-export type SyncRunStatus = 'ok' | 'upgrade_required' | 'collection_mismatch';
+export type SyncRunStatus =
+  'ok' | 'upgrade_required' | 'collection_mismatch' | 'collection_choice_required';
 
 export interface SyncRunResult {
   status: SyncRunStatus;

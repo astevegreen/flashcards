@@ -36,7 +36,14 @@ export interface SyncUiState {
   errorMessage?: string;
   lastPulledCount: number;
   lastPushedCount: number;
+  /**
+   * Set while the synced store holds a different collection from the one an add-device link named.
+   * Nothing is bound, pulled or pushed until the user chooses.
+   */
+  collectionChoice?: { expectedCollectionId: string; remoteCollectionId: string };
 }
+
+export type CollectionChoice = 'synced' | 'local';
 
 export interface SyncController {
   syncState: SyncUiState;
@@ -50,6 +57,12 @@ export interface SyncController {
   reconnectLocalFolder: () => Promise<boolean>;
   connectICloud: () => Promise<void>;
   disconnectSync: () => Promise<void>;
+  /**
+   * Answers the "different collection" question. `synced` joins the synced collection (this
+   * device's own events are pushed into it); `local` stops syncing and keeps this device's cards.
+   * Neither deletes an event.
+   */
+  resolveCollectionChoice: (choice: CollectionChoice) => Promise<void>;
   notifyLocalEvents: (events: readonly FlashEvent[], reviewCount?: number) => void;
   getCurrentWatermarks: () => Record<string, number>;
   resetSyncState: () => void;
@@ -513,6 +526,24 @@ export function useSyncController({
     await disconnectActiveSync(makeRunnerCtx(), clearCollectionBinding);
   }, [clearCollectionBinding, clearIdlePushTimer, makeRunnerCtx]);
 
+  const resolveCollectionChoice = useCallback(
+    async (choice: CollectionChoice): Promise<void> => {
+      const { clearAddDeviceExpectation } = await import('../sync/addDeviceExpectation.ts');
+      await clearAddDeviceExpectation(platform.storage);
+      if (choice === 'local') {
+        await disconnectSync();
+        return;
+      }
+      setSyncState((prev) => {
+        const { collectionChoice: _answered, ...rest } = prev;
+        void _answered;
+        return { ...rest, readOnly: false };
+      });
+      await executeSync();
+    },
+    [disconnectSync, executeSync, platform.storage],
+  );
+
   const resetSyncState = useCallback(() => {
     clearIdlePushTimer();
     lastSyncCompletedAtRef.current = 0;
@@ -550,6 +581,7 @@ export function useSyncController({
     reconnectLocalFolder,
     connectICloud,
     disconnectSync,
+    resolveCollectionChoice,
     notifyLocalEvents,
     getCurrentWatermarks,
     resetSyncState,

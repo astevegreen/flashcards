@@ -263,8 +263,20 @@ export async function runSyncCycle(
     const localOwnSeq = ctx.metaRef.current.seq;
     const canBootstrap = ctx.stateRef.current.decks.size === 0 && localOwnSeq === 0;
 
+    // An add-device link names the collection this device should join. Fresh devices only.
+    let expectedCollectionId: string | undefined;
+    if (
+      currentCursor.collectionId === undefined &&
+      ctx.metaRef.current.collectionId === undefined
+    ) {
+      const { addDeviceExpectationResource } = await import('../sync/addDeviceExpectation.ts');
+      const expected = await addDeviceExpectationResource(ctx.platform.storage);
+      if (expected?.provider === provider) expectedCollectionId = expected.collectionId;
+    }
+
     const result = await runSync({
       transport,
+      ...(expectedCollectionId !== undefined ? { expectedCollectionId } : {}),
       deviceId,
       cursor: currentCursor,
       localOwnSeq,
@@ -296,6 +308,21 @@ export async function runSyncCycle(
         };
       },
     });
+
+    if (result.status === 'collection_choice_required') {
+      // Nothing was bound, pulled or pushed: wait for the user's choice (see resolveCollectionChoice).
+      ctx.setSyncState((prev) => ({
+        ...prev,
+        status: 'idle',
+        readOnly: true,
+        pendingCount: Math.max(0, ctx.metaRef.current.seq - currentCursor.lastPushedSeq),
+        collectionChoice: {
+          expectedCollectionId: expectedCollectionId ?? '',
+          remoteCollectionId: result.collectionId ?? '',
+        },
+      }));
+      return;
+    }
 
     ctx.cursorRef.current = result.cursor;
     ctx.reviewsSinceSyncRef.current = 0;
