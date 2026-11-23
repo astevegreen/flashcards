@@ -1,10 +1,7 @@
 import { createBulkEvents, planBulkNoteAction, type BulkNoteAction, type Note } from '@flash/core';
-import { findDuplicateGroups } from '@flash/core/duplicates';
+import { DUPLICATE_TAG, findDuplicateGroups, planDuplicateTagAdds } from '@flash/core/duplicates';
 import { useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
-
-/** The tag "Tag group" adds, so the notes can be found again with `#duplicate`. */
-export const DUPLICATE_TAG = 'duplicate';
 
 /** Groups shown per page; "Show more" reveals the next page. */
 const PAGE_SIZE = 50;
@@ -36,6 +33,17 @@ export function DuplicateFinderPanel({ onOpen, onClose }: Readonly<DuplicateFind
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, stateVersion, acrossDecksOnly],
   );
+
+  const tagGroup = (noteIds: readonly string[]) => {
+    // Set-union adds (`NoteTagsAdded`), so a concurrent tag edit elsewhere is never overwritten.
+    const payloads = planDuplicateTagAdds(state, noteIds);
+    if (payloads.length > 0) {
+      const factory = getEventFactory();
+      const nowMs = Date.now();
+      emitEvents(payloads.map((p) => factory.create('NoteTagsAdded', p, nowMs)));
+    }
+    setMessage(`Tagged "${DUPLICATE_TAG}" on ${notesText(payloads.length)}.`);
+  };
 
   const run = (noteIds: readonly string[], action: BulkNoteAction, verb: string) => {
     const plan = planBulkNoteAction(state, noteIds, action);
@@ -127,13 +135,7 @@ export function DuplicateFinderPanel({ onOpen, onClose }: Readonly<DuplicateFind
                   <button
                     type="button"
                     data-testid="duplicate-tag-group"
-                    onClick={() =>
-                      run(
-                        group.noteIds,
-                        { kind: 'add_tags', tags: [DUPLICATE_TAG] },
-                        `Tagged "${DUPLICATE_TAG}" on`,
-                      )
-                    }
+                    onClick={() => tagGroup(group.noteIds)}
                     className={buttonClass}
                   >
                     Tag “{DUPLICATE_TAG}”
