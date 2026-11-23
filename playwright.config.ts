@@ -8,6 +8,13 @@ const LAYOUT_SPEC = /layout-study\.spec\.ts$/;
 
 const phone = { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } as const;
 
+/**
+ * Local e2e port. Parallel worktrees each set their own `E2E_PORT`, because `reuseExistingServer`
+ * would otherwise silently test another worktree's build on the shared default port.
+ */
+const PORT = Number(process.env['E2E_PORT'] ?? 4173);
+const BASE_URL = `http://127.0.0.1:${PORT}`;
+
 const DEVICE_PROJECTS: readonly {
   name: string;
   viewport: { width: number; height: number };
@@ -32,7 +39,7 @@ export default defineConfig({
   workers: process.env['CI'] ? 1 : 4,
   reporter: 'list',
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: BASE_URL,
     trace: 'on-first-retry',
   },
   projects: [
@@ -51,8 +58,8 @@ export default defineConfig({
     })),
   ],
   webServer: {
-    command: 'pnpm --filter @flash/web preview --host 127.0.0.1 --port 4173 --strictPort',
-    url: 'http://127.0.0.1:4173',
+    command: `pnpm --filter @flash/web preview --host 127.0.0.1 --port ${PORT} --strictPort`,
+    url: BASE_URL,
     reuseExistingServer: !process.env['CI'],
     timeout: 60_000,
   },
