@@ -205,7 +205,9 @@ describe('iOS Keychain loss detection', () => {
       keys: fresh.routing.secretKeys,
     });
     expect(keychain.values.size).toBe(0);
-    expect(await database.getKv(secureStoredMarkerKey(MICROSOFT_REFRESH_TOKEN_KEY))).toBeUndefined();
+    expect(
+      await database.getKv(secureStoredMarkerKey(MICROSOFT_REFRESH_TOKEN_KEY)),
+    ).toBeUndefined();
     expect(fresh.onSecretsLost).not.toHaveBeenCalled();
 
     const get = vi.fn(async () => 'v');
