@@ -172,7 +172,7 @@ The owner answered every overnight question on 2026-11-23. **To build** marks ap
 
 ## Anki feature gap: owner decisions (2026-11-23)
 
-On 2026-11-23 an agent compared the app with Anki, about 25 features. This section leaves out items already decided: raw HTML/CSS templates (the security rule), `.colpkg` and seeding FSRS from Anki scheduling (see "Anki extras" above). Ruby, furigana and pinyin already exist (`packages/core/src/parsers/`). The owner has not yet discussed card-level controls (forget, set due date, reposition, bury, flags, card info), the FSRS extras (editable steps, easy days, load balancing, simulator, answer timer) or a typed search syntax. Approved items below are not scheduled yet.
+On 2026-11-23 an agent compared the app with Anki, about 25 features. This section leaves out items already decided: raw HTML/CSS templates (the security rule), `.colpkg` and seeding FSRS from Anki scheduling (see "Anki extras" above). Ruby, furigana and pinyin already exist (`packages/core/src/parsers/`). The owner has not yet discussed card-level controls (forget, set due date, reposition, bury, flags, card info), the FSRS extras (editable steps, easy days, load balancing, simulator, answer timer) or a typed search syntax. The approved items were built on 2026-11-23 in PRs #33–#42; see "Next after the Anki-gap batch" at the end of this section.
 
 ### To build
 
@@ -218,6 +218,18 @@ No open format with media and review history is widely adopted. CSV/TSV is the c
 - [x] **"Export for Anki" option on CSV export.** Browse > select notes > tick **For Anki** > Export CSV. The zip holds the CSV with Anki's header lines, a `collection.media/` folder and a README. Ruby becomes Anki furigana, `media:` references become `<img>` / `[sound:]`. Plain CSV stays the default, because other apps would read those header lines as data. Defaults under "Decisions needed (Anki export)".
 - [x] **`.apkg` export** of notes, media and tags. Library > a deck's Options > **Export for Anki (.apkg)**. One Anki note type per note type, one card template per layout, every card new. Defaults under "Decisions needed (Anki export)".
 - [ ] **`.apkg` review history (follow-up):** write `revlog` rows and card scheduling from the review events, so a user who leaves keeps their intervals. The `revlog` table is already created, empty.
+
+### Next after the Anki-gap batch (2026-11-23)
+
+In priority order. Items already recorded elsewhere in this file are only pointed to here.
+
+1. [ ] **Size headroom first.** Initial study-screen JS is about 159.3 of 160 KB gz after #42. Before the next feature lands, move something out of the initial bundle (a lazy chunk for a Library-only panel, say) and get back to at least 3 KB headroom.
+2. [ ] **Presets, folders and descriptions in `.flashpkg` and backups.** See "Not in `.flashpkg`" under presets and folders, and "Packages" under deck descriptions. A restore from backup should bring them back too.
+3. [ ] **Rich text in duplicate keys and Anki export.** `normalizeDuplicateKey` (`packages/core/src/tags/duplicates.ts`) has a comment asking for the rich-text strip helper; the Anki CSV and `.apkg` writers take an `AnkiRichTextConverter` that nothing passes yet, so marks export as typed.
+4. [ ] **`.apkg` review history.** The revlog item above.
+5. [ ] **Streaming export on native.** Capacitor and Tauri have no `downloadBlob`, so large Anki and backup downloads build the whole file in memory there.
+6. [ ] **Missing tests:** `whenSaved()` and the reload prompt (backups), an e2e test with two image fields on one note, and the duplicate panel recompute (see that item).
+7. [ ] **Real-world checks no CI run covers:** import both exports into real Anki (desktop and AnkiDroid); backups and media check on a real phone; two-device sync of presets, folders, descriptions and `MediaRemoved` through a real cloud folder.
 
 ## Decisions needed (2026-11-23 batch)
 
