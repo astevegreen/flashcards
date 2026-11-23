@@ -4,7 +4,7 @@ import {
   type CollectionState,
 } from '../../events/replay.ts';
 import { encodeUtf8 } from '../../ids.ts';
-import type { Deck, Layout, Note, NoteType, NoteTypeField } from '../../model/types.ts';
+import type { Card, Deck, Layout, Note, NoteType, NoteTypeField } from '../../model/types.ts';
 import { sha256String } from '../../sources/hash.ts';
 import { sha1First32 } from './checksum.ts';
 import { ankiExportSlug, type AnkiMediaReader } from './csv.ts';
@@ -20,10 +20,18 @@ import {
   type AnkiRichTextConverter,
 } from './field-html.ts';
 import { ankiRichTextToHtml } from './rich-text-html.ts';
+import {
+  activeReviews,
+  ankiCardHistory,
+  ankiSchedulingClock,
+  revlogRows,
+  type AnkiCardScheduling,
+  type AnkiRevlogDraft,
+} from './scheduling.ts';
 import { cmpCodeUnits as compareCodeUnits } from './select.ts';
 
 /**
- * `.apkg` export (notes, media, tags; every card new). Core plans the SQLite rows; the platform
+ * `.apkg` export (notes, media, tags, and by default review history and scheduling). Core plans the SQLite rows; the platform
  * writes them into a real SQLite file (`AnkiPackageReader.writeCollection`), and {@link writeApkg} zips
  * that file with the media.
  *
@@ -43,7 +51,10 @@ import { cmpCodeUnits as compareCodeUnits } from './select.ts';
  *   `kanji:` for layouts that show only readings / bases), typed layouts `{{type:F}}`, and a
  *   layout's text-to-speech field `{{tts xx_YY:F}}`. Choice, listen and draw layouts become
  *   plain flip cards: Anki has no equivalent;
- * - suspended cards stay suspended. Review history is not exported yet: every card is new.
+ * - with `includeReviewHistory` (the default), one `revlog` row per active review and each
+ *   card's scheduling and FSRS memory state from replay (`./scheduling.ts`); without it, or for
+ *   a card with no active review or one marked empty, the card is new. Suspended cards keep
+ *   queue -1 either way. The app has no stored bury state, so nothing is exported as buried.
  */
 
 export type AnkiSqlCell = string | number | null;
@@ -66,8 +77,10 @@ export interface AnkiApkgExportOptions {
   /** Only these notes (still limited to the decks). */
   noteIds?: Iterable<string>;
   includeArchived?: boolean;
-  /** Clock for ids and modification times (default `Date.now()`). */
-  nowMs?: number;
+  /** Clock for ids, modification times and due days (core never reads the wall clock). */
+  nowMs: number;
+  /** Write `revlog` rows and card scheduling from the review events (default true). */
+  includeReviewHistory?: boolean;
   /** File name for the package (default from the single deck's name, else `flashcards`). */
   name?: string;
   /** Converter for rich-text markup in text fields (default: `ankiRichTextToHtml`). */
@@ -81,6 +94,8 @@ export interface AnkiApkgPlan {
   deckCount: number;
   noteCount: number;
   cardCount: number;
+  /** `revlog` rows written (0 without review history). */
+  reviewCount: number;
   unknownMediaCount: number;
   /** Notes that came from Anki and keep their Anki GUID (see `ankiGuid`). */
   fromAnkiNoteCount: number;
@@ -487,21 +502,27 @@ function cardOrds(
   state: CollectionState,
   note: Note,
   model: ModelBuild,
-): Array<{ ord: number; suspended: boolean }> {
-  const out = new Map<number, boolean>();
-  for (const cardId of state.cardIdsByNote.get(note.id) ?? []) {
+): Array<{ ord: number; suspended: boolean; card: Card | undefined }> {
+  const out = new Map<number, { suspended: boolean; card: Card; reviews: number }>();
+  const cardIds = [...(state.cardIdsByNote.get(note.id) ?? [])].sort(compareCodeUnits);
+  for (const cardId of cardIds) {
     const card = state.cards.get(cardId);
     if (!card) continue;
     const index = model.layouts.findIndex((l) => l.id === card.layout_id);
     if (index === -1) continue;
     const ord = model.cloze ? Math.max(0, card.variant - 1) : index;
     const suspended = isCardSuspended(state, card.id);
-    out.set(ord, (out.get(ord) ?? true) && suspended);
+    const reviews = activeReviews(state, card.id).length;
+    const prev = out.get(ord);
+    // Two cards on one Anki ord (a cloze note without markers): the history of the one with
+    // more reviews is kept; the ord is suspended only when all of them are.
+    const keep = prev && prev.reviews >= reviews ? prev : { card, reviews, suspended };
+    out.set(ord, { ...keep, suspended: (prev?.suspended ?? true) && suspended });
   }
-  if (out.size === 0) out.set(0, false);
+  if (out.size === 0) return [{ ord: 0, suspended: false, card: undefined }];
   return [...out.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([ord, suspended]) => ({ ord, suspended }));
+    .map(([ord, v]) => ({ ord, suspended: v.suspended, card: v.card }));
 }
 
 function noteFieldsHtml(
@@ -517,9 +538,13 @@ function noteFieldsHtml(
 /** Plans an `.apkg` export: SQLite rows for `collection.anki2` and the media it needs. */
 export function planAnkiApkgExport(
   state: CollectionState,
-  options: AnkiApkgExportOptions = {},
+  options: AnkiApkgExportOptions,
 ): AnkiApkgPlan {
-  const nowMs = options.nowMs ?? Date.now();
+  const nowMs = options.nowMs;
+  const clock = ankiSchedulingClock(state, nowMs);
+  const crt = clock.crt;
+  const withHistory = options.includeReviewHistory !== false;
+  const revlog: AnkiRevlogDraft[] = [];
   const nowSecs = Math.floor(nowMs / 1000);
   const warnings: string[] = [];
   const decks = chooseDecks(state, options);
@@ -589,26 +614,43 @@ export function planAnkiApkgExport(
         '',
       ]);
       position += 1;
-      for (const { ord, suspended } of cardOrds(state, note, model)) {
+      for (const { ord, suspended, card } of cardOrds(state, note, model)) {
+        const cid = nextCardId++;
+        const history =
+          withHistory && card && card.empty !== true
+            ? ankiCardHistory(state, card, cid, clock)
+            : null;
+        if (history) revlog.push(...history.revlog);
+        const s: AnkiCardScheduling = history?.scheduling ?? {
+          type: 0,
+          queue: 0,
+          due: position,
+          ivl: 0,
+          factor: 0,
+          reps: 0,
+          lapses: 0,
+          left: 0,
+          data: '',
+        };
         cardRows.push([
-          nextCardId++,
+          cid,
           nid,
           did,
           ord,
           nowSecs,
           -1,
+          s.type,
+          suspended ? -1 : s.queue,
+          s.due,
+          s.ivl,
+          s.factor,
+          s.reps,
+          s.lapses,
+          s.left,
           0,
-          suspended ? -1 : 0,
-          position,
           0,
           0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          '',
+          s.data,
         ]);
       }
     }
@@ -631,15 +673,13 @@ export function planAnkiApkgExport(
     sortType: 'noteFld',
     sortBackwards: false,
     addToCur: true,
+    // v2 scheduler: revlog eases are 1-4 for learning steps too (v1 had 1-3 there).
+    schedVer: 2,
+    // Day boundaries for `crt`: rollover hour, and the offset in minutes west of UTC.
+    rollover: clock.dayStartHour,
+    creationOffset: -clock.tzOffsetMinutes,
   };
-  const crt = Math.floor(
-    Date.UTC(
-      new Date(nowMs).getUTCFullYear(),
-      new Date(nowMs).getUTCMonth(),
-      new Date(nowMs).getUTCDate(),
-      4,
-    ) / 1000,
-  );
+  const revlogTable = revlogRows(revlog);
 
   const collection: AnkiCollectionPlan = {
     schema: [...ANKI_SCHEMA_11],
@@ -720,6 +760,11 @@ export function planAnkiApkgExport(
         ],
         rows: cardRows,
       },
+      {
+        name: 'revlog',
+        columns: ['id', 'cid', 'usn', 'ease', 'ivl', 'lastIvl', 'factor', 'time', 'type'],
+        rows: revlogTable,
+      },
     ],
   };
 
@@ -732,6 +777,7 @@ export function planAnkiApkgExport(
     deckCount: decks.length,
     noteCount: noteRows.length,
     cardCount: cardRows.length,
+    reviewCount: revlogTable.length,
     unknownMediaCount: media.unknown.size,
     fromAnkiNoteCount,
     warnings,

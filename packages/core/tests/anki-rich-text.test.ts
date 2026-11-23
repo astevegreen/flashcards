@@ -13,6 +13,7 @@ import { RICH_TEXT_COLORS } from '../src/parsers/rich-text.ts';
 import {
   buildAnkiExportState,
   PNG_HASH,
+  T0,
   VOCAB_DECK,
   VOCAB_TYPE,
 } from './helpers/anki-export-state.ts';
@@ -111,7 +112,11 @@ describe('rich text in the Anki writers and plain CSV', () => {
   });
 
   it('converts by default in the apkg plan', () => {
-    const plan = planAnkiApkgExport(state, { deckIds: [VOCAB_DECK], noteIds: ['note-2'] });
+    const plan = planAnkiApkgExport(state, {
+      nowMs: T0,
+      deckIds: [VOCAB_DECK],
+      noteIds: ['note-2'],
+    });
     const table = plan.collection.tables.find((t) => t.name === 'notes');
     const flds = table?.rows[0]?.[table.columns.indexOf('flds')];
     expect(String(flds).split('')[1]).toBe(
