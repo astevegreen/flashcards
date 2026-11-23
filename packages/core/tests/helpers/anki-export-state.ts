@@ -1,4 +1,5 @@
 import {
+  applyEvents,
   createEventFactory,
   replayAllEvents,
   type CollectionState,
@@ -169,4 +170,65 @@ export function buildAnkiExportState(): CollectionState {
   });
   push('CardSuspended', { card_id: SUSPENDED_CARD });
   return replayAllEvents(ev);
+}
+
+const DAY = 86_400_000;
+const MIN = 60_000;
+/** Reviews start here; the history export runs at {@link HISTORY_NOW}. */
+export const HISTORY_T = T0 + 10_000;
+export const HISTORY_NOW = T0 + 40 * DAY;
+
+/** Note 1's flip card: one Good (a learning step), one Again that was undone. */
+export const LEARNING_CARD = deriveCardId('note-1', 'layout-ja-flip', 0);
+/** Note 2's flip card: graduates, lapses on day 5, relearns and graduates again. */
+export const RELEARNED_CARD = deriveCardId('note-2', 'layout-ja-flip', 0);
+/** Note 2's typed card: Easy, then a lapse on day 20 (still relearning at export). */
+export const RELEARNING_CARD = deriveCardId('note-2', 'layout-ja-typed', 0);
+export const CLOZE_C1 = deriveCardId('cloze-1', 'layout-ja-cloze', 1);
+export const UNDONE_REVIEW = 'rev-undone';
+
+/**
+ * {@link buildAnkiExportState} plus review history: a learning step, an undone review, a
+ * suspended review card, relearning after a lapse, two layouts of one note reviewed, a cloze
+ * card, and three reviews at the same millisecond (revlog id nudging).
+ */
+export function buildAnkiHistoryState(): CollectionState {
+  const state = buildAnkiExportState();
+  const f = createEventFactory('dev-y', 0, createHlcState('dev-y', HISTORY_T));
+  const ev: KnownEvent[] = [];
+  let n = 0;
+  const review = (cardId: string, rating: 1 | 2 | 3 | 4, at: number, id = `rev-${++n}`) => {
+    ev.push(
+      f.create(
+        'ReviewRecorded',
+        {
+          review_id: id,
+          card_id: cardId,
+          rating,
+          reviewed_at: at,
+          tz_offset: 540,
+          duration_ms: 4200 + n,
+          answer_mode: 'flip',
+          fsrs_params_version: 0,
+          resulting_due_at: at,
+        },
+        at,
+      ),
+    );
+  };
+  const t = HISTORY_T;
+  review(LEARNING_CARD, 3, t);
+  review(SUSPENDED_CARD, 3, t);
+  review(RELEARNED_CARD, 3, t);
+  review(LEARNING_CARD, 1, t + MIN, UNDONE_REVIEW);
+  ev.push(f.create('ReviewUndone', { review_id: UNDONE_REVIEW }, t + MIN + 1));
+  review(SUSPENDED_CARD, 3, t + 10 * MIN);
+  review(RELEARNED_CARD, 3, t + 10 * MIN);
+  review(RELEARNING_CARD, 4, t + 11 * MIN);
+  review(CLOZE_C1, 2, t + DAY);
+  review(RELEARNED_CARD, 1, t + 5 * DAY);
+  review(RELEARNED_CARD, 3, t + 5 * DAY + 10 * MIN);
+  review(RELEARNING_CARD, 1, t + 20 * DAY);
+  applyEvents(state, ev);
+  return state;
 }

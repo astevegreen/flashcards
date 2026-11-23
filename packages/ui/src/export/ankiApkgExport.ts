@@ -28,7 +28,7 @@ function fromAnkiText(count: number): string {
 }
 
 /**
- * `.apkg` export of the given decks (notes, media, tags; every card new). The SQLite file is
+ * `.apkg` export of the given decks (notes, media, tags, review history and scheduling). The SQLite file is
  * written by the platform's lazy Anki service (`writeCollection`). Returns the status message
  * to show.
  */
@@ -44,7 +44,9 @@ export async function exportAnkiApkg(
   if (!reader?.writeCollection) {
     throw new Error('Export for Anki (.apkg) is not available on this device.');
   }
+  const nowMs = Date.now();
   const plan = planAnkiApkgExport(state, {
+    nowMs,
     deckIds: options.deckIds,
     ...(options.name ? { name: options.name } : {}),
   });
@@ -54,9 +56,13 @@ export async function exportAnkiApkg(
     platform,
     'application/octet-stream',
     plan.fileName,
-    (emit) => writeApkg(collection, plan, readMedia, emit, { modifiedMs: Date.now() }),
+    (emit) => writeApkg(collection, plan, readMedia, emit, { modifiedMs: nowMs }),
   );
+  const reviews =
+    plan.reviewCount > 0
+      ? ` ${plan.reviewCount} review${plan.reviewCount === 1 ? '' : 's'} and the cards' intervals came along.`
+      : '';
   const files = result.mediaCount > 0 ? ` and ${result.mediaCount} media file(s)` : '';
   const warnings = plan.warnings.length > 0 ? ` ${plan.warnings.join(' ')}` : '';
-  return `Exported ${notesText(plan.noteCount)}${files} to ${result.fileName}. Open it with Anki to import it.${missingText(result.missingMediaCount)}${fromAnkiText(plan.fromAnkiNoteCount)}${warnings}`;
+  return `Exported ${notesText(plan.noteCount)}${files} to ${result.fileName}. Open it with Anki to import it.${reviews}${missingText(result.missingMediaCount)}${fromAnkiText(plan.fromAnkiNoteCount)}${warnings}`;
 }

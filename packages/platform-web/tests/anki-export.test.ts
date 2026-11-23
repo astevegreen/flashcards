@@ -13,7 +13,9 @@ import initSqlJs from 'sql.js';
 import { describe, expect, it } from 'vitest';
 import {
   buildAnkiExportState,
+  buildAnkiHistoryState,
   CLOZE_DECK,
+  HISTORY_NOW,
   MP3,
   MP3_HASH,
   PNG,
@@ -38,9 +40,9 @@ const MEDIA = new Map([
   [MP3_HASH, MP3],
 ]);
 
-async function exportApkg(state: CollectionState, deckIds?: string[]) {
+async function exportApkg(state: CollectionState, deckIds?: string[], nowMs = NOW) {
   const SQL = await sqlite;
-  const plan = planAnkiApkgExport(state, { nowMs: NOW, ...(deckIds ? { deckIds } : {}) });
+  const plan = planAnkiApkgExport(state, { nowMs, ...(deckIds ? { deckIds } : {}) });
   const collection = writeAnkiCollection(new SQL.Database(), plan.collection);
   const chunks: Uint8Array[] = [];
   const written = await writeApkg(
@@ -59,16 +61,20 @@ async function exportApkg(state: CollectionState, deckIds?: string[]) {
 }
 
 /** Exports, reads the package back with the importer's reader, and imports it. */
-async function roundTrip(state: CollectionState) {
+async function roundTrip(state: CollectionState, nowMs = NOW) {
   const SQL = await sqlite;
-  const exported = await exportApkg(state);
-  const raw = await readApkg(exported.apkg.bytes, {
-    openDatabase: async (b) => new SQL.Database(b),
-    zstdDecompress: zstdDecompressCapped,
-  });
+  const exported = await exportApkg(state, undefined, nowMs);
+  const raw = await readApkg(
+    exported.apkg.bytes,
+    {
+      openDatabase: async (b) => new SQL.Database(b),
+      zstdDecompress: zstdDecompressCapped,
+    },
+    { includeReviewHistory: true },
+  );
   const target = createEmptyState();
-  const factory = createEventFactory('dev-b', 0, createHlcState('dev-b', NOW));
-  const result = importAnkiPackage(raw, target, factory, { nowMs: NOW });
+  const factory = createEventFactory('dev-b', 0, createHlcState('dev-b', nowMs));
+  const result = importAnkiPackage(raw, target, factory, { nowMs, includeReviewHistory: true });
   applyEvents(target, result.events);
   return { ...exported, raw, target, result };
 }
@@ -161,6 +167,45 @@ describe('.apkg export (legacy collection.anki2 + media map)', () => {
         .map((c) => c?.variant)
         .sort(),
     ).toEqual([1, 2]);
+  });
+
+  it('writes revlog and card scheduling that read back from SQLite and import with history', async () => {
+    const source = buildAnkiHistoryState();
+    const { collection, target, result } = await roundTrip(source, HISTORY_NOW);
+    const SQL = await sqlite;
+    const db = new SQL.Database(collection);
+    try {
+      const revlog = db.exec('SELECT id, usn, ease, type FROM revlog ORDER BY id')[0]?.values ?? [];
+      expect(revlog).toHaveLength(10);
+      expect(new Set(revlog.map((r) => r[0])).size).toBe(10);
+      expect(revlog.map((r) => r[3]).filter((t) => t === 2)).toHaveLength(1);
+      const queues = db.exec('SELECT queue, count(*) FROM cards GROUP BY queue ORDER BY queue')[0];
+      // suspended 1, new 3 (note-3 ×2, cloze c2), learning/relearning 3, review 1.
+      expect(queues?.values).toEqual([
+        [-1, 1],
+        [0, 3],
+        [1, 3],
+        [2, 1],
+      ]);
+      const data = db.exec('SELECT data FROM cards WHERE type = 2 AND queue = 2')[0]?.values[0];
+      expect(Object.keys(JSON.parse(String(data?.[0])))).toEqual(['s', 'd', 'dr']);
+    } finally {
+      db.close();
+    }
+    expect(result.summary.reviews).toBe(10);
+    // Replaying the imported history gives the same FSRS state as the source collection.
+    const memory = (state: CollectionState) =>
+      [...state.cards.values()]
+        .filter((c) => c.schedule.reps > 0)
+        .map((c) => [
+          c.schedule.state,
+          c.schedule.reps,
+          c.schedule.lapses,
+          c.schedule.stability.toFixed(3),
+          c.schedule.difficulty.toFixed(3),
+        ])
+        .sort((a, b) => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0));
+    expect(memory(target)).toEqual(memory(source));
   });
 
   it('writes Anki templates with furigana, type, cloze and the schema-11 tables', async () => {
