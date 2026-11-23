@@ -1222,6 +1222,57 @@ function applySourceLinked(ctx: ApplyEventContext, p: EventPayloadMap['SourceLin
   }
 }
 
+/**
+ * `SourceUnlinked`: clears the target's source when the unlink is the newest write to its source
+ * register (shared with `SourceLinked`, so an older link arriving later stays out). Before the
+ * deck/page exists, the buffered source is dropped instead. Malformed payloads are ignored.
+ */
+function applySourceUnlinkedAt(
+  state: CollectionState,
+  payload: unknown,
+  hlc: string,
+  collector?: ApplyMutationCollector,
+): void {
+  if (typeof payload !== 'object' || payload === null) return;
+  const { target_kind: kind, target_id: id } = payload as Partial<
+    EventPayloadMap['SourceUnlinked']
+  >;
+  if ((kind !== 'deck' && kind !== 'page') || typeof id !== 'string' || id === '') return;
+  if (!shouldApplyLww(state, `${kind}:${id}:source`, hlc, collector)) return;
+  const target = kind === 'deck' ? state.decks.get(id) : state.pages.get(id);
+  if (target) {
+    delete target.source;
+    (kind === 'deck' ? collector?.deckIds : collector?.pageIds)?.add(id);
+    return;
+  }
+  const pending =
+    kind === 'deck' ? state.pendingDeckPatches.get(id) : state.pendingPagePatches.get(id);
+  if (pending?.source !== undefined) {
+    delete pending.source;
+    (kind === 'deck' ? collector?.pendingDeckPatchKeys : collector?.pendingPagePatchKeys)?.add(id);
+  }
+}
+
+/**
+ * Upgrade path for snapshots written by builds that predate `SourceUnlinked`: they kept those
+ * events in `unknownEvents` (below the snapshot watermark, never replayed again). Applies them
+ * and returns the events that remain unknown.
+ */
+export function foldSourceUnlinkedFromUnknown(
+  state: CollectionState,
+  unknownEvents: readonly UnknownEvent[],
+): UnknownEvent[] {
+  const remaining: UnknownEvent[] = [];
+  for (const ev of unknownEvents) {
+    if (ev.type === 'SourceUnlinked') {
+      applySourceUnlinkedAt(state, ev.payload, ev.hlc);
+    } else {
+      remaining.push(ev);
+    }
+  }
+  return remaining;
+}
+
 type PreferencesPatch = EventPayloadMap['PreferencesChanged']['preferences'];
 
 /** Scalar preference fields; returns true when any field was applied. */
@@ -1453,6 +1504,9 @@ function applyKnownEvent(
       break;
     case 'SourceLinked':
       applySourceLinked(ctx, event.payload);
+      break;
+    case 'SourceUnlinked':
+      applySourceUnlinkedAt(state, event.payload, event.hlc, collector);
       break;
     case 'PreferencesChanged':
       applyPreferencesChanged(ctx, event.payload);
