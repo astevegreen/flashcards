@@ -36,7 +36,11 @@ const KO = uuidv5(FLASH_NAMESPACE_UUID, 'sample-ko-vocab');
 const JA = uuidv5(FLASH_NAMESPACE_UUID, 'sample-ja-vocab');
 const T0 = SAMPLE_SEED_EPOCH_MS + 60_000;
 const DAY = 86_400_000;
-const W21 = Array.from({ length: 21 }, (_, i) => Math.round((0.1 + i * 0.05) * 1e4) / 1e4);
+/** FSRS-6 weights inside the model bounds (the ts-fsrs defaults). */
+const W21 = [
+  0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835,
+  0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542,
+];
 const PKG = 'pkg:travel';
 
 function factoryFor(device: string): EventFactory {
@@ -169,23 +173,120 @@ describe('.flashpkg presets and folders: import', () => {
     expect(listDeckFolders(state).map((f) => f.name)).toEqual(['Mine too']);
   });
 
-  it('joins a preset or folder with the same name, else creates one with the package id', () => {
+  it('puts a new deck in a preset or folder with the same name', () => {
     const { state } = organized();
     const pkg = exportFlashpkg(state, { deckId: KO, packageId: PKG });
     const b = factoryFor('dev-b');
-    const other = replayAllEvents(buildSampleDeckEvents(b));
+    const other = createEmptyState();
     applyEvents(other, [
       b.create(
         'DeckPresetSaved',
         { preset_id: 'b-preset', name: ' Daily ', settings: { new_cards_per_day: 2 } },
         T0,
       ),
+      b.create('DeckFolderSaved', { folder_id: 'b-folder', name: 'Korean' }, T0),
     ]);
-    importInto(other, pkg, b);
-    // KO exists on B (same sample id), has no grouping history, so it joins.
-    expect(getDeckPreset(other, KO)?.id).toBe('b-preset');
-    expect(other.decks.get(KO)?.settings.new_cards_per_day).toBe(2);
+    const result = importInto(other, pkg, b);
+    expect(result.events.some((e) => e.type === 'DeckPresetSaved')).toBe(false);
+    const deckId = [...other.decks.keys()][0] ?? '';
+    expect(getDeckPreset(other, deckId)?.id).toBe('b-preset');
+    expect(other.decks.get(deckId)?.settings.new_cards_per_day).toBe(2);
+    expect(getDeckFolder(other, deckId)?.id).toBe('b-folder');
+  });
+
+  it('never puts an existing deck in a package preset: its own settings and weights stay', () => {
+    const { state } = organized();
+    const pkg = exportFlashpkg(state, { deckId: KO, packageId: PKG });
+    // Device B has KO (same sample id) from before presets existed, with tuned settings.
+    const b = factoryFor('dev-b');
+    const other = replayAllEvents(buildSampleDeckEvents(b));
+    const ownW = W21.map((x, i) => (i === 0 ? 0.5 : x));
+    applyEvents(other, [
+      b.create(
+        'DeckSettingsChanged',
+        { deck_id: KO, settings: { new_cards_per_day: 33, target_retention: 0.93 } },
+        T0,
+      ),
+      b.create(
+        'DeckFSRSParamsChanged',
+        {
+          deck_id: KO,
+          params_version: 1,
+          effective_from: T0,
+          params: { ...resolveDeckFsrsConfig(other, KO, T0), request_retention: 0.93, w: ownW },
+        },
+        T0,
+      ),
+    ]);
+    const settingsBefore = structuredClone(other.decks.get(KO)?.settings);
+    const fsrsBefore = structuredClone(other.deckFsrsParams.get(KO));
+    const result = importInto(other, pkg, b);
+    expect(other.decks.get(KO)?.settings).toEqual(settingsBefore);
+    expect(other.deckFsrsParams.get(KO)).toEqual(fsrsBefore);
+    expect(resolveDeckFsrsConfig(other, KO, T0 + 2 * DAY).w).toEqual(ownW);
+    expect(getDeckPreset(other, KO)).toBeUndefined();
+    for (const ev of result.events) {
+      expect(['DeckFSRSParamsChanged', 'DeckPresetSaved'].includes(ev.type)).toBe(false);
+    }
+    // A folder is only a place in the Library, so an unfiled existing deck still gets one.
     expect(getDeckFolder(other, KO)).toEqual({ id: 'folder-ko', name: 'Korean' });
+  });
+
+  it('never lets an import save of a preset or folder beat the user edits under sync', () => {
+    const { state } = organized();
+    const pkg = exportFlashpkg(state, { deckId: KO, packageId: PKG });
+    // Device A edits the preset and folder; device B, not synced yet, imports the package later.
+    const a = factoryFor('dev-a2');
+    const userEdits = [
+      a.create(
+        'DeckPresetSaved',
+        { preset_id: 'preset-daily', name: 'Mine', settings: { new_cards_per_day: 3 } },
+        T0 + 10,
+      ),
+      a.create('DeckFolderSaved', { folder_id: 'folder-ko', name: 'My folder' }, T0 + 10),
+    ];
+    const b = factoryFor('dev-b');
+    const imported = importFlashpkg(pkg, createEmptyState(), b, { nowMs: T0 + 5 * DAY }).events;
+    const saves = imported.filter(
+      (e) => e.type === 'DeckPresetSaved' || e.type === 'DeckFolderSaved',
+    );
+    expect(saves).toHaveLength(2);
+    for (const ev of saves) expect(ev.payload).toMatchObject({ from_package: true });
+    for (const order of [
+      [...userEdits, ...imported],
+      [...imported, ...userEdits],
+    ]) {
+      const merged = replayAllEvents(order);
+      const preset = getDeckOrganization(merged).presets.get('preset-daily');
+      expect(preset?.name).toBe('Mine');
+      expect(preset?.settings.new_cards_per_day).toBe(3);
+      // Fields the user never set come from the package.
+      expect(preset?.settings.max_reviews_per_day).toBe(70);
+      expect(preset?.w).toEqual(W21);
+      expect(getDeckOrganization(merged).folders.get('folder-ko')?.name).toBe('My folder');
+    }
+  });
+
+  function withPackagePresetWeights(w: number[]): Uint8Array {
+    const { state } = organized();
+    const files = unzipSync(exportFlashpkg(state, { deckId: KO, packageId: PKG }));
+    const manifest = JSON.parse(decodeUtf8(files['manifest.json'] ?? new Uint8Array()));
+    manifest.presets[0].w = w;
+    files['manifest.json'] = new TextEncoder().encode(JSON.stringify(manifest));
+    return zipSync(files);
+  }
+
+  it('drops package weights of the wrong length or outside the FSRS bounds', () => {
+    for (const w of [W21.slice(0, 20), W21.map((x, i) => (i === 0 ? 1000 : x))]) {
+      const fresh = createEmptyState();
+      const result = importInto(fresh, withPackagePresetWeights(w), factoryFor('dev-b'));
+      const deckId = [...fresh.decks.keys()][0] ?? '';
+      const preset = getDeckPreset(fresh, deckId);
+      expect(preset?.name).toBe('Daily');
+      expect(preset?.w).toBeUndefined();
+      expect(result.events.some((e) => e.type === 'DeckFSRSParamsChanged')).toBe(false);
+      expect(fresh.decks.get(deckId)?.settings.new_cards_per_day).toBe(7);
+    }
   });
 
   it('never brings back a preset or folder the user deleted', () => {
@@ -205,6 +306,12 @@ describe('.flashpkg presets and folders: import', () => {
     expect(getDeckOrganization(other).presets.size).toBe(0);
     expect(getDeckOrganization(other).folders.size).toBe(0);
     expect(getDeckOrganization(other).presetByDeck.size).toBe(0);
+    expect(getDeckOrganization(other).folderByDeck.size).toBe(0);
+    for (const ev of result.events) {
+      if (ev.type !== 'DeckGroupingChanged') continue;
+      expect(ev.payload).not.toHaveProperty('preset_id', 'preset-daily');
+      expect(ev.payload).not.toHaveProperty('folder_id', 'folder-ko');
+    }
   });
 
   it('never moves a deck the user placed, even one the user took out of a folder', () => {
@@ -314,8 +421,33 @@ describe('backup restore: presets, folders and descriptions', () => {
     ]);
     restore(state, backup, factory);
     expect(orgView(state)).toEqual(before);
-    expect(getDeckPreset(state, KO)?.id).not.toBe('preset-daily');
-    expect(getDeckFolder(state, KO)?.id).not.toBe('folder-ko');
+    expect(getDeckPreset(state, KO)?.id).toBe(
+      uuidv5(FLASH_NAMESPACE_UUID, 'restore:preset:preset-daily:1'),
+    );
+    expect(getDeckFolder(state, KO)?.id).toBe(
+      uuidv5(FLASH_NAMESPACE_UUID, 'restore:folder:folder-ko:1'),
+    );
+    expect(planBackupRestore(state, backup).steps).toHaveLength(0);
+  });
+
+  it('brings back a deck deleted since the backup, in its preset and folder', () => {
+    const { state, factory } = organized();
+    const backup = backupOf(state);
+    const before = orgView(state);
+    applyEvents(state, [
+      factory.create(
+        'DeckGroupingChanged',
+        { deck_id: KO, preset_id: null, folder_id: null },
+        T0 + 2 * DAY,
+      ),
+      factory.create('DeckDescriptionChanged', { deck_id: KO, description: '' }, T0 + 2 * DAY),
+      factory.create('DeckSettingsChanged', { deck_id: KO, archived: true }, T0 + 2 * DAY),
+    ]);
+    restore(state, backup, factory);
+    expect(state.decks.get(KO)?.archived).toBe(false);
+    expect(orgView(state)).toEqual(before);
+    expect(getDeckPreset(state, KO)?.id).toBe('preset-daily');
+    expect(getDeckFolder(state, KO)?.id).toBe('folder-ko');
     expect(planBackupRestore(state, backup).steps).toHaveLength(0);
   });
 

@@ -82,7 +82,8 @@ export type PackageDeckEntry = z.infer<typeof PackageDeckEntrySchema>;
  */
 export const PackagePresetSchema = z.object({
   id: z.string().min(1).max(200),
-  name: z.string().min(1).max(200),
+  /** Up to 80 characters, like preset and folder names in the app. */
+  name: z.string().min(1).max(80),
   settings: z
     .object({
       new_cards_per_day: z.number().finite().optional(),
@@ -91,14 +92,15 @@ export const PackagePresetSchema = z.object({
     })
     .default({}),
   /** Shared FSRS weights, when the preset was optimized. */
-  w: z.array(z.number().finite()).max(64).optional(),
+  w: z.array(z.number().finite()).max(21).optional(),
 });
 export type PackagePreset = z.infer<typeof PackagePresetSchema>;
 
 /** A deck folder (one level). */
 export const PackageFolderSchema = z.object({
   id: z.string().min(1).max(200),
-  name: z.string().min(1).max(200),
+  /** Up to 80 characters, like preset and folder names in the app. */
+  name: z.string().min(1).max(80),
 });
 export type PackageFolder = z.infer<typeof PackageFolderSchema>;
 

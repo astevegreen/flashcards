@@ -7,14 +7,13 @@ import type {
 import {
   buildDeckFolderSavedPayload,
   buildDeckPresetSavedPayload,
-  buildPresetParamsPayloads,
-  buildPresetSettingsPayloads,
   getDeckOrganization,
   getDeckOrganizationHistory,
   listDeckFolders,
   listDeckPresets,
   nextPresetParamsVersion,
   normalizeDeckGroupName,
+  validWeights,
   type DeckPreset,
 } from '../decks/organization.ts';
 import {
@@ -25,6 +24,7 @@ import {
 import type { KnownEvent } from '../events/types.ts';
 import { DEFAULT_DECK_SETTINGS, type Deck } from '../model/types.ts';
 import { compareCodeUnits } from '../study/queue.ts';
+import { clipFSRS6Parameters, migrateFSRS6Parameters } from 'ts-fsrs/models/fsrs-6';
 
 /**
  * Shared option presets and deck folders in `.flashpkg` packages.
@@ -40,10 +40,13 @@ import { compareCodeUnits } from '../study/queue.ts';
  * 3. else, when this collection once had that id and deleted it: none (a delete is final), so the
  *    deck keeps its own settings or stays unfiled;
  * 4. else a new one with the package's id and values (`DeckPresetSaved` / `DeckFolderSaved`).
- * A deck the import creates joins the resolved preset and folder. A deck that already exists
- * joins only where it never had a preset (or folder) assignment, even a cleared one, so a package
- * never moves a deck the user placed. Joining copies the preset into the deck like the Library
- * does (`DeckSettingsChanged`, and `DeckFSRSParamsChanged` for shared weights).
+ * Saves an import writes are marked `from_package`, so the user's own edits to the same preset or
+ * folder win over them on every device, even edits this device has not synced yet.
+ * A deck the import creates joins the resolved preset and folder; joining copies the preset into
+ * the deck like the Library does (`DeckSettingsChanged`, and `DeckFSRSParamsChanged` for shared
+ * weights). A deck that already exists never joins a package preset (that would overwrite the
+ * limits, retention and weights the user tuned), and joins a folder only when it never had a
+ * folder assignment, even a cleared one, so a package never moves a deck the user placed.
  */
 
 export interface PackageGroups {
@@ -102,6 +105,19 @@ function definedSettings(raw: PackagePreset['settings']): Partial<DeckPreset['se
   return out;
 }
 
+/**
+ * A package preset's weights, or `undefined` when they are not a 17, 19 or 21 vector inside the
+ * FSRS-6 model bounds (after migrating shorter vectors as ts-fsrs does). Out-of-range weights are
+ * dropped, not clipped: the preset still comes in, and its decks keep their own weights (§13).
+ */
+export function packageWeights(raw: readonly number[] | undefined): number[] | undefined {
+  const w = raw === undefined ? undefined : validWeights([...raw]);
+  if (!w) return undefined;
+  const migrated = migrateFSRS6Parameters(w);
+  const clipped = clipFSRS6Parameters(migrated, 0, false);
+  return clipped.every((x, i) => x === migrated[i]) ? w : undefined;
+}
+
 type ResolvedPreset = Pick<DeckPreset, 'id' | 'settings' | 'w'>;
 
 export interface PackageGroupImporter {
@@ -140,14 +156,17 @@ export function createPackageGroupImporter(
       if (live) {
         resolved = live;
       } else if (!history.deletedPresetIds.has(pkg.id)) {
+        const weights = packageWeights(pkg.w);
         const payload = buildDeckPresetSavedPayload({
           presetId: pkg.id,
           name: pkg.name,
           settings: definedSettings(pkg.settings),
-          ...(pkg.w ? { w: pkg.w } : {}),
+          ...(weights ? { w: weights } : {}),
         });
         if (payload) {
-          out.push(eventFactory.create('DeckPresetSaved', payload, nowMs));
+          out.push(
+            eventFactory.create('DeckPresetSaved', { ...payload, from_package: true }, nowMs),
+          );
           resolved = {
             id: pkg.id,
             settings: {
@@ -180,7 +199,9 @@ export function createPackageGroupImporter(
       } else if (!history.deletedFolderIds.has(pkg.id)) {
         const payload = buildDeckFolderSavedPayload(pkg.id, pkg.name);
         if (payload) {
-          out.push(eventFactory.create('DeckFolderSaved', payload, nowMs));
+          out.push(
+            eventFactory.create('DeckFolderSaved', { ...payload, from_package: true }, nowMs),
+          );
           resolved = pkg.id;
         }
       }
@@ -189,35 +210,22 @@ export function createPackageGroupImporter(
     return resolved;
   }
 
-  function copyPreset(deckId: string, preset: ResolvedPreset, existing: boolean): KnownEvent[] {
-    const out: KnownEvent[] = [];
-    const deviceId = eventFactory.deviceId;
-    if (existing) {
-      for (const payload of buildPresetSettingsPayloads(state, preset, [deckId])) {
-        out.push(eventFactory.create('DeckSettingsChanged', payload, nowMs));
-      }
-      for (const payload of buildPresetParamsPayloads(state, preset, [deckId], nowMs, {
-        deviceId,
-      })) {
-        out.push(eventFactory.create('DeckFSRSParamsChanged', payload, nowMs));
-      }
-      return out;
-    }
-    // A new deck has default settings and no FSRS versions yet (retention comes from settings).
-    out.push(
+  /** Copies the preset into a deck this import creates (default settings, no FSRS versions). */
+  function copyPresetIntoNewDeck(deckId: string, preset: ResolvedPreset): KnownEvent[] {
+    const out = [
       eventFactory.create(
         'DeckSettingsChanged',
         { deck_id: deckId, settings: { ...preset.settings } },
         nowMs,
       ),
-    );
+    ];
     if (preset.w) {
       out.push(
         eventFactory.create(
           'DeckFSRSParamsChanged',
           {
             deck_id: deckId,
-            params_version: nextPresetParamsVersion(state, deckId, nowMs, deviceId),
+            params_version: nextPresetParamsVersion(state, deckId, nowMs, eventFactory.deviceId),
             effective_from: nowMs,
             params: {
               ...resolveDeckFsrsConfig(state, deckId, nowMs),
@@ -239,10 +247,9 @@ export function createPackageGroupImporter(
         deck_id: deckId,
       };
       let preset: ResolvedPreset | null = null;
-      if (
-        entry.preset_id !== undefined &&
-        !(existing && history.decksWithPresetHistory.has(deckId))
-      ) {
+      // Only a deck this import creates joins a preset: joining copies the preset's limits,
+      // retention and weights, which would overwrite what the user tuned on an existing deck.
+      if (entry.preset_id !== undefined && !existing) {
         preset = resolvePreset(entry.preset_id, out);
         if (preset && org.presetByDeck.get(deckId) !== preset.id) grouping.preset_id = preset.id;
       }
@@ -259,7 +266,7 @@ export function createPackageGroupImporter(
         out.push(eventFactory.create('DeckGroupingChanged', grouping, nowMs));
       }
       if (grouping.preset_id !== undefined && preset) {
-        out.push(...copyPreset(deckId, preset, existing));
+        out.push(...copyPresetIntoNewDeck(deckId, preset));
       }
       return out;
     },

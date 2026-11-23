@@ -55,9 +55,12 @@ media/<sha256>.<ext>     optional  images and audio, named by content hash
   and deck folders (`{ id, name }`) the exported decks use; `decks[].preset_id` and
   `decks[].folder_id` point at them. Import never overwrites what the user has: it uses a live
   preset or folder with the same id, else one with the same name, else none when that id was
-  deleted in this collection, else creates one with the package's id and values. New decks join
-  it; existing decks join only when they never had a preset (or folder) assignment. Older
-  packages without these fields stay valid, and older builds ignore them.
+  deleted in this collection, else creates one with the package's id and values (marked
+  `from_package`, so the user's own saves always win over it). New decks join both. An existing
+  deck never joins a package preset, and joins a folder only when it never had a folder
+  assignment. Weights outside the FSRS-6 bounds are dropped. Names are at most 80 characters and
+  `w` at most 21 numbers. Older packages without these fields stay valid, and older builds ignore
+  them.
 
 ### `decks/<name>.jsonl` ([schema](./schemas/note_record.schema.json))
 

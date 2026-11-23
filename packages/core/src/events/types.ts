@@ -274,6 +274,11 @@ export interface DeckPresetSavedPayload {
   settings?: Partial<DeckPresetSettings>;
   /** FSRS weights shared by the preset's decks (set by the pooled optimizer). */
   w?: number[];
+  /**
+   * Written by a `.flashpkg` import, not the user. For each field, any save the user wrote wins
+   * over every package save, whatever their HLCs (as for deck descriptions). Absent on older events.
+   */
+  from_package?: true;
 }
 
 /** Deletes a preset for good; a `DeckPresetSaved` with a later HLC does not bring it back. */
@@ -284,6 +289,8 @@ export interface DeckPresetDeletedPayload {
 export interface DeckFolderSavedPayload {
   folder_id: string;
   name: string;
+  /** Written by a `.flashpkg` import; the user's own saves win over it (see `DeckPresetSaved`). */
+  from_package?: true;
 }
 
 export interface DeckFolderDeletedPayload {

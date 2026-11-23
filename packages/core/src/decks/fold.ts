@@ -7,7 +7,8 @@ import { DEFAULT_DECK_SETTINGS } from '../model/types.ts';
  * Fold of the log-retained deck organization events (`DeckPresetSaved`, `DeckPresetDeleted`,
  * `DeckFolderSaved`, `DeckFolderDeleted`, `DeckGroupingChanged`) kept in `state.unknownEvents`.
  *
- * Every field is a last-writer-wins register ordered by `(hlc, event id)`, so the result depends
+ * Every field is a last-writer-wins register ordered by `(hlc, event id)`, except that a save the
+ * user wrote beats any save a package import wrote (`from_package`). The result depends
  * only on the set of events: any delivery order, chunking, duplication or snapshot hydration gives
  * the same answer on every device. A delete is final: a preset or folder is live once saved and
  * until any delete, and a save with a later HLC than the delete (an edit made concurrently on
@@ -64,8 +65,23 @@ function later(a: UnknownEvent | undefined, b: UnknownEvent): boolean {
   return c > 0 || (c === 0 && b.id > a.id);
 }
 
+function fromPackage(ev: UnknownEvent): boolean {
+  return (ev.payload as { from_package?: unknown } | null)?.from_package === true;
+}
+
+/**
+ * Whether `b` replaces `a` in a field register: a save the user wrote beats any save a package
+ * import wrote (`from_package`), whatever their HLCs; within each kind the later one wins. So an
+ * import on a device that has not synced the user's edits never overwrites them.
+ */
+function beats(a: UnknownEvent | undefined, b: UnknownEvent): boolean {
+  if (a === undefined) return true;
+  if (fromPackage(a) !== fromPackage(b)) return fromPackage(a);
+  return later(a, b);
+}
+
 function put<T>(reg: Reg<T>, ev: UnknownEvent, v: T | undefined): Reg<T> {
-  return v !== undefined && later(reg?.ev, ev) ? { ev, v } : reg;
+  return v !== undefined && beats(reg?.ev, ev) ? { ev, v } : reg;
 }
 
 /** Trims and collapses whitespace; `undefined` when nothing is left. */
