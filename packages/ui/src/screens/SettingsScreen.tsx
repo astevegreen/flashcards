@@ -11,6 +11,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
 import { StudyRemindersSetting } from '../reminders/StudyRemindersSetting.tsx';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
+import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
 import { LeechAutoSuspendSetting } from '../study/LeechSettings.tsx';
 import { OneDriveSyncButtons } from '../sync/OneDriveSyncButtons.tsx';
@@ -69,6 +70,19 @@ function getSyncPillClass(status: SyncUiStatus): string {
   }
 }
 
+const TTS_LANGUAGES = [
+  { key: 'ja', label: 'Japanese (ja)' },
+  { key: 'zh-Hans', label: 'Mandarin (zh-Hans)' },
+  { key: 'ko', label: 'Korean (ko)' },
+  { key: 'en', label: 'English (en)' },
+] as const;
+
+const DRAWING_LANGUAGES = [
+  { key: 'ja', label: 'Japanese (ja)', defaultMode: 'graded' as DrawingMode },
+  { key: 'zh-Hans', label: 'Mandarin (zh-Hans)', defaultMode: 'graded' as DrawingMode },
+  { key: 'ko', label: 'Korean / Hanja (ko)', defaultMode: 'lookup' as DrawingMode },
+] as const;
+
 export function SettingsScreen() {
   const {
     platform,
@@ -92,6 +106,10 @@ export function SettingsScreen() {
     markBackupCompleted,
     resetLocalData,
   } = useApp();
+  // Language-specific options show only for languages in use (UX #2); saved values are kept.
+  const active = useActiveLanguages();
+  const ttsLanguages = TTS_LANGUAGES.filter((l) => active.hasLanguage(l.key));
+  const drawingLanguages = DRAWING_LANGUAGES.filter((l) => active.hasLanguage(l.key));
 
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +128,10 @@ export function SettingsScreen() {
     ko: state.preferences.tts_voices?.['ko'] ?? '',
     en: state.preferences.tts_voices?.['en'] ?? '',
   });
-  const [ttsTestLang, setTtsTestLang] = useState('ko');
+  const [ttsTestLangChoice, setTtsTestLang] = useState('ko');
+  const ttsTestLang = ttsLanguages.some((l) => l.key === ttsTestLangChoice)
+    ? ttsTestLangChoice
+    : (ttsLanguages[0]?.key ?? ttsTestLangChoice);
   const [ttsTestBusy, setTtsTestBusy] = useState(false);
   const [ttsTestMessage, setTtsTestMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [voiceListTick, setVoiceListTick] = useState(0);
@@ -687,50 +708,57 @@ export function SettingsScreen() {
           </select>
         </label>
 
-        <label className="flex items-center justify-between gap-4 text-sm">
-          <div>
-            <div className="font-medium">Pinyin tone colors</div>
-            <div className="text-xs text-[var(--muted)]">
-              Color Mandarin pinyin syllables by tone (1–5).
+        {active.hasFeature('pinyin') && (
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <div>
+              <div className="font-medium">Pinyin tone colors</div>
+              <div className="text-xs text-[var(--muted)]">
+                Color Mandarin pinyin syllables by tone (1–5).
+              </div>
             </div>
-          </div>
-          <input
-            type="checkbox"
-            checked={state.preferences.pinyin_tone_colors}
-            onChange={(e) => updatePreferences({ pinyin_tone_colors: e.target.checked })}
-            className="h-4 w-4"
-          />
-        </label>
+            <input
+              type="checkbox"
+              checked={state.preferences.pinyin_tone_colors}
+              onChange={(e) => updatePreferences({ pinyin_tone_colors: e.target.checked })}
+              className="h-4 w-4"
+            />
+          </label>
+        )}
 
-        <label className="flex items-center justify-between gap-4 text-sm">
-          <div>
-            <div className="font-medium">Japanese typed mode: Hiragana = Katakana</div>
-            <div className="text-xs text-[var(--muted)]">
-              Accept hiragana and katakana interchangeably when grading typed Japanese answers.
+        {active.hasLanguage('ja') && (
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <div>
+              <div className="font-medium">Japanese typed mode: Hiragana = Katakana</div>
+              <div className="text-xs text-[var(--muted)]">
+                Accept hiragana and katakana interchangeably when grading typed Japanese answers.
+              </div>
             </div>
-          </div>
-          <input
-            type="checkbox"
-            checked={state.preferences.ja_kana_equivalent ?? true}
-            onChange={(e) => updatePreferences({ ja_kana_equivalent: e.target.checked })}
-            className="h-4 w-4"
-          />
-        </label>
+            <input
+              type="checkbox"
+              checked={state.preferences.ja_kana_equivalent ?? true}
+              onChange={(e) => updatePreferences({ ja_kana_equivalent: e.target.checked })}
+              className="h-4 w-4"
+            />
+          </label>
+        )}
 
-        <label className="flex items-center justify-between gap-4 text-sm">
-          <div>
-            <div className="font-medium">Mandarin typed mode: Ignore tones</div>
-            <div className="text-xs text-[var(--muted)]">
-              Accept pinyin without tone marks or tone numbers when grading typed Mandarin answers.
+        {active.hasFeature('tones') && (
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <div>
+              <div className="font-medium">Mandarin typed mode: Ignore tones</div>
+              <div className="text-xs text-[var(--muted)]">
+                Accept pinyin without tone marks or tone numbers when grading typed Mandarin
+                answers.
+              </div>
             </div>
-          </div>
-          <input
-            type="checkbox"
-            checked={state.preferences.zh_ignore_tones ?? false}
-            onChange={(e) => updatePreferences({ zh_ignore_tones: e.target.checked })}
-            className="h-4 w-4"
-          />
-        </label>
+            <input
+              type="checkbox"
+              checked={state.preferences.zh_ignore_tones ?? false}
+              onChange={(e) => updatePreferences({ zh_ignore_tones: e.target.checked })}
+              className="h-4 w-4"
+            />
+          </label>
+        )}
 
         <LeechAutoSuspendSetting />
       </div>
@@ -838,14 +866,7 @@ export function SettingsScreen() {
                 Optional Voice ID overrides (synced across devices; leave blank for neural defaults)
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                {(
-                  [
-                    { key: 'ja', label: 'Japanese (ja)' },
-                    { key: 'zh-Hans', label: 'Mandarin (zh-Hans)' },
-                    { key: 'ko', label: 'Korean (ko)' },
-                    { key: 'en', label: 'English (en)' },
-                  ] as const
-                ).map(({ key, label }) => {
+                {ttsLanguages.map(({ key, label }) => {
                   const placeholder =
                     ttsProviderDraft === 'google'
                       ? (DEFAULT_GOOGLE_VOICES[key] ?? '')
@@ -901,10 +922,11 @@ export function SettingsScreen() {
             onChange={(e) => setTtsTestLang(e.target.value)}
             className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--fg)]"
           >
-            <option value="ko">Korean (ko)</option>
-            <option value="ja">Japanese (ja)</option>
-            <option value="zh-Hans">Mandarin (zh-Hans)</option>
-            <option value="en">English (en)</option>
+            {ttsLanguages.map((l) => (
+              <option key={l.key} value={l.key}>
+                {l.label}
+              </option>
+            ))}
           </select>
           <button
             type="button"
@@ -954,49 +976,45 @@ export function SettingsScreen() {
       </div>
 
       {/* Drawing & Handwriting Modes (Phase 6, §6.4) */}
-      <div
-        data-testid="drawing-settings-card"
-        className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
-      >
-        <div>
-          <h2 className="text-sm font-semibold">Drawing &amp; Handwriting</h2>
-          <p className="text-xs text-[var(--muted)]">
-            Choose per-language behavior for Draw layouts: <strong>Graded</strong> (stroke-order
-            quiz via Hanzi Writer), <strong>Lookup</strong> (freehand draw-to-lookup, Hanja
-            default), or <strong>Off</strong>.
-          </p>
-        </div>
+      {active.hasFeature('handwriting') && drawingLanguages.length > 0 && (
+        <div
+          data-testid="drawing-settings-card"
+          className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+        >
+          <div>
+            <h2 className="text-sm font-semibold">Drawing &amp; Handwriting</h2>
+            <p className="text-xs text-[var(--muted)]">
+              Choose per-language behavior for Draw layouts: <strong>Graded</strong> (stroke-order
+              quiz via Hanzi Writer), <strong>Lookup</strong> (freehand draw-to-lookup, Hanja
+              default), or <strong>Off</strong>.
+            </p>
+          </div>
 
-        {(
-          [
-            { key: 'ja', label: 'Japanese (ja)', defaultMode: 'graded' as DrawingMode },
-            { key: 'zh-Hans', label: 'Mandarin (zh-Hans)', defaultMode: 'graded' as DrawingMode },
-            { key: 'ko', label: 'Korean / Hanja (ko)', defaultMode: 'lookup' as DrawingMode },
-          ] as const
-        ).map(({ key, label, defaultMode }) => {
-          const currentMode = state.preferences.drawing_modes?.[key] ?? defaultMode;
-          return (
-            <label key={key} className="flex items-center justify-between gap-4 text-sm">
-              <span className="min-w-0 font-medium">{label}</span>
-              <select
-                aria-label={`Drawing mode for ${label}`}
-                data-testid={`drawing-mode-select-${key}`}
-                value={currentMode}
-                onChange={(e) =>
-                  updatePreferences({
-                    drawing_modes: { [key]: e.target.value as DrawingMode },
-                  })
-                }
-                className="min-w-0 max-w-[55%] rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm"
-              >
-                <option value="graded">Graded (Stroke Quiz)</option>
-                <option value="lookup">Lookup (Handwriting Match)</option>
-                <option value="off">Off</option>
-              </select>
-            </label>
-          );
-        })}
-      </div>
+          {drawingLanguages.map(({ key, label, defaultMode }) => {
+            const currentMode = state.preferences.drawing_modes?.[key] ?? defaultMode;
+            return (
+              <label key={key} className="flex items-center justify-between gap-4 text-sm">
+                <span className="min-w-0 font-medium">{label}</span>
+                <select
+                  aria-label={`Drawing mode for ${label}`}
+                  data-testid={`drawing-mode-select-${key}`}
+                  value={currentMode}
+                  onChange={(e) =>
+                    updatePreferences({
+                      drawing_modes: { [key]: e.target.value as DrawingMode },
+                    })
+                  }
+                  className="min-w-0 max-w-[55%] rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm"
+                >
+                  <option value="graded">Graded (Stroke Quiz)</option>
+                  <option value="lookup">Lookup (Handwriting Match)</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+            );
+          })}
+        </div>
+      )}
 
       {/* Offline Dictionaries & Stroke Packs (Phase 6, §6.3) */}
       <Suspense

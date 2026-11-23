@@ -18,6 +18,7 @@ import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 're
 import { CoursesPanel } from '../components/CoursesPanel.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
 import { RubyDisplaySelect } from '../library/RubyDisplaySelect.tsx';
+import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { ANKI_IMPORT_PANEL_HEIGHT } from '../import/anki-import-layout.ts';
@@ -52,6 +53,7 @@ function DeckOptionsPanel({
   onUpdateLayout: (layout: Layout) => void;
 }) {
   const { platform, state, stateVersion, rescheduleDeck } = useApp();
+  const showRuby = useActiveLanguages().hasFeature('furigana');
   const [rescheduleStatus, setRescheduleStatus] = useState<string | null>(null);
   const [newPerDayDraft, setNewPerDayDraft] = useState(String(deck.settings.new_cards_per_day));
   const [maxRevDraft, setMaxRevDraft] = useState(String(deck.settings.max_reviews_per_day));
@@ -417,7 +419,7 @@ function DeckOptionsPanel({
         <LazyFsrsOptimizerPanel deck={deck} />
       </Suspense>
 
-      {noteTypeLayouts.length > 0 && (
+      {showRuby && noteTypeLayouts.length > 0 && (
         <div
           data-testid={`layout-ruby-list-${deck.id}`}
           className="flex flex-col gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3"
@@ -556,10 +558,12 @@ function DeckOptionsPanel({
           </>
         )}
 
-        <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
-          <span>Ruby shows</span>
-          <RubyDisplaySelect value={rubyDisplay} onChange={setRubyDisplay} />
-        </label>
+        {showRuby && (
+          <label className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
+            <span>Ruby shows</span>
+            <RubyDisplaySelect value={rubyDisplay} onChange={setRubyDisplay} />
+          </label>
+        )}
 
         {layoutMode === 'cloze' && (
           <label className="flex items-center gap-1.5 pb-1 text-xs text-[var(--muted)]">

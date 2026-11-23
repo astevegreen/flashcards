@@ -19,6 +19,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { NoteEditDialog } from '../components/NoteEditDialog.tsx';
 import { RichText } from '../components/RichText.tsx';
 import { useApp } from '../state/AppContext.tsx';
+import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { CategoryPicker } from '../study/CategoryPicker.tsx';
 import { setBrowseFilter } from '../study/filterStore.ts';
 
@@ -75,6 +76,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
     emitEvents,
     getEventFactory,
   } = useApp();
+  const active = useActiveLanguages();
   const [browseMode, setBrowseMode] = useState<'notes' | 'dictionary'>('notes');
   const [query, setQuery] = useState('');
   const [deckFilter, setDeckFilter] = useState('');
@@ -295,20 +297,22 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
               onChange={(e) => setQuery(e.target.value)}
               className="min-w-[12rem] flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm sm:w-56 sm:flex-none"
             />
-            <button
-              type="button"
-              data-testid="browse-notes-draw-btn"
-              aria-pressed={showNotesDraw}
-              onClick={() => setShowNotesDraw((v) => !v)}
-              title="Draw a character to filter notes"
-              className={`rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
-                showNotesDraw
-                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                  : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--fg)]'
-              }`}
-            >
-              ✎ Draw
-            </button>
+            {active.hasFeature('handwriting') && (
+              <button
+                type="button"
+                data-testid="browse-notes-draw-btn"
+                aria-pressed={showNotesDraw}
+                onClick={() => setShowNotesDraw((v) => !v)}
+                title="Draw a character to filter notes"
+                className={`rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                  showNotesDraw
+                    ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                    : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--fg)]'
+                }`}
+              >
+                ✎ Draw
+              </button>
+            )}
             <select
               aria-label="Filter by deck"
               value={deckFilter}
@@ -434,7 +438,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
             </Suspense>
           )}
 
-          {showNotesDraw && (
+          {showNotesDraw && active.hasFeature('handwriting') && (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
               <Suspense
                 fallback={
@@ -444,7 +448,9 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                 }
               >
                 <LazyDrawLookupPanel
-                  lang="ko"
+                  lang={
+                    active.hasLanguage('ko') ? 'ko' : active.hasLanguage('ja') ? 'ja' : 'zh-Hans'
+                  }
                   size={200}
                   onSelectCandidate={(ch) => setQuery(ch)}
                   testIdPrefix="notes-draw-lookup"
