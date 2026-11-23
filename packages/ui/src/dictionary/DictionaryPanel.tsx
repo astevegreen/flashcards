@@ -9,14 +9,26 @@ import {
 import { canCreateOrImportDeck } from '@flash/core/license';
 import type { DictionaryEntry, DictionaryPackId, InstalledPackInfo } from '@flash/platform';
 import type {
+  DictionaryBrowseSummary,
+  DictionaryDirection,
   DictionaryLevel,
   DictionarySense,
   DictionarySenseSource,
 } from '@flash/core/dictionary';
-import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { RichText } from '../components/RichText.tsx';
 import { DrawLookupPanel } from '../drawing/DrawLookupPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
+import { DictionaryBrowseHeader, DictionaryHome } from './DictionaryHome.tsx';
+import {
+  directionTargetName,
+  pushRecentLookup,
+  readLookupDirection,
+  readRecentLookups,
+  writeLookupDirection,
+  writeRecentLookups,
+  type DictionaryBrowseSelection,
+} from './dictionary-home-model.ts';
 
 export interface DictionaryPanelProps {
   initialQuery?: string;
@@ -258,6 +270,39 @@ interface EntryLangProps {
   pinyinToneColors: boolean;
 }
 
+/** Each Han character of a word's Hanja spelling as a button that looks the character up. */
+function HanjaLinks({
+  text,
+  onLookup,
+  testIds,
+}: {
+  text: string;
+  onLookup: (char: string) => void;
+  testIds: boolean;
+}) {
+  return (
+    <>
+      {[...text].map((ch, i) =>
+        isSingleIdeograph(ch) ? (
+          <button
+            key={i}
+            type="button"
+            lang="ko"
+            data-testid={testIds ? `dict-hanja-link-${ch}` : undefined}
+            aria-label={`Look up Hanja ${ch}`}
+            onClick={() => onLookup(ch)}
+            className="rounded px-0.5 text-[var(--accent)] underline decoration-dotted underline-offset-2 hover:bg-[var(--accent-soft)]"
+          >
+            {ch}
+          </button>
+        ) : (
+          <span key={i}>{ch}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 /** The reading line's text: KRDict pronunciation, tone-coloured pinyin, or plain readings. */
 function EntryReadingText({ entry, lang, pinyinToneColors }: EntryLangProps) {
   if (entry.packId === 'dict-krdict') {
@@ -302,8 +347,8 @@ function EntryReading(props: EntryLangProps) {
   );
 }
 
-function EntryHeadline(props: EntryLangProps) {
-  const { entry, lang } = props;
+function EntryHeadline(props: EntryLangProps & { onLookup: (text: string) => void }) {
+  const { entry, lang, onLookup } = props;
   return (
     <div className="flex flex-wrap items-baseline gap-2">
       <span lang={lang} className="text-2xl font-bold leading-none text-[var(--fg)]">
@@ -319,7 +364,13 @@ function EntryHeadline(props: EntryLangProps) {
           title={entry.packId === 'dict-krdict' ? 'Hanja (원어)' : undefined}
           className="text-xs text-[var(--muted)]"
         >
-          ({entry.altForms.join(', ')})
+          (
+          {entry.packId === 'dict-krdict' ? (
+            <HanjaLinks text={entry.altForms.join(', ')} onLookup={onLookup} testIds />
+          ) : (
+            entry.altForms.join(', ')
+          )}
+          )
         </span>
       )}
       <EntryReading {...props} />
@@ -440,6 +491,27 @@ export function DictionaryPanel({
   const [searching, setSearching] = useState(false);
   const [showDraw, setShowDraw] = useState(initialDrawOpen);
   const [drawLang, setDrawLang] = useState<'ko' | 'ja' | 'zh-Hans'>('ko');
+  const [direction, setDirectionState] = useState<DictionaryDirection>(readLookupDirection);
+  const setDirection = (next: DictionaryDirection): void => {
+    setDirectionState(next);
+    writeLookupDirection(next);
+  };
+  const [recents, setRecents] = useState<string[]>(readRecentLookups);
+  const rememberLookup = useCallback((q: string) => {
+    setRecents((prev) => {
+      const next = pushRecentLookup(prev, q);
+      writeRecentLookups(next);
+      return next;
+    });
+  }, []);
+
+  // Browse without typing (home screen groups and the open browse list).
+  const [summaries, setSummaries] = useState<DictionaryBrowseSummary[]>([]);
+  const [hanjaPreview, setHanjaPreview] = useState<DictionaryEntry[]>([]);
+  const [browseSel, setBrowseSel] = useState<DictionaryBrowseSelection | null>(null);
+  const [browseEntries, setBrowseEntries] = useState<DictionaryEntry[]>([]);
+  const [browseNext, setBrowseNext] = useState<string | undefined>(undefined);
+  const [browseLoading, setBrowseLoading] = useState(false);
 
   // Quick "+ Add to Deck" state
   const [addingEntryId, setAddingEntryId] = useState<string | null>(null);
@@ -458,7 +530,9 @@ export function DictionaryPanel({
   const [addedBanner, setAddedBanner] = useState<string | null>(null);
   // Tablet / desktop list + detail split view (Phase 13): the detail pane shows this entry.
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
-  const selectedEntry = results.find((r) => r.id === selectedEntryId) ?? results[0];
+  const typed = query.trim().length > 0;
+  const listEntries = typed ? results : browseSel ? browseEntries : [];
+  const selectedEntry = listEntries.find((r) => r.id === selectedEntryId) ?? listEntries[0];
 
   const decks = useMemo(
     () =>
@@ -517,6 +591,78 @@ export function DictionaryPanel({
     };
   }, [platform]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const getService = platform.getDictionaryService;
+    if (!getService || installedPacks.length === 0) {
+      setSummaries([]);
+      setHanjaPreview([]);
+      return undefined;
+    }
+    void (async () => {
+      try {
+        const svc = await getService();
+        const loaded = await Promise.all(
+          installedPacks.map((p) => svc.getBrowseSummary(p.id as DictionaryPackId)),
+        );
+        if (cancelled) return;
+        setSummaries(loaded);
+        const hanja = loaded.find((x) => x.packId === 'dict-hanja-unihan');
+        if (hanja && hanja.total > 0) {
+          const grade = hanja.grades[0]?.key;
+          const page = await svc.browse({
+            packId: 'dict-hanja-unihan',
+            facet: grade ? { kind: 'grade', grade } : { kind: 'all' },
+            limit: 48,
+          });
+          if (!cancelled) setHanjaPreview(page.entries);
+        } else {
+          setHanjaPreview([]);
+        }
+      } catch {
+        if (!cancelled) setSummaries([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [platform, installedPacks]);
+
+  const loadBrowsePage = useCallback(
+    async (sel: DictionaryBrowseSelection, after?: string) => {
+      if (!platform.getDictionaryService) return;
+      setBrowseLoading(true);
+      try {
+        const svc = await platform.getDictionaryService();
+        const page = await svc.browse({
+          packId: sel.packId,
+          facet: sel.facet,
+          ...(sel.initial ? { initial: sel.initial } : {}),
+          ...(sel.pos ? { pos: sel.pos } : {}),
+          ...(after ? { after } : {}),
+        });
+        setBrowseEntries((prev) => (after ? [...prev, ...page.entries] : page.entries));
+        setBrowseNext(page.next);
+      } finally {
+        setBrowseLoading(false);
+      }
+    },
+    [platform],
+  );
+
+  const openBrowse = (sel: DictionaryBrowseSelection | null) => {
+    setBrowseSel(sel);
+    setBrowseEntries([]);
+    setBrowseNext(undefined);
+    setSelectedEntryId(null);
+    if (sel) void loadBrowsePage(sel);
+  };
+
+  const lookUp = (text: string) => {
+    setQuery(text);
+    rememberLookup(text);
+  };
+
   const runSearch = useCallback(
     async (rawQuery: string, packFilter: DictionaryPackId | 'all') => {
       const trimmed = rawQuery.trim();
@@ -530,13 +676,13 @@ export function DictionaryPanel({
         const packIds = packFilter === 'all' ? undefined : [packFilter];
         const found = isSingleIdeograph(trimmed)
           ? await svc.lookupCharacter(trimmed, packIds ? { packIds } : undefined)
-          : await svc.search(trimmed, { ...(packIds ? { packIds } : {}), limit: 60 });
+          : await svc.search(trimmed, { ...(packIds ? { packIds } : {}), limit: 60, direction });
         setResults(found);
       } finally {
         setSearching(false);
       }
     },
-    [platform],
+    [platform, direction],
   );
 
   useEffect(() => {
@@ -546,8 +692,17 @@ export function DictionaryPanel({
     return () => window.clearTimeout(timer);
   }, [query, runSearch, selectedPack]);
 
+  // A lookup that found something and stayed on screen goes into Recent.
+  useEffect(() => {
+    const q = query.trim();
+    if (!q || searching || results.length === 0) return undefined;
+    const timer = window.setTimeout(() => rememberLookup(q), 1200);
+    return () => window.clearTimeout(timer);
+  }, [query, searching, results, rememberLookup]);
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (query.trim()) rememberLookup(query);
     void runSearch(query, selectedPack);
   };
 
@@ -632,6 +787,19 @@ export function DictionaryPanel({
     setAddedBanner(`Created “${spec.name}” and added “${entry.headword}”.`);
   };
 
+  const targetName = directionTargetName(
+    selectedPack === 'all' ? installedPacks.map((p) => p.language) : [PACK_LANG[selectedPack]],
+  );
+  const homeSummaries =
+    selectedPack === 'all' ? summaries : summaries.filter((x) => x.packId === selectedPack);
+  const browsePos = browseSel
+    ? (summaries.find((x) => x.packId === browseSel.packId)?.pos ?? [])
+    : [];
+  const hanjaQuery = typed && isSingleIdeograph(query.trim()) ? query.trim() : null;
+  const firstWordIdx = hanjaQuery
+    ? listEntries.findIndex((e) => e.headword !== hanjaQuery && [...e.headword].length > 1)
+    : -1;
+
   return (
     <div data-testid="dictionary-panel" className="touch-scope @container flex flex-col gap-3">
       {/* Native dictation-safe & IME-safe search bar (§6.3, modern-web-guidance ime-safe-enter-submit) */}
@@ -646,7 +814,11 @@ export function DictionaryPanel({
           enterKeyHint="search"
           autoComplete="off"
           data-testid="dictionary-search-input"
-          placeholder="Search 한국어, ㅎㄱ, hanguk, Hanja, Kanji, Pinyin, or English…"
+          placeholder={
+            direction === 'from-english'
+              ? 'Type an English word: eat, school, blue…'
+              : 'Search 한국어, ㅎㄱ, hanguk, Hanja, Kanji, Pinyin, or English…'
+          }
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="min-w-[14rem] flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-sm text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none"
@@ -672,6 +844,31 @@ export function DictionaryPanel({
           ✎ Draw Lookup
         </button>
       </form>
+
+      {/* Lookup direction (remembered on this device) */}
+      <div
+        role="radiogroup"
+        aria-label="Lookup direction"
+        className="inline-flex w-fit rounded-xl border border-[var(--border)] bg-[var(--surface)] p-0.5 text-xs font-semibold"
+      >
+        {(['to-english', 'from-english'] as const).map((d) => (
+          <button
+            key={d}
+            type="button"
+            role="radio"
+            aria-checked={direction === d}
+            data-testid={`dict-direction-${d}`}
+            onClick={() => setDirection(d)}
+            className={`min-h-9 rounded-lg px-3 py-1 ${
+              direction === d
+                ? 'bg-[var(--accent)] text-white'
+                : 'text-[var(--muted)] hover:text-[var(--fg)]'
+            }`}
+          >
+            {d === 'to-english' ? `${targetName} → English` : `English → ${targetName}`}
+          </button>
+        ))}
+      </div>
 
       {/* Pack filter strip */}
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -748,7 +945,7 @@ export function DictionaryPanel({
             lang={drawLang}
             size={210}
             onSelectCandidate={(ch) => {
-              setQuery(ch);
+              lookUp(ch);
               void runSearch(ch, selectedPack);
             }}
             testIdPrefix="browse-draw-lookup"
@@ -779,148 +976,207 @@ export function DictionaryPanel({
             </button>
           )}
         </div>
+      ) : !typed && !browseSel ? (
+        <DictionaryHome
+          summaries={homeSummaries}
+          hanjaPreview={
+            selectedPack === 'all' || selectedPack === 'dict-hanja-unihan' ? hanjaPreview : []
+          }
+          recents={recents}
+          onLookup={lookUp}
+          onClearRecents={() => {
+            setRecents([]);
+            writeRecentLookups([]);
+          }}
+          onBrowse={openBrowse}
+        />
       ) : (
-        /* Results list, plus a detail pane beside it once the panel is tablet-wide (@lg = 32rem) */
-        <div className="grid items-start gap-3 @lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-          <div
-            data-testid="dictionary-results"
-            className="flex min-w-0 flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"
-          >
-            {searching ? (
-              <div className="py-8 text-center text-xs text-[var(--muted)]">Searching…</div>
-            ) : !query.trim() ? (
-              <div className="py-8 text-center text-xs text-[var(--muted)]">
-                Type any English word, a Korean word in any form (먹었어요), 초성 (ㅎㄱ),
-                romanization (hanguk), a reading (Kana / Pinyin), or draw a character to look up
-                definitions offline.
-              </div>
-            ) : results.length === 0 ? (
-              <div className="py-8 text-center text-xs text-[var(--muted)]">
-                No offline dictionary matches found for “{query}”.
-              </div>
-            ) : (
-              results.map((entry) => {
-                const lang = PACK_LANG[entry.packId];
-                const defaultDeck = resolveDefaultDeckForEntry(entry);
-                const isAdding = addingEntryId === entry.id;
-                const selectedDeckId =
-                  lastDeckByLang[lang] ?? defaultDeck?.id ?? decks[0]?.id ?? '';
-                const alreadyInSelectedDeck = isEntryInDeck(
-                  entry,
-                  selectedDeckId ? deckPresenceByDeck.get(selectedDeckId) : undefined,
-                );
-                const isSelected = selectedEntry?.id === entry.id;
-
-                return (
-                  <article
-                    key={entry.id}
-                    data-testid={`dict-entry-${entry.headword}`}
-                    data-selected={isSelected ? 'true' : undefined}
-                    className={`flex flex-col gap-2 rounded-xl border bg-[var(--bg)] p-3 ${
-                      isSelected ? SELECTED_ROW_CLASS : 'border-[var(--border)]'
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <EntryHeadline
-                          entry={entry}
-                          lang={lang}
-                          pinyinToneColors={state.preferences.pinyin_tone_colors}
-                        />
-                        <div className="@lg:hidden">
-                          <EntrySenses entry={entry} />
-                        </div>
-                        {/* Split view: a one-line gloss; the full senses are in the detail pane */}
-                        <p className="mt-1 hidden truncate text-sm text-[var(--fg)] @lg:block">
-                          {entrySummary(entry)}
-                        </p>
-                        <EntryMetaRow entry={entry} alreadyInSelectedDeck={alreadyInSelectedDeck} />
-                      </div>
-
-                      {/* Keyboard / D-pad way to pick the entry shown in the split-view detail pane */}
-                      <button
-                        type="button"
-                        data-testid={`dict-show-${entry.headword}`}
-                        aria-pressed={isSelected}
-                        aria-label={`Show details for ${entry.headword}`}
-                        onClick={() => setSelectedEntryId(entry.id)}
-                        className="hidden shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--fg)] hover:border-[var(--accent)] @lg:inline-flex @lg:items-center"
-                      >
-                        Details
-                      </button>
-
-                      <button
-                        type="button"
-                        data-testid={`dict-add-btn-${entry.headword}`}
-                        onClick={() => setAddingEntryId(isAdding ? null : entry.id)}
-                        className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--fg)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                      >
-                        {isAdding ? 'Cancel' : '+ Add to Deck'}
-                      </button>
-                    </div>
-
-                    {/* Quick 1-tap Add to Deck confirmation bar */}
-                    {isAdding && (
-                      <div
-                        data-testid={`dict-add-bar-${entry.headword}`}
-                        className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2 text-xs"
-                      >
-                        {decks.length > 0 ? (
-                          <>
-                            <label className="flex items-center gap-1.5 text-[var(--muted)]">
-                              <span>Deck:</span>
-                              <select
-                                aria-label="Destination deck"
-                                data-testid="dict-add-deck-select"
-                                value={selectedDeckId}
-                                onChange={(e) =>
-                                  setLastDeckByLang((prev) => ({
-                                    ...prev,
-                                    [lang]: e.target.value,
-                                  }))
-                                }
-                                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
-                              >
-                                {decks.map((d) => (
-                                  <option key={d.id} value={d.id}>
-                                    {d.name} ({d.language})
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <button
-                              type="button"
-                              data-testid="dict-add-confirm-btn"
-                              onClick={() => {
-                                if (selectedDeckId) handleAddEntryToDeck(entry, selectedDeckId);
-                              }}
-                              className="rounded-lg bg-[var(--accent)] px-3 py-1 font-semibold text-white hover:opacity-90"
-                            >
-                              Add Card
-                            </button>
-                          </>
-                        ) : null}
-                        <button
-                          type="button"
-                          data-testid="dict-add-new-deck-btn"
-                          onClick={() => handleQuickCreateAndAdd(entry)}
-                          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
-                        >
-                          + New {PACK_SHORT_LABEL[entry.packId]} Deck
-                        </button>
-                      </div>
-                    )}
-                  </article>
-                );
-              })
-            )}
-          </div>
-          {!searching && query.trim() && selectedEntry && (
-            <DictionaryEntryDetail
-              entry={selectedEntry}
-              pinyinToneColors={state.preferences.pinyin_tone_colors}
+        <div className="flex flex-col gap-3">
+          {!typed && browseSel && (
+            <DictionaryBrowseHeader
+              selection={browseSel}
+              posOptions={browsePos}
+              onChange={openBrowse}
+              onBack={() => openBrowse(null)}
             />
           )}
+          {/* Results list, plus a detail pane beside it once the panel is tablet-wide (@lg = 32rem) */}
+          <div className="grid items-start gap-3 @lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+            <div
+              data-testid="dictionary-results"
+              className="flex min-w-0 flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"
+            >
+              {typed && searching ? (
+                <div className="py-8 text-center text-xs text-[var(--muted)]">Searching…</div>
+              ) : listEntries.length === 0 ? (
+                <div
+                  data-testid="dict-no-results"
+                  className="py-8 text-center text-xs text-[var(--muted)]"
+                >
+                  {typed
+                    ? `No offline dictionary matches found for “${query}”.`
+                    : browseLoading
+                      ? 'Loading…'
+                      : 'No words here. Try another letter or filter.'}
+                </div>
+              ) : (
+                listEntries.map((entry, entryIdx) => {
+                  const lang = PACK_LANG[entry.packId];
+                  const defaultDeck = resolveDefaultDeckForEntry(entry);
+                  const isAdding = addingEntryId === entry.id;
+                  const selectedDeckId =
+                    lastDeckByLang[lang] ?? defaultDeck?.id ?? decks[0]?.id ?? '';
+                  const alreadyInSelectedDeck = isEntryInDeck(
+                    entry,
+                    selectedDeckId ? deckPresenceByDeck.get(selectedDeckId) : undefined,
+                  );
+                  const isSelected = selectedEntry?.id === entry.id;
+
+                  return (
+                    <Fragment key={entry.id}>
+                      {entryIdx === firstWordIdx && hanjaQuery && (
+                        <h3
+                          data-testid="dict-words-with-hanja"
+                          lang="ko"
+                          className="px-1 pt-1 text-xs font-semibold text-[var(--muted)]"
+                        >
+                          Words written with {hanjaQuery}
+                        </h3>
+                      )}
+                      <article
+                        data-testid={`dict-entry-${entry.headword}`}
+                        data-selected={isSelected ? 'true' : undefined}
+                        className={`flex flex-col gap-2 rounded-xl border bg-[var(--bg)] p-3 ${
+                          isSelected ? SELECTED_ROW_CLASS : 'border-[var(--border)]'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            {direction === 'from-english' && (
+                              <p
+                                data-testid={`dict-gloss-lead-${entry.headword}`}
+                                className="mb-1 text-sm font-semibold text-[var(--fg)]"
+                              >
+                                {entrySummary(entry)} →
+                              </p>
+                            )}
+                            <EntryHeadline
+                              entry={entry}
+                              lang={lang}
+                              pinyinToneColors={state.preferences.pinyin_tone_colors}
+                              onLookup={lookUp}
+                            />
+                            <div className="@lg:hidden">
+                              <EntrySenses entry={entry} />
+                            </div>
+                            {/* Split view: a one-line gloss; the full senses are in the detail pane */}
+                            <p className="mt-1 hidden truncate text-sm text-[var(--fg)] @lg:block">
+                              {entrySummary(entry)}
+                            </p>
+                            <EntryMetaRow
+                              entry={entry}
+                              alreadyInSelectedDeck={alreadyInSelectedDeck}
+                            />
+                          </div>
+
+                          {/* Keyboard / D-pad way to pick the entry shown in the split-view detail pane */}
+                          <button
+                            type="button"
+                            data-testid={`dict-show-${entry.headword}`}
+                            aria-pressed={isSelected}
+                            aria-label={`Show details for ${entry.headword}`}
+                            onClick={() => setSelectedEntryId(entry.id)}
+                            className="hidden shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--fg)] hover:border-[var(--accent)] @lg:inline-flex @lg:items-center"
+                          >
+                            Details
+                          </button>
+
+                          <button
+                            type="button"
+                            data-testid={`dict-add-btn-${entry.headword}`}
+                            onClick={() => setAddingEntryId(isAdding ? null : entry.id)}
+                            className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--fg)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                          >
+                            {isAdding ? 'Cancel' : '+ Add to Deck'}
+                          </button>
+                        </div>
+
+                        {/* Quick 1-tap Add to Deck confirmation bar */}
+                        {isAdding && (
+                          <div
+                            data-testid={`dict-add-bar-${entry.headword}`}
+                            className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2 text-xs"
+                          >
+                            {decks.length > 0 ? (
+                              <>
+                                <label className="flex items-center gap-1.5 text-[var(--muted)]">
+                                  <span>Deck:</span>
+                                  <select
+                                    aria-label="Destination deck"
+                                    data-testid="dict-add-deck-select"
+                                    value={selectedDeckId}
+                                    onChange={(e) =>
+                                      setLastDeckByLang((prev) => ({
+                                        ...prev,
+                                        [lang]: e.target.value,
+                                      }))
+                                    }
+                                    className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
+                                  >
+                                    {decks.map((d) => (
+                                      <option key={d.id} value={d.id}>
+                                        {d.name} ({d.language})
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <button
+                                  type="button"
+                                  data-testid="dict-add-confirm-btn"
+                                  onClick={() => {
+                                    if (selectedDeckId) handleAddEntryToDeck(entry, selectedDeckId);
+                                  }}
+                                  className="rounded-lg bg-[var(--accent)] px-3 py-1 font-semibold text-white hover:opacity-90"
+                                >
+                                  Add Card
+                                </button>
+                              </>
+                            ) : null}
+                            <button
+                              type="button"
+                              data-testid="dict-add-new-deck-btn"
+                              onClick={() => handleQuickCreateAndAdd(entry)}
+                              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+                            >
+                              + New {PACK_SHORT_LABEL[entry.packId]} Deck
+                            </button>
+                          </div>
+                        )}
+                      </article>
+                    </Fragment>
+                  );
+                })
+              )}
+              {!typed && browseSel && browseNext && (
+                <button
+                  type="button"
+                  data-testid="dict-browse-more"
+                  disabled={browseLoading}
+                  onClick={() => void loadBrowsePage(browseSel, browseNext)}
+                  className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs font-semibold text-[var(--fg)] hover:border-[var(--accent)] disabled:opacity-60"
+                >
+                  {browseLoading ? 'Loading…' : 'Show more'}
+                </button>
+              )}
+            </div>
+            {!(typed && searching) && selectedEntry && (
+              <DictionaryEntryDetail
+                entry={selectedEntry}
+                pinyinToneColors={state.preferences.pinyin_tone_colors}
+                onLookup={lookUp}
+              />
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1032,9 +1288,11 @@ function DetailSense({ sense, index }: { sense: DictionarySense; index: number }
 function DictionaryEntryDetail({
   entry,
   pinyinToneColors,
+  onLookup,
 }: {
   entry: DictionaryEntry;
   pinyinToneColors: boolean;
+  onLookup: (text: string) => void;
 }) {
   const lang = PACK_LANG[entry.packId];
   return (
@@ -1053,7 +1311,13 @@ function DictionaryEntryDetail({
         </h3>
         {entry.altForms && entry.altForms.length > 0 && (
           <span lang={lang} className="text-lg text-[var(--muted)]">
-            ({entry.altForms.join(', ')})
+            (
+            {entry.packId === 'dict-krdict' ? (
+              <HanjaLinks text={entry.altForms.join(', ')} onLookup={onLookup} testIds={false} />
+            ) : (
+              entry.altForms.join(', ')
+            )}
+            )
           </span>
         )}
         <DetailReading entry={entry} lang={lang} pinyinToneColors={pinyinToneColors} />

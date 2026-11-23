@@ -96,6 +96,24 @@ Only Chromium Playwright with faked endpoints has covered these.
 - [ ] **Linked OneDrive sources** that refresh like Google Sheets sources (owner: yes, later). Today the picker is a one-shot import.
 - Not planned: a web fallback without the token-helper, and Microsoft's hosted File Picker v8.
 
-## Phase 10 remainder (to audit)
+## Phase 10 remainder (audited 2026-11-22)
 
-- [ ] Confirm what's left after the first slice in PR #5. Candidates: merging in the other dictionary sources (우리말샘, Wiktionary), Hanja ↔ word links, Add to Deck mapping, the KRDict audio licence check, and the same search treatment for `ja`/`zh-Hans`.
+### Done
+
+- KRDict pack: per-sense English, POS, level, pronunciation, conjugations, Hanja (원어), homonyms, up to 3 examples per sense, and topics (see below).
+- Korean search: inflected forms (irregulars included), particles and the copula, romanization, 초성, jamo prefixes, English → Korean, and romanization capped below real translations.
+- Per-sense source badge, About attribution, and draw-to-lookup on Hanja.
+- Add to Deck: word, Hanja, meaning, first example; POS, level and pronunciation go into Notes (the Korean vocabulary note type has no fields for them).
+- **Browse without typing** (`feat/dictionary-browse`): the dictionary opens with recent lookups, levels, topics, grades, a Hanja grid and an all-words list. Lists are in 가나다 order with a 초성 jump bar and POS filters. The 한국어 → English / English → 한국어 toggle stops reading English as romanization. Grades also cover KANJIDIC2, JMdict and CC-CEDICT.
+- **Hanja ↔ word links:** a word's Hanja are tappable; a Hanja lookup lists "Words written with …".
+
+### Still open
+
+- [ ] **Check the KRDict topic attribute names on a real export.** The parser accepts `subjectCategory` / `semanticCategory` and the Korean labels (`주제 및 상황 범주`, `의미 범주`). If the first `build-packs.mjs --full` run gives no topics, find the real names in the XML and add them to `KRDICT_SUBJECT_CATEGORY_ATTS` / `KRDICT_SEMANTIC_CATEGORY_ATTS` in `scripts/packs/upstream-parsers.mjs`.
+- [ ] **Measure the full KRDict pack.** It has never been built here. Packs over 25 MiB fail the build; first-syllable sharding isn't written.
+- [ ] **KRDict audio licence:** not checked. Audio is skipped, and the dictionary has no speaker button, so the TTS fallback isn't wired either.
+- [ ] **Related, synonym and antonym links:** not parsed yet.
+- [ ] **Korean definitions (`definitionNative`):** parsed but not shown.
+- [ ] **Japanese deinflection** (`食べた` → `食べる`) and Korean-style ranking for `ja` / `zh-Hans`. English lookup there uses the generic meaning tokens.
+- [ ] **Owner decision, licences:** 우리말샘, 표준국어대사전 (CC BY-SA 2.0 KR) and Kaikki Wiktionary (CC BY-SA 4.0) are share-alike, and kengdic's licence is unclear. None goes in without the owner's OK. With one source, there is nothing for the merge pipeline (unify, rank, dedupe) to do yet.
+- [ ] **Owner decision:** whether to license a commercial Korean–English dataset as a premium pack.

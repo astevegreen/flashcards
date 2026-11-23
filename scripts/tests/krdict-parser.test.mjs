@@ -205,3 +205,45 @@ describe('dict-krdict starter fixture', () => {
     expect(entry?.entry_count).toBe(starter.length);
   });
 });
+
+describe('KRDict topic categories', () => {
+  const xml = (feats) => `<LexicalResource><Lexicon>
+<LexicalEntry att="id" val="1">
+  <feat att="partOfSpeech" val="동사"/>
+  <Lemma><feat att="writtenForm" val="먹다"/></Lemma>
+  <Sense att="id" val="1">
+    ${feats}
+    <Equivalent><feat att="language" val="영어"/><feat att="lemma" val="eat"/></Equivalent>
+  </Sense>
+</LexicalEntry></Lexicon></LexicalResource>`;
+
+  it('keeps 주제 및 상황 범주 as written and the top level of 의미 범주', () => {
+    const [entry] = parseKrdictXml(
+      xml(
+        '<feat att="subjectCategory" val="음식 주문하기"/><feat att="semanticCategory" val="식생활 &gt; 음식 행위"/>',
+      ),
+    );
+    expect(entry.topics).toEqual(['음식 주문하기', '식생활']);
+  });
+
+  it('accepts the Korean attribute labels and skips 없음', () => {
+    const [entry] = parseKrdictXml(
+      xml('<feat att="의미 범주" val="자연 &gt; 동물"/><feat att="주제 및 상황 범주" val="없음"/>'),
+    );
+    expect(entry.topics).toEqual(['자연']);
+  });
+
+  it('leaves topics out when the export has none', () => {
+    const [entry] = parseKrdictXml(xml(''));
+    expect(entry.topics).toBeUndefined();
+  });
+
+  it('gives the starter pack topics and advanced words for browsing', () => {
+    const entries = parseKrdictXml(renderKrdictStarterXml());
+    expect(entries.find((e) => e.headword === '학교')?.topics).toEqual(['학교생활', '교육']);
+    expect(entries.filter((e) => e.level === 'advanced').map((e) => e.headword)).toEqual([
+      '정책',
+      '꾸준하다',
+    ]);
+  });
+});

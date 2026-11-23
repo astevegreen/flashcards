@@ -7,6 +7,10 @@ import type {
   SyncCursorState,
 } from '@flash/core';
 import type {
+  DictionaryBrowsePage,
+  DictionaryBrowseQuery,
+  DictionaryBrowseSummary,
+  DictionaryDirection,
   DictionaryEntry,
   DictionaryPackId,
   PackCatalog,
@@ -30,6 +34,10 @@ export type * from './anki.ts';
 export type * from './fsrs-optimizer.ts';
 
 export type {
+  DictionaryBrowsePage,
+  DictionaryBrowseQuery,
+  DictionaryBrowseSummary,
+  DictionaryDirection,
   DictionaryEntry,
   DictionaryPackId,
   EntitlementState,
@@ -650,6 +658,8 @@ export interface PackManager {
 export interface DictionarySearchOptions {
   packIds?: readonly DictionaryPackId[];
   limit?: number;
+  /** `from-english` never reads Latin letters as romanization. Default `to-english`. */
+  direction?: DictionaryDirection;
 }
 
 export interface DictionaryService {
@@ -659,6 +669,10 @@ export interface DictionaryService {
     opts?: { packIds?: readonly DictionaryPackId[] },
   ): Promise<DictionaryEntry[]>;
   search(query: string, opts?: DictionarySearchOptions): Promise<DictionaryEntry[]>;
+  /** One page of a pack's entries in one browse group, in headword (가나다) order. */
+  browse(query: DictionaryBrowseQuery): Promise<DictionaryBrowsePage>;
+  /** The groups a pack can be browsed by (levels, topics, grades, parts of speech) with counts. */
+  getBrowseSummary(packId: DictionaryPackId): Promise<DictionaryBrowseSummary>;
 }
 
 /** OS notification permission as the native shells report it. */

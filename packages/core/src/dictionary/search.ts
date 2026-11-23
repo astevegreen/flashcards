@@ -6,7 +6,12 @@ import {
   toJamoKey,
   type KoreanQueryAnalysis,
 } from './korean.ts';
-import type { DictionaryEntry, DictionaryLevel, DictionaryPackId } from './types.ts';
+import type {
+  DictionaryDirection,
+  DictionaryEntry,
+  DictionaryLevel,
+  DictionaryPackId,
+} from './types.ts';
 
 /** Maps Katakana U+30A1..U+30F6 to Hiragana U+3041..U+3096 for kana-insensitive Japanese search. */
 export function foldKatakanaToHiragana(input: string): string {
@@ -213,9 +218,12 @@ function planHeadwordCandidates(
  * headword candidates from Korean deinflection / romanization. Fetching those headwords is
  * the validation step — candidates the pack does not contain simply return nothing.
  */
-export function planDictionarySearch(rawQuery: string): DictionarySearchPlan {
+export function planDictionarySearch(
+  rawQuery: string,
+  direction: DictionaryDirection = 'to-english',
+): DictionarySearchPlan {
   const q = normalizeDictionaryQuery(rawQuery);
-  const ko = analyzeKoreanQuery(q.raw);
+  const ko = analyzeKoreanQuery(q.raw, direction);
   return {
     query: q,
     prefixTokens: planPrefixTokens(q, ko),
@@ -315,6 +323,8 @@ function koreanMatchScore(
 export interface RankDictionaryOptions {
   packIds?: readonly DictionaryPackId[];
   limit?: number;
+  /** `from-english` never reads Latin letters as romanization. Default `to-english`. */
+  direction?: DictionaryDirection;
 }
 
 type NormalizedQuery = ReturnType<typeof normalizeDictionaryQuery>;
@@ -427,7 +437,7 @@ export function rankDictionaryResults(
   const q = normalizeDictionaryQuery(rawQuery);
   const limit = Math.max(1, Math.min(200, opts.limit ?? 50));
   const allowedPacks = opts.packIds && opts.packIds.length > 0 ? new Set(opts.packIds) : null;
-  const ko = analyzeKoreanQuery(q.raw);
+  const ko = analyzeKoreanQuery(q.raw, opts.direction);
   const romanizationCap = romanizationCapFor(candidates, ko, q.lower, allowedPacks);
 
   const scored: Array<{ entry: DictionaryEntry; score: number }> = [];

@@ -21,6 +21,7 @@ import type {
   StrokePackId,
   StrokePackManifest,
 } from './types.ts';
+import { buildEntryBrowseKeys } from './browse.ts';
 import { buildEntrySearchTokens } from './search.ts';
 
 export const PACK_SECURITY_LIMITS = {
@@ -243,11 +244,11 @@ function decodeSenses(val: unknown): DictionarySense[] {
 
 /**
  * Decodes the optional Phase 10 word-pack fields (`pos`, `level`, `origin`, `homonym`, `forms`,
- * `senses`). Absent fields stay absent, so Phase 6 packs decode byte-for-byte as before.
+ * `senses`, `topics`). Absent fields stay absent, so Phase 6 packs decode byte-for-byte as before.
  */
 function decodeWordPackFields(
   e: Record<string, unknown>,
-): Pick<DictionaryEntry, 'pos' | 'level' | 'origin' | 'homonym' | 'forms' | 'senses'> {
+): Pick<DictionaryEntry, 'pos' | 'level' | 'origin' | 'homonym' | 'forms' | 'senses' | 'topics'> {
   const pos = cleanStringList(e['pos'], 8);
   const level =
     typeof e['level'] === 'string' && LEVELS.has(e['level'])
@@ -263,6 +264,7 @@ function decodeWordPackFields(
       : undefined;
   const forms = cleanStringList(e['forms']);
   const senses = decodeSenses(e['senses']);
+  const topics = [...new Set(cleanStringList(e['topics'], 8).map((t) => t.slice(0, 64)))];
   return {
     ...(pos.length > 0 ? { pos } : {}),
     ...(level ? { level } : {}),
@@ -270,6 +272,7 @@ function decodeWordPackFields(
     ...(homonym !== undefined ? { homonym } : {}),
     ...(forms.length > 0 ? { forms } : {}),
     ...(senses.length > 0 ? { senses } : {}),
+    ...(topics.length > 0 ? { topics } : {}),
   };
 }
 
@@ -455,10 +458,14 @@ export function materializeDictionaryEntries(
   packId: DictionaryPackId,
   rawEntries: readonly Omit<DictionaryEntry, 'id' | 'packId' | 'searchTokens'>[],
 ): DictionaryEntry[] {
-  return rawEntries.map((entry, idx) => ({
-    ...entry,
-    id: `${packId}:${idx}:${entry.headword}`,
-    packId,
-    searchTokens: buildEntrySearchTokens(entry),
-  }));
+  return rawEntries.map((entry, idx) => {
+    const id = `${packId}:${idx}:${entry.headword}`;
+    return {
+      ...entry,
+      id,
+      packId,
+      searchTokens: buildEntrySearchTokens(entry),
+      browseKeys: buildEntryBrowseKeys({ ...entry, id, packId }),
+    };
+  });
 }
