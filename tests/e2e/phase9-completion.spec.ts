@@ -115,11 +115,11 @@ test.describe('Phase 9 completion', () => {
     await page.goto('/?device=p9done-export');
     await expect(page.getByTestId('study-card')).toBeVisible();
     await page.getByRole('button', { name: 'Library' }).first().click();
-    const panel = page.getByRole('region', { name: 'Export a category' });
+    const panel = page.getByRole('region', { name: 'Export a tag' });
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId('category-export-csv')).toBeDisabled();
 
-    await panel.getByLabel('Category to export').selectOption('hanja');
+    await panel.getByLabel('Tag to export').selectOption('hanja');
     // Only the Korean deck holds #hanja, so CSV can export it without choosing a deck.
     await expect(panel.getByTestId('category-export-csv')).toBeEnabled();
     const [csv] = await Promise.all([

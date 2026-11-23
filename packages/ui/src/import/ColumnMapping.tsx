@@ -178,7 +178,7 @@ function TargetSelect({ column, noteType, disabled, onChange }: Readonly<TargetS
         ))}
       </optgroup>
       <optgroup label="Other">
-        <option value="tags">Category (tag)</option>
+        <option value="tags">Tag</option>
         {hasNotes && <option value="notes">Add to Notes</option>}
         <option value="card_id">Card ID</option>
         <option value="ignore">Don’t import</option>
@@ -212,13 +212,15 @@ export function ColumnMappingView({
       <div>
         <p className="font-semibold">Where each column goes</p>
         <p className="text-[11px] text-[var(--muted)]">
-          Guessed for you. Change any that are wrong: Category columns become tags, Add to Notes
-          keeps a column as “name: value” lines.
+          Guessed for you. Change any that are wrong: Add to Notes keeps a column as “name: value”
+          lines.
         </p>
-        <p data-testid="bring-map-tags-hint" className="text-[11px] text-[var(--muted)]">
-          Tags are categories: use “::” to nest them, like Grammar::Particles. You can filter by
-          them in Browse.
-        </p>
+        {mapping.targets.some((t) => t.kind === 'tags') && (
+          <p data-testid="bring-map-tags-hint" className="text-[11px] text-[var(--muted)]">
+            Columns named Category 1, Category 2 and so on become tags. Use “::” to nest them, like
+            Grammar::Particles. You can filter by tag in Browse.
+          </p>
+        )}
       </div>
       {!headerRowFixed && (
         <label className="flex min-w-0 items-center gap-1.5">
@@ -286,7 +288,7 @@ export function ColumnMappingView({
                   ))}
                 {row.tags.length > 0 && (
                   <p className="break-words">
-                    <span className="font-semibold">Categories:</span> {row.tags.join(', ')}
+                    <span className="font-semibold">Tags:</span> {row.tags.join(', ')}
                   </p>
                 )}
               </li>
