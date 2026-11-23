@@ -40,5 +40,6 @@ function render(nodes: readonly RichTextNode[], plain: (run: string) => string):
  * Spans inside cloze answers are converted too (`{{c1::{b:word}}}` -> `{{c1::<b>word</b>}}`).
  * Text without markup takes the plain path unchanged.
  */
+// throughCloze for every note type: a cloze can sit in any text field, and plain fields have none.
 export const ankiRichTextToHtml: AnkiRichTextConverter = (text, plain) =>
   render(parseRichText(text, { throughCloze: true }), plain);
