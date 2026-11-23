@@ -248,6 +248,12 @@ export async function runSyncCycle(
   const choiceEpoch = ctx.collectionChoiceEpochRef.current;
   try {
     await ctx.enqueuePersist(async () => {});
+    // A Check database rebuild replaced the collection on disk since this tab started: the tab is
+    // stale until it reloads (its reload prompt shows), so it stops syncing.
+    if (!(await snapshotWriteAllowed(ctx.platform.storage, ctx.startedAtMs))) {
+      ctx.setSyncState((prev) => ({ ...prev, status: 'idle' }));
+      return;
+    }
 
     const transport = await resolveActiveTransport(ctx, provider);
     if (!transport) {
@@ -410,18 +416,19 @@ export async function runSyncCycle(
         if (result.pulledEvents.length > 0) {
           await ctx.platform.storage.appendEvents(result.pulledEvents);
         }
+        // The hydrated state only reaches storage through this snapshot. When a rebuild keeps the
+        // snapshot, the cursor must not move past it either: the next sync after reload pulls again.
+        if (!(await snapshotWriteAllowed(ctx.platform.storage, ctx.startedAtMs))) return;
         await ctx.platform.storage.saveMaterializedCards(allCardRows);
         await ctx.platform.storage.setDeviceMeta(nextMeta);
         await ctx.platform.storage.setSyncCursor(result.cursor);
-        if (await snapshotWriteAllowed(ctx.platform.storage, ctx.startedAtMs)) {
-          const maxLocalSeq = await ctx.platform.storage.getMaxLocalSeq();
-          await ctx.platform.storage.setLocalSnapshot({
-            snapshot: localSnapPayload,
-            localSeq: maxLocalSeq,
-            savedAt: Date.now(),
-          });
-          ctx.lastLocalSnapshotCountRef.current = getTotalAppliedEventCount(hydrated);
-        }
+        const maxLocalSeq = await ctx.platform.storage.getMaxLocalSeq();
+        await ctx.platform.storage.setLocalSnapshot({
+          snapshot: localSnapPayload,
+          localSeq: maxLocalSeq,
+          savedAt: Date.now(),
+        });
+        ctx.lastLocalSnapshotCountRef.current = getTotalAppliedEventCount(hydrated);
       });
     } else if (result.pulledEvents.length > 0) {
       const diff = await applyRemoteEventsOffMainThread(ctx, result.pulledEvents, currentCursor);

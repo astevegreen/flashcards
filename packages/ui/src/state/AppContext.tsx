@@ -119,7 +119,7 @@ export interface AppContextValue {
   undoLastReview: () => boolean;
   /** Forgets the study undo history (after a restore changed the collection under it). */
   clearUndoStack: () => void;
-  /** Resolves once every queued write has reached storage (call before a reload). */
+  /** Resolves once queued writes and media re-adds have reached storage (call before a reload). */
   whenSaved: () => Promise<void>;
   updateNote: (note: Note, fields: Record<string, string>, tags: string[]) => void;
   setNoteArchived: (noteId: string, archived: boolean) => void;
@@ -304,6 +304,8 @@ export function AppProvider({
   }, []);
 
   const whenSaved = useCallback(async () => {
+    // Re-adds still being planned emit their events first.
+    await mediaReAddsRef.current?.flush();
     while (persistPendingRef.current > 0) {
       // A write queued while waiting extends the chain: wait for that one too.
       await persistChainRef.current; // NOSONAR (S9382)
