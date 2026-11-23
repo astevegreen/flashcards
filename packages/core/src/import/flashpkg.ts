@@ -34,6 +34,7 @@ import {
   type ArchiveLimits,
 } from './safe-unzip.ts';
 import { safeMediaMimeForExt } from './media-types.ts';
+import { createPackageGroupImporter, packageGroupsForDecks } from './flashpkg-groups.ts';
 import { requiredFieldProblem } from '../model/optional-cards.ts';
 import {
   normalizeMarkdownPage,
@@ -251,6 +252,7 @@ export function exportFlashpkgFiles(
   );
   targetDecks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
+  const groups = packageGroupsForDecks(state, targetDecks);
   const usedNoteTypeIds = new Set<string>();
   const languages = new Set<string>();
   const deckEntries: PackageDeckEntry[] = [];
@@ -272,6 +274,8 @@ export function exportFlashpkgFiles(
       ...(getDeckDescription(state, deck.id)
         ? { description: getDeckDescription(state, deck.id) }
         : {}),
+      ...(groups.presetByDeck.has(deck.id) ? { preset_id: groups.presetByDeck.get(deck.id) } : {}),
+      ...(groups.folderByDeck.has(deck.id) ? { folder_id: groups.folderByDeck.get(deck.id) } : {}),
     });
 
     const deckNotes = [...state.notes.values()]
@@ -343,6 +347,8 @@ export function exportFlashpkgFiles(
     languages: [...languages].sort(),
     decks: deckEntries,
     ...(noteSubset === undefined ? {} : { subset: true }),
+    ...(groups.presets ? { presets: groups.presets } : {}),
+    ...(groups.folders ? { folders: groups.folders } : {}),
   };
 
   files['manifest.json'] = encodeUtf8(JSON.stringify(manifest, null, 2));
@@ -622,6 +628,7 @@ export function importFlashpkg(
   let notesImported = 0;
   let upgradedDecks = 0;
   const deckIdMap = new Map<string, string>();
+  const groupImporter = createPackageGroupImporter(state, manifest, eventFactory, nowMs);
   const pageIdMap = new Map<string, string>();
 
   // Build list of deck entries from manifest (or discover decks/*.jsonl if manifest.decks is empty)
@@ -706,6 +713,10 @@ export function importFlashpkg(
         ),
       );
     }
+    // Presets and folders: the user's own always win (see `./flashpkg-groups.ts`).
+    events.push(
+      ...groupImporter.eventsForDeck(targetDeckId, deckEntry, existingDeck !== undefined),
+    );
     decksImported += 1;
 
     // Pre-index existing notes for this deck by source_key for O(1) upgrade matching

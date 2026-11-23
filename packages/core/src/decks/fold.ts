@@ -242,3 +242,44 @@ export function getDeckPreset(state: CollectionState, deckId: string): DeckPrese
   const id = org.presetByDeck.get(deckId);
   return id === undefined ? undefined : org.presets.get(id);
 }
+
+/** Ids the log ever deleted, and decks that ever had a preset or folder assignment. */
+export interface DeckOrganizationHistory {
+  deletedPresetIds: Set<string>;
+  deletedFolderIds: Set<string>;
+  /** Decks with any `DeckGroupingChanged` carrying `preset_id` (including `null`). */
+  decksWithPresetHistory: Set<string>;
+  /** Decks with any `DeckGroupingChanged` carrying `folder_id` (including `null`). */
+  decksWithFolderHistory: Set<string>;
+}
+
+/**
+ * What the user ever did with presets and folders, beyond the live fold: a deleted preset or
+ * folder stays deleted (deletes are final), and a deck whose preset or folder was ever set keeps
+ * the user's choice. Imports and restores use it so they never overrule the user.
+ */
+export function getDeckOrganizationHistory(state: CollectionState): DeckOrganizationHistory {
+  const out: DeckOrganizationHistory = {
+    deletedPresetIds: new Set(),
+    deletedFolderIds: new Set(),
+    decksWithPresetHistory: new Set(),
+    decksWithFolderHistory: new Set(),
+  };
+  for (const ev of state.unknownEvents) {
+    const p = ev.payload as Record<string, unknown> | null;
+    if (typeof p !== 'object' || p === null) continue;
+    if (ev.type === 'DeckPresetDeleted') {
+      const id = str(p['preset_id']);
+      if (id !== undefined) out.deletedPresetIds.add(id);
+    } else if (ev.type === 'DeckFolderDeleted') {
+      const id = str(p['folder_id']);
+      if (id !== undefined) out.deletedFolderIds.add(id);
+    } else if (ev.type === 'DeckGroupingChanged') {
+      const deckId = str(p['deck_id']);
+      if (deckId === undefined) continue;
+      if (p['preset_id'] !== undefined) out.decksWithPresetHistory.add(deckId);
+      if (p['folder_id'] !== undefined) out.decksWithFolderHistory.add(deckId);
+    }
+  }
+  return out;
+}

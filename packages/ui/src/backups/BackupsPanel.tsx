@@ -91,8 +91,15 @@ export function describeRestoreSummary(s: RestoreSummary): string[] {
     s.suspensionsChanged +
     s.pagesChanged +
     s.coursesChanged +
+    s.descriptionsChanged +
+    s.presetsChanged +
+    s.foldersChanged +
+    s.groupingsChanged +
     (s.preferencesChanged ? 1 : 0);
-  add(other, `Change ${plural(other, 'other setting')} back (layouts, pages, courses, options)`);
+  add(
+    other,
+    `Change ${plural(other, 'other setting')} back (layouts, pages, courses, presets, folders, options)`,
+  );
   return lines;
 }
 

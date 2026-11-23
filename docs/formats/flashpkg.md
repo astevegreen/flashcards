@@ -48,6 +48,16 @@ media/<sha256>.<ext>     optional  images and audio, named by content hash
   one exported category. Its decks keep their real ids so re-importing updates the same notes,
   but importers never archive a deck's other notes for it (not even for watched folders or
   package URLs) and never relink the existing deck's source or rename it.
+- `decks[].description` (optional) is the deck's plain-text description. Import fills it only for
+  a deck that never had a description event.
+- `presets` and `folders` (optional) hold the shared option presets
+  (`{ id, name, settings: { new_cards_per_day, max_reviews_per_day, target_retention }, w? }`)
+  and deck folders (`{ id, name }`) the exported decks use; `decks[].preset_id` and
+  `decks[].folder_id` point at them. Import never overwrites what the user has: it uses a live
+  preset or folder with the same id, else one with the same name, else none when that id was
+  deleted in this collection, else creates one with the package's id and values. New decks join
+  it; existing decks join only when they never had a preset (or folder) assignment. Older
+  packages without these fields stay valid, and older builds ignore them.
 
 ### `decks/<name>.jsonl` ([schema](./schemas/note_record.schema.json))
 

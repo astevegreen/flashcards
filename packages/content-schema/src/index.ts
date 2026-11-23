@@ -69,8 +69,38 @@ export const PackageDeckEntrySchema = z.object({
   language: z.string().min(1).optional(),
   /** Plain-text deck description for the overview before study (never HTML). */
   description: z.string().max(10000).optional(),
+  /** Id of the shared option preset (in `manifest.presets`) the deck uses. */
+  preset_id: z.string().min(1).max(200).optional(),
+  /** Id of the deck folder (in `manifest.folders`) the deck sits in. */
+  folder_id: z.string().min(1).max(200).optional(),
 });
 export type PackageDeckEntry = z.infer<typeof PackageDeckEntrySchema>;
+
+/**
+ * A shared deck option preset. Values outside what deck options accept are dropped on import
+ * (a missing setting falls back to the app default), so the bounds here only cap the size.
+ */
+export const PackagePresetSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(200),
+  settings: z
+    .object({
+      new_cards_per_day: z.number().finite().optional(),
+      max_reviews_per_day: z.number().finite().optional(),
+      target_retention: z.number().finite().optional(),
+    })
+    .default({}),
+  /** Shared FSRS weights, when the preset was optimized. */
+  w: z.array(z.number().finite()).max(64).optional(),
+});
+export type PackagePreset = z.infer<typeof PackagePresetSchema>;
+
+/** A deck folder (one level). */
+export const PackageFolderSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(200),
+});
+export type PackageFolder = z.infer<typeof PackageFolderSchema>;
 
 export const PackageManifestSchema = z.object({
   package_id: z.string().min(1),
@@ -86,6 +116,10 @@ export const PackageManifestSchema = z.object({
    * archive the deck's other notes or relink the existing deck to this package.
    */
   subset: z.boolean().optional(),
+  /** Presets the exported decks use (optional; older packages have none). */
+  presets: z.array(PackagePresetSchema).max(1000).optional(),
+  /** Folders the exported decks sit in (optional; older packages have none). */
+  folders: z.array(PackageFolderSchema).max(1000).optional(),
 });
 export type PackageManifest = z.infer<typeof PackageManifestSchema>;
 
