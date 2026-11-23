@@ -126,14 +126,23 @@ checklist). The store is the workspace plugin `packages/capacitor-secure-storage
 `apps/mobile`, so `cap sync` wires it into Gradle and `CapApp-SPM` like any npm plugin:
 
 - **iOS:** one generic-password Keychain item per key, service `<bundle id>.secure-storage`,
-  `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronized to iCloud Keychain.
+  `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronized to iCloud Keychain. Such
+  items are not carried to another device when a backup is restored there, while the app database
+  is. The Keychain cannot tell a vanished item from one never stored, so every stored secret also
+  leaves a plain SQLite KV marker `secure_stored_v1:<key>` (the key name, never the value;
+  `trackStoredSecrets` in `src/secure/secure-loss-tracking.ts`). A secret that is missing while its
+  marker is there was lost: the marker is cleared and the app shows the same one-time "sign in
+  again" notice as Android (`secure_keys_lost_v1`). Deleting a secret clears its marker first, and
+  the fresh-install wipe below runs on an empty database with no markers, so neither is reported.
+  Secrets stored before the markers existed get one on their next read.
 - **Android:** AES-256-GCM with a key generated in `AndroidKeyStore`
   (`app.flashcards.securestorage.aes.v1`). Only ciphertext goes to the app-private SharedPreferences
   file `app.flashcards.securestorage` (excluded from backups). A value that cannot be decrypted is
   deleted, and the user signs in again. If the Keystore key itself becomes unusable (some devices
   invalidate keys after an OS update: `UnrecoverableKeyException` or `InvalidKeyException`), the
   plugin deletes the key and every stored value, `get` returns `null`, and the next `set` creates a
-  new key, so signing in again always works.
+  new key, so signing in again always works. Either case sets the plain SQLite flag
+  `secure_keys_lost_v1`, and the app explains once why the user has to sign in again.
 - **Web:** the plugin rejects every call. There is no insecure fallback.
 
 What is kept there (`packages/platform-capacitor/src/secure/`):
@@ -274,20 +283,34 @@ The macOS app syncs through the **same iCloud container and file layout as the i
 (`iCloud.app.flashcards.localfirst`, sync files at `<container>/<sync path>`, outside
 `Documents/`), so an iPhone, an iPad and a Mac on the same Apple ID share one collection.
 
-- Native side: `src-tauri/src/icloud.rs`, four app commands (`icloud_available`,
-  `icloud_list_files`, `icloud_read_file`, `icloud_write_file`). On macOS it finds the container
-  with `NSFileManager` (`objc2-foundation`), starts downloads of files that are only in iCloud and
-  waits up to 60 s for them, like the iOS plugin. On Windows and Linux `icloud_available` is false.
+- Native side: `src-tauri/src/icloud.rs`, five app commands (`icloud_supported`,
+  `icloud_available`, `icloud_list_files`, `icloud_read_file`, `icloud_write_file`).
+  `icloud_supported` is true only when the running build is signed with the iCloud entitlement
+  (`com.apple.developer.ubiquity-container-identifiers`, read from the code signature with
+  `SecTaskCopyValueForEntitlement`; no iCloud call). On such a Mac the other commands find the
+  container with `NSFileManager` (`objc2-foundation`), start downloads of files that are only in
+  iCloud and wait up to 60 s for them, like the iOS plugin. On unsigned Mac builds, Windows and
+  Linux `icloud_supported` and `icloud_available` are false.
   File bytes cross the IPC bridge raw, not as JSON arrays.
 - TypeScript side: `createTauriICloudDocumentPlugin` (`packages/platform-tauri/src/sync/`) adapts
   the commands to the existing `ICloudDocumentPlugin` interface, and `ICloudDriveSyncTransport`
   from `@flash/platform-capacitor` does the rest, so path checks and error codes match iOS.
-- Default: on macOS (`icloud_supported`) iCloud Drive is always offered, and each connect checks
-  that it is available, like iOS, so a Mac that already syncs with iCloud keeps syncing even if
-  iCloud was slow or off at launch. At launch `bootTauriPlatform` also asks `icloud_available`
-  (at most 2 s, alongside the database open). That answer only picks the **Sync my devices**
-  default: iCloud Drive when it is true, otherwise Google Drive, with iCloud Drive listed as an
-  alternative. Windows and Linux builds never offer iCloud.
+- Default: on an entitled Mac build (`icloud_supported`) iCloud Drive is always offered, and each
+  connect checks that it is available, like iOS, so a Mac that already syncs with iCloud keeps
+  syncing even if iCloud was slow or off at launch. At launch `bootTauriPlatform` also asks
+  `icloud_available` (at most 2 s, alongside the database open). That answer only picks the
+  **Sync my devices** default: iCloud Drive when it is true, otherwise Google Drive, with iCloud
+  Drive listed as an alternative. Only when iCloud answered in time that it is off (not when the
+  probe timed out) does the Sync my devices chooser add a one-line hint to turn on iCloud Drive in
+  System Settings. Settings itself shows no standing hint.
+- Unsigned Mac builds (all of them today), Windows and Linux never offer iCloud: no **Use iCloud
+  Drive** button and no iCloud option in Sync my devices, so the "sign in to iCloud" error an
+  unentitled build would always hit cannot appear. Google Drive is the default there.
+
+**Signing waits on an Apple Developer account.** The owner has none yet, so every Mac build is
+unsigned, `Flashcards.entitlements` is not wired into `tauri.conf.json`, and iCloud stays hidden on
+the Mac. Nothing in the code has to change when the account exists: sign with the entitlements
+below and `icloud_supported` turns iCloud Drive on by itself.
 
 Differences from the iOS plugin, all untested on a Mac:
 
@@ -337,7 +360,9 @@ is needed for the unsigned CI build, and none of it has been tried):
 
 6. **Check on a Mac** signed in to iCloud with iCloud Drive on: Settings shows **Use iCloud Drive**,
    Sync my devices defaults to iCloud Drive, and a deck studied on the iPhone appears on the Mac
-   after a sync (and the other way round).
+   after a sync (and the other way round). With iCloud Drive turned off before launch, iCloud
+   Drive is still listed in the Sync my devices chooser, with the System Settings hint, and Google
+   Drive is the default.
 
 `.github/workflows/desktop.yml` compiles the macOS app on every pull request that touches
 `apps/desktop/` or `packages/platform-tauri/`: an unsigned `tauri build --debug --no-bundle` on

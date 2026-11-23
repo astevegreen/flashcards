@@ -7,6 +7,7 @@ import {
 import { Capacitor } from '@capacitor/core';
 import { CapacitorSqliteStorage, createCapacitorPlatform } from '../index.ts';
 import { createSecureKvRouting } from '../secure/secure-kv-storage.ts';
+import { withSecretLossDetection } from '../secure/secure-loss-tracking.ts';
 import {
   clearPluginTokenCopiesAtLaunch,
   googleSignInCleanup,
@@ -73,11 +74,15 @@ export async function bootCapacitorPlatform(
   const platformName = Capacitor.getPlatform();
   const mobilePlatform: MobilePlatform = platformName === 'ios' ? 'ios' : 'android';
   const database = new CapacitorSqliteStorage(await openCapacitorSqliteDriver());
-  // The sign-in secrets were dropped because the Keystore key was lost: leave a plain flag so the
-  // app can explain once why the user has to sign in again (no secret in it).
-  const secureStorage = createNativeSecureStorage(() =>
-    database.setKv(SECURE_KEYS_LOST_KV_KEY, { at: Date.now() }),
-  );
+  // The sign-in secrets were dropped (Android: the Keystore key was lost; iOS: the Keychain items
+  // vanished, e.g. after a restore onto another device): leave a plain flag so the app can explain
+  // once why the user has to sign in again (no secret in it).
+  const onSecretsLost = () => database.setKv(SECURE_KEYS_LOST_KV_KEY, { at: Date.now() });
+  const secureStorage = withSecretLossDetection(mobilePlatform, {
+    store: createNativeSecureStorage(onSecretsLost),
+    markers: database,
+    onSecretsLost,
+  });
   const secureKv = createSecureKvRouting({
     inner: database,
     secureStore: secureStorage,

@@ -9,7 +9,9 @@
 //! Failures carry the `SyncTransportError` codes the sync engine understands (`NOT_FOUND`,
 //! `ALREADY_EXISTS`, `AUTH_REQUIRED`, `PERMISSION_DENIED`, `NETWORK`, else `UNKNOWN`).
 //!
-//! On Windows and Linux there is no container, so `icloud_available` is false and every other
+//! `icloud_supported` is true only on a macOS build signed with the iCloud (ubiquity container)
+//! entitlement. Unsigned builds (no Apple Developer account yet) and Windows / Linux have no
+//! container: the app then never offers iCloud, `icloud_available` is false and every other
 //! command fails with `AUTH_REQUIRED`. The file logic itself is plain `std::fs` and is unit-tested
 //! on every platform against a temporary folder.
 
@@ -287,16 +289,21 @@ mod apple {
         NSURLUbiquitousItemDownloadingStatusCurrent, NSURLUbiquitousItemDownloadingStatusKey,
         NSURL,
     };
+    use std::ffi::c_void;
     use std::path::{Path, PathBuf};
-    use std::sync::Mutex;
+    use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, Instant};
 
     static CACHED_ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
+    static ENTITLED: OnceLock<bool> = OnceLock::new();
     const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 
     /// The container root, or `None` when the user is signed out of iCloud, iCloud Drive is off,
     /// or the build lacks the iCloud entitlement. Blocks, so never call it on the main thread.
     pub fn container_root() -> Option<PathBuf> {
+        if !has_ubiquity_entitlement() {
+            return None;
+        }
         objc2::rc::autoreleasepool(|_| {
             let fm = NSFileManager::defaultManager();
             let mut cached = CACHED_ROOT.lock().unwrap_or_else(|e| e.into_inner());
@@ -313,6 +320,51 @@ mod apple {
                 .to_file_path()?;
             *cached = Some(root.clone());
             Some(root)
+        })
+    }
+
+    type CFTypeRef = *const c_void;
+
+    #[link(name = "Security", kind = "framework")]
+    unsafe extern "C" {
+        fn SecTaskCreateFromSelf(allocator: CFTypeRef) -> CFTypeRef;
+        fn SecTaskCopyValueForEntitlement(
+            task: CFTypeRef,
+            entitlement: CFTypeRef,
+            error: *mut CFTypeRef,
+        ) -> CFTypeRef;
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFRelease(cf: CFTypeRef);
+    }
+
+    /// Entitlement `URLForUbiquityContainerIdentifier` needs (see `macos/Flashcards.entitlements`).
+    const UBIQUITY_ENTITLEMENT: &str = "com.apple.developer.ubiquity-container-identifiers";
+
+    /// Whether this process was signed with the iCloud Drive (ubiquity container) entitlement.
+    /// Unsigned and ad-hoc signed builds have none, so iCloud can never work there. Read from the
+    /// code signature once; no iCloud call, so it is cheap and never blocks.
+    pub fn has_ubiquity_entitlement() -> bool {
+        *ENTITLED.get_or_init(|| {
+            let name = NSString::from_str(UBIQUITY_ENTITLEMENT);
+            // SAFETY: plain Security / CoreFoundation calls. `NSString` is toll-free bridged to
+            // `CFString`; every object these functions return is owned here and released once.
+            unsafe {
+                let task = SecTaskCreateFromSelf(std::ptr::null());
+                if task.is_null() {
+                    return false;
+                }
+                let name_ref: CFTypeRef = objc2::rc::Retained::as_ptr(&name).cast();
+                let value = SecTaskCopyValueForEntitlement(task, name_ref, std::ptr::null_mut());
+                CFRelease(task);
+                if value.is_null() {
+                    return false;
+                }
+                CFRelease(value);
+                true
+            }
         })
     }
 
@@ -391,11 +443,16 @@ mod apple {
 }
 
 #[cfg(target_os = "macos")]
-use apple::{container_root, ensure_downloaded};
+use apple::{container_root, ensure_downloaded, has_ubiquity_entitlement};
 
 #[cfg(not(target_os = "macos"))]
 fn container_root() -> Option<PathBuf> {
     None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn has_ubiquity_entitlement() -> bool {
+    false
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -419,10 +476,11 @@ fn root() -> Result<PathBuf, IcloudError> {
     container_root().ok_or_else(IcloudError::unavailable)
 }
 
-/// True on macOS builds (where the container may exist), false elsewhere. Cheap: no iCloud call.
+/// True on a macOS build signed with the iCloud entitlement (where the container may exist),
+/// false on unsigned Mac builds and elsewhere. Cheap: reads the code signature, no iCloud call.
 #[tauri::command]
 pub fn icloud_supported() -> bool {
-    cfg!(target_os = "macos")
+    has_ubiquity_entitlement()
 }
 
 #[tauri::command]
@@ -617,5 +675,11 @@ mod tests {
         if cfg!(not(target_os = "macos")) {
             assert_eq!(root().unwrap_err().code, "AUTH_REQUIRED");
         }
+    }
+
+    #[test]
+    fn unsigned_builds_do_not_offer_icloud() {
+        // Test binaries are never signed with the iCloud entitlement, on any OS.
+        assert!(!icloud_supported());
     }
 }

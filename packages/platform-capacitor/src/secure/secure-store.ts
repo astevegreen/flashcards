@@ -82,8 +82,9 @@ export const SOCIAL_LOGIN_GOOGLE_ANDROID_COPY: LegacyPreferenceEntry = {
 };
 
 /**
- * Plain (non-secret) app database KV flag set when the Keystore key was lost and the stored secrets
- * were dropped. The app shows one explanation and then deletes it. Same value as
+ * Plain (non-secret) app database KV flag set when stored secrets were lost: on Android the Keystore
+ * key was lost and the secrets it sealed were dropped; on iOS Keychain items that a marker says were
+ * stored are gone (`trackStoredSecrets`). The app shows one explanation and then deletes it. Same value as
  * `SECURE_KEYS_LOST_KV_KEY` in `packages/ui/src/state/secureKeysNotice.ts` (a unit test checks the
  * two constants match).
  */
