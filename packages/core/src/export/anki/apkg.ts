@@ -1,4 +1,3 @@
-import { zipSync, type Zippable } from 'fflate';
 import {
   getEnabledLayoutsForDeck,
   isCardSuspended,
@@ -8,7 +7,8 @@ import { encodeUtf8 } from '../../ids.ts';
 import type { Deck, Layout, Note, NoteType, NoteTypeField } from '../../model/types.ts';
 import { sha256String } from '../../sources/hash.ts';
 import { sha1First32 } from './checksum.ts';
-import { ankiExportSlug } from './csv.ts';
+import { ankiExportSlug, type AnkiMediaReader } from './csv.ts';
+import { AnkiZipWriter } from './zip-writer.ts';
 import {
   AnkiMediaNamer,
   ankiFieldHtml,
@@ -23,7 +23,7 @@ import { cmpCodeUnits as compareCodeUnits } from './select.ts';
 
 /**
  * `.apkg` export (notes, media, tags; every card new). Core plans the SQLite rows; the platform
- * writes them into a real SQLite file (`AnkiPackageReader.writeCollection`), and {@link assembleApkg} zips
+ * writes them into a real SQLite file (`AnkiPackageReader.writeCollection`), and {@link writeApkg} zips
  * that file with the media.
  *
  * Format: the legacy package that every Anki client imports. `collection.anki2` is an Anki
@@ -80,12 +80,14 @@ export interface AnkiApkgPlan {
   noteCount: number;
   cardCount: number;
   unknownMediaCount: number;
+  /** Notes that came from Anki and keep their Anki GUID (see `ankiGuid`). */
+  fromAnkiNoteCount: number;
   /** What could not be carried over, for the user. */
   warnings: string[];
 }
 
 export interface AnkiApkgResult {
-  bytes: Uint8Array;
+  fileName: string;
   mediaCount: number;
   missingMediaCount: number;
 }
@@ -136,29 +138,60 @@ const TTS_LANG: ReadonlyMap<string, string> = new Map([
   ['en', 'en_US'],
 ]);
 
+/**
+ * The Anki id for a note type. One imported from Anki (`anki:nt:<model id>`) gets its Anki id
+ * back, so in the profile it came from Anki sees the same note type and can update its notes
+ * (while its fields and card types are unchanged). Others get a stable hashed id.
+ */
+function ankiModelId(noteType: NoteType): number {
+  const m = /^anki:nt:([1-9][0-9]{0,15})$/.exec(noteType.id);
+  const id = m ? Number(m[1]) : NaN;
+  return Number.isSafeInteger(id) ? id : stableId(`anki-export:nt:${noteType.id}`);
+}
+
+/** Template order: an imported layout (`anki:layout:<model id>:<ord>`) keeps its Anki ord. */
+function layoutOrder(a: Layout, b: Layout): number {
+  const ord = (l: Layout) => /^anki:layout:[0-9]+:([0-9]+)$/.exec(l.id)?.[1];
+  const oa = ord(a);
+  const ob = ord(b);
+  if (oa !== undefined && ob !== undefined && oa !== ob) return Number(oa) - Number(ob);
+  return compareCodeUnits(a.id, b.id);
+}
+
 /** A stable positive id below 2^53 for things Anki matches by id (note types, decks). */
 function stableId(key: string): number {
   return 1_000_000_000_000 + Number.parseInt(sha256String(key).slice(0, 11), 16);
 }
 
-const ENTITIES: Record<string, string> = {
-  '&lt;': '<',
-  '&gt;': '>',
-  '&amp;': '&',
-  '&quot;': '"',
-  '&#91;': '[',
-  '&#93;': ']',
-  '&nbsp;': ' ',
-};
+const NAMED_ENTITIES = new Map([
+  ['lt', '<'],
+  ['gt', '>'],
+  ['amp', '&'],
+  ['quot', '"'],
+  ['apos', "'"],
+  ['nbsp', ' '],
+]);
 
-/** Anki's sort-field / checksum text: tags removed, image names kept, entities decoded. */
-function stripForSort(html: string): string {
+function decodeEntity(entity: string, body: string): string {
+  if (body.startsWith('#')) {
+    const hex = body[1] === 'x' || body[1] === 'X';
+    const cp = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
+    return Number.isInteger(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : entity;
+  }
+  return NAMED_ENTITIES.get(body) ?? entity;
+}
+
+/**
+ * Anki's `strip_html_preserving_media_filenames` (rslib `text.rs`), for `sfld` and `csum`: an
+ * image becomes ` name `, every other tag (`<br>` too) is deleted, entities are decoded and a
+ * no-break space becomes a space. No trimming. Only applied to HTML this export wrote.
+ */
+export function ankiStripHtmlForSort(html: string): string {
   return html
     .replace(/<img[^>]*src="([^"]*)"[^>]*>/gi, ' $1 ')
-    .replace(/<br>/g, ' ')
-    .replace(/<[^>]*>/g, '')
-    .replace(/&(?:lt|gt|amp|quot|nbsp|#91|#93);/g, (e) => ENTITIES[e] ?? e)
-    .trim();
+    .replace(/<!--[\s\S]*?-->|<[^>]*>/g, '')
+    .replace(/&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);/g, decodeEntity)
+    .replaceAll(' ', ' ');
 }
 
 /** Anki's note checksum: the first 8 hex digits of SHA-1 of the stripped first field. */
@@ -323,7 +356,7 @@ function buildModel(
         usedNames.add(name.toLowerCase());
         return { ...t, name };
       });
-  const id = stableId(`anki-export:nt:${noteType.id}`);
+  const id = ankiModelId(noteType);
   const json: Record<string, unknown> = {
     id,
     name: noteType.name,
@@ -435,7 +468,7 @@ function exportedLayouts(
   if (byId.size === 0) {
     for (const l of state.layouts.values()) if (l.note_type_id === noteType.id) byId.set(l.id, l);
   }
-  return [...byId.values()].sort((a, b) => compareCodeUnits(a.id, b.id));
+  return [...byId.values()].sort(layoutOrder);
 }
 
 function rubyFieldKeys(noteType: NoteType, notes: readonly Note[]): Set<string> {
@@ -527,6 +560,7 @@ export function planAnkiApkgExport(
   const noteRows: AnkiSqlCell[][] = [];
   const cardRows: AnkiSqlCell[][] = [];
   let nextNoteId = nowMs;
+  let fromAnkiNoteCount = 0;
   let nextCardId = nowMs;
   let position = 0;
   for (const deck of decks) {
@@ -536,8 +570,9 @@ export function planAnkiApkgExport(
     for (const note of notesByDeck.get(deck.id) ?? []) {
       const fields = noteFieldsHtml(model.noteType, note, media, options.richText);
       const nid = nextNoteId++;
+      if (note.source_key.startsWith('anki:') && note.source_key.length > 5) fromAnkiNoteCount += 1;
       const tags = ankiTags(note.tags);
-      const sortText = stripForSort(fields[sortFieldIndex(model.noteType)] ?? '');
+      const sortText = ankiStripHtmlForSort(fields[sortFieldIndex(model.noteType)] ?? '');
       noteRows.push([
         nid,
         ankiGuid(note),
@@ -547,7 +582,7 @@ export function planAnkiApkgExport(
         tags.length > 0 ? ` ${tags.join(' ')} ` : '',
         fields.join(FIELD_SEPARATOR),
         sortText,
-        fieldChecksum(stripForSort(fields[0] ?? '')),
+        fieldChecksum(ankiStripHtmlForSort(fields[0] ?? '')),
         0,
         '',
       ]);
@@ -696,36 +731,43 @@ export function planAnkiApkgExport(
     noteCount: noteRows.length,
     cardCount: cardRows.length,
     unknownMediaCount: media.unknown.size,
+    fromAnkiNoteCount,
     warnings,
   };
 }
 
 /**
- * Zips a written `collection.anki2` with the media into an `.apkg`: media files are stored as
- * entries `0`, `1`, … and listed in the JSON `media` map.
+ * Streams the `.apkg` zip: the written `collection.anki2`, then each media file as it is read
+ * (stored as entries `0`, `1`, …), then the JSON `media` map. Media is read one file at a time
+ * and handed to `emit` straight away, so the caller never holds it all (or the finished
+ * archive) in memory.
  */
-export function assembleApkg(
+export async function writeApkg(
   collectionBytes: Uint8Array,
-  plan: Pick<AnkiApkgPlan, 'media' | 'unknownMediaCount'>,
-  mediaBytes: ReadonlyMap<string, Uint8Array>,
-): AnkiApkgResult {
-  const files: Zippable = { 'collection.anki2': collectionBytes };
+  plan: Pick<AnkiApkgPlan, 'media' | 'unknownMediaCount' | 'fileName'>,
+  readMedia: AnkiMediaReader,
+  emit: (chunk: Uint8Array) => void,
+  options: { modifiedMs?: number } = {},
+): Promise<AnkiApkgResult> {
+  const zip = new AnkiZipWriter(emit, options.modifiedMs);
+  zip.add('collection.anki2', collectionBytes, true);
   const map: Record<string, string> = {};
   let index = 0;
   let missing = 0;
   for (const file of plan.media) {
-    const bytes = mediaBytes.get(file.hash);
+    const bytes = await readMedia(file.hash);
     if (!bytes) {
       missing += 1;
       continue;
     }
     const entry = String(index++);
     map[entry] = file.name;
-    files[entry] = [bytes, { level: 0 }];
+    zip.add(entry, bytes);
   }
-  files['media'] = encodeUtf8(JSON.stringify(map));
+  zip.add('media', encodeUtf8(JSON.stringify(map)), true);
+  zip.finish();
   return {
-    bytes: zipSync(files, { level: 6 }),
+    fileName: plan.fileName,
     mediaCount: index,
     missingMediaCount: missing + plan.unknownMediaCount,
   };

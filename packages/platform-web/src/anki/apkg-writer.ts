@@ -85,6 +85,7 @@ export async function handleAnkiWriteRequest(
 export interface AnkiWriterWorkerLike {
   onmessage: ((ev: MessageEvent<AnkiWriteResponse>) => void) | null;
   onerror: ((ev: ErrorEvent) => void) | null;
+  onmessageerror: ((ev: MessageEvent) => void) | null;
   postMessage(message: AnkiWriteRequest): void;
   terminate(): void;
 }
@@ -95,32 +96,67 @@ function createDefaultWorker(): AnkiWriterWorkerLike {
   }) as unknown as AnkiWriterWorkerLike;
 }
 
-/** Writes each collection in its own Worker, terminated once the write settles. */
+/** A write that hasn't answered after this long is given up (the worker is terminated). */
+export const ANKI_WRITE_TIMEOUT_MS = 5 * 60_000;
+
+export interface WebAnkiCollectionWriterOptions {
+  createWorker?: () => AnkiWriterWorkerLike;
+  timeoutMs?: number;
+}
+
+/**
+ * Writes each collection in its own Worker. The promise always settles: with the bytes, with the
+ * worker's error, when the worker fails to load or its answer can't be read, or after
+ * `timeoutMs`. The worker is terminated in every case.
+ */
 export class WebAnkiCollectionWriter {
   private readonly createWorker: () => AnkiWriterWorkerLike;
+  private readonly timeoutMs: number;
 
-  constructor(createWorker: () => AnkiWriterWorkerLike = createDefaultWorker) {
-    this.createWorker = createWorker;
+  constructor(options: WebAnkiCollectionWriterOptions = {}) {
+    this.createWorker = options.createWorker ?? createDefaultWorker;
+    this.timeoutMs = options.timeoutMs ?? ANKI_WRITE_TIMEOUT_MS;
   }
 
   write(plan: AnkiCollectionPlan): Promise<Uint8Array> {
-    const worker = this.createWorker();
-    const finish = () => {
-      worker.onmessage = null;
-      worker.onerror = null;
-      worker.terminate();
-    };
     return new Promise<Uint8Array>((resolve, reject) => {
+      let worker: AnkiWriterWorkerLike;
+      try {
+        worker = this.createWorker();
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        worker.onmessage = null;
+        worker.onerror = null;
+        worker.onmessageerror = null;
+        worker.terminate();
+        fn();
+      };
+      const timer = setTimeout(() => {
+        settle(() => reject(new Error('Writing the Anki package took too long and was stopped.')));
+      }, this.timeoutMs);
       worker.onmessage = (ev) => {
-        finish();
-        if (ev.data.type === 'done') resolve(ev.data.bytes);
-        else reject(new Error(ev.data.message));
+        const msg = ev.data;
+        if (msg.type === 'done') settle(() => resolve(msg.bytes));
+        else settle(() => reject(new Error(msg.message)));
       };
       worker.onerror = (ev) => {
-        finish();
-        reject(new Error(ev.message || 'The Anki export worker failed to load'));
+        settle(() => reject(new Error(ev.message || 'The Anki export worker failed to load')));
       };
-      worker.postMessage({ type: 'write', plan });
+      worker.onmessageerror = () => {
+        settle(() => reject(new Error('The Anki export worker sent an unreadable answer.')));
+      };
+      try {
+        worker.postMessage({ type: 'write', plan });
+      } catch (err) {
+        settle(() => reject(err instanceof Error ? err : new Error(String(err))));
+      }
     });
   }
 }

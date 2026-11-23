@@ -150,6 +150,27 @@ describe('Anki furigana -> ruby syntax', () => {
     expect(text(' 日本[にほん]&nbsp;語[ご]', true)).toBe('日本[にほん]語[ご]');
     expect(text('漢字[かんじ]', false)).toBe('漢字[かんじ]');
   });
+
+  it('never turns syntax characters from entities into ruby or cloze', () => {
+    const rubies = (out: string) => parseRuby(out).filter((s) => s.type === 'ruby');
+    // Anki shows these brackets as text; literal ones would be ruby here.
+    for (const furigana of [true, false]) {
+      expect(text('漢字&#91;かんじ&#93;', furigana)).toBe('漢字［かんじ］');
+      expect(text('漢字<b>&#91;かんじ&#93;</b>', furigana)).toBe('漢字［かんじ］');
+      expect(rubies(text('漢字&#91;かんじ&#93;', furigana))).toEqual([]);
+    }
+    // Anki: one ruby over "A|B". Literal `{A|B|えーびー}` would split the base.
+    expect(text('A&#124;B[えーびー]', true)).toBe('{A｜B|えーびー}');
+    expect(rubies(text('A&#124;B[えーびー]', true))).toEqual([
+      { type: 'ruby', base: 'A｜B', reading: 'えーびー' },
+    ]);
+    expect(text('&#123;&#123;c1::x&#125;&#125;', false)).toBe('｛｛c1::x｝｝');
+    // Where the literal characters change nothing, they stay (the export's own escaping).
+    expect(text('test&#91;abc&#93; a&#124;b', true)).toBe('test[abc] a|b');
+    expect(text('{{c1::日本&#91;x&#93;}}', false)).toBe('{{c1::日本［x］}}');
+    // Noncharacters in the input can't pose as placeholders.
+    expect(text('a﷐b', false)).toBe('ab');
+  });
 });
 
 describe('Anki kana: / kanji: output (reading or base only, as Anki displays them)', () => {

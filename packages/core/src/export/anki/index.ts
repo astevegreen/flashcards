@@ -29,8 +29,8 @@ export {
 export { AnkiZipTooLargeError, AnkiZipWriter, crc32 } from './zip-writer.ts';
 export {
   ANKI_SCHEMA_11,
-  assembleApkg,
   planAnkiApkgExport,
+  writeApkg,
   type AnkiApkgExportOptions,
   type AnkiApkgPlan,
   type AnkiApkgResult,

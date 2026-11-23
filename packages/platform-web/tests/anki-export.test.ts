@@ -8,7 +8,7 @@ import {
   type CollectionState,
 } from '@flash/core';
 import { importAnkiPackage, unzipApkg, ANKI_IMPORT_LIMITS } from '@flash/core/anki';
-import { assembleApkg, planAnkiApkgExport } from '@flash/core/anki-export';
+import { planAnkiApkgExport, writeApkg } from '@flash/core/anki-export';
 import initSqlJs from 'sql.js';
 import { describe, expect, it } from 'vitest';
 import {
@@ -42,7 +42,20 @@ async function exportApkg(state: CollectionState, deckIds?: string[]) {
   const SQL = await sqlite;
   const plan = planAnkiApkgExport(state, { nowMs: NOW, ...(deckIds ? { deckIds } : {}) });
   const collection = writeAnkiCollection(new SQL.Database(), plan.collection);
-  return { plan, collection, apkg: assembleApkg(collection, plan, MEDIA) };
+  const chunks: Uint8Array[] = [];
+  const written = await writeApkg(
+    collection,
+    plan,
+    async (hash) => MEDIA.get(hash),
+    (chunk) => chunks.push(chunk.slice()),
+  );
+  const bytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let offset = 0;
+  for (const c of chunks) {
+    bytes.set(c, offset);
+    offset += c.length;
+  }
+  return { plan, collection, apkg: { ...written, bytes } };
 }
 
 /** Exports, reads the package back with the importer's reader, and imports it. */
@@ -193,6 +206,7 @@ describe('.apkg export (legacy collection.anki2 + media map)', () => {
       const w: AnkiWriterWorkerLike = {
         onmessage: null,
         onerror: null,
+        onmessageerror: null,
         postMessage: (msg) => {
           void handleAnkiWriteRequest(
             msg,
@@ -206,7 +220,7 @@ describe('.apkg export (legacy collection.anki2 + media map)', () => {
       };
       return w;
     };
-    const writer = new WebAnkiCollectionWriter(fakeWorker);
+    const writer = new WebAnkiCollectionWriter({ createWorker: fakeWorker });
     const plan = planAnkiApkgExport(buildAnkiExportState(), { nowMs: NOW });
     const bytes = await writer.write(plan.collection);
     expect(new TextDecoder().decode(bytes.subarray(0, 15))).toBe('SQLite format 3');
@@ -218,5 +232,43 @@ describe('.apkg export (legacy collection.anki2 + media map)', () => {
       (m) => posts.push(m),
     );
     expect(posts[0]?.type).toBe('error');
+  });
+
+  it('WebAnkiCollectionWriter rejects and terminates on worker failure, bad answers and timeouts', async () => {
+    const plan = planAnkiApkgExport(buildAnkiExportState(), { nowMs: NOW });
+    const run = async (onPost: (w: AnkiWriterWorkerLike) => void, timeoutMs = 1000) => {
+      let terminated = 0;
+      const w: AnkiWriterWorkerLike = {
+        onmessage: null,
+        onerror: null,
+        onmessageerror: null,
+        postMessage: () => queueMicrotask(() => onPost(w)),
+        terminate: () => {
+          terminated += 1;
+        },
+      };
+      const writer = new WebAnkiCollectionWriter({ createWorker: () => w, timeoutMs });
+      const error = await writer.write(plan.collection).then(
+        () => null,
+        (err: unknown) => (err instanceof Error ? err.message : String(err)),
+      );
+      return { error, terminated, handlers: [w.onmessage, w.onerror, w.onmessageerror] };
+    };
+    const failed = await run((w) => w.onerror?.({ message: 'boom' } as ErrorEvent));
+    expect(failed.error).toBe('boom');
+    const unreadable = await run((w) => w.onmessageerror?.({} as MessageEvent));
+    expect(unreadable.error).toContain('unreadable');
+    const silent = await run(() => {}, 20);
+    expect(silent.error).toContain('too long');
+    const answered = await run((w) =>
+      w.onmessage?.({
+        data: { type: 'error', message: 'disk full' },
+      } as MessageEvent<AnkiWriteResponse>),
+    );
+    expect(answered.error).toBe('disk full');
+    for (const r of [failed, unreadable, silent, answered]) {
+      expect(r.terminated).toBe(1);
+      expect(r.handlers).toEqual([null, null, null]);
+    }
   });
 });
