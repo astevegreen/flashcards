@@ -12,12 +12,12 @@ export function RubyDisplaySelect({
   onChange,
   label = 'Ruby shows',
   testId,
-}: {
+}: Readonly<{
   value: RubyDisplay;
   onChange: (next: RubyDisplay) => void;
   label?: string;
   testId?: string;
-}) {
+}>) {
   return (
     <select
       aria-label={label}

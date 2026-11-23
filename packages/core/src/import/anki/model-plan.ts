@@ -177,16 +177,21 @@ function furiganaFields(sides: readonly TemplateSides[]): Map<string, AnkiFuriga
   for (const field of global.keys()) if (hasFurigana(field)) out.set(field, 'ruby');
   for (const { q, a } of sides) {
     const uses = [...q.uses, ...a.uses];
-    const kinds = useKinds(uses, hasFurigana);
-    if (kinds.size < 2) continue;
-    for (const use of uses) {
-      const only = global.get(use.field);
-      if (!hasFurigana(use.field) || only?.size !== 1) continue;
-      if (only.has('kana')) out.set(use.field, 'kana');
-      else if (only.has('kanji')) out.set(use.field, 'kanji');
-    }
+    if (useKinds(uses, hasFurigana).size < 2) continue;
+    for (const use of uses) reduceIfSingleKind(out, use.field, global.get(use.field));
   }
   return out;
+}
+
+/** In a `kana:`/`kanji:`-mixing layout, a field shown only one way keeps that reduction. */
+function reduceIfSingleKind(
+  out: Map<string, AnkiFuriganaOutput>,
+  field: string,
+  kinds: ReadonlySet<string> | undefined,
+): void {
+  if (!out.has(field) || kinds?.size !== 1) return;
+  if (kinds.has('kana')) out.set(field, 'kana');
+  else if (kinds.has('kanji')) out.set(field, 'kanji');
 }
 
 /**
