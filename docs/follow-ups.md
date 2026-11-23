@@ -164,7 +164,7 @@ The owner answered every overnight question on 2026-11-23. **To build** marks ap
   - The macOS App ID reuses `app.flashcards.localfirst`; it must be in the same Apple team as the iOS app. Kept, for when the account exists.
 - [x] **#18, provenance (PR #28):** an "App" badge, with attribution tooltips on every badge. the 춥다 and 먹다 rewording is accepted. Hand-written definitions get their own badge instead of KRDict's.
 - [x] **Starter-deck gloss report (#16), applied in PR #28:** `content/starters/gloss-overrides.json`, decks at 1.1.0; four readings corrected after review (아니, 长, 呐, 地). Not reviewed by a native speaker. accept every suggested fix in `docs/starter-gloss-review.md`, applied through `scripts/build-starter-decks.mjs` (never by hand-editing the generated decks).
-- [ ] **Dependabot PR #4 (TypeScript 6):** ask Dependabot to rebase it, then merge if CI is green.
+- [x] **Dependabot PR #4 (TypeScript 6):** merged (`05af924`).
 - [ ] **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending.
 - [ ] **Share-alike dictionary sources. Approved:** 우리말샘 and Kaikki Wiktionary as optional, separately licensed download packs with attribution (their share-alike terms apply to those packs, not the app). 표준국어대사전 is not approved yet. **kengdic stays out** (unclear licence). Building the packs is a separate task: the upstream data needs manual download.
 - [ ] **Commercial Korean–English dataset as a premium pack:** deferred until after launch.
@@ -176,31 +176,31 @@ Defaults the 2026-11-23 agents picked. Each stays shipped until the owner decide
 
 - [ ] **PR #27, iOS loss marker location:** the app's SQLite database, not UserDefaults (same backup behaviour, plain TypeScript). Markers are iOS-only; Android relies on its plugin's own Keystore-loss report.
 - [ ] **PR #27, Mac entitlement check:** only checks that an iCloud entitlement exists, not that it names `iCloud.app.flashcards.localfirst`. A launch-probe timeout counts as unknown: Google Drive stays the default, with no "iCloud Drive looks off" hint.
-- [ ] **PR #28, gloss choices:** 해 stays "year (counter)" without "sun"; every numeral is labelled native or Sino-Korean; 팔 fronts get no hint. Only 먹다 and 춥다 get the App badge, though the rest of the starter KRDict fixture (dev and tests only) is also hand-written.
+- [ ] **PR #28, gloss choices:** 해 stays "year (counter)" without "sun"; every numeral is labelled native or Sino-Korean; 팔 fronts get no hint. Every sense in the hand-written starter KRDict fixture (dev and tests only) now gets the App badge, not just 먹다 and 춥다.
 - [ ] **PR #28, existing starter decks:** devices that already loaded the 1.0.0 starter decks keep the old glosses (there is no upgrade path).
 - [ ] **PR #29, Languages:** "Show all languages" is one per-device switch for the pack manager and the dictionary. Unticking a language also drops its onboarding choice. Unticking everything (with no decks) shows no language options. Cloze, Sentence and Grammar are language-neutral, so a mis-tagged neutral deck no longer counts through its fields. A Korean card that already stores ruby on a layout that hides it on the front keeps the Ruby toggle. Dev collections seeded with the old Korean sample keep its ruby.
 
 ### Leftover nits from the 2026-11-23 batch
 
-- [ ] `node scripts/build-starter-decks.mjs --check` (the stale-override guard) is not run in CI, because it needs the fetched cache.
-- [ ] The KRDict tooltip claims KRDict as the source for the hand-written dev/test starter senses (dev only).
-- [ ] PR #27: a downgrade to a build without markers, then sign-out, leaves a stale marker (TestFlight only); a secret never read between upgrade and backup has no marker.
-- [ ] Code comments in `CategoryExportPanel.tsx` still say "subcategories" / "Export a category".
-- [ ] Two local e2e flakes under full parallel load: `sync.spec.ts` "offline queue and reconnect convergence" and `phase13-onboarding` first run. Both pass alone and in CI.
+- [x] `node scripts/build-starter-decks.mjs --check` now runs in CI as its own `starter-decks` job in `ci.yml`. The fetched sources are cached, keyed on the pinned source files. If every fetch retry fails, the job warns and skips the check; a real drift still fails it.
+- [x] Every sense in the dev/test starter KRDict fixture is hand-written, so all of them now carry the App badge. The full KRDict pack keeps the KRDict badge.
+- [x] PR #27: at launch on iOS, every stored secret is read once, so a secret never read between upgrade and backup gets its marker (`markStoredSecretsAtLaunch`). Not run on a device. Still open: a downgrade to a build without markers, then sign-out, leaves a stale marker (TestFlight only).
+- [x] `CategoryExportPanel.tsx` comments say "tag" / "nested tags"; the export file-name fallback is `tag`.
+- [x] The two local e2e flakes. `sync.spec.ts` went offline before the service worker had precached, so a lazy chunk failed and the app went blank. The test now waits for the service worker (7 of 12 failed before, 16 of 16 pass after). `phase13-onboarding` now waits for the starter deck to reach IndexedDB before reloading. That flake never reproduced, so this fix is the likely cause, not a proven one.
 
 ## Leftover nits and known limitations
 
 ### #17 Ruby for Anki `kana:` / `kanji:`
 
-- [ ] A typed (`{{type:F}}`) field that is shown more than one way elsewhere isn't reduced, so grading expects bases.
-- [ ] `matchTypedAnswer` is not exercised in a test.
-- [ ] Choice dedupe and draw grading ignore the ruby flag (hand-made layouts only).
-- [ ] Browse search for a reading phrase that spans ruby groups no longer matches.
+- [x] Typed answers accept what the layout shows: `both` or no flag accepts the bases or the readings (so kana alone passes), `readings` accepts the readings or the bases, `bases` accepts bases only. The one place to make this stricter is `rubyReductions()` in `answer-match.ts`.
+- [x] `matchTypedAnswer` has tests (`ruby-display.test.ts`): no ruby, each flag, romaji, alternates, pinyin and the "Expected" text.
+- [x] Choice dedupe and draw grading use the layout's ruby flag. Still on bases: the deck-level stroke coverage in the Library, which has no layout.
+- [x] Browse search matches a phrase across ruby groups in all readings or all bases (`わたしはにほん`, `私は日本`); a mix of the two doesn't match.
 
 ### #18 Dictionary
 
-- [ ] An exact `altForm` match isn't counted in the guessed-lemma cap.
-- [ ] An exact hit in a filtered-out pack still caps.
+- [x] An exact `altForm` (or reading) hit now counts toward the guessed-lemma cap.
+- [x] Only hits in allowed packs count toward the cap.
 - [ ] KRDict full-pack measurement, the topic attribute check and first-syllable sharding are not done. The upstream data is a manual download.
 - [ ] The `SenseRelation` attribute (`lemma` / `writtenForm`) is unverified against a real export.
 
@@ -215,8 +215,8 @@ Defaults the 2026-11-23 agents picked. Each stays shipped until the owner decide
 ### #20 Sync and devices
 
 - [x] The AppContext comment says Keystore/Keychain, but the notice is Android-only. Fixed in PR #27.
-- [ ] While a collection choice is pending, the sidebar badge calls `syncNow` instead of opening Settings.
-- [ ] An in-flight sync can re-show the choice after "Keep this device's cards".
+- [x] While a collection choice is pending, the sidebar badge reads "Choose" (amber, tooltip "Choose a collection in Settings") and opens Settings. Pull-to-refresh still syncs and asks again.
+- [x] An answered collection choice latches: a sync that started before the answer drops its stale "choice required" result.
 
 ### #21 How tags work
 
@@ -227,17 +227,17 @@ Defaults the 2026-11-23 agents picked. Each stays shipped until the owner decide
 
 ### #22 macOS iCloud Drive
 
-- [ ] No `NSFileCoordinator`, and a directory walk instead of `NSMetadataQuery` (untested on a Mac).
-- [ ] Placeholder timestamps are approximate, and undownloaded files are listed with size 0.
-- [ ] Stale temp files after a crash are never swept.
+- [ ] No `NSFileCoordinator`, and a directory walk instead of `NSMetadataQuery` (untested on a Mac). Not attempted: it needs `block2`, a run loop and a real Mac to test. The iOS Swift plugin is the model.
+- [ ] Placeholder timestamps are still approximate, because the `.icloud` property list holds no modification date. **Size fixed:** a placeholder reports the real size from `NSURLFileSizeKey` (binary or XML plist), or 0 if it can't be read. It's unconfirmed that real macOS placeholders store the key this way.
+- [x] Stale temp files are swept at each listing: only `.flashcards-tmp/<digits>-<digits>.tmp` (and its placeholder), at least an hour old. Rust unit tests pass on Windows; the macOS build is checked only by CI.
 - [x] `docs/native-shells.md` lists four app commands; there are now five (add `icloud_supported`). Fixed in PR #27.
 
 ### #23 Language-aware menus
 
 - [x] The built-in Cloze and Sentence note types tag their fields ja/en Fixed in PR #29., so Korean and Chinese cloze/sentence decks wrongly activate the ja/en options.
-- [ ] New flip layouts always get `hide_furigana_on_front: true`, even in English-only collections.
-- [ ] `useActiveLanguages` repeats a dynamic import per hook.
-- [ ] DictionaryPanel's `initialDrawOpen` is silently suppressed when no CJK language is active.
+- [x] New flip layouts get `hide_furigana_on_front: true` only for a Japanese deck that isn't typed or draw mode. Stored layouts are unchanged.
+- [x] `useActiveLanguages` shares one module-level import, which resets if the chunk fails to load.
+- [x] An explicit `initialDrawOpen` shows the draw pad even with no CJK language active; the pad defaults to Korean (Hanja). No caller passes it today.
 
 ### Unverified overall
 
