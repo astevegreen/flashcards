@@ -222,27 +222,40 @@ export function packBackup(
 const PACK_STEP_BYTES = 512 * 1024;
 
 /**
- * {@link packBackup} in steps on the calling thread, pausing between pieces of each file, so a
- * large snapshot doesn't freeze the screen (§8). fflate's async `zip` is not used: it compresses
- * in a `blob:` worker, which the app's CSP (`worker-src 'self'`) refuses, and it reports no error
- * when the worker can't start, so the promise would never settle.
+ * Receives a backup archive's bytes in order. It may return a promise (a disk write, say); the
+ * packer waits for it before feeding more of the archive, so a slow sink never piles chunks up
+ * in memory. A chunk may be part of a media file's own bytes: copy it rather than modify it.
  */
-export async function packBackupAsync(
-  built: BuiltBackup,
-  opts: { withMedia: boolean },
-  pause: () => Promise<void> = () => Promise.resolve(),
-): Promise<{ manifest: BackupManifest; bytes: Uint8Array }> {
-  const withMedia = opts.withMedia && built.manifest.media_included;
-  const manifest = packedManifest(built, withMedia);
-  const parts: Uint8Array[] = [];
+export type BackupChunkSink = (chunk: Uint8Array) => void | PromiseLike<void>;
+
+/**
+ * Zips `files` in steps on the calling thread, pausing between 512 KB pieces of each file, and
+ * hands each chunk to `emit` as it is made. fflate's async `zip` is not used: it compresses in a
+ * `blob:` worker, which the app's CSP (`worker-src 'self'`) refuses, and it reports no error when
+ * the worker can't start, so the promise would never settle.
+ */
+async function streamZippable(
+  files: Zippable,
+  emit: BackupChunkSink,
+  pause: () => Promise<void>,
+): Promise<void> {
   let failure: Error | null = null;
   let done = false;
+  let pending: PromiseLike<void>[] = [];
   const archive = new Zip((err, chunk, final) => {
     if (err) failure = err;
-    else parts.push(chunk);
+    else {
+      const result = emit(chunk);
+      if (result && typeof result.then === 'function') pending.push(result);
+    }
     if (final) done = true;
   });
-  const files = archiveFiles(built, withMedia, manifest);
+  const drain = async () => {
+    if (pending.length === 0) return;
+    const waiting = pending;
+    pending = [];
+    await Promise.all(waiting);
+  };
   for (const [path, value] of Object.entries(files)) {
     const stored = Array.isArray(value);
     const bytes = (stored ? value[0] : value) as Uint8Array;
@@ -252,20 +265,64 @@ export async function packBackupAsync(
     for (let at = 0; at < bytes.byteLength; at += PACK_STEP_BYTES) {
       const end = Math.min(at + PACK_STEP_BYTES, bytes.byteLength);
       file.push(bytes.subarray(at, end), end === bytes.byteLength);
+      await drain();
       await pause();
     }
+    await drain();
     if (failure) throw failure;
   }
   archive.end();
+  await drain();
   if (failure) throw failure;
   if (!done) throw new Error('The backup archive did not finish.');
+}
+
+/**
+ * {@link packBackup} in steps, streaming: each chunk of the archive goes to `emit` as it is
+ * made, so a caller can write it to a file without ever holding the whole archive (§8: the
+ * same steps and pauses as {@link packBackupAsync}). Resolves with the manifest once the last
+ * chunk has been taken.
+ */
+export async function packBackupStream(
+  built: BuiltBackup,
+  opts: { withMedia: boolean },
+  emit: BackupChunkSink,
+  pause: () => Promise<void> = () => Promise.resolve(),
+): Promise<{ manifest: BackupManifest }> {
+  const withMedia = opts.withMedia && built.manifest.media_included;
+  const manifest = packedManifest(built, withMedia);
+  await streamZippable(archiveFiles(built, withMedia, manifest), emit, pause);
+  return { manifest };
+}
+
+function joinChunks(parts: readonly Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
   let offset = 0;
   for (const part of parts) {
     out.set(part, offset);
     offset += part.byteLength;
   }
-  return { manifest, bytes: out };
+  return out;
+}
+
+/**
+ * {@link packBackup} in steps on the calling thread, pausing between pieces of each file, so a
+ * large snapshot doesn't freeze the screen (§8). The archive comes back as one array; use
+ * {@link packBackupStream} to write it out as it is made.
+ */
+export async function packBackupAsync(
+  built: BuiltBackup,
+  opts: { withMedia: boolean },
+  pause: () => Promise<void> = () => Promise.resolve(),
+): Promise<{ manifest: BackupManifest; bytes: Uint8Array }> {
+  const parts: Uint8Array[] = [];
+  const { manifest } = await packBackupStream(
+    built,
+    opts,
+    (chunk) => void parts.push(chunk),
+    pause,
+  );
+  return { manifest, bytes: joinChunks(parts) };
 }
 
 /** A media file packed in a backup archive (hash not verified yet: see {@link verifyBackupMedia}). */
@@ -387,14 +444,18 @@ export function readBackupArchive(bytes: Uint8Array): ReadBackupResult {
   return { manifest, serialized, state, media };
 }
 
-/**
- * Adds media files to a backup archive that lacks them (a daily snapshot being saved off the
- * device). `mediaBlobs` maps a content hash to its bytes; hashes without a blob stay out.
- */
-export function withBackupMedia(
+interface BackupWithMedia {
+  manifest: BackupManifest;
+  files: Record<string, Uint8Array>;
+  /** Paths of the media files added (stored, not deflated, when streamed). */
+  added: Set<string>;
+  missingMedia: number;
+}
+
+function planBackupWithMedia(
   archiveBytes: Uint8Array,
   mediaBlobs: ReadonlyMap<string, Uint8Array>,
-): { manifest: BackupManifest; bytes: Uint8Array; missingMedia: number } {
+): BackupWithMedia {
   const extracted = safeUnzip(
     archiveBytes,
     BACKUP_ARCHIVE_LIMITS,
@@ -411,7 +472,7 @@ export function withBackupMedia(
     parseJson(extracted.get(BACKUP_STATE_PATH), BACKUP_STATE_PATH),
   );
   const files: Record<string, Uint8Array> = Object.fromEntries(extracted);
-  let added = 0;
+  const added = new Set<string>();
   let missingMedia = 0;
   for (const entry of serialized.media) {
     const hash = entry.hash.toLowerCase();
@@ -425,12 +486,43 @@ export function withBackupMedia(
       continue;
     }
     files[path] = blob;
-    added += 1;
+    added.add(path);
   }
   const next: BackupManifest =
-    added > 0 || manifest.media_included ? { ...manifest, media_included: true } : manifest;
+    added.size > 0 || manifest.media_included ? { ...manifest, media_included: true } : manifest;
   files[BACKUP_MANIFEST_PATH] = encodeUtf8(JSON.stringify(next, null, 2));
-  return { manifest: next, bytes: zipSync(files, { level: 6 }), missingMedia };
+  return { manifest: next, files, added, missingMedia };
+}
+
+/**
+ * Adds media files to a backup archive that lacks them (a daily snapshot being saved off the
+ * device). `mediaBlobs` maps a content hash to its bytes; hashes without a blob stay out.
+ */
+export function withBackupMedia(
+  archiveBytes: Uint8Array,
+  mediaBlobs: ReadonlyMap<string, Uint8Array>,
+): { manifest: BackupManifest; bytes: Uint8Array; missingMedia: number } {
+  const { manifest, files, missingMedia } = planBackupWithMedia(archiveBytes, mediaBlobs);
+  return { manifest, bytes: zipSync(files, { level: 6 }), missingMedia };
+}
+
+/**
+ * {@link withBackupMedia}, streaming: the new archive goes to `emit` chunk by chunk (added media
+ * stored as is), pausing between pieces like {@link packBackupStream}.
+ */
+export async function withBackupMediaStream(
+  archiveBytes: Uint8Array,
+  mediaBlobs: ReadonlyMap<string, Uint8Array>,
+  emit: BackupChunkSink,
+  pause: () => Promise<void> = () => Promise.resolve(),
+): Promise<{ manifest: BackupManifest; missingMedia: number }> {
+  const { manifest, files, added, missingMedia } = planBackupWithMedia(archiveBytes, mediaBlobs);
+  const zippable: Zippable = {};
+  for (const [path, bytes] of Object.entries(files)) {
+    zippable[path] = added.has(path) ? [bytes, { level: 0 }] : bytes;
+  }
+  await streamZippable(zippable, emit, pause);
+  return { manifest, missingMedia };
 }
 
 /** True when the file's bytes match its declared content hash. */

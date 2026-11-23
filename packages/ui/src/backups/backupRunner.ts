@@ -4,6 +4,7 @@ import {
   chooseBackupKind,
   isAutoBackupDue,
   packBackupAsync,
+  packBackupStream,
   parseSyncFolderBackupPath,
   planBackupRestore,
   readBackupArchive,
@@ -12,6 +13,7 @@ import {
   SYNC_FOLDER_BACKUP_PREFIX,
   syncFolderBackupPath,
   verifyBackupMedia,
+  withBackupMediaStream,
   type BackupKind,
   type BackupReason,
   type ReadBackupResult,
@@ -120,12 +122,16 @@ async function loadMediaBlobs(
   return blobs;
 }
 
-/** A full backup file (media included) for the user to save off the device; not stored here. */
-export async function buildFullBackupFile(
-  storage: Storage,
+/**
+ * Saves a full backup file (media included) off the device; nothing is stored here. The archive
+ * is streamed: into Blob parts on web, chunk by chunk into the chosen file on desktop and phones
+ * (`Files.saveStream`), so it is never held as one array next to the media it packs.
+ */
+export async function saveFullBackupFile(
+  platform: PlatformServices,
   state: CollectionState,
-  opts: { deviceId: string; collectionId?: string },
-): Promise<Uint8Array> {
+  opts: { deviceId: string; collectionId?: string; fileName: string },
+): Promise<void> {
   const nowMs = Date.now();
   const built = await buildBackupAsync(
     state,
@@ -136,11 +142,48 @@ export async function buildFullBackupFile(
       nowMs,
       deviceId: opts.deviceId,
       ...(opts.collectionId !== undefined ? { collectionId: opts.collectionId } : {}),
-      mediaBlobs: await loadMediaBlobs(storage, state.media.keys()),
+      mediaBlobs: await loadMediaBlobs(platform.storage, state.media.keys()),
     },
     yieldToHost,
   );
-  return (await packBackupAsync(built, { withMedia: true }, yieldToHost)).bytes;
+  const { saveStreamedZip } = await import('../export/saveStreamedZip.ts');
+  await saveStreamedZip(platform, 'application/zip', opts.fileName, async (emit) => {
+    await packBackupStream(built, { withMedia: true }, emit, yieldToHost);
+    return { fileName: opts.fileName };
+  });
+}
+
+/** Bytes per chunk when a stored archive is saved as is. */
+const SAVE_STEP_BYTES = 512 * 1024;
+
+/**
+ * Saves a kept backup off the device. A snapshot without media gets this device's copies of the
+ * files it lists. Streamed like {@link saveFullBackupFile}. Returns how many listed media files
+ * this device lacks (they are not in the file).
+ */
+export async function saveStoredBackupFile(
+  platform: PlatformServices,
+  info: StoredBackupInfo,
+  fileName: string,
+): Promise<{ missingMedia: number }> {
+  const storage = platform.storage;
+  const bytes = await (await openBackupStore(storage))?.getBytes(info.backup_id);
+  if (!bytes) throw new Error('This backup is no longer on the device.');
+  const addMedia = !info.media_included && info.media_hashes.length > 0;
+  const blobs = addMedia ? await loadMediaBlobs(storage, info.media_hashes) : undefined;
+  const { saveStreamedZip } = await import('../export/saveStreamedZip.ts');
+  let missingMedia = 0;
+  await saveStreamedZip(platform, 'application/zip', fileName, async (emit) => {
+    if (blobs) {
+      missingMedia = (await withBackupMediaStream(bytes, blobs, emit, yieldToHost)).missingMedia;
+    } else {
+      for (let at = 0; at < bytes.byteLength; at += SAVE_STEP_BYTES) {
+        await emit(bytes.subarray(at, Math.min(at + SAVE_STEP_BYTES, bytes.byteLength)));
+      }
+    }
+    return { fileName };
+  });
+  return { missingMedia };
 }
 
 export interface TakeBackupResult {

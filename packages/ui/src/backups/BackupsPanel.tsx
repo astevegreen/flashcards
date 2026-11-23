@@ -15,6 +15,7 @@ import {
   prepareRestore,
   readSyncFolderBackup,
   saveBackupSettings,
+  saveStoredBackupFile,
   openBackupStore,
   takeBackup,
   type BackupContext,
@@ -277,25 +278,11 @@ export function BackupsPanel() {
 
   const download = (info: StoredBackupInfo) =>
     run(async () => {
-      let bytes = await (await openBackupStore(storage))?.getBytes(info.backup_id);
-      if (!bytes) throw new Error('This backup is no longer on the device.');
-      let missing = 0;
-      if (!info.media_included && info.media_hashes.length > 0) {
-        const { withBackupMedia } = await import('@flash/core/backup');
-        const blobs = new Map<string, Uint8Array>();
-        for (const hash of info.media_hashes) {
-          const blob = await storage.getMedia(hash);
-          if (blob) blobs.set(hash, blob.bytes);
-        }
-        const packed = withBackupMedia(bytes, blobs);
-        bytes = packed.bytes;
-        missing = packed.missingMedia;
-      }
       const stamp = new Date(info.created_at).toISOString().slice(0, 10);
-      await platform.files.downloadFile(
+      const { missingMedia: missing } = await saveStoredBackupFile(
+        platform,
+        info,
         `flashcards-backup-${stamp}.flashpkg`,
-        bytes,
-        'application/zip',
       );
       await markBackupCompleted();
       setStatus(

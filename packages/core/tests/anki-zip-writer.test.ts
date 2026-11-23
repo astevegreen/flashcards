@@ -55,4 +55,34 @@ describe('streaming zip writer', () => {
     zip.finish();
     expect(() => zip.add('a', new Uint8Array(1))).toThrow();
   });
+
+  it('flush waits for every promise emit returned, and passes on a failure', async () => {
+    const settle: (() => void)[] = [];
+    const zip = new AnkiZipWriter(
+      () =>
+        new Promise<void>((resolve) => {
+          settle.push(resolve);
+        }),
+    );
+    zip.add('a', encodeUtf8('hello'));
+    let flushed = false;
+    const done = zip.flush().then(() => {
+      flushed = true;
+    });
+    await Promise.resolve();
+    expect(settle).toHaveLength(2); // header and body
+    expect(flushed).toBe(false);
+    settle[0]?.();
+    await Promise.resolve();
+    expect(flushed).toBe(false);
+    settle[1]?.();
+    await done;
+    expect(flushed).toBe(true);
+    await zip.flush(); // nothing pending
+
+    const failing = new AnkiZipWriter(() => Promise.reject(new Error('disk full')));
+    failing.add('a', encodeUtf8('x'));
+    await expect(failing.flush()).rejects.toThrow('disk full');
+    await new AnkiZipWriter(() => {}).flush();
+  });
 });

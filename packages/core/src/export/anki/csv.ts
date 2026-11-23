@@ -1,7 +1,7 @@
 import type { CollectionState } from '../../events/replay.ts';
 import { encodeUtf8 } from '../../ids.ts';
 import { escapeCsvCell, selectDeckNotes } from './select.ts';
-import { AnkiZipWriter } from './zip-writer.ts';
+import { AnkiZipWriter, type AnkiZipEmit } from './zip-writer.ts';
 import {
   AnkiMediaNamer,
   ankiFieldHtml,
@@ -146,7 +146,7 @@ export interface AnkiCsvZipOptions {
 export async function writeAnkiCsvZip(
   plan: AnkiCsvExportPlan,
   readMedia: AnkiMediaReader,
-  emit: (chunk: Uint8Array) => void,
+  emit: AnkiZipEmit,
   options: AnkiCsvZipOptions = {},
 ): Promise<AnkiCsvExportZip> {
   const zip = new AnkiZipWriter(emit, options.modifiedMs);
@@ -155,6 +155,8 @@ export async function writeAnkiCsvZip(
   let mediaCount = 0;
   let missing = 0;
   for (const file of plan.media) {
+    // Backpressure: read the next file only once the sink has taken the previous one.
+    await zip.flush();
     const bytes = await readMedia(file.hash);
     if (!bytes) {
       missing += 1;
@@ -165,6 +167,7 @@ export async function writeAnkiCsvZip(
     mediaCount += 1;
   }
   zip.finish();
+  await zip.flush();
   return {
     fileName: `${plan.slug}-anki.zip`,
     mediaCount,

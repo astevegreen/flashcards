@@ -8,7 +8,7 @@ import type { Card, Deck, Layout, Note, NoteType, NoteTypeField } from '../../mo
 import { sha256String } from '../../sources/hash.ts';
 import { sha1First32 } from './checksum.ts';
 import { ankiExportSlug, type AnkiMediaReader } from './csv.ts';
-import { AnkiZipWriter } from './zip-writer.ts';
+import { AnkiZipWriter, type AnkiZipEmit } from './zip-writer.ts';
 import {
   AnkiMediaNamer,
   ankiFieldHtml,
@@ -79,6 +79,12 @@ export interface AnkiApkgExportOptions {
   includeArchived?: boolean;
   /** Clock for ids, modification times and due days (core never reads the wall clock). */
   nowMs: number;
+  /**
+   * The device's UTC offset at export, in minutes east (`-new Date(nowMs).getTimezoneOffset()`).
+   * It anchors `crt` and due days; without it the latest review's offset is used, which is a
+   * day off near a daylight-saving change.
+   */
+  tzOffsetMinutes?: number;
   /** Write `revlog` rows and card scheduling from the review events (default true). */
   includeReviewHistory?: boolean;
   /** File name for the package (default from the single deck's name, else `flashcards`). */
@@ -541,7 +547,7 @@ export function planAnkiApkgExport(
   options: AnkiApkgExportOptions,
 ): AnkiApkgPlan {
   const nowMs = options.nowMs;
-  const clock = ankiSchedulingClock(state, nowMs);
+  const clock = ankiSchedulingClock(state, nowMs, options.tzOffsetMinutes);
   const crt = clock.crt;
   const withHistory = options.includeReviewHistory !== false;
   const revlog: AnkiRevlogDraft[] = [];
@@ -794,7 +800,7 @@ export async function writeApkg(
   collectionBytes: Uint8Array,
   plan: Pick<AnkiApkgPlan, 'media' | 'unknownMediaCount' | 'fileName'>,
   readMedia: AnkiMediaReader,
-  emit: (chunk: Uint8Array) => void,
+  emit: AnkiZipEmit,
   options: { modifiedMs?: number } = {},
 ): Promise<AnkiApkgResult> {
   const zip = new AnkiZipWriter(emit, options.modifiedMs);
@@ -803,6 +809,8 @@ export async function writeApkg(
   let index = 0;
   let missing = 0;
   for (const file of plan.media) {
+    // Backpressure: read the next file only once the sink has taken the previous one.
+    await zip.flush();
     const bytes = await readMedia(file.hash);
     if (!bytes) {
       missing += 1;
@@ -814,6 +822,7 @@ export async function writeApkg(
   }
   zip.add('media', encodeUtf8(JSON.stringify(map)), true);
   zip.finish();
+  await zip.flush();
   return {
     fileName: plan.fileName,
     mediaCount: index,

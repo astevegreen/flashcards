@@ -197,6 +197,44 @@ describe('Export for Anki CSV', () => {
     );
     expect(full.result.mediaCount).toBe(2);
   });
+
+  it('reads the next media file only once a slow sink has taken the previous one', async () => {
+    const plan = planAnkiCsvExport(state, { deckId: VOCAB_DECK });
+    const media = new Map([
+      [PNG_HASH, PNG],
+      [MP3_HASH, MP3],
+    ]);
+    let inFlight = 0;
+    const inFlightAtRead: number[] = [];
+    const chunks: Uint8Array[] = [];
+    await writeAnkiCsvZip(
+      plan,
+      async (hash) => {
+        inFlightAtRead.push(inFlight);
+        return media.get(hash);
+      },
+      (chunk) => {
+        inFlight += 1;
+        chunks.push(chunk.slice());
+        return new Promise<void>((resolve) =>
+          setTimeout(() => {
+            inFlight -= 1;
+            resolve();
+          }, 1),
+        );
+      },
+    );
+    expect(inFlightAtRead.length).toBe(plan.media.length);
+    expect(inFlightAtRead.every((n) => n === 0)).toBe(true);
+    expect(inFlight).toBe(0);
+    const joined = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+    let offset = 0;
+    for (const c of chunks) {
+      joined.set(c, offset);
+      offset += c.length;
+    }
+    expect(Object.keys(unzipSync(joined))).toContain(`collection.media/${PNG_HASH}.png`);
+  });
 });
 
 /** Runs the streaming zip writer and joins its chunks, recording the order media was read. */
