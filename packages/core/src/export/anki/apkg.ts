@@ -23,6 +23,7 @@ import { ankiRichTextToHtml } from './rich-text-html.ts';
 import {
   activeReviews,
   ankiCardHistory,
+  ankiSchedulingClock,
   revlogRows,
   type AnkiCardScheduling,
   type AnkiRevlogDraft,
@@ -524,13 +525,6 @@ function cardOrds(
     .map(([ord, v]) => ({ ord, suspended: v.suspended, card: v.card }));
 }
 
-/** Anki's `crt`: 04:00 UTC of the export day, a day earlier when that is still ahead. */
-function collectionCreated(nowMs: number): number {
-  const d = new Date(nowMs);
-  const at4 = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 4) / 1000;
-  return at4 <= Math.floor(nowMs / 1000) ? at4 : at4 - 86_400;
-}
-
 function noteFieldsHtml(
   noteType: NoteType,
   note: Note,
@@ -547,7 +541,8 @@ export function planAnkiApkgExport(
   options: AnkiApkgExportOptions,
 ): AnkiApkgPlan {
   const nowMs = options.nowMs;
-  const crt = collectionCreated(nowMs);
+  const clock = ankiSchedulingClock(state, nowMs);
+  const crt = clock.crt;
   const withHistory = options.includeReviewHistory !== false;
   const revlog: AnkiRevlogDraft[] = [];
   const nowSecs = Math.floor(nowMs / 1000);
@@ -623,7 +618,7 @@ export function planAnkiApkgExport(
         const cid = nextCardId++;
         const history =
           withHistory && card && card.empty !== true
-            ? ankiCardHistory(state, card, cid, { nowMs, crt })
+            ? ankiCardHistory(state, card, cid, clock)
             : null;
         if (history) revlog.push(...history.revlog);
         const s: AnkiCardScheduling = history?.scheduling ?? {
@@ -680,6 +675,9 @@ export function planAnkiApkgExport(
     addToCur: true,
     // v2 scheduler: revlog eases are 1-4 for learning steps too (v1 had 1-3 there).
     schedVer: 2,
+    // Day boundaries for `crt`: rollover hour, and the offset in minutes west of UTC.
+    rollover: clock.dayStartHour,
+    creationOffset: -clock.tzOffsetMinutes,
   };
   const revlogTable = revlogRows(revlog);
 

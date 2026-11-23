@@ -1,13 +1,53 @@
 import { describe, expect, it } from 'vitest';
+import {
+  applyEvents,
+  createEventFactory,
+  replaySingleCard,
+  type CollectionState,
+} from '../src/events/replay.ts';
 import { planAnkiApkgExport, type AnkiApkgPlan } from '../src/export/anki/index.ts';
+import { createHlcState } from '../src/hlc.ts';
 import {
   buildAnkiExportState,
   buildAnkiHistoryState,
   CLOZE_DECK,
   HISTORY_NOW,
   HISTORY_T,
+  LEARNING_CARD,
+  RELEARNED_CARD,
   VOCAB_DECK,
 } from './helpers/anki-export-state.ts';
+
+const DAY = 86_400_000;
+
+/** One Easy review (straight to review) on note 1's flip card, at `at` in offset `tz`. */
+function oneReviewState(at: number, tz: number): CollectionState {
+  const state = buildAnkiExportState();
+  const f = createEventFactory('dev-z', 0, createHlcState('dev-z', at));
+  applyEvents(state, [
+    f.create(
+      'ReviewRecorded',
+      {
+        review_id: 'rev-tz',
+        card_id: LEARNING_CARD,
+        rating: 4,
+        reviewed_at: at,
+        tz_offset: tz,
+        duration_ms: 1000,
+        answer_mode: 'flip',
+        fsrs_params_version: 0,
+        resulting_due_at: at,
+      },
+      at,
+    ),
+  ]);
+  return state;
+}
+
+/** Anki's day count for `nowMs` (rslib `timing.rs`): whole days since `crt`. */
+function ankiToday(p: AnkiApkgPlan, nowMs: number): number {
+  return Math.floor((nowMs / 1000 - Number(table(p, 'col')[0]?.['crt'])) / 86_400);
+}
 
 const CARD_COLUMNS = ['id', 'nid', 'ord', 'type', 'queue', 'due', 'ivl', 'factor'] as const;
 
@@ -97,10 +137,10 @@ describe('.apkg review history', () => {
     expect([relearned?.['type'], relearned?.['queue']]).toEqual([2, 2]);
     expect(relearned?.['lapses']).toBe(1);
     expect(relearned?.['reps']).toBe(4);
-    // Day number relative to crt: graduated on day 5 with `ivl` days, export on day 40.
+    // Day number relative to crt (today = 0): graduated on day 5 with `ivl` days, export on day 40.
     const ivl = Number(relearned?.['ivl']);
-    expect(Number(relearned?.['due']) - today).toBeGreaterThanOrEqual(5 + ivl - 40 - 1);
-    expect(Number(relearned?.['due']) - today).toBeLessThanOrEqual(5 + ivl - 40 + 1);
+    expect(today).toBe(0);
+    expect(relearned?.['due']).toBe(5 + ivl - 40);
 
     expect([relearning?.['type'], relearning?.['queue'], relearning?.['lapses']]).toEqual([
       3, 1, 1,
@@ -114,10 +154,15 @@ describe('.apkg review history', () => {
     expect([cloze1?.['type'], cloze1?.['queue'], cloze1?.['left']]).toEqual([1, 1, 2002]);
 
     const data = JSON.parse(String(relearned?.['data'])) as Record<string, number>;
-    expect(Object.keys(data)).toEqual(['s', 'd', 'dr']);
-    expect(data['dr']).toBe(0.9);
-    expect(data['d']).toBeGreaterThanOrEqual(1);
-    expect(data['d']).toBeLessThanOrEqual(10);
+    const replayed = replaySingleCard(buildAnkiHistoryState(), RELEARNED_CARD)?.schedule;
+    if (!replayed) throw new Error('fixture');
+    expect(data).toEqual({
+      s: Math.round(replayed.stability * 10_000) / 10_000,
+      d: Math.round(replayed.difficulty * 1000) / 1000,
+      dr: 0.9,
+      decay: 0.154,
+      lrt: Math.floor((HISTORY_T + 5 * DAY + 600_000) / 1000),
+    });
   });
 
   it('is byte-for-byte deterministic and matches the golden rows', async () => {
@@ -160,5 +205,36 @@ describe('.apkg review history', () => {
     const p = planAnkiApkgExport(buildAnkiExportState(), { nowMs: early });
     const crt = Number(table(p, 'col')[0]?.['crt']);
     expect(crt).toBe(Date.UTC(2026, 10, 22, 4) / 1000);
+  });
+
+  it('anchors crt to the study day in the latest review offset (UTC+9 at 00:00 UTC)', () => {
+    // 09:00 KST on 24 Nov (study day 24 Nov); export at 09:00 KST on 25 Nov = 00:00 UTC.
+    const at = Date.UTC(2026, 10, 24, 0, 0);
+    const now = Date.UTC(2026, 10, 25, 0, 0);
+    const p = planAnkiApkgExport(oneReviewState(at, 540), { nowMs: now, deckIds: [VOCAB_DECK] });
+    const col = table(p, 'col')[0] ?? {};
+    // 04:00 KST on 25 Nov.
+    expect(col['crt']).toBe(Date.UTC(2026, 10, 24, 19) / 1000);
+    const conf = JSON.parse(String(col['conf'])) as Record<string, unknown>;
+    expect([conf['rollover'], conf['creationOffset']]).toEqual([4, -540]);
+    expect(ankiToday(p, now)).toBe(0);
+    const card = table(p, 'cards').find((c) => c['queue'] === 2);
+    // Due on study day 24 Nov + ivl; today is 25 Nov.
+    expect(card?.['due']).toBe(Number(card?.['ivl']) - 1);
+  });
+
+  it('anchors crt in a negative offset before the rollover hour (UTC-5)', () => {
+    // 22:00 EST on 23 Nov (study day 23 Nov); export at 03:00 EST on 25 Nov (study day 24 Nov).
+    const at = Date.UTC(2026, 10, 24, 3, 0);
+    const now = Date.UTC(2026, 10, 25, 8, 0);
+    const p = planAnkiApkgExport(oneReviewState(at, -300), { nowMs: now, deckIds: [VOCAB_DECK] });
+    const col = table(p, 'col')[0] ?? {};
+    // 04:00 EST on 24 Nov.
+    expect(col['crt']).toBe(Date.UTC(2026, 10, 24, 9) / 1000);
+    const conf = JSON.parse(String(col['conf'])) as Record<string, unknown>;
+    expect([conf['rollover'], conf['creationOffset']]).toEqual([4, 300]);
+    expect(ankiToday(p, now)).toBe(0);
+    const card = table(p, 'cards').find((c) => c['queue'] === 2);
+    expect(card?.['due']).toBe(Number(card?.['ivl']) - 1);
   });
 });

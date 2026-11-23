@@ -57,10 +57,36 @@ export interface AnkiCardScheduling {
   data: string;
 }
 
+/**
+ * The exported collection's clock. Anki counts review days from `crt` in the collection's
+ * creation offset and rollover hour (rslib `scheduler/timing.rs`), and its importer shifts
+ * review dues by `source_today - target_today`. So `crt` is the start of the user's current
+ * study day (source today = 0) and a review card's `due` is its study day minus today's, all
+ * in one collection-wide offset and hour.
+ */
 export interface AnkiSchedulingClock {
   nowMs: number;
-  /** The collection's `crt` (Unix seconds, at or before `nowMs`). */
+  /** Minutes east of UTC: the latest active review's offset (0 without reviews). */
+  tzOffsetMinutes: number;
+  /** `preferences.day_start_hour`, clamped to 0-23. */
+  dayStartHour: number;
+  /** The collection's `crt` (Unix seconds): the start of the study day holding `nowMs`. */
   crt: number;
+}
+
+export function ankiSchedulingClock(state: CollectionState, nowMs: number): AnkiSchedulingClock {
+  let latest: ReviewRecord | undefined;
+  for (const reviews of state.reviewsByCard.values()) {
+    for (const r of reviews) {
+      if (state.undoneReviewIds.has(r.review_id)) continue;
+      if (!latest || compareReviewRecords(r, latest) > 0) latest = r;
+    }
+  }
+  const tz = latest?.tz_offset ?? 0;
+  const hour = Math.max(0, Math.min(23, Math.floor(state.preferences.day_start_hour)));
+  const day = studyDay(nowMs, tz, hour);
+  const crt = (day * MS_PER_DAY + hour * MS_PER_HOUR - tz * MS_PER_MINUTE) / 1000;
+  return { nowMs, tzOffsetMinutes: tz, dayStartHour: hour, crt };
 }
 
 /** The card's active reviews in replay order. */
@@ -82,23 +108,26 @@ function revlogType(before: CardScheduleState): number {
   return 0;
 }
 
-function round4(n: number): number {
-  return Math.round(n * 10_000) / 10_000;
+function round(n: number, places: number): number {
+  const f = 10 ** places;
+  return Math.round(n * f) / f;
+}
+
+/** ts-fsrs's FSRS-6 default decay (`FSRS6_DEFAULT_DECAY`, the default `w[20]`). */
+const FSRS6_DEFAULT_DECAY = 0.1542;
+/** The FSRS-5 decay, for 19-weight parameter sets. */
+const FSRS5_DECAY = 0.5;
+
+function decayOf(w: readonly number[] | undefined): number {
+  if (!w) return FSRS6_DEFAULT_DECAY;
+  const d = w[20];
+  return w.length >= 21 && d !== undefined ? d : FSRS5_DECAY;
 }
 
 function studyDay(ms: number, tzOffsetMinutes: number, dayStartHour: number): number {
   return Math.floor(
     (ms + tzOffsetMinutes * MS_PER_MINUTE - dayStartHour * MS_PER_HOUR) / MS_PER_DAY,
   );
-}
-
-function dayStartHourFor(state: CollectionState, deckId: string): number {
-  const override = state.decks.get(deckId)?.settings.day_start_hour;
-  const hour =
-    override !== undefined && override >= 0 && override <= 23
-      ? override
-      : state.preferences.day_start_hour;
-  return Math.max(0, Math.min(23, Math.floor(hour)));
 }
 
 /**
@@ -139,29 +168,35 @@ export function ankiCardHistory(
     lastIvl = ivl;
   }
   const last = reviews[reviews.length - 1] as ReviewRecord;
-  const dr = resolveDeckFsrsConfig(state, card.deck_id, clock.nowMs).request_retention;
-  return { revlog, scheduling: ankiScheduling(state, card, schedule, last, dr, clock) };
+  const config = resolveDeckFsrsConfig(state, card.deck_id, clock.nowMs);
+  return {
+    revlog,
+    scheduling: ankiScheduling(schedule, last, config.request_retention, decayOf(config.w), clock),
+  };
 }
 
+/**
+ * `cards.data` keys as Anki writes them: `s` stability (4 places), `d` difficulty (3), `dr`
+ * desired retention (2), `decay` (3, FSRS-6) and `lrt` (last review, Unix seconds).
+ */
 function ankiScheduling(
-  state: CollectionState,
-  card: Card,
   schedule: CardScheduleState,
   last: ReviewRecord,
   dr: number,
+  decay: number,
   clock: AnkiSchedulingClock,
 ): AnkiCardScheduling {
   const data = JSON.stringify({
-    s: round4(schedule.stability),
-    d: round4(schedule.difficulty),
-    dr: round4(dr),
+    s: round(schedule.stability, 4),
+    d: round(schedule.difficulty, 3),
+    dr: round(dr, 2),
+    decay: round(decay, 3),
+    lrt: Math.floor(last.reviewed_at / 1000),
   });
   const base = { reps: schedule.reps, lapses: schedule.lapses, data };
   if (schedule.state === 2) {
-    const hour = dayStartHourFor(state, card.deck_id);
-    const tz = last.tz_offset;
-    const today = Math.floor((Math.floor(clock.nowMs / 1000) - clock.crt) / 86_400);
-    const due = today + studyDay(schedule.due, tz, hour) - studyDay(clock.nowMs, tz, hour);
+    const { tzOffsetMinutes: tz, dayStartHour: hour } = clock;
+    const due = studyDay(schedule.due, tz, hour) - studyDay(clock.nowMs, tz, hour);
     return {
       ...base,
       type: 2,
@@ -180,7 +215,10 @@ function ankiScheduling(
     type: relearning ? 3 : 1,
     queue: 1,
     due: Math.floor(schedule.due / 1000),
-    // A relearning card returns to review at about its stability (the interval at 90 %).
+    /**
+     * Approximation: a relearning card's `ivl` is its stability rounded, which is its FSRS
+     * interval only at 90 % retention. Anki's FSRS recomputes the interval when it graduates.
+     */
     ivl: relearning ? Math.max(1, Math.round(schedule.stability)) : 0,
     factor: relearning ? DEFAULT_EASE : 0,
     left: remaining * 1000 + remaining,

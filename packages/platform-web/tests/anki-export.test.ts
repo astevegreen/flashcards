@@ -188,7 +188,7 @@ describe('.apkg export (legacy collection.anki2 + media map)', () => {
         [2, 1],
       ]);
       const data = db.exec('SELECT data FROM cards WHERE type = 2 AND queue = 2')[0]?.values[0];
-      expect(Object.keys(JSON.parse(String(data?.[0])))).toEqual(['s', 'd', 'dr']);
+      expect(Object.keys(JSON.parse(String(data?.[0])))).toEqual(['s', 'd', 'dr', 'decay', 'lrt']);
     } finally {
       db.close();
     }
