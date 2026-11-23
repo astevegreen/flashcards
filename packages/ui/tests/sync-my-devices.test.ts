@@ -24,8 +24,15 @@ const IOS: SyncPlatformFlags = {
   iCloudSyncSupported: true,
   createICloudTransport: unavailable,
 };
-/** The Tauri shell on macOS: there is no macOS iCloud transport today. */
-const MACOS_DESKTOP: SyncPlatformFlags = {
+/** The Tauri shell on macOS when iCloud Drive was available at launch. */
+const MACOS_ICLOUD: SyncPlatformFlags = {
+  googleOAuthConfigured: true,
+  supportsLocalFolderSync: true,
+  iCloudSyncSupported: true,
+  createICloudTransport: unavailable,
+};
+/** The Tauri shell on macOS without iCloud (signed out, iCloud Drive off, unsigned build). */
+const MACOS_NO_ICLOUD: SyncPlatformFlags = {
   googleOAuthConfigured: true,
   supportsLocalFolderSync: true,
 };
@@ -37,10 +44,14 @@ describe('"Sync my devices" default provider', () => {
       primary: 'icloud',
       alternatives: ['google_drive'],
     });
+    expect(planSyncMyDevices(MACOS_ICLOUD, undefined)).toEqual({
+      primary: 'icloud',
+      alternatives: ['google_drive', 'local_folder'],
+    });
   });
 
   it('uses Google Drive on Android, Windows, web and Apple platforms without iCloud', () => {
-    for (const platform of [WEB, ANDROID, MACOS_DESKTOP]) {
+    for (const platform of [WEB, ANDROID, MACOS_NO_ICLOUD]) {
       expect(pickDefaultSyncProvider(platform)).toBe('google_drive');
     }
     // A flag without the transport (or the reverse) is not an iCloud platform.

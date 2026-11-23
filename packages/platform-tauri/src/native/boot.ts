@@ -5,11 +5,13 @@ import {
   resolveRefreshTokenStore,
 } from '../auth/refresh-token-store.ts';
 import { createTauriPlatform } from '../index.ts';
+import { probeICloudAvailable } from '../sync/tauri-icloud-bridge.ts';
 import {
   asSqlPluginDatabase,
   createDesktopFiles,
   createDesktopNotificationBridge,
   createFsBridge,
+  createICloudDocumentPlugin,
   createLoopbackOAuthPlugin,
   createSecureSecretBackend,
   createAddDeviceUrlSource,
@@ -48,6 +50,10 @@ export const INSECURE_MICROSOFT_TOKEN_STORAGE_WARNING =
  * Called by `apps/web/src/main.tsx` only when the Tauri runtime is detected.
  */
 export async function bootTauriPlatform(config: TauriBootConfig): Promise<PlatformServices> {
+  // macOS: iCloud Drive (same container as the iOS app) becomes the "Sync my devices" default when
+  // it is available; otherwise Google Drive stays the default. Probed alongside the database open.
+  const iCloudPlugin = createICloudDocumentPlugin();
+  const iCloudReady = probeICloudAvailable(iCloudPlugin);
   const db = await openTauriDatabase();
   const sqlDb = asSqlPluginDatabase(db);
 
@@ -89,6 +95,7 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
     ...(config.licensePublicKeyHex ? { licensePublicKeyHex: config.licensePublicKeyHex } : {}),
     ...(config.packCatalogUrl ? { packCatalogUrl: config.packCatalogUrl } : {}),
     ...(config.starterCatalogUrl ? { starterCatalogUrl: config.starterCatalogUrl } : {}),
+    ...((await iCloudReady) ? { iCloudPlugin } : {}),
     // Only relevant when Google sign-in is configured at all.
     ...(oauthPlugin && secureStorageWarning ? { secureStorageWarning } : {}),
   });

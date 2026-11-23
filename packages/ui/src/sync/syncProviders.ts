@@ -99,7 +99,7 @@ export function isSyncProviderAvailable(
 ): boolean {
   switch (kind) {
     case 'icloud':
-      // Only the iOS shell has an iCloud Drive transport today (no macOS one yet).
+      // The iOS app, and the macOS desktop app when iCloud Drive was available at launch.
       return platform.iCloudSyncSupported === true && platform.createICloudTransport !== undefined;
     case 'google_drive':
       return platform.googleOAuthConfigured;

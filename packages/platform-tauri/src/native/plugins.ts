@@ -30,13 +30,14 @@ import {
 import { openUrl } from '@tauri-apps/plugin-opener';
 import Database from '@tauri-apps/plugin-sql';
 import type { Files, PickedFile } from '@flash/platform';
-import type { SystemBrowserLauncher } from '@flash/platform-capacitor';
+import type { ICloudDocumentPlugin, SystemBrowserLauncher } from '@flash/platform-capacitor';
 import type { SecureSecretBackend } from '../auth/refresh-token-store.ts';
 import type { TauriLoopbackOAuthPlugin } from '../auth/tauri-google-auth.ts';
 import type { DesktopNotificationBridge } from '../reminders/desktop-reminders.ts';
 import { createAddDeviceUrlSourceFrom } from './add-device-url.ts';
 import type { TauriFsBridge, TauriFsDirEntry } from '../sources/tauri-fs-watcher.ts';
 import type { TauriSqlPluginDatabase } from '../storage/tauri-sqlite-storage.ts';
+import { createTauriICloudDocumentPlugin } from '../sync/tauri-icloud-bridge.ts';
 
 // ---------------------------------------------------------------------------
 // SQLite (tauri-plugin-sql, `sqlite:flashcards.db` in the app config dir)
@@ -73,6 +74,14 @@ export function createSecureSecretBackend(): SecureSecretBackend {
       await invoke('secure_store_delete', { account });
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// iCloud Drive (app commands in apps/desktop/src-tauri/src/icloud.rs; macOS only)
+// ---------------------------------------------------------------------------
+
+export function createICloudDocumentPlugin(): ICloudDocumentPlugin {
+  return createTauriICloudDocumentPlugin(invoke);
 }
 
 // ---------------------------------------------------------------------------

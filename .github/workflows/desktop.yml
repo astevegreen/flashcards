@@ -1,0 +1,80 @@
+name: Desktop builds
+
+# Compiles the Tauri desktop shell for macOS, including the macOS-only iCloud Drive code in
+# `apps/desktop/src-tauri/src/icloud.rs`, which no developer machine here can build. Unsigned: no
+# Apple account, certificate or iCloud entitlement is used, so it proves that the code compiles,
+# links and passes its unit tests. It does not sync with iCloud (see docs/native-shells.md
+# "macOS iCloud Drive sync").
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - 'packages/platform-tauri/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/desktop.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - 'packages/platform-tauri/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/desktop.yml'
+  # Weekly, to catch runner image changes (Xcode, Rust) before they block a release.
+  schedule:
+    - cron: '37 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Third-party actions are pinned to a full commit SHA (SonarCloud githubactions:S7637); the comment
+# names the release. GitHub's own actions/* keep their major tag, like ci.yml.
+
+jobs:
+  macos:
+    name: macOS (Tauri debug build, unsigned)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      # The macOS-only code is never compiled anywhere else, so its warnings fail the build here.
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The runner image ships rustup; use current stable.
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Tauri build (debug, no bundle, no signing)
+        run: pnpm --filter @flash/desktop build:debug
+
+      - name: The desktop binary was built
+        run: |
+          set -euo pipefail
+          binary=apps/desktop/src-tauri/target/debug/flashcards-desktop
+          test -x "$binary"
+          file "$binary"
+
+      - name: Rust unit tests (keychain allow-list, iCloud file layout)
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --locked

@@ -14,7 +14,13 @@ import type {
   StrokeDataProvider,
   SyncTransport,
 } from '@flash/platform';
-import { CapacitorNativePickerBridge, type SystemBrowserLauncher } from '@flash/platform-capacitor';
+import { SyncTransportError } from '@flash/core';
+import {
+  CapacitorNativePickerBridge,
+  ICloudDriveSyncTransport,
+  type ICloudDocumentPlugin,
+  type SystemBrowserLauncher,
+} from '@flash/platform-capacitor';
 import { TauriGoogleAuth, type TauriLoopbackOAuthPlugin } from './auth/tauri-google-auth.ts';
 import { TauriDesktopLicensePurchase } from './purchase/desktop-license-purchase.ts';
 import {
@@ -45,6 +51,11 @@ export {
   type TauriFsDirEntry,
 } from './sources/tauri-fs-watcher.ts';
 export { TauriSqliteStorage, type TauriSqlPluginDatabase } from './storage/tauri-sqlite-storage.ts';
+export {
+  createTauriICloudDocumentPlugin,
+  probeICloudAvailable,
+  type TauriInvoke,
+} from './sync/tauri-icloud-bridge.ts';
 
 export interface CreateTauriPlatformOptions {
   deviceId: string;
@@ -70,6 +81,11 @@ export interface CreateTauriPlatformOptions {
   dictionaryService?: DictionaryService;
   packCatalogUrl?: string;
   starterCatalogUrl?: string;
+  /**
+   * macOS iCloud Drive file I/O (createTauriICloudDocumentPlugin). Pass it only when iCloud was
+   * available at boot; it then becomes the "Sync my devices" default.
+   */
+  iCloudPlugin?: ICloudDocumentPlugin;
   /** Set when sign-in secrets could not be kept in the OS keychain. */
   secureStorageWarning?: string;
 }
@@ -117,6 +133,7 @@ export function createTauriPlatform(options: CreateTauriPlatformOptions): Platfo
       throw new Error('No sync transport connected yet.');
     },
   };
+  const iCloudPlugin = options.iCloudPlugin;
 
   return {
     deviceId: options.deviceId,
@@ -131,6 +148,20 @@ export function createTauriPlatform(options: CreateTauriPlatformOptions): Platfo
     googleOAuthConfigured: googleAuth.isConfigured(),
     googlePickerConfigured: Boolean(options.pickerPageUrl && options.googleApiKey),
     supportsLocalFolderSync: Boolean(options.fsBridge),
+    ...(iCloudPlugin
+      ? {
+          iCloudSyncSupported: true,
+          createICloudTransport: async (): Promise<SyncTransport> => {
+            if (iCloudPlugin.isAvailable && !(await iCloudPlugin.isAvailable())) {
+              throw new SyncTransportError(
+                'AUTH_REQUIRED',
+                'iCloud Drive is off. Sign in to iCloud in System Settings and turn on iCloud Drive.',
+              );
+            }
+            return new ICloudDriveSyncTransport(iCloudPlugin);
+          },
+        }
+      : {}),
     ...(options.secureStorageWarning ? { secureStorageWarning: options.secureStorageWarning } : {}),
     ...(options.packCatalogUrl ? { packCatalogUrl: options.packCatalogUrl } : {}),
     ...(options.starterCatalogUrl ? { starterCatalogUrl: options.starterCatalogUrl } : {}),

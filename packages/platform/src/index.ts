@@ -765,9 +765,12 @@ export interface PlatformServices {
   createOneDriveTransport?(): Promise<SyncTransport>;
   /** Optional OneDrive file picker for `.csv` / `.xlsx` / `.flashpkg` imports (lazy). */
   getOneDrivePicker?(): Promise<OneDriveFilePicker>;
-  /** iOS only: true when the iCloud Drive plugin is present (the user may still be signed out). */
+  /**
+   * Apple devices: true on iOS when the iCloud Drive plugin is present (the user may still be signed
+   * out), and on macOS when iCloud Drive was available at launch. Both use the same container.
+   */
   readonly iCloudSyncSupported?: boolean;
-  /** iOS only: iCloud Drive transport; throws when iCloud Drive is off or the user is signed out. */
+  /** iOS / macOS: iCloud Drive transport; throws when iCloud Drive is off or the user is signed out. */
   createICloudTransport?(): Promise<SyncTransport>;
   getGooglePicker(): Promise<GooglePickerAdapter>;
   getGoogleSourcesClient(): Promise<GoogleSourcesClient>;
