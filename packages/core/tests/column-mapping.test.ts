@@ -451,3 +451,47 @@ describe('importers honour an explicit mapping', () => {
     expect(targetsOf(grid, JA)).toEqual(['field:word', 'field:reading', 'field:meaning']);
   });
 });
+
+describe('guessColumnMapping: header and value edge cases', () => {
+  it('drops a trailing number from a header, with or without a space', () => {
+    const grid = [
+      ['Word 1', '예문1', 'Category 12', 'meaning'],
+      ['나무', '나무가 커요.', 'nature', 'tree'],
+    ];
+    expect(targetsOf(grid, KO, true)).toEqual([
+      'field:word',
+      'field:example',
+      'tags',
+      'field:meaning',
+    ]);
+  });
+
+  it('handles a header that is a long run of digits quickly', () => {
+    const header = `${'1'.repeat(20_000)}x${'2'.repeat(20_000)}`;
+    const started = Date.now();
+    const guess = guessColumnMapping(
+      [
+        ['word', header],
+        ['나무', 'tree'],
+      ],
+      KO,
+      {
+        hasHeaderRow: true,
+      },
+    );
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(guess.columns[0]?.target).toEqual({ kind: 'field', fieldKey: 'word' });
+  });
+
+  it('spots image URLs (with a query string) but not other file URLs', () => {
+    const grid = [
+      ['word', 'pic', 'doc'],
+      ['고양이', 'https://example.com/cat.JPG?w=200', 'https://example.com/cat.pdf'],
+      ['개', 'https://example.com/dog.webp', 'https://example.com/dog.pdf'],
+    ];
+    const [, pic, doc] = guessColumnMapping(grid, KO, { hasHeaderRow: true }).columns;
+    expect(pic?.target).toEqual({ kind: 'field', fieldKey: 'image' });
+    expect(pic?.reason).toBe('content');
+    expect(doc?.target).not.toEqual({ kind: 'field', fieldKey: 'image' });
+  });
+});
