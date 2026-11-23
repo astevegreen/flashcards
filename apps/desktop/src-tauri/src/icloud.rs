@@ -19,7 +19,7 @@ use serde::Serialize;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Must match the iOS entitlement (`App.entitlements`) so both apps open the same container.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -27,6 +27,13 @@ pub const CONTAINER_ID: &str = "iCloud.app.flashcards.localfirst";
 
 /// Hidden folder at the container root for atomic-replace temp files.
 const TEMP_DIR: &str = ".flashcards-tmp";
+
+/// A temp file older than this was left behind by a crash (a write takes seconds at most). Long
+/// enough that a write still in progress on another device, whose clock may be off, is never hit.
+const STALE_TEMP_AGE: Duration = Duration::from_secs(60 * 60);
+
+/// Placeholders are tiny property lists; anything bigger is not read.
+const MAX_PLACEHOLDER_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct IcloudError {
@@ -121,6 +128,16 @@ pub fn exists_locally_or_in_cloud(path: &Path) -> bool {
     path.exists() || placeholder_path(path).exists()
 }
 
+/// The real file's size recorded in an iCloud placeholder: `NSURLFileSizeKey` in its property list
+/// (binary or XML). `None` when the placeholder is not a property list or has no size.
+fn placeholder_size(bytes: &[u8]) -> Option<u64> {
+    let value = plist::Value::from_reader(io::Cursor::new(bytes)).ok()?;
+    value
+        .as_dictionary()?
+        .get("NSURLFileSizeKey")?
+        .as_unsigned_integer()
+}
+
 fn millis(meta: &fs::Metadata) -> Option<f64> {
     let since = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     Some((since.as_secs_f64() * 1000.0).round())
@@ -155,9 +172,14 @@ fn file_entry(
         return None;
     }
     let meta = entry.metadata().ok();
-    // A placeholder's own size is not the file's size; it is unknown until downloaded.
+    // A placeholder's own size is not the file's size: read the real one from its property list.
+    // 0 when that fails (the listed size is informational; the sync engine does not use it).
     let size = match &meta {
         Some(m) if !is_placeholder => m.len(),
+        Some(m) if m.len() <= MAX_PLACEHOLDER_BYTES => fs::read(entry.path())
+            .ok()
+            .and_then(|bytes| placeholder_size(&bytes))
+            .unwrap_or(0),
         _ => 0,
     };
     let updated_at = meta.as_ref().and_then(millis);
@@ -202,6 +224,41 @@ pub fn list_files(root: &Path, prefix: &str) -> Result<Vec<FileEntry>, IcloudErr
         }
     }
     Ok(found.into_values().map(|(f, _)| f).collect())
+}
+
+/// Whether `name` in the temp folder is one of `write_file`'s temp files (`<pid>-<nanos>.tmp`, or
+/// the iCloud placeholder of one another device left behind) and `age` makes it a crash leftover.
+fn is_stale_temp(name: &str, age: Option<Duration>) -> bool {
+    let name = placeholder_target(name).unwrap_or(name);
+    let Some((pid, nanos)) = name.strip_suffix(".tmp").and_then(|s| s.split_once('-')) else {
+        return false;
+    };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    digits(pid) && digits(nanos) && age.is_some_and(|a| a >= STALE_TEMP_AGE)
+}
+
+/// Deletes temp files that a write interrupted by a crash left in the temp folder. Best effort:
+/// errors are ignored. Returns how many were deleted.
+pub fn sweep_stale_temps(root: &Path, now: SystemTime) -> usize {
+    let Ok(entries) = fs::read_dir(root.join(TEMP_DIR)) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // A modification time in the future gives no age, so the file is kept.
+        let age = meta
+            .modified()
+            .ok()
+            .and_then(|m| now.duration_since(m).ok());
+        if meta.is_file() && is_stale_temp(&name, age) && fs::remove_file(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
 }
 
 pub fn read_file(
@@ -259,7 +316,7 @@ pub fn write_file(
     // Temp file in a hidden folder at the container root, outside every sync prefix (so neither
     // this walker nor the iOS metadata query lists it), then renamed over the target.
     let tmp_dir = root.join(TEMP_DIR);
-    let nanos = std::time::SystemTime::now()
+    let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let tmp = tmp_dir.join(format!("{}-{nanos}.tmp", std::process::id()));
@@ -492,7 +549,13 @@ pub async fn icloud_available() -> bool {
 
 #[tauri::command]
 pub async fn icloud_list_files(prefix: String) -> Result<Vec<FileEntry>, IcloudError> {
-    blocking(move || list_files(&root()?, &prefix)).await
+    blocking(move || {
+        let root = root()?;
+        // Every sync lists first, so crash leftovers go at the first sync after a restart.
+        sweep_stale_temps(&root, SystemTime::now());
+        list_files(&root, &prefix)
+    })
+    .await
 }
 
 /// Returns the raw bytes (an `ArrayBuffer` in the WebView, no JSON number array).
@@ -560,6 +623,87 @@ mod tests {
         Ok(())
     }
 
+    /// Shaped like the binary plist macOS writes for `.<name>.icloud`.
+    fn placeholder_plist(size: u64) -> Vec<u8> {
+        let mut dict = plist::Dictionary::new();
+        dict.insert("NSURLNameKey".into(), "remote.seg".into());
+        dict.insert("NSURLFileSizeKey".into(), size.into());
+        dict.insert(
+            "NSURLFileResourceTypeKey".into(),
+            "NSURLFileResourceTypeRegular".into(),
+        );
+        let mut out = Vec::new();
+        plist::to_writer_binary(&mut out, &plist::Value::Dictionary(dict)).unwrap();
+        out
+    }
+
+    #[test]
+    fn reads_the_size_from_placeholders() {
+        assert_eq!(placeholder_size(&placeholder_plist(123_456)), Some(123_456));
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>NSURLFileSizeKey</key><integer>42</integer></dict></plist>"#;
+        assert_eq!(placeholder_size(xml), Some(42));
+        assert_eq!(placeholder_size(b""), None);
+        assert_eq!(placeholder_size(b"bplist00garbage"), None);
+        let mut no_size = Vec::new();
+        plist::to_writer_binary(&mut no_size, &plist::Value::Dictionary(Default::default()))
+            .unwrap();
+        assert_eq!(placeholder_size(&no_size), None);
+    }
+
+    #[test]
+    fn matches_only_old_temp_files() {
+        let old = Some(STALE_TEMP_AGE);
+        let fresh = Some(STALE_TEMP_AGE - Duration::from_secs(1));
+        assert!(is_stale_temp("123-1700000000000000000.tmp", old));
+        assert!(is_stale_temp(".123-1700000000000000000.tmp.icloud", old));
+        assert!(!is_stale_temp("123-1700000000000000000.tmp", fresh));
+        assert!(!is_stale_temp("123-1700000000000000000.tmp", None));
+        for other in [
+            "manifest.json",
+            "123.tmp",
+            "-1.tmp",
+            "1-.tmp",
+            "a-1.tmp",
+            "1-2.tmp.bak",
+            "1-2-3.tmp",
+            ".1-2.tmp",
+        ] {
+            assert!(!is_stale_temp(other, old), "{other:?} should be kept");
+        }
+    }
+
+    #[test]
+    fn sweeps_temp_files_left_by_a_crash() {
+        let root = temp_root("sweep");
+        let tmp = root.join(TEMP_DIR);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("99-1.tmp"), b"partial").unwrap();
+        fs::write(tmp.join(".98-2.tmp.icloud"), b"plist").unwrap();
+        fs::write(tmp.join("notes.txt"), b"keep").unwrap();
+        fs::create_dir_all(root.join("sync")).unwrap();
+        fs::write(
+            root.join("sync").join("1-2.tmp"),
+            b"outside the temp folder",
+        )
+        .unwrap();
+
+        // Just written: kept.
+        assert_eq!(sweep_stale_temps(&root, SystemTime::now()), 0);
+        // An hour and more later the temp files go, and nothing else does.
+        let later = SystemTime::now() + STALE_TEMP_AGE + Duration::from_secs(60);
+        assert_eq!(sweep_stale_temps(&root, later), 2);
+        let left: Vec<_> = fs::read_dir(&tmp)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(left, ["notes.txt"]);
+        assert!(root.join("sync").join("1-2.tmp").exists());
+        assert_eq!(sweep_stale_temps(&root.join("absent"), later), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn refuses_unsafe_paths() {
         let root = Path::new("root");
@@ -613,13 +757,20 @@ mod tests {
     fn placeholders_stand_for_files_not_downloaded_yet() {
         let root = temp_root("placeholder");
         fs::create_dir_all(root.join("sync")).unwrap();
-        fs::write(root.join("sync").join(".remote.seg.icloud"), b"plist").unwrap();
+        fs::write(
+            root.join("sync").join(".remote.seg.icloud"),
+            placeholder_plist(4096),
+        )
+        .unwrap();
+        fs::write(root.join("sync").join(".broken.seg.icloud"), b"not a plist").unwrap();
         fs::write(root.join("sync").join(".DS_Store"), b"x").unwrap();
 
         let listed = list_files(&root, "sync").unwrap();
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].path, "sync/remote.seg");
+        let paths: Vec<&str> = listed.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["sync/broken.seg", "sync/remote.seg"]);
+        // The real size from the placeholder; 0 when it cannot be read.
         assert_eq!(listed[0].size, 0);
+        assert_eq!(listed[1].size, 4096);
 
         // Once downloaded, the real file wins over a placeholder that is still there.
         fs::write(root.join("sync").join(".local.seg.icloud"), b"plist").unwrap();
