@@ -7,11 +7,11 @@ Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). The owner'
 - [x] **Secure-store bridge for phone tokens (release blocker): code complete, not yet built natively.** `@flash/capacitor-secure-storage` (`packages/capacitor-secure-storage`): iOS Keychain (after first unlock, this device only, no iCloud sync) and an Android Keystore AES-GCM key over app-private SharedPreferences. The Microsoft refresh token, the Google and OneDrive session access tokens and the BYO TTS config live only there. Older copies are migrated at launch. Phone OneDrive refreshes go through CapacitorHttp, because the capgo plugin writes refreshed tokens back to plaintext storage. Google on Android had the same problem: the plugin writes the ID and access token, but no refresh token, to plaintext SharedPreferences, and the app now deletes that copy. Google on iOS uses the SDK's Keychain. Evidence with file and line: `docs/native-shells.md` "Phone secure storage".
 - [x] **Android Microsoft redirect:** Custom Tabs (`androidUseCustomTabs`) plus a `flashcards://oauth` intent filter. The plugin checks state and PKCE natively. Android Auto Backup now excludes the token SharedPreferences files.
 - [x] **"Sync my devices":** one button in Settings, on the empty screen and in the one-time prompt. iCloud is the default where an iCloud transport exists (iOS only today); Google Drive is the default elsewhere. The other providers are listed below it.
-- [x] **Add-device QR code and link (web build):** they carry the provider code and the manifest `collection_id` only. The receiving device parses them against an allow-list, strips them from the URL, and never shows onboarding while it joins a collection. Native shells show text instructions only (see the decisions below).
+- [x] **Add-device QR code and link (web build):** they carry the provider code and the manifest `collection_id` only. The receiving device parses them against an allow-list, strips them from the URL, and never shows onboarding while it joins a collection. Native shells first showed text instructions only; they now show a QR code and a `flashcards://add-device` link too (PR #20, see below).
 - [x] **Guided "Bring my cards" import** in the Library. Detection reads the content, not the extension: Flashcards Deluxe/plain CSV and TSV, Anki `.apkg` (anki2/anki21/anki21b), `.flashpkg`, and Google Sheets links. It routes to the existing importers. Non-UTF-8 CSV and `.xls` files get a "Save as CSV UTF-8" hint.
 - [x] **Curated starter decks (partial):** "Korean Starter: Beginner Words" (145 notes: the NIKL 2003 level-A list under KOGL Type 1, with English meanings from Wikidata lexemes under CC0) and "Mandarin Basics: Common Characters" (150 characters from Unihan 17.0.0 under the Unicode License v3). Both are built by `scripts/build-starter-decks.mjs`, load lazily, and are attributed on every card and in `THIRD-PARTY-NOTICES.txt`. Japanese and English keep their sample decks (see the decisions below).
 - [x] **Cloudflare Pages `_headers`** is committed in `apps/web/public`. `apps/web/tests/headers.test.ts` keeps it in sync with `PRODUCTION_CSP` and with §6 of the setup guide.
-- [x] **Anki `kana:` / `kanji:` fields** store readings only or bases only, like Anki. A field used with mixed filters keeps ruby.
+- [x] **Anki `kana:` / `kanji:` fields** first stored readings only or bases only, like Anki. PR #17 (2026-11-23) replaced that: import keeps the full ruby, and a per-layout `ruby_display` flag decides what shows (see "Import" below).
 - [x] **Anki field languages:** the detected language of each field is shown in the import summary, where it can be changed.
 - [x] **Anki suspended state** (`queue = -1`) imports as `CardSuspended` (reason `manual`), unless the card already has suspend history in the app. Buried cards import as normal.
 - [x] **Anki media:** every image and sound reference in a field is kept, up to 20 of each, with a warning when more are dropped.
@@ -28,23 +28,23 @@ The owner answered every open decision on 2026-11-22. **To build** marks work th
 - [x] **Mandarin: kept.** Common characters from Unihan (Unicode License v3), not HSK words under CC BY-SA.
 - [x] **Korean is NIKL level A (beginner), not TOPIK I: kept.**
 - [x] **Deck size of about 150 notes (`STARTER_DECK_SIZE`): kept.**
-- [ ] **To build: gloss spot-check report.** List the vague, encyclopedic or wrong Wikidata glosses (개 "domestic animal") and terse Unihan `kDefinition` glosses in both starter decks, each with a suggested fix and the licence of the fix's source. Nothing is hand-edited: the owner reviews the report first, and fixes have to go through `scripts/build-starter-decks.mjs`.
+- [x] **Gloss spot-check report (PR #16, 2026-11-23):** written as `docs/starter-gloss-review.md`. Still open: the owner reviews it and decides which fixes to take. No generated deck was edited, and accepted fixes have to go through `scripts/build-starter-decks.mjs`. Original brief: List the vague, encyclopedic or wrong Wikidata glosses (개 "domestic animal") and terse Unihan `kDefinition` glosses in both starter decks, each with a suggested fix and the licence of the fix's source. Nothing is hand-edited: the owner reviews the report first, and fixes have to go through `scripts/build-starter-decks.mjs`.
 - [x] **Korean homographs** (그, 이, 일, 팔): kept as they are. The `vocab-ko` template doesn't change.
 - [x] **Attribution placement: kept.** The per-card credit in Notes stays. Nothing is added to Settings > About or to onboarding.
 - [x] **English starter deck: kept.** It keeps the sample deck, and no source research is planned.
 
 ### Sync and add-device
 
-- [ ] **To build: native add-device QR code and link with a `flashcards://add-device` deep link.** It needs no domain. It uses the same payload (the provider code and the manifest `collection_id`) and the same allow-list parsing and URL stripping as the web build. Register the scheme for Android (intent filter), iOS (`CFBundleURLTypes`) and Tauri (deep-link plugin). Show the QR code in native shells. App Links and universal links wait for the §16 domain decision.
-- [ ] **To build: macOS iCloud transport** for the Tauri desktop app, matching the iOS iCloud Drive transport (the ubiquity container and the same file layout, so iOS and macOS share one collection). Once it exists, iCloud becomes the "Sync my devices" default on macOS. It can't be built or signed on the Windows machine: compile it in macOS CI, and list the entitlements and Apple-side setup the owner has to do.
-- [ ] **To build: merge the duplicate Google Drive entry.** Keep "Sync my devices" at the top, and hide a provider's own Connect button while that provider is the active sync choice.
-- [ ] **To build: ask before adopting a different collection.** On a collection mismatch, offer "Use the synced collection" or "Keep this device's cards" before the engine switches. Both choices keep every event, so either can be undone.
+- [x] **Native add-device QR code and link with a `flashcards://add-device` deep link (PR #20, 2026-11-23).** Not yet tried on a real phone or desktop (see "Not verified"). Original brief: It needs no domain. It uses the same payload (the provider code and the manifest `collection_id`) and the same allow-list parsing and URL stripping as the web build. Register the scheme for Android (intent filter), iOS (`CFBundleURLTypes`) and Tauri (deep-link plugin). Show the QR code in native shells. App Links and universal links wait for the §16 domain decision.
+- [ ] **macOS iCloud transport (PR #22, 2026-11-23): built, but unsigned and untested on a Mac.** The Tauri iCloud Drive transport and the new `.github/workflows/desktop.yml` unsigned macOS CI build are merged. Remaining: wire the entitlements into `tauri.conf.json` (needs a signing identity and provisioning profile), sign and notarize, and test real iCloud sync on a Mac (see "Decisions needed (overnight)"). Original brief: **macOS iCloud transport** for the Tauri desktop app, matching the iOS iCloud Drive transport (the ubiquity container and the same file layout, so iOS and macOS share one collection). Once it exists, iCloud becomes the "Sync my devices" default on macOS. It can't be built or signed on the Windows machine: compile it in macOS CI, and list the entitlements and Apple-side setup the owner has to do.
+- [x] **Merged the duplicate Google Drive entry (PR #20, 2026-11-23).** Original brief: Keep "Sync my devices" at the top, and hide a provider's own Connect button while that provider is the active sync choice.
+- [x] **Ask before adopting a different collection (PR #20, 2026-11-23).** Original brief: On a collection mismatch, offer "Use the synced collection" or "Keep this device's cards" before the engine switches. Both choices keep every event, so either can be undone.
 - [x] **A device with cards opened from an add-device link** goes to Settings once per page load: kept.
 
 ### Import
 
 - [x] **Anki pre-import summary (2026-11-22).** A picked or detected `.apkg` is read once (with its review history) and converted as a dry run. The summary lists notes, decks (new or existing), note types, media, suspended cards and how many reviews could come along. Nothing is imported until Import is pressed, and "Include review history" stays off unless ticked. Import converts again against the current collection. The Library's "Import Anki (.apkg)" panel works the same way.
-- [ ] **To build: keep ruby for `kana:` / `kanji:` and add a render flag.** Import stores the full ruby. A per-layout flag (readings only, bases only or both) decides what's shown, so no text is lost. Cards imported before the change keep their reduced text.
+- [x] **Keep ruby for `kana:` / `kanji:` and add a render flag (PR #17, 2026-11-23):** readings, bases or both, per layout (`ruby_display`). Original brief: Import stores the full ruby. A per-layout flag (readings only, bases only or both) decides what's shown, so no text is lost. Cards imported before the change keep their reduced text.
 - [x] **Column-mapping step (2026-11-22)** for CSV/TSV, Flashcards Deluxe, Excel `.xlsx` (first sheet), rows pasted into the Bring my cards text box, and Google Sheets.
   - **The guess** (`@flash/core/import-mapping`): header names first (field keys and labels, then English and Korean synonyms, so `word / definition / example / category1-3` maps with no changes). Then the first 20 rows (script, length, repeated values, media URLs). Then column order.
   - **The note type and language** of a new deck are guessed from the script of the rows. Whether row 1 holds column names is guessed too, and can be switched.
@@ -58,15 +58,15 @@ The owner answered every open decision on 2026-11-22. **To build** marks work th
 
 ### Phone secure storage
 
-- [ ] **To build: say why after a lost Keystore key.** When stored secrets are dropped because the Keystore or Keychain key is gone, tell the user once why they have to sign in again, instead of signing them out silently. Moving the BYO TTS key and wiping leftover Keychain items on a fresh install stay as they are.
+- [ ] **Say why after a lost Keystore key: Android done (PR #20, 2026-11-23); iOS not done.** The Keychain-loss case is not detected, so iOS still signs the user out silently. Original brief: When stored secrets are dropped because the Keystore or Keychain key is gone, tell the user once why they have to sign in again, instead of signing them out silently. Moving the BYO TTS key and wiping leftover Keychain items on a fresh install stay as they are.
 - [x] The plugin's WebView fallback, used only when no browser at all can open the sign-in page: kept.
 - [x] The SQLite database stays in Android backups; only the token files are excluded: kept.
 
 ### UX feedback (owner, 2026-11-22)
 
 - [x] **#1 Remove "Paste CSV / TSV":** done in the column-mapping change (PR #14).
-- [ ] **To build: #2 language-aware menus and settings.** Options that apply only to one language (furigana and `kana:`/`kanji:` import options, Hanja, pinyin, stroke order, per-language TTS voices and so on) appear only when that language is in the collection or was chosen at onboarding. Adding a language later brings its options back. Nothing is deleted, and an imported deck in a new language counts as adding that language.
-- [ ] **To build: #3 explain tags.** Add a short "How tags work" panel in the tag manager and Browse. It covers tags as categories, the `::` hierarchy, and filtering Browse and Study sets. Add a hint on the import mapping step where category columns become tags.
+- [ ] **#2 language-aware menus and settings: mostly done (PR #23, 2026-11-23).** `deriveActiveLanguages` in core drives the menus and settings. Remaining: the owner questions and nits under "Decisions needed (overnight)" and "Leftover nits and known limitations" (no add-a-language control, pack manager and dictionary pack tabs not filtered). Original brief: Options that apply only to one language (furigana and `kana:`/`kanji:` import options, Hanja, pinyin, stroke order, per-language TTS voices and so on) appear only when that language is in the collection or was chosen at onboarding. Adding a language later brings its options back. Nothing is deleted, and an imported deck in a new language counts as adding that language.
+- [x] **#3 explain tags (PR #21, 2026-11-23):** a "How tags work" panel and an import hint. Original brief: Add a short "How tags work" panel in the tag manager and Browse. It covers tags as categories, the `::` hierarchy, and filtering Browse and Study sets. Add a hint on the import mapping step where category columns become tags.
 - [x] **#4 Linked sources on PC:** this was never a PC limit. Linked OneDrive sources hadn't been built yet. They're now To build (see "OneDrive" below).
 - [x] **#5 Dictionary browsing without typing, in both directions:** done in PR #13.
 - [x] **#6 Differently structured files:** done in the column-mapping step (PR #14).
@@ -78,7 +78,9 @@ Only Chromium Playwright with faked endpoints has covered these.
 - [ ] **`@flash/capacitor-secure-storage` on devices.** Its Java and Swift code now compiles in CI (`.github/workflows/native.yml`: Gradle `assembleDebug` and an unsigned Simulator `xcodebuild`, PR #10). It has never run on a device. Still to check there: the Keychain/Keystore round trip, the Custom Tabs OneDrive redirect (including a WebView older than Chromium M130), migration of an existing plaintext token on upgrade, backup exclusions, and the CapacitorHttp refresh against real Entra.
 - [ ] Capacitor `pickFile({ maxBytes })`: `@capawesome/capacitor-file-picker` with `readData: false`, then `Filesystem.readFile` on the returned path (an Android `content://` URI or an iOS temporary file). Never run on a device.
 - [ ] Recheck the capgo plugin's internal plaintext key names (`packages/platform-capacitor/src/secure/secure-store.ts` and the native allowlists) on every `@capgo/capacitor-social-login` upgrade. They are pinned for 8.7.x.
-- [ ] Add-device QR codes scanned with a real phone camera.
+- [ ] Add-device QR codes scanned with a real phone camera, and the `flashcards://add-device` deep link opened on Android, iOS and Tauri.
+- [ ] Real iCloud Drive sync on macOS, and a signed Mac build (PR #22 is compiled in CI only).
+- [ ] Capacitor and Tauri shells running the language-aware menus (PR #23 was checked in the web build only).
 - [ ] Second device fully synced within 2 minutes with one sign-in (the Phase 14 target). It has not been measured, because the e2e sign-in is faked.
 - [ ] Tauri loopback Microsoft sign-in end to end, including whether `tauri-plugin-http` sends an `Origin` header that Entra rejects (AADSTS9002327).
 - [ ] Capacitor Microsoft sign-in on Android and iOS. From reading the code, `SocialLogin.initialize` with only the oauth2 config re-creates only that provider and keeps the Google config, but this hasn't been seen on a device.
@@ -119,7 +121,7 @@ Only Chromium Playwright with faked endpoints has covered these.
 
 ### OneDrive
 
-- [ ] **To build (approved 2026-11-22): linked OneDrive sources** for `.xlsx` and `.csv` files that refresh like Google Sheets sources, reusing the column-mapping step and `SourceRef.column_map`. Today the picker is a one-shot import.
+- [x] **Linked OneDrive sources (PR #19, 2026-11-23):** `.csv`, `.tsv` and `.xlsx` files refresh like Google Sheets, with the column-mapping step and rename reconciliation. Real Microsoft Graph is unverified (see "Not verified"). Original brief: **linked OneDrive sources** for `.xlsx` and `.csv` files that refresh like Google Sheets sources, reusing the column-mapping step and `SourceRef.column_map`. Today the picker is a one-shot import.
 - Not planned: a web fallback without the token-helper, and Microsoft's hosted File Picker v8.
 
 ## Phase 10 remainder (audited 2026-11-22)
@@ -138,8 +140,87 @@ Only Chromium Playwright with faked endpoints has covered these.
 - [ ] **Check the KRDict topic attribute names on a real export.** The parser accepts `subjectCategory` / `semanticCategory` and the Korean labels (`주제 및 상황 범주`, `의미 범주`). If the first `build-packs.mjs --full` run gives no topics, find the real names in the XML and add them to `KRDICT_SUBJECT_CATEGORY_ATTS` / `KRDICT_SEMANTIC_CATEGORY_ATTS` in `scripts/packs/upstream-parsers.mjs`.
 - [ ] **Measure the full KRDict pack.** It has never been built here. Packs over 25 MiB fail the build; first-syllable sharding isn't written.
 - [ ] **KRDict audio licence:** not checked. Audio is skipped, and the dictionary has no speaker button, so the TTS fallback isn't wired either.
-- [ ] **Related, synonym and antonym links:** not parsed yet.
-- [ ] **Korean definitions (`definitionNative`):** parsed but not shown.
-- [ ] **Japanese deinflection** (`食べた` → `食べる`) and Korean-style ranking for `ja` / `zh-Hans`. English lookup there uses the generic meaning tokens.
+- [x] **Related, synonym and antonym links (PR #18, 2026-11-23):** parsed from KRDict and shown as links. The `SenseRelation` attribute names (`lemma` / `writtenForm`) are unverified against a real export.
+- [x] **Korean definitions (`definitionNative`) (PR #18, 2026-11-23):** now shown.
+- [x] **Japanese deinflection** (`食べた` → `食べる`) and Korean-style ranking for `ja` / `zh-Hans` (PR #18, 2026-11-23).
 - [ ] **Owner decision, licences:** 우리말샘, 표준국어대사전 (CC BY-SA 2.0 KR) and Kaikki Wiktionary (CC BY-SA 4.0) are share-alike, and kengdic's licence is unclear. None goes in without the owner's OK. With one source, there is nothing for the merge pipeline (unify, rank, dedupe) to do yet.
 - [ ] **Owner decision:** whether to license a commercial Korean–English dataset as a premium pack.
+
+## Decisions needed (overnight)
+
+Defaults the overnight children (2026-11-22/23) picked for the owner. Each stays shipped until decided.
+
+- [ ] **#23, archived decks and language:** archived decks count toward a language today. Should archiving the only Japanese deck hide furigana?
+- [ ] **#23, "add a language" control:** the brief mentioned one in Settings. It was not built.
+- [ ] **#23, offline pack manager and Hanja/Kanji dictionary pack tabs:** not filtered by language.
+- [ ] **#23, Ruby toggle for Korean-only and Chinese collections:** they keep the Ruby toggle and the per-layout ruby selector, because Hanja and pinyin ruby is a ko/zh feature. The brief had furigana as Japanese-only. Confirm.
+- [ ] **#6/#21, tag copy:** it uses both "tag" and "category". The How tags work panel opens by default in the tag manager until first dismissed.
+- [ ] **#20, iOS Keychain loss:** not detected. The notice is Android-only.
+- [ ] **#22, macOS iCloud setup:**
+  - Entitlements are not wired into `tauri.conf.json`; that needs a signing identity and a provisioning profile.
+  - Distribution is assumed to be Developer ID, not the Mac App Store.
+  - The macOS App ID reuses `app.flashcards.localfirst`. It has to be in the same Apple team as the iOS app for a shared container.
+  - Macs where iCloud was off at launch still list iCloud Drive as an alternative.
+  - Unsigned Mac builds show a non-working "Use iCloud Drive" option with a misleading sign-in error until the entitlements are wired.
+- [ ] **#18, provenance:** two hand-written starter definitions (춥다, 먹다) were reworded independently after looking too close to 표준국어대사전. Hand-written definitions still carry a KRDict badge.
+- [ ] **Starter-deck gloss report (#16):** review `docs/starter-gloss-review.md` and pick the fixes.
+- [ ] **Dependabot PR #4 (TypeScript 6):** open and untouched.
+- [ ] **Still open from Phase 10, untouched:** the KRDict audio licence, and the share-alike dictionary sources (see "Phase 10 remainder").
+
+## Leftover nits and known limitations
+
+### #17 Ruby for Anki `kana:` / `kanji:`
+
+- [ ] A typed (`{{type:F}}`) field that is shown more than one way elsewhere isn't reduced, so grading expects bases.
+- [ ] `matchTypedAnswer` is not exercised in a test.
+- [ ] Choice dedupe and draw grading ignore the ruby flag (hand-made layouts only).
+- [ ] Browse search for a reading phrase that spans ruby groups no longer matches.
+
+### #18 Dictionary
+
+- [ ] An exact `altForm` match isn't counted in the guessed-lemma cap.
+- [ ] An exact hit in a filtered-out pack still caps.
+- [ ] KRDict full-pack measurement, the topic attribute check and first-syllable sharding are not done. The upstream data is a manual download.
+- [ ] The `SenseRelation` attribute (`lemma` / `writtenForm`) is unverified against a real export.
+
+### #19 Linked OneDrive sources
+
+- [ ] 4 SonarCloud complexity and await-in-loop items are left.
+- [ ] Unlink is per device: another device that syncs the deck re-lists it.
+- [ ] Apply on an archived deck says "already up to date".
+- [ ] Real Microsoft Graph is unverified.
+- [ ] `.xlsx` links can't be read on phone and Tauri shells; they are skipped quietly.
+
+### #20 Sync and devices
+
+- [ ] The AppContext comment says Keystore/Keychain, but the notice is Android-only.
+- [ ] While a collection choice is pending, the sidebar badge calls `syncNow` instead of opening Settings.
+- [ ] An in-flight sync can re-show the choice after "Keep this device's cards".
+
+### #21 How tags work
+
+- [ ] The Browse guide reappears after the tag manager closes.
+- [ ] Heading level in the tag manager panel.
+- [ ] The import hint shows even when there is no tags column.
+- [ ] No phone-width (320-360 px) test.
+
+### #22 macOS iCloud Drive
+
+- [ ] No `NSFileCoordinator`, and a directory walk instead of `NSMetadataQuery` (untested on a Mac).
+- [ ] Placeholder timestamps are approximate, and undownloaded files are listed with size 0.
+- [ ] Stale temp files after a crash are never swept.
+- [ ] `docs/native-shells.md` lists four app commands; there are now five (add `icloud_supported`).
+
+### #23 Language-aware menus
+
+- [ ] The built-in Cloze and Sentence note types tag their fields ja/en, so Korean and Chinese cloze/sentence decks wrongly activate the ja/en options.
+- [ ] New flip layouts always get `hide_furigana_on_front: true`, even in English-only collections.
+- [ ] `useActiveLanguages` repeats a dynamic import per hook.
+- [ ] DictionaryPanel's `initialDrawOpen` is silently suppressed when no CJK language is active.
+
+### Unverified overall
+
+- [ ] On-device QR scans and deep links.
+- [ ] Real iCloud sync and signed Mac builds.
+- [ ] Real Graph/OneDrive.
+- [ ] The Capacitor and Tauri shells were not run for #23.
