@@ -12,6 +12,7 @@ import {
 } from '../events/replay.ts';
 import type { DeckFSRSParamsChangedPayload } from '../events/types.ts';
 import type { ReviewRating, ReviewRecord } from '../model/types.ts';
+import { getEffectiveDeckSettings } from '../decks/fold.ts';
 import { resolveDayStartHour } from '../study/queue.ts';
 import { getStudyDayIndex } from '../fsrs/scheduler.ts';
 
@@ -124,33 +125,49 @@ export function countEligibleReviews(reviews: readonly OptimizerReview[]): numbe
  * first active review using the replay comparator.
  */
 export function collectOptimizerDataset(state: CollectionState, deckId: string): OptimizerDataset {
-  const deck = state.decks.get(deckId);
-  const dayStartHour = resolveDayStartHour(
-    deck?.settings.day_start_hour,
-    state.preferences.day_start_hour,
-  );
-  const perCard: { cardId: string; reviews: ReviewRecord[] }[] = [];
-  for (const cardId of state.cardIdsByDeck.get(deckId) ?? []) {
-    const reviews = activeReviewsFor(state, cardId);
-    if (reviews.length > 0) perCard.push({ cardId, reviews });
+  return collectPooledOptimizerDataset(state, [deckId], deckId);
+}
+
+/**
+ * Pools the review histories of several decks (a deck option preset's decks) into one dataset.
+ * Each card keeps its own deck's day rollover; cards are ordered across all decks by their first
+ * active review, so the result does not depend on the order of `deckIds`. `datasetId` becomes
+ * the dataset's `deck_id`.
+ */
+export function collectPooledOptimizerDataset(
+  state: CollectionState,
+  deckIds: readonly string[],
+  datasetId: string,
+): OptimizerDataset {
+  const perCard: { cardId: string; reviews: ReviewRecord[]; dayStartHour: number }[] = [];
+  for (const deckId of new Set(deckIds)) {
+    const deck = state.decks.get(deckId);
+    const dayStartHour = resolveDayStartHour(
+      deck?.settings.day_start_hour,
+      state.preferences.day_start_hour,
+    );
+    for (const cardId of state.cardIdsByDeck.get(deckId) ?? []) {
+      const reviews = activeReviewsFor(state, cardId);
+      if (reviews.length > 0) perCard.push({ cardId, reviews, dayStartHour });
+    }
   }
   perCard.sort((a, b) => {
     const [ra] = a.reviews;
     const [rb] = b.reviews;
-    return ra && rb ? compareReviewRecords(ra, rb) : 0;
+    return (ra && rb ? compareReviewRecords(ra, rb) : 0) || (a.cardId < b.cardId ? -1 : 1);
   });
 
   const histories: OptimizerHistory[] = [];
   let reviewCount = 0;
   let eligible = 0;
-  for (const { cardId, reviews } of perCard) {
+  for (const { cardId, reviews, dayStartHour } of perCard) {
     const history = toHistory(cardId, reviews, dayStartHour);
     histories.push(history);
     reviewCount += reviews.length;
     eligible += countEligibleReviews(history.reviews);
   }
   return {
-    deck_id: deckId,
+    deck_id: datasetId,
     histories,
     review_count: reviewCount,
     eligible_review_count: eligible,
@@ -305,10 +322,17 @@ export function buildOptimizedParamsPayload(
     effective_from: options.nowMs,
     params: {
       ...current,
-      request_retention: deck?.settings.target_retention ?? current.request_retention,
+      request_retention: deck
+        ? getEffectiveDeckSettings(state, deck).target_retention
+        : current.request_retention,
       w: [...weights],
     },
   };
   if (options.rescheduleExisting) payload.reschedule_existing = true;
   return payload;
+}
+
+/** FSRS-6 weights for a stored weight vector (defaults when absent), e.g. a deck preset's. */
+export function resolveFsrs6Weights(w: readonly number[] | undefined): number[] {
+  return migrateFSRS6Parameters(w ? Array.from(w) : undefined);
 }

@@ -1,7 +1,13 @@
 import {
   buildStudyQueue,
   compareCodeUnits,
+  getDeckFolder,
+  getDeckOrganization,
+  getDeckPreset,
+  getEffectiveDeckSettings,
   getEnabledLayoutsForDeck,
+  listDeckFolders,
+  listDeckPresets,
   uuidv7,
   type AnswerMode,
   type RubyDisplay,
@@ -20,6 +26,8 @@ import { CoursesPanel } from '../components/CoursesPanel.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
 import { LayoutRequiredFieldList } from '../library/LayoutRequiredFieldList.tsx';
 import { RubyDisplaySelect } from '../library/RubyDisplaySelect.tsx';
+import { DeckOrganizationPanel } from '../library/DeckOrganizationPanel.tsx';
+import { useDeckOrganization } from '../library/useDeckOrganization.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
@@ -67,6 +75,25 @@ function DeckOptionsPanel({
   onUpdateLayout: (layout: Layout) => void;
 }) {
   const { platform, state, stateVersion, rescheduleDeck } = useApp();
+  const organize = useDeckOrganization();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const deckPreset = useMemo(() => getDeckPreset(state, deck.id), [state, stateVersion, deck.id]);
+  const deckFolder = useMemo(
+    () => getDeckFolder(state, deck.id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, stateVersion, deck.id],
+  );
+  const presets = useMemo(
+    () => listDeckPresets(state),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, stateVersion],
+  );
+  const folders = useMemo(
+    () => listDeckFolders(state),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, stateVersion],
+  );
+  const effectiveRetention = getEffectiveDeckSettings(state, deck).target_retention;
   const rubyLanguage = useActiveLanguages().hasFeature('ruby');
   const [rescheduleStatus, setRescheduleStatus] = useState<string | null>(null);
   const [newPerDayDraft, setNewPerDayDraft] = useState(String(deck.settings.new_cards_per_day));
@@ -297,62 +324,129 @@ function DeckOptionsPanel({
     <div className="mt-4 flex flex-col gap-4 border-t border-[var(--border)] pt-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-[var(--muted)]">New cards / day</span>
-          <input
-            type="number"
-            min={0}
-            max={999}
-            value={newPerDayDraft}
-            onChange={(e) => {
-              setNewPerDayDraft(e.target.value);
-              const v = Number(e.target.value);
-              if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 0 && v <= 999) {
-                onUpdateSettings(deck.id, { settings: { new_cards_per_day: Math.round(v) } });
-              }
-            }}
-            onBlur={commitNewPerDay}
+          <span className="text-[var(--muted)]">Folder</span>
+          <select
+            aria-label="Deck folder"
+            data-testid={`deck-folder-select-${deck.id}`}
+            value={deckFolder?.id ?? ''}
+            onChange={(e) => organize.setDeckFolder(deck.id, e.target.value || null)}
             className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
-          />
+          >
+            <option value="">No folder</option>
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
         </label>
 
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-[var(--muted)]">Max reviews / day</span>
-          <input
-            type="number"
-            min={1}
-            max={9999}
-            value={maxRevDraft}
-            onChange={(e) => {
-              setMaxRevDraft(e.target.value);
-              const v = Number(e.target.value);
-              if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 1 && v <= 9999) {
-                onUpdateSettings(deck.id, { settings: { max_reviews_per_day: Math.round(v) } });
-              }
-            }}
-            onBlur={commitMaxRev}
+          <span className="text-[var(--muted)]">Options</span>
+          <select
+            aria-label="Deck options preset"
+            data-testid={`deck-preset-select-${deck.id}`}
+            value={deckPreset?.id ?? ''}
+            onChange={(e) => organize.setDeckPreset(deck.id, e.target.value || null)}
             className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
-          />
+          >
+            <option value="">This deck’s own settings</option>
+            {presets.map((p) => (
+              <option key={p.id} value={p.id}>
+                Preset: {p.name}
+              </option>
+            ))}
+          </select>
         </label>
 
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="text-[var(--muted)]">Target retention (0.70–0.99)</span>
-          <input
-            type="number"
-            step={0.01}
-            min={0.7}
-            max={0.99}
-            aria-label="Target retention"
-            value={retentionDraft}
-            onChange={(e) => setRetentionDraft(e.target.value)}
-            onBlur={commitRetention}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                commitRetention();
-              }
-            }}
-            className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
-          />
-        </label>
+        {!deckPreset && (
+          <div className="flex items-end">
+            <button
+              type="button"
+              data-testid={`save-as-preset-${deck.id}`}
+              onClick={() => organize.createPreset(`${deck.name} options`, deck.id)}
+              className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-[var(--surface-2)]"
+            >
+              Save these settings as a preset
+            </button>
+          </div>
+        )}
+      </div>
+
+      {deckPreset && (
+        <p
+          data-testid={`deck-preset-summary-${deck.id}`}
+          className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--muted)]"
+        >
+          Uses the preset “{deckPreset.name}”: {deckPreset.settings.new_cards_per_day} new cards and
+          up to {deckPreset.settings.max_reviews_per_day} reviews a day for this deck, target
+          retention {deckPreset.settings.target_retention}. Edit the preset under Folders and option
+          presets.
+        </p>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {!deckPreset && (
+          <>
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="text-[var(--muted)]">New cards / day</span>
+              <input
+                type="number"
+                min={0}
+                max={999}
+                value={newPerDayDraft}
+                onChange={(e) => {
+                  setNewPerDayDraft(e.target.value);
+                  const v = Number(e.target.value);
+                  if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 0 && v <= 999) {
+                    onUpdateSettings(deck.id, { settings: { new_cards_per_day: Math.round(v) } });
+                  }
+                }}
+                onBlur={commitNewPerDay}
+                className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="text-[var(--muted)]">Max reviews / day</span>
+              <input
+                type="number"
+                min={1}
+                max={9999}
+                value={maxRevDraft}
+                onChange={(e) => {
+                  setMaxRevDraft(e.target.value);
+                  const v = Number(e.target.value);
+                  if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 1 && v <= 9999) {
+                    onUpdateSettings(deck.id, { settings: { max_reviews_per_day: Math.round(v) } });
+                  }
+                }}
+                onBlur={commitMaxRev}
+                className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="text-[var(--muted)]">Target retention (0.70–0.99)</span>
+              <input
+                type="number"
+                step={0.01}
+                min={0.7}
+                max={0.99}
+                aria-label="Target retention"
+                value={retentionDraft}
+                onChange={(e) => setRetentionDraft(e.target.value)}
+                onBlur={commitRetention}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    commitRetention();
+                  }
+                }}
+                className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm"
+              />
+            </label>
+          </>
+        )}
 
         <label className="flex flex-col gap-1 text-xs">
           <span className="text-[var(--muted)]">New card order</span>
@@ -412,7 +506,7 @@ function DeckOptionsPanel({
             if (
               typeof window !== 'undefined' &&
               !window.confirm(
-                `Reschedule every card in "${deck.name}" using the current target retention (${deck.settings.target_retention})? Past review history is kept; only due dates are recalculated.`,
+                `Reschedule every card in "${deck.name}" using the current target retention (${effectiveRetention})? Past review history is kept; only due dates are recalculated.`,
               )
             ) {
               return;
@@ -431,7 +525,11 @@ function DeckOptionsPanel({
       </div>
 
       <Suspense fallback={null}>
-        <LazyFsrsOptimizerPanel deck={deck} />
+        {deckPreset ? (
+          <LazyFsrsOptimizerPanel preset={deckPreset} />
+        ) : (
+          <LazyFsrsOptimizerPanel deck={deck} />
+        )}
       </Suspense>
 
       {(rubyLanguage || noteTypeLayouts.some((l) => l.ruby_display)) &&
@@ -680,9 +778,11 @@ function DeckOptionsPanel({
 
 export interface LibraryScreenProps {
   onStudyDeck: (deckId: string) => void;
+  /** "Study folder": one session over every deck in a folder. */
+  onStudyFolder?: (folder: { name: string; deckIds: string[] }) => void;
 }
 
-export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
+export function LibraryScreen({ onStudyDeck, onStudyFolder }: LibraryScreenProps) {
   const {
     platform,
     state,
@@ -747,6 +847,9 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
 
   const nowMs = Date.now();
   const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
+  const queues = new Map(
+    decks.map((d) => [d.id, buildStudyQueue(state, { deckId: d.id, nowMs, tzOffsetMinutes })]),
+  );
 
   const viewingPage = viewingPageId ? state.pages.get(viewingPageId) : undefined;
 
@@ -927,6 +1030,183 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     );
   }
 
+  const renderDeckRow = (deck: Deck) => {
+    const queue =
+      queues.get(deck.id) ?? buildStudyQueue(state, { deckId: deck.id, nowMs, tzOffsetMinutes });
+    const noteCount = [...state.notes.values()].filter(
+      (n) => n.deck_id === deck.id && !n.archived,
+    ).length;
+    const deckLayouts = [...state.layouts.values()].filter(
+      (l) => l.note_type_id === deck.note_type_id,
+    );
+    const enabledIds = new Set(getEnabledLayoutsForDeck(state, deck).map((l) => l.id));
+    const isExpanded = expandedDeckId === deck.id;
+
+    return (
+      <div
+        key={deck.id}
+        data-testid={`deck-row-${deck.id}`}
+        className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-base font-semibold">{deck.name}</h2>
+              <span className="rounded-md bg-[var(--surface-2)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--muted)]">
+                {deck.language}
+              </span>
+              {deck.source && deck.source.kind !== 'native' && (
+                <span className="rounded-md bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">
+                  {deck.source.kind === 'google_sheets'
+                    ? 'Google Sheet'
+                    : deck.source.kind === 'local_file'
+                      ? 'Local Folder'
+                      : deck.source.kind === 'package_url'
+                        ? `Subscribed${deck.source.package_version ? ` v${deck.source.package_version}` : ''}`
+                        : 'Package'}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
+              <span>{noteCount} notes</span>
+              <span className="text-sky-600 dark:text-sky-400">{queue.counts.new} new</span>
+              <span className="text-amber-600 dark:text-amber-400">
+                {queue.counts.learning} learning
+              </span>
+              <span className="text-emerald-600 dark:text-emerald-400">{queue.counts.due} due</span>
+            </div>
+          </div>
+
+          {/* 1-tap Layout toggles (Recognition, Production, custom Typed/Choice/Cloze/Listen) */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {deckLayouts.map((layout) => {
+              const active = enabledIds.has(layout.id);
+              return (
+                <button
+                  key={layout.id}
+                  type="button"
+                  aria-pressed={active}
+                  data-testid={`layout-toggle-${deck.id}-${layout.name.toLowerCase()}`}
+                  onClick={() => toggleDeckLayout(deck.id, layout.id)}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+                    active
+                      ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                      : 'border-[var(--border)] text-[var(--muted)] hover:bg-[var(--surface-2)]'
+                  }`}
+                >
+                  {layout.name}
+                </button>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={() => onStudyDeck(deck.id)}
+              className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+            >
+              Study
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setExpandedDeckId(isExpanded ? null : deck.id)}
+              className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--muted)] hover:bg-[var(--surface-2)]"
+            >
+              {isExpanded ? 'Hide' : 'Options'}
+            </button>
+          </div>
+        </div>
+
+        {isExpanded && (
+          <DeckOptionsPanel
+            deck={deck}
+            noteType={state.noteTypes.get(deck.note_type_id)}
+            onUpdateSettings={updateDeckSettings}
+            onExportDeck={(d) => void handleExportDeck(d)}
+            onExportDeckForAnki={
+              platform.getAnkiPackageReader ? (d) => void handleExportDeckForAnki(d) : undefined
+            }
+            onArchiveDeck={handleArchiveDeck}
+            onUpdateLayout={(layout) => upsertLayout(layout)}
+            onAddLayout={(layout, dId) => {
+              upsertLayout(layout, dId);
+              setStatusMessage(`Added "${layout.name}" (${layout.answer_mode}) layout.`);
+            }}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const renderFolderSection = (
+    key: string,
+    title: string,
+    folderDecks: readonly Deck[],
+    folderId?: string,
+  ) => {
+    const totals = { new: 0, learning: 0, due: 0 };
+    for (const d of folderDecks) {
+      const counts = queues.get(d.id)?.counts;
+      totals.new += counts?.new ?? 0;
+      totals.learning += counts?.learning ?? 0;
+      totals.due += counts?.due ?? 0;
+    }
+    return (
+      <section
+        key={key}
+        data-testid={folderId ? `folder-section-${folderId}` : 'folder-section-none'}
+        aria-label={title}
+        className="flex flex-col gap-2"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold">{title}</h2>
+            <span className="text-xs text-[var(--muted)]">
+              {folderDecks.length} deck(s) · {totals.new} new · {totals.learning} learning ·{' '}
+              {totals.due} due
+            </span>
+          </div>
+          {folderId && folderDecks.length > 0 && onStudyFolder && (
+            <button
+              type="button"
+              data-testid={`study-folder-${folderId}`}
+              onClick={() => onStudyFolder({ name: title, deckIds: folderDecks.map((d) => d.id) })}
+              className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+            >
+              Study folder
+            </button>
+          )}
+        </div>
+        {folderDecks.length === 0 ? (
+          <p className="px-1 text-xs text-[var(--muted)]">
+            No decks yet. Choose this folder in a deck’s Options.
+          </p>
+        ) : (
+          folderDecks.map(renderDeckRow)
+        )}
+      </section>
+    );
+  };
+
+  // One level of folders, for display and "Study folder" only. With no folders the list is flat.
+  const renderDeckList = () => {
+    const folders = listDeckFolders(state);
+    if (folders.length === 0) return decks.map(renderDeckRow);
+    const { folderByDeck } = getDeckOrganization(state);
+    const unfiled = decks.filter((d) => !folderByDeck.has(d.id));
+    return [
+      ...folders.map((f) =>
+        renderFolderSection(
+          f.id,
+          f.name,
+          decks.filter((d) => folderByDeck.get(d.id) === f.id),
+          f.id,
+        ),
+      ),
+      ...(unfiled.length > 0 ? [renderFolderSection('none', 'Not in a folder', unfiled)] : []),
+    ];
+  };
+
   return (
     <section className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1043,118 +1323,11 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
         onErrorMessage={(msg) => setErrorMessage(msg)}
       />
 
+      <DeckOrganizationPanel />
+
       {/* Deck List */}
       <div className="flex flex-col gap-3">
-        {decks.map((deck) => {
-          const queue = buildStudyQueue(state, { deckId: deck.id, nowMs, tzOffsetMinutes });
-          const noteCount = [...state.notes.values()].filter(
-            (n) => n.deck_id === deck.id && !n.archived,
-          ).length;
-          const deckLayouts = [...state.layouts.values()].filter(
-            (l) => l.note_type_id === deck.note_type_id,
-          );
-          const enabledIds = new Set(getEnabledLayoutsForDeck(state, deck).map((l) => l.id));
-          const isExpanded = expandedDeckId === deck.id;
-
-          return (
-            <div
-              key={deck.id}
-              data-testid={`deck-row-${deck.id}`}
-              className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate text-base font-semibold">{deck.name}</h2>
-                    <span className="rounded-md bg-[var(--surface-2)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--muted)]">
-                      {deck.language}
-                    </span>
-                    {deck.source && deck.source.kind !== 'native' && (
-                      <span className="rounded-md bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">
-                        {deck.source.kind === 'google_sheets'
-                          ? 'Google Sheet'
-                          : deck.source.kind === 'local_file'
-                            ? 'Local Folder'
-                            : deck.source.kind === 'package_url'
-                              ? `Subscribed${deck.source.package_version ? ` v${deck.source.package_version}` : ''}`
-                              : 'Package'}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
-                    <span>{noteCount} notes</span>
-                    <span className="text-sky-600 dark:text-sky-400">{queue.counts.new} new</span>
-                    <span className="text-amber-600 dark:text-amber-400">
-                      {queue.counts.learning} learning
-                    </span>
-                    <span className="text-emerald-600 dark:text-emerald-400">
-                      {queue.counts.due} due
-                    </span>
-                  </div>
-                </div>
-
-                {/* 1-tap Layout toggles (Recognition, Production, custom Typed/Choice/Cloze/Listen) */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {deckLayouts.map((layout) => {
-                    const active = enabledIds.has(layout.id);
-                    return (
-                      <button
-                        key={layout.id}
-                        type="button"
-                        aria-pressed={active}
-                        data-testid={`layout-toggle-${deck.id}-${layout.name.toLowerCase()}`}
-                        onClick={() => toggleDeckLayout(deck.id, layout.id)}
-                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
-                          active
-                            ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                            : 'border-[var(--border)] text-[var(--muted)] hover:bg-[var(--surface-2)]'
-                        }`}
-                      >
-                        {layout.name}
-                      </button>
-                    );
-                  })}
-
-                  <button
-                    type="button"
-                    onClick={() => onStudyDeck(deck.id)}
-                    className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
-                  >
-                    Study
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setExpandedDeckId(isExpanded ? null : deck.id)}
-                    className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--muted)] hover:bg-[var(--surface-2)]"
-                  >
-                    {isExpanded ? 'Hide' : 'Options'}
-                  </button>
-                </div>
-              </div>
-
-              {isExpanded && (
-                <DeckOptionsPanel
-                  deck={deck}
-                  noteType={state.noteTypes.get(deck.note_type_id)}
-                  onUpdateSettings={updateDeckSettings}
-                  onExportDeck={(d) => void handleExportDeck(d)}
-                  onExportDeckForAnki={
-                    platform.getAnkiPackageReader
-                      ? (d) => void handleExportDeckForAnki(d)
-                      : undefined
-                  }
-                  onArchiveDeck={handleArchiveDeck}
-                  onUpdateLayout={(layout) => upsertLayout(layout)}
-                  onAddLayout={(layout, dId) => {
-                    upsertLayout(layout, dId);
-                    setStatusMessage(`Added "${layout.name}" (${layout.answer_mode}) layout.`);
-                  }}
-                />
-              )}
-            </div>
-          );
-        })}
+        {renderDeckList()}
 
         {archivedDecks.length > 0 && (
           <div

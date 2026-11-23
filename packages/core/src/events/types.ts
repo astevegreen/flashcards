@@ -228,6 +228,52 @@ export interface NewCardLimitRaisedPayload {
   categories?: unknown;
 }
 
+/**
+ * Shared deck option presets and one level of deck folders. Log-retained like the Study Set
+ * events above: replay keeps them in `unknownEvents` and `decks/organization.ts` folds them on
+ * demand (per-field HLC last-writer-wins), so snapshots and sync stay byte-compatible.
+ * Scheduling never reads them: a preset's retention and weights reach FSRS only through ordinary
+ * per-deck `DeckFSRSParamsChanged` events (see `buildPresetParamsPayloads`).
+ */
+export interface DeckPresetSettings {
+  new_cards_per_day: number;
+  max_reviews_per_day: number;
+  target_retention: number;
+}
+
+/** Creates or edits a preset; each present field is its own LWW register. */
+export interface DeckPresetSavedPayload {
+  preset_id: string;
+  name?: string;
+  settings?: Partial<DeckPresetSettings>;
+  /** FSRS weights shared by the preset's decks (set by the pooled optimizer). */
+  w?: number[];
+}
+
+/** Deletes a preset unless a later `DeckPresetSaved` edits it again. */
+export interface DeckPresetDeletedPayload {
+  preset_id: string;
+}
+
+export interface DeckFolderSavedPayload {
+  folder_id: string;
+  name: string;
+}
+
+export interface DeckFolderDeletedPayload {
+  folder_id: string;
+}
+
+/**
+ * Puts a deck in a preset and/or a folder. Each present field is a per-deck LWW register; `null`
+ * means own settings / no folder.
+ */
+export interface DeckGroupingChangedPayload {
+  deck_id: string;
+  preset_id?: string | null;
+  folder_id?: string | null;
+}
+
 export interface EventPayloadMap {
   ReviewRecorded: ReviewRecordedPayload;
   ReviewUndone: ReviewUndonePayload;
@@ -254,6 +300,11 @@ export interface EventPayloadMap {
   PracticeRecorded: PracticeRecordedPayload;
   PracticeUndone: PracticeUndonePayload;
   NewCardLimitRaised: NewCardLimitRaisedPayload;
+  DeckPresetSaved: DeckPresetSavedPayload;
+  DeckPresetDeleted: DeckPresetDeletedPayload;
+  DeckFolderSaved: DeckFolderSavedPayload;
+  DeckFolderDeleted: DeckFolderDeletedPayload;
+  DeckGroupingChanged: DeckGroupingChangedPayload;
 }
 
 export type KnownEventType = keyof EventPayloadMap;
@@ -283,7 +334,12 @@ export type LogRetainedEventType =
   | 'StudySetDeleted'
   | 'PracticeRecorded'
   | 'PracticeUndone'
-  | 'NewCardLimitRaised';
+  | 'NewCardLimitRaised'
+  | 'DeckPresetSaved'
+  | 'DeckPresetDeleted'
+  | 'DeckFolderSaved'
+  | 'DeckFolderDeleted'
+  | 'DeckGroupingChanged';
 
 /**
  * Event types `applyKnownEvent` handles. Log-retained types are intentionally absent: they fall

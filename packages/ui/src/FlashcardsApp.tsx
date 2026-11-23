@@ -5,6 +5,7 @@ import { lazyWithRetry } from './lazy/lazyWithRetry.tsx';
 import { AppShell, type NavTab } from './layout/AppShell.tsx';
 import { StudyScreen } from './screens/StudyScreen.tsx';
 import { AppProvider, useApp } from './state/AppContext.tsx';
+import { setStudyFilter } from './study/filterStore.ts';
 
 // Lazy-load secondary screens so initial study-screen JS stays well under the 160 KB gzip budget (§8)
 const LibraryScreen = lazyWithRetry(() =>
@@ -47,6 +48,15 @@ function ScreenRouter() {
             <LibraryScreen
               onStudyDeck={(deckId) => {
                 setActiveDeckId(deckId);
+                handleSelectTab('study');
+              }}
+              onStudyFolder={(folder) => {
+                setActiveDeckId(undefined);
+                setStudyFilter({
+                  label: folder.name,
+                  filter: { deckIds: folder.deckIds },
+                  scope: { deckId: undefined },
+                });
                 handleSelectTab('study');
               }}
             />

@@ -90,6 +90,7 @@ export default defineConfig({
             norm.includes('/packages/core/src/events/replay.ts') ||
             norm.includes('/packages/core/src/fsrs/') ||
             norm.includes('/packages/core/src/study/queue.ts') ||
+            norm.includes('/packages/core/src/decks/fold.ts') ||
             norm.includes('/packages/core/src/parsers/') ||
             norm.includes('/packages/core/src/audio/tts.ts') ||
             norm.includes('/packages/core/src/sources/hash.ts') ||
