@@ -58,14 +58,14 @@ The owner answered every open decision on 2026-11-22. **To build** marks work th
 
 ### Phone secure storage
 
-- [ ] **Say why after a lost Keystore key: Android done (PR #20, 2026-11-23); iOS not done.** The Keychain-loss case is not detected, so iOS still signs the user out silently. Original brief: When stored secrets are dropped because the Keystore or Keychain key is gone, tell the user once why they have to sign in again, instead of signing them out silently. Moving the BYO TTS key and wiping leftover Keychain items on a fresh install stay as they are.
+- [x] **Say why after a lost Keystore key: Android (PR #20) and iOS (PR #27), 2026-11-23.** iOS keeps a key-name-only marker per stored secret in the app database and shows the notice when a marker outlives its Keychain item; the fresh-install wipe, sign-out and Reset stay silent. Not run on a device. Original brief: When stored secrets are dropped because the Keystore or Keychain key is gone, tell the user once why they have to sign in again, instead of signing them out silently. Moving the BYO TTS key and wiping leftover Keychain items on a fresh install stay as they are.
 - [x] The plugin's WebView fallback, used only when no browser at all can open the sign-in page: kept.
 - [x] The SQLite database stays in Android backups; only the token files are excluded: kept.
 
 ### UX feedback (owner, 2026-11-22)
 
 - [x] **#1 Remove "Paste CSV / TSV":** done in the column-mapping change (PR #14).
-- [ ] **#2 language-aware menus and settings: mostly done (PR #23, 2026-11-23).** `deriveActiveLanguages` in core drives the menus and settings. Remaining: the owner questions and nits under "Owner decisions (2026-11-23)" and "Leftover nits and known limitations" (no add-a-language control, pack manager and dictionary pack tabs not filtered). Original brief: Options that apply only to one language (furigana and `kana:`/`kanji:` import options, Hanja, pinyin, stroke order, per-language TTS voices and so on) appear only when that language is in the collection or was chosen at onboarding. Adding a language later brings its options back. Nothing is deleted, and an imported deck in a new language counts as adding that language.
+- [x] **#2 language-aware menus and settings (PR #23, finished in PR #29, 2026-11-23).** `deriveActiveLanguages` in core drives the menus and settings; PR #29 added Settings > Languages, pack filtering and the archived-deck rule. Original brief: Options that apply only to one language (furigana and `kana:`/`kanji:` import options, Hanja, pinyin, stroke order, per-language TTS voices and so on) appear only when that language is in the collection or was chosen at onboarding. Adding a language later brings its options back. Nothing is deleted, and an imported deck in a new language counts as adding that language.
 - [x] **#3 explain tags (PR #21, 2026-11-23):** a "How tags work" panel and an import hint. Original brief: Add a short "How tags work" panel in the tag manager and Browse. It covers tags as categories, the `::` hierarchy, and filtering Browse and Study sets. Add a hint on the import mapping step where category columns become tags.
 - [x] **#4 Linked sources on PC:** this was never a PC limit. Linked OneDrive sources hadn't been built yet. They're now To build (see "OneDrive" below).
 - [x] **#5 Dictionary browsing without typing, in both directions:** done in PR #13.
@@ -150,25 +150,43 @@ Only Chromium Playwright with faked endpoints has covered these.
 
 The owner answered every overnight question on 2026-11-23. **To build** marks approved work; tick it once merged. **Kept** marks a shipped default that stays.
 
-- [ ] **#23, archived decks and language. To build:** archived decks no longer count toward a language. Archiving the only Japanese deck hides furigana; un-archiving brings it back. Nothing is deleted.
-- [ ] **#23, "add a language" control. To build:** a Languages list in Settings, with a tick box per language. Ticking one brings its options back before any deck in it exists.
-- [ ] **#23, offline pack manager and Hanja/Kanji dictionary pack tabs. To build:** filtered by active language, with a "Show all languages" switch.
-- [ ] **#23, Ruby for Korean. To build (owner changed the default):** remove ruby for Korean and Hanja. Korean no longer switches on the Ruby toggle or the per-layout ruby selector; Chinese keeps them for pinyin, Japanese for furigana. No stored data is rewritten.
-- [ ] **#6/#21, tag copy. To build:** say "tag" everywhere. "Category" appears only in one explainer line ("tags work like categories") and in the import hint where category columns become tags. **Kept:** the How tags work panel stays open by default until first dismissed.
-- [ ] **#20, iOS Keychain loss. To build:** detect it on iOS and show the same one-time notice as Android.
+- [x] **#23, archived decks and language (PR #29):** archived decks no longer count toward a language. Archiving the only Japanese deck hides furigana; un-archiving brings it back. Nothing is deleted.
+- [x] **#23, "add a language" control (PR #29):** synced preference `preferences.languages` (per-language last-writer-wins through `PreferencesChanged`). a Languages list in Settings, with a tick box per language. Ticking one brings its options back before any deck in it exists.
+- [x] **#23, offline pack manager and Hanja/Kanji dictionary pack tabs (PR #29):** filtered by active language, with a "Show all languages" switch.
+- [x] **#23, Ruby for Korean (PR #29, owner changed the default):** the dev Korean sample deck is now plain Hanja too. remove ruby for Korean and Hanja. Korean no longer switches on the Ruby toggle or the per-layout ruby selector; Chinese keeps them for pinyin, Japanese for furigana. No stored data is rewritten.
+- [x] **#6/#21, tag copy (PR #26):** "nested tags" replaces "subcategories". say "tag" everywhere. "Category" appears only in one explainer line ("tags work like categories") and in the import hint where category columns become tags. **Kept:** the How tags work panel stays open by default until first dismissed.
+- [x] **#20, iOS Keychain loss (PR #27):** detect it on iOS and show the same one-time notice as Android.
 - [ ] **#22, macOS iCloud setup:**
   - **Apple Developer account: the owner has none yet.** Signing, notarizing, wiring the entitlements and real iCloud tests wait until there is one. An account (Apple Developer Program) is also needed for any iOS or Mac store release, so it is on the launch path anyway.
   - **Distribution: Developer ID** (outside the Mac App Store). Kept.
-  - **To build:** hide "Use iCloud Drive" on unsigned Mac builds (no entitlement), so the misleading sign-in error can't appear.
-  - **To build:** a Mac where iCloud was off at launch keeps iCloud Drive listed, with a hint to turn iCloud Drive on.
+  - **Done (PR #27):** hide "Use iCloud Drive" on unsigned Mac builds (no entitlement), so the misleading sign-in error can't appear.
+  - **Done (PR #27):** a Mac where iCloud was off at launch keeps iCloud Drive listed, with a hint to turn iCloud Drive on.
   - The macOS App ID reuses `app.flashcards.localfirst`; it must be in the same Apple team as the iOS app. Kept, for when the account exists.
-- [ ] **#18, provenance. To build:** the 춥다 and 먹다 rewording is accepted. Hand-written definitions get their own badge instead of KRDict's.
-- [ ] **Starter-deck gloss report (#16). To build:** accept every suggested fix in `docs/starter-gloss-review.md`, applied through `scripts/build-starter-decks.mjs` (never by hand-editing the generated decks).
+- [x] **#18, provenance (PR #28):** an "App" badge, with attribution tooltips on every badge. the 춥다 and 먹다 rewording is accepted. Hand-written definitions get their own badge instead of KRDict's.
+- [x] **Starter-deck gloss report (#16), applied in PR #28:** `content/starters/gloss-overrides.json`, decks at 1.1.0; four readings corrected after review (아니, 长, 呐, 地). Not reviewed by a native speaker. accept every suggested fix in `docs/starter-gloss-review.md`, applied through `scripts/build-starter-decks.mjs` (never by hand-editing the generated decks).
 - [ ] **Dependabot PR #4 (TypeScript 6):** ask Dependabot to rebase it, then merge if CI is green.
 - [ ] **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending.
 - [ ] **Share-alike dictionary sources. Approved:** 우리말샘 and Kaikki Wiktionary as optional, separately licensed download packs with attribution (their share-alike terms apply to those packs, not the app). 표준국어대사전 is not approved yet. **kengdic stays out** (unclear licence). Building the packs is a separate task: the upstream data needs manual download.
 - [ ] **Commercial Korean–English dataset as a premium pack:** deferred until after launch.
 - [x] **Auto-archive on PR close:** turned back on.
+
+## Decisions needed (2026-11-23 batch)
+
+Defaults the 2026-11-23 agents picked. Each stays shipped until the owner decides.
+
+- [ ] **PR #27, iOS loss marker location:** the app's SQLite database, not UserDefaults (same backup behaviour, plain TypeScript). Markers are iOS-only; Android relies on its plugin's own Keystore-loss report.
+- [ ] **PR #27, Mac entitlement check:** only checks that an iCloud entitlement exists, not that it names `iCloud.app.flashcards.localfirst`. A launch-probe timeout counts as unknown: Google Drive stays the default, with no "iCloud Drive looks off" hint.
+- [ ] **PR #28, gloss choices:** 해 stays "year (counter)" without "sun"; every numeral is labelled native or Sino-Korean; 팔 fronts get no hint. Only 먹다 and 춥다 get the App badge, though the rest of the starter KRDict fixture (dev and tests only) is also hand-written.
+- [ ] **PR #28, existing starter decks:** devices that already loaded the 1.0.0 starter decks keep the old glosses (there is no upgrade path).
+- [ ] **PR #29, Languages:** "Show all languages" is one per-device switch for the pack manager and the dictionary. Unticking a language also drops its onboarding choice. Unticking everything (with no decks) shows no language options. Cloze, Sentence and Grammar are language-neutral, so a mis-tagged neutral deck no longer counts through its fields. A Korean card that already stores ruby on a layout that hides it on the front keeps the Ruby toggle. Dev collections seeded with the old Korean sample keep its ruby.
+
+### Leftover nits from the 2026-11-23 batch
+
+- [ ] `node scripts/build-starter-decks.mjs --check` (the stale-override guard) is not run in CI, because it needs the fetched cache.
+- [ ] The KRDict tooltip claims KRDict as the source for the hand-written dev/test starter senses (dev only).
+- [ ] PR #27: a downgrade to a build without markers, then sign-out, leaves a stale marker (TestFlight only); a secret never read between upgrade and backup has no marker.
+- [ ] Code comments in `CategoryExportPanel.tsx` still say "subcategories" / "Export a category".
+- [ ] Two local e2e flakes under full parallel load: `sync.spec.ts` "offline queue and reconnect convergence" and `phase13-onboarding` first run. Both pass alone and in CI.
 
 ## Leftover nits and known limitations
 
@@ -196,27 +214,27 @@ The owner answered every overnight question on 2026-11-23. **To build** marks ap
 
 ### #20 Sync and devices
 
-- [ ] The AppContext comment says Keystore/Keychain, but the notice is Android-only.
+- [x] The AppContext comment says Keystore/Keychain, but the notice is Android-only. Fixed in PR #27.
 - [ ] While a collection choice is pending, the sidebar badge calls `syncNow` instead of opening Settings.
 - [ ] An in-flight sync can re-show the choice after "Keep this device's cards".
 
 ### #21 How tags work
 
-- [ ] The Browse guide reappears after the tag manager closes.
-- [ ] Heading level in the tag manager panel.
-- [ ] The import hint shows even when there is no tags column.
-- [ ] No phone-width (320-360 px) test.
+- [x] The Browse guide reappears after the tag manager closes. Fixed in PR #26.
+- [x] Heading level in the tag manager panel. Fixed in PR #26.
+- [x] The import hint shows even when there is no tags column. Fixed in PR #26.
+- [x] No phone-width (320-360 px) test. Fixed in PR #26.
 
 ### #22 macOS iCloud Drive
 
 - [ ] No `NSFileCoordinator`, and a directory walk instead of `NSMetadataQuery` (untested on a Mac).
 - [ ] Placeholder timestamps are approximate, and undownloaded files are listed with size 0.
 - [ ] Stale temp files after a crash are never swept.
-- [ ] `docs/native-shells.md` lists four app commands; there are now five (add `icloud_supported`).
+- [x] `docs/native-shells.md` lists four app commands; there are now five (add `icloud_supported`). Fixed in PR #27.
 
 ### #23 Language-aware menus
 
-- [ ] The built-in Cloze and Sentence note types tag their fields ja/en, so Korean and Chinese cloze/sentence decks wrongly activate the ja/en options.
+- [x] The built-in Cloze and Sentence note types tag their fields ja/en Fixed in PR #29., so Korean and Chinese cloze/sentence decks wrongly activate the ja/en options.
 - [ ] New flip layouts always get `hide_furigana_on_front: true`, even in English-only collections.
 - [ ] `useActiveLanguages` repeats a dynamic import per hook.
 - [ ] DictionaryPanel's `initialDrawOpen` is silently suppressed when no CJK language is active.
