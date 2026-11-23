@@ -580,3 +580,56 @@ describe('linked OneDrive sources: round-2 fixes', () => {
     ).rejects.toThrow(/save .* as CSV/i);
   });
 });
+
+describe('linked OneDrive sources: round-3 fixes', () => {
+  it('skips an .xlsx before downloading when the adapter has no Excel parser (Tauri)', async () => {
+    const { graph, ctx, downloads } = setup();
+    graph.drive.put('Decks/sheet.xlsx', new Uint8Array([80, 75, 3, 4]), 5);
+    const id = graph.drive.files.get('Decks/sheet.xlsx')?.id ?? '';
+    const desktop = {
+      ...ctx,
+      platform: {
+        ...ctx.platform,
+        getLocalFolderSources: async () => ({
+          canParseXlsx: () => false,
+          parseXlsxBytes: async () => {
+            throw new Error('Inject an XLSX parser for desktop Excel sheets.');
+          },
+        }),
+      },
+    };
+    const source = { id: `onedrive:${id}`, itemId: id, name: 'sheet', deckId: 'deck-web' };
+    const res = await refreshSingleOneDriveSource(source, desktop as never, { force: true });
+    expect(res.unreadable).toBe(true);
+    expect(downloads()).toBe(0);
+    expect(source).toMatchObject({ lastStatus: 'idle' });
+    const summary = await refreshAllSources(desktop as never);
+    expect(summary.errors).toEqual([]);
+    expect(downloads()).toBe(0);
+  });
+
+  it('keeps a relinked mapping winning when the pull throws after it was written', async () => {
+    const { graph, ctx, fileId } = setup();
+    const id = fileId();
+    const { source } = await linkOneDriveFile({ id, name: 'vocab.csv' }, ctx, {
+      noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+      language: 'ko',
+      columnMap: COLUMN_MAP,
+    });
+    graph.drive.files.delete('Decks/vocab.csv');
+    const swapped = [
+      { header: 'word', target: 'field:meaning' },
+      { header: 'definition', target: 'field:word' },
+      { header: 'topic', target: 'tags' },
+    ];
+    await expect(
+      linkOneDriveFile({ id, name: 'vocab.csv' }, ctx, { columnMap: swapped }),
+    ).rejects.toThrow(/lookup/);
+    const saved = await loadSourcesRegistry(ctx.platform);
+    expect(saved.oneDriveSources?.[0]).toMatchObject({
+      columnMap: swapped,
+      columnMapUnsaved: true,
+    });
+    expect(source.deckId).toBeTruthy();
+  });
+});

@@ -984,6 +984,8 @@ export async function linkOneDriveFile(
     if (source.deckId) {
       source.lastStatus = 'error';
       source.lastError = err instanceof Error ? err.message : String(err);
+      // The chosen mapping was already written to this device's copy: keep it winning.
+      if (options?.columnMap) source.columnMapUnsaved = true;
     } else {
       registry.oneDriveSources = list.filter((s) => s !== source);
     }
@@ -999,8 +1001,8 @@ function excelUnreadableMessage(name: string): string {
 /** True when this device can read `.xlsx` (the web and PC shells; not the phone shells yet). */
 async function canReadExcel(platform: PlatformServices): Promise<boolean> {
   try {
-    await platform.getLocalFolderSources();
-    return true;
+    const adapter = await platform.getLocalFolderSources();
+    return adapter.canParseXlsx ? adapter.canParseXlsx() : true;
   } catch {
     return false;
   }

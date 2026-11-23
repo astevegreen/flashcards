@@ -480,6 +480,8 @@ export interface LocalFolderSourcesAdapter {
   listFolderFiles(folderId: string): Promise<ScannedLocalFileDescriptor[]>;
   readFileBytes(folderId: string, relativePath: string, maxBytes?: number): Promise<Uint8Array>;
   parseXlsxBytes(bytes: Uint8Array): Promise<string[][]>;
+  /** False when this adapter has no Excel reader (omitted means it can read `.xlsx`). */
+  canParseXlsx?(): boolean;
   readRelativeMedia(
     folderId: string,
     baseFileRelativePath: string,

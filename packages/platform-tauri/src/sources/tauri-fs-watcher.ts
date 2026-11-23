@@ -158,6 +158,10 @@ export class TauriLocalFolderWatcher implements LocalFolderSourcesAdapter {
     return this.bridge.readFileBytes(joinSafeRelative(entry.path, relativePath), maxBytes);
   }
 
+  canParseXlsx(): boolean {
+    return this.xlsxParser !== undefined;
+  }
+
   async parseXlsxBytes(bytes: Uint8Array): Promise<string[][]> {
     if (this.xlsxParser) return this.xlsxParser(bytes);
     throw new Error('Inject an XLSX parser for desktop Excel sheets.');

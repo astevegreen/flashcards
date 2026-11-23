@@ -666,7 +666,8 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         if (
           od.lastStatus === 'offline' ||
           od.lastStatus === 'permission_required' ||
-          res.unreadable
+          res.unreadable ||
+          od.lastError
         ) {
           // Nothing was applied: keep the prompt so the user can answer it again later.
           onErrorMessage(
