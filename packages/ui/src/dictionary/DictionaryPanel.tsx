@@ -871,6 +871,26 @@ export function DictionaryPanel({
   const listEntries = visibleEntries(typed, results, browseSel, browseEntries);
   const selectedEntry = listEntries.find((r) => r.id === selectedEntryId) ?? listEntries[0];
 
+  // Sharded packs: the detail pane completes a stub row (its shard downloads on demand).
+  useEffect(() => {
+    const getService = platform.getDictionaryService;
+    if (!selectedEntry?.stub || !getService) return undefined;
+    let cancelled = false;
+    void getService()
+      .then((svc) => svc.loadFullEntries?.([selectedEntry]))
+      .then((rows) => {
+        const full = rows?.[0];
+        if (cancelled || !full || full.stub) return;
+        const swap = (list: DictionaryEntry[]) => list.map((e) => (e.id === full.id ? full : e));
+        setResults(swap);
+        setBrowseEntries(swap);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [platform, selectedEntry]);
+
   const decks = useMemo(
     () =>
       [...state.decks.values()]
@@ -1037,6 +1057,17 @@ export function DictionaryPanel({
     e.preventDefault();
     if (query.trim()) rememberLookup(query);
     void runSearch(query, packFilter);
+  };
+
+  /** A sharded pack's stub row (no definitions or examples yet) is completed before it's added. */
+  const withFullEntry = async (entry: DictionaryEntry): Promise<DictionaryEntry> => {
+    if (!entry.stub || !platform.getDictionaryService) return entry;
+    try {
+      const svc = await platform.getDictionaryService();
+      return (await svc.loadFullEntries?.([entry]))?.[0] ?? entry;
+    } catch {
+      return entry;
+    }
   };
 
   const handleAddEntryToDeck = (entry: DictionaryEntry, deckId: string) => {
@@ -1377,8 +1408,12 @@ export function DictionaryPanel({
                           [PACK_LANG[entry.packId]]: deckId,
                         }))
                       }
-                      onAdd={(deckId) => handleAddEntryToDeck(entry, deckId)}
-                      onCreateDeckAndAdd={() => handleQuickCreateAndAdd(entry)}
+                      onAdd={(deckId) =>
+                        void withFullEntry(entry).then((e) => handleAddEntryToDeck(e, deckId))
+                      }
+                      onCreateDeckAndAdd={() =>
+                        void withFullEntry(entry).then((e) => handleQuickCreateAndAdd(e))
+                      }
                     />
                   </Fragment>
                 ))}

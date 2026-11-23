@@ -339,7 +339,10 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
         getPackStorage(),
         import('./dictionary/web-dictionary-service.ts'),
       ]);
-      cachedDictionaryService = new WebDictionaryService(packStorage);
+      // Sharded packs fetch their shards from beside the pack index (same URL rules as installs).
+      cachedDictionaryService = new WebDictionaryService(packStorage, {
+        allowRelativeUrls: isDevMode || packCatalogUrl.startsWith('/'),
+      });
     }
     return cachedDictionaryService;
   };
