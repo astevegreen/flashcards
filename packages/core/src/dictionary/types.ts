@@ -31,7 +31,18 @@ export interface DictionaryExample {
   type?: 'phrase' | 'sentence' | 'dialogue';
 }
 
+/** How a linked word relates to a sense (KRDict 유의어 / 반의어 / everything else). */
+export type DictionaryRelationType = 'synonym' | 'antonym' | 'related';
+
+export interface DictionaryRelation {
+  type: DictionaryRelationType;
+  /** The linked word as written upstream; looking it up opens that entry. */
+  word: string;
+}
+
 export interface DictionarySense {
+  /** Synonym, antonym and related-word links of this sense. */
+  relations?: DictionaryRelation[];
   /** English equivalents (대역어), e.g. `['eat']`. Also feed the English→Korean reverse index. */
   equivalents: string[];
   /** English definition (대역어 뜻풀이). */

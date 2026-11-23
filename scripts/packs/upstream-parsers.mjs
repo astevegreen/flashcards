@@ -484,17 +484,45 @@ function parseKrdictExamples(senseBlock) {
   return examples;
 }
 
+const KRDICT_RELATION_TYPE = { 유의어: 'synonym', 반의어: 'antonym' };
+/** Keep packs small: a few links per sense are enough to browse from. */
+export const KRDICT_MAX_RELATIONS_PER_SENSE = 12;
+
+/**
+ * Synonym (유의어), antonym (반의어) and other related-word (참고어, 상위어, 하위어 …) links of one
+ * sense (`SenseRelation/{type,lemma|writtenForm}`). The link target's attribute name is not
+ * verified against a real export yet (docs/follow-ups.md), so `lemma` and `writtenForm` are both read.
+ */
+function parseKrdictRelations(senseBlock) {
+  const relations = [];
+  const seen = new Set();
+  for (const rel of elements(senseBlock, 'SenseRelation')) {
+    if (relations.length >= KRDICT_MAX_RELATIONS_PER_SENSE) break;
+    const f = new Map(feats(rel));
+    const word = (f.get('lemma') ?? f.get('writtenForm') ?? '').trim();
+    if (!word) continue;
+    const type = KRDICT_RELATION_TYPE[f.get('type')] ?? 'related';
+    const key = `${type}:${word}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    relations.push({ type, word });
+  }
+  return relations;
+}
+
 /** One `<Sense>`, or `undefined` when it has neither an English equivalent nor a definition. */
 function parseKrdictSense(senseBlock) {
   const { equivalents, definition } = parseKrdictEquivalents(senseBlock);
   if (equivalents.length === 0 && !definition) return undefined;
   const examples = parseKrdictExamples(senseBlock);
+  const relations = parseKrdictRelations(senseBlock);
   const definitionNative = new Map(ownFeats(senseBlock)).get('definition');
   return {
     equivalents: uniq(equivalents),
     ...(definition ? { definition } : {}),
     ...(definitionNative ? { definitionNative } : {}),
     ...(examples.length > 0 ? { examples } : {}),
+    ...(relations.length > 0 ? { relations } : {}),
     source: 'krdict',
   };
 }
