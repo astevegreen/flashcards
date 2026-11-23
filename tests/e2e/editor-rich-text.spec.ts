@@ -59,10 +59,22 @@ test.describe('Limited rich text in the field editor', () => {
   test('a bold cloze answer keeps its blank and is checked as plain text', async ({ page }) => {
     const dialog = await openEditor(page, 'richb', 'Japanese Particles Cloze (JA)');
     const field = dialog.locator('[data-testid^="field-input-"]').first();
+    const key = ((await field.getAttribute('data-testid')) ?? '').replace('field-input-', '');
+    const preview = dialog.getByTestId(`field-preview-${key}`);
+
+    // Bolding a strict ruby base takes its reading along, so the ruby stays whole.
+    await field.fill('学生[がくせい]');
+    await select(field, 0, 2);
+    await page.keyboard.press('Control+b');
+    await expect(field).toHaveValue('{b:学生[がくせい]}');
+    await expect(preview.locator('strong ruby rt')).toHaveText('がくせい');
+
     await field.fill('私{{c1::は}}学生です');
     await select(field, 7, 8);
     await page.keyboard.press('Control+b');
     await expect(field).toHaveValue('私{{c1::{b:は}}}学生です');
+    // The preview shows the cloze answer in place, styled.
+    await expect(preview.locator('strong')).toHaveText('は');
 
     // A selection that cuts through the cloze braces is refused with a hint.
     await select(field, 0, 4);

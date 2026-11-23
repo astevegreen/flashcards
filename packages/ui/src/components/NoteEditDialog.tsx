@@ -1,5 +1,6 @@
 import {
   hasRichText,
+  stripCloze,
   toggleRichTextMark,
   type Note,
   type NoteType,
@@ -107,7 +108,7 @@ export function NoteEditDialog({
     if (!edit) {
       setStyleHint({
         field: fieldKey,
-        text: 'Select text outside ruby {…|…} or cloze {{c1::…}} brackets, or the whole group.',
+        text: "Can't style there. Select text outside ruby {…|…}, a [reading] or cloze {{c1::…}} brackets, or the whole group. Inside a cloze, stay on one side of ::.",
       });
       return;
     }
@@ -522,7 +523,8 @@ export function NoteEditDialog({
                     className="whitespace-pre-wrap rounded-lg bg-[var(--surface-2)] px-3 py-1.5 text-sm"
                   >
                     <span className="sr-only">Preview: </span>
-                    <RichText text={value} lang={field.lang} />
+                    {/* Cloze answers shown in place, so `{{c1::{b:x}}}` previews bold. */}
+                    <RichText text={stripCloze(value)} lang={field.lang} />
                   </div>
                 )}
               </div>

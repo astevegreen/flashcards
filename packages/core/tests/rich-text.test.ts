@@ -362,6 +362,62 @@ describe('toggleRichTextMark', () => {
     expect(toggleRichTextMark('{{c1::word}}', 6, 10, 'b')?.text).toBe('{{c1::{b:word}}}');
   });
 
+  it('grows a strict ruby base selection over its reading', () => {
+    // Bolding 学生 must not orphan [がくせい].
+    expect(toggleRichTextMark('私は学生[がくせい]です', 2, 4, 'b')).toEqual({
+      text: '私は{b:学生[がくせい]}です',
+      selectionStart: 5,
+      selectionEnd: 13,
+    });
+    // Part of the base, or a selection ending in the base, covers the whole group.
+    expect(toggleRichTextMark('学生[がくせい]', 1, 2, 'red')?.text).toBe('{red:学生[がくせい]}');
+    expect(toggleRichTextMark('私は学生[がくせい]', 0, 3, 'b')?.text).toBe(
+      '{b:私は学生[がくせい]}',
+    );
+    // Toggling the same base again removes the span.
+    expect(toggleRichTextMark('私は{b:学生[がくせい]}です', 5, 7, 'b')?.text).toBe(
+      '私は学生[がくせい]です',
+    );
+    // The screen, TTS and matching agree: the ruby stays one group.
+    const once = toggleRichTextMark('学生[がくせい]', 0, 2, 'b');
+    expect(stripRichText(once?.text ?? '')).toBe('学生[がくせい]');
+  });
+
+  it('refuses a selection or caret inside a [reading]', () => {
+    expect(toggleRichTextMark('学生[がくせい]', 3, 5, 'b')).toBeNull();
+    expect(toggleRichTextMark('学生[がくせい]', 0, 5, 'b')).toBeNull();
+    expect(toggleRichTextMark('学生[がくせい]', 4, 4, 'b')).toBeNull();
+    expect(toggleRichTextMark('学生[がくせい]', 1, 1, 'b')).toBeNull();
+    expect(toggleRichTextMark('word [formal]', 6, 12, 'b')?.text).toBe('word [{b:formal}]');
+  });
+
+  it('refuses a caret inside ruby or cloze braces, but not in a cloze answer', () => {
+    expect(toggleRichTextMark('{今日|きょう}', 2, 2, 'b')).toBeNull();
+    expect(toggleRichTextMark('{{c1::word}}', 3, 3, 'b')).toBeNull();
+    expect(toggleRichTextMark('{{c1::word}}', 1, 1, 'b')).toBeNull();
+    expect(toggleRichTextMark('{{c1::word}}', 6, 6, 'b')?.text).toBe('{{c1::{b:}word}}');
+    expect(toggleRichTextMark('ab', 1, 1, 'b')?.text).toBe('a{b:}b');
+  });
+
+  it("refuses a span across a cloze's :: hint separator", () => {
+    expect(toggleRichTextMark('{{c1::word::hint}}', 6, 16, 'b')).toBeNull();
+    expect(toggleRichTextMark('{{c1::word::hint}}', 12, 16, 'i')?.text).toBe(
+      '{{c1::word::{i:hint}}}',
+    );
+    // A span around the whole cloze is fine.
+    expect(toggleRichTextMark('{{c1::word::hint}}', 0, 18, 'b')?.text).toBe(
+      '{b:{{c1::word::hint}}}',
+    );
+  });
+
+  it('removes the innermost matching span, inside cloze answers too', () => {
+    expect(toggleRichTextMark('{b:{i:x}}', 6, 7, 'i')?.text).toBe('{b:x}');
+    expect(toggleRichTextMark('{b:{i:x}}', 3, 8, 'i')?.text).toBe('{b:x}');
+    expect(toggleRichTextMark('{b:{i:x}}', 3, 8, 'b')?.text).toBe('{i:x}');
+    expect(toggleRichTextMark('{red:{blue:x}}', 11, 12, 'green')?.text).toBe('{red:{green:x}}');
+    expect(toggleRichTextMark('{{c1::{b:word}}}', 9, 13, 'b')?.text).toBe('{{c1::word}}');
+  });
+
   it('refuses a selection that cuts through ruby braces', () => {
     expect(toggleRichTextMark('{今日|きょう}は', 1, 3, 'b')).toBeNull();
     expect(toggleRichTextMark('{今日|きょう}は', 0, 3, 'b')).toBeNull();
