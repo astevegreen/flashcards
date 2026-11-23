@@ -22,6 +22,8 @@ export * from './study/courses.ts';
 export * from './parsers/ruby.ts';
 export * from './parsers/pinyin.ts';
 export * from './parsers/cloze.ts';
+export * from './parsers/rich-text.ts';
+export * from './editor/rich-text-edit.ts';
 export * from './audio/tts.ts';
 export * from './samples/decks.ts';
 export * from './languages/active-languages.ts';

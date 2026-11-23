@@ -106,6 +106,41 @@ rt {
   user-select: none;
 }
 
+/* Field rich-text colour palette (`{red:...}` etc., packages/core/src/parsers/rich-text.ts) */
+.rich-red {
+  color: #dc2626;
+}
+.rich-orange {
+  color: #c2410c;
+}
+.rich-green {
+  color: #15803d;
+}
+.rich-blue {
+  color: #2563eb;
+}
+.rich-purple {
+  color: #7c3aed;
+}
+
+@media (prefers-color-scheme: dark) {
+  .rich-red {
+    color: #f87171;
+  }
+  .rich-orange {
+    color: #fb923c;
+  }
+  .rich-green {
+    color: #4ade80;
+  }
+  .rich-blue {
+    color: #60a5fa;
+  }
+  .rich-purple {
+    color: #c084fc;
+  }
+}
+
 /* Pinyin tone coloring (§6.2) */
 .pinyin-tone-1 {
   color: #dc2626;

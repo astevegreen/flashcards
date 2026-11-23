@@ -1,16 +1,28 @@
-import type { Note, NoteType, SourceRef } from '@flash/core';
+import {
+  hasRichText,
+  stripCloze,
+  toggleRichTextMark,
+  type Note,
+  type NoteType,
+  type RichTextMark,
+  type SourceRef,
+} from '@flash/core';
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type ClipboardEvent,
   type DragEvent,
   type FormEvent,
+  type KeyboardEvent,
 } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { MediaAudioPlayer } from './MediaAudioPlayer.tsx';
 import { MediaImage } from './MediaImage.tsx';
+import { RichText } from './RichText.tsx';
+import { RichTextToolbar } from './RichTextToolbar.tsx';
 
 /**
  * Largest pasted or dropped image read into memory. Mirrors the 20 MiB input cap that
@@ -65,6 +77,60 @@ export function NoteEditDialog({
   // Synchronous twin of `uploadingField`: two pastes in one tick both see stale state.
   const uploadingRef = useRef(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [activeTextField, setActiveTextField] = useState<string | null>(null);
+  const [styleHint, setStyleHint] = useState<{ field: string; text: string } | null>(null);
+  const textFieldRefs = useRef<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>({});
+  const pendingSelectionRef = useRef<{ field: string; start: number; end: number } | null>(null);
+
+  // Restores the selection after a toolbar or shortcut edit re-renders the field.
+  useLayoutEffect(() => {
+    const pending = pendingSelectionRef.current;
+    if (!pending) return;
+    pendingSelectionRef.current = null;
+    const el = textFieldRefs.current[pending.field];
+    if (el) {
+      el.focus();
+      el.setSelectionRange(pending.start, pending.end);
+    }
+  }, [draftFields]);
+
+  /** Bold / italic / colour for the field's selection; markup goes into the plain string. */
+  const applyMark = (fieldKey: string, mark: RichTextMark) => {
+    const el = textFieldRefs.current[fieldKey];
+    if (!el) return;
+    const current = el.value;
+    const edit = toggleRichTextMark(
+      current,
+      el.selectionStart ?? current.length,
+      el.selectionEnd ?? current.length,
+      mark,
+    );
+    if (!edit) {
+      setStyleHint({
+        field: fieldKey,
+        text: "Can't style there. Select text outside ruby {…|…}, a [reading] or cloze {{c1::…}} brackets, or the whole group. Inside a cloze, stay on one side of ::.",
+      });
+      return;
+    }
+    setStyleHint(null);
+    pendingSelectionRef.current = {
+      field: fieldKey,
+      start: edit.selectionStart,
+      end: edit.selectionEnd,
+    };
+    setDraftFields((prev) => ({ ...prev, [fieldKey]: edit.text }));
+  };
+
+  const handleStyleShortcut = (
+    fieldKey: string,
+    e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+    const key = e.key.toLowerCase();
+    if (key !== 'b' && key !== 'i') return;
+    e.preventDefault();
+    applyMark(fieldKey, key);
+  };
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -411,35 +477,57 @@ export function NoteEditDialog({
 
             const isMultiline =
               field.kind === 'rich' || field.key === 'notes' || field.key === 'example';
+            const textProps = {
+              lang: field.lang,
+              autoFocus: index === 0,
+              value,
+              'data-testid': `field-input-${field.key}`,
+              ref: (el: HTMLInputElement | HTMLTextAreaElement | null) => {
+                textFieldRefs.current[field.key] = el;
+              },
+              onFocus: () => setActiveTextField(field.key),
+              onKeyDown: (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+                handleStyleShortcut(field.key, e),
+              onChange: (e: { target: { value: string } }) =>
+                setDraftFields((prev) => ({ ...prev, [field.key]: e.target.value })),
+              className:
+                'rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-base text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none',
+            };
+            const showPreview = hasRichText(value);
             return (
-              <label key={field.key} className="flex flex-col gap-1 text-sm">
-                <span className="font-medium text-[var(--muted)]">
-                  {field.label} <span className="text-xs opacity-70">({field.lang})</span>
-                </span>
-                {isMultiline ? (
-                  <textarea
-                    lang={field.lang}
-                    rows={2}
-                    autoFocus={index === 0}
-                    value={value}
-                    onChange={(e) =>
-                      setDraftFields((prev) => ({ ...prev, [field.key]: e.target.value }))
-                    }
-                    className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-base text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none"
-                  />
-                ) : (
-                  <input
-                    type="text"
-                    lang={field.lang}
-                    autoFocus={index === 0}
-                    value={value}
-                    onChange={(e) =>
-                      setDraftFields((prev) => ({ ...prev, [field.key]: e.target.value }))
-                    }
-                    className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-base text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none"
+              <div key={field.key} className="flex flex-col gap-1 text-sm">
+                <label className="flex flex-col gap-1">
+                  <span className="font-medium text-[var(--muted)]">
+                    {field.label} <span className="text-xs opacity-70">({field.lang})</span>
+                  </span>
+                  {isMultiline ? (
+                    <textarea rows={2} {...textProps} />
+                  ) : (
+                    <input type="text" {...textProps} />
+                  )}
+                </label>
+                {activeTextField === field.key && (
+                  <RichTextToolbar
+                    fieldKey={field.key}
+                    onApply={(mark) => applyMark(field.key, mark)}
                   />
                 )}
-              </label>
+                {styleHint?.field === field.key && (
+                  <span role="status" className="text-[11px] text-[var(--muted)]">
+                    {styleHint.text}
+                  </span>
+                )}
+                {showPreview && (
+                  <div
+                    data-testid={`field-preview-${field.key}`}
+                    className="whitespace-pre-wrap rounded-lg bg-[var(--surface-2)] px-3 py-1.5 text-sm"
+                  >
+                    <span className="sr-only">Preview: </span>
+                    {/* Cloze answers shown in place, so `{{c1::{b:x}}}` previews bold. */}
+                    <RichText text={stripCloze(value)} lang={field.lang} />
+                  </div>
+                )}
+              </div>
             );
           })}
 

@@ -1,4 +1,4 @@
-import { stripCloze, stripRuby, type RubyDisplay } from '@flash/core';
+import { stripCloze, stripRichText, stripRuby, type RubyDisplay } from '@flash/core';
 
 /**
  * Auto-fit card text (Phase 13). The heavy lifting is CSS: every `card-fit-*` class in
@@ -9,9 +9,11 @@ import { stripCloze, stripRuby, type RubyDisplay } from '@flash/core';
  */
 export type CardTextRole = 'prompt' | 'answer' | 'detail';
 
-/** Number of user-perceived characters once ruby readings and cloze markup are removed. */
+/** Number of user-perceived characters once ruby readings, cloze and rich-text markup are removed. */
 export function visibleTextLength(value: string, rubyDisplay?: RubyDisplay): number {
-  const plain = stripRuby(stripCloze(value), rubyDisplay).replace(/\s+/g, ' ').trim();
+  const plain = stripRuby(stripCloze(stripRichText(value)), rubyDisplay)
+    .replace(/\s+/g, ' ')
+    .trim();
   return [...plain].length;
 }
 

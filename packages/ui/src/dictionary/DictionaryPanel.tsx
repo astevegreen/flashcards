@@ -2,6 +2,7 @@ import {
   BUILTIN_NOTE_TYPE_IDS,
   compareCodeUnits,
   deriveNoteId,
+  stripRichText,
   stripRuby,
   type Deck,
   type NoteType,
@@ -918,7 +919,7 @@ export function DictionaryPanel({
       }
       if (note.source_key) bucket.sourceKeys.add(note.source_key);
       for (const val of Object.values(note.fields)) {
-        const plain = stripRuby(val).trim();
+        const plain = stripRuby(stripRichText(val)).trim();
         if (!plain) continue;
         bucket.exact.add(plain);
         // Extract parenthesized Hanja/compound tokens like `한 일 (一)` -> `一`
