@@ -128,7 +128,7 @@ export function SettingsScreen() {
     ko: state.preferences.tts_voices?.['ko'] ?? '',
     en: state.preferences.tts_voices?.['en'] ?? '',
   });
-  const [ttsTestLangChoice, setTtsTestLang] = useState('ko');
+  const [ttsTestLangChoice, setTtsTestLangChoice] = useState('ko');
   const ttsTestLang = ttsLanguages.some((l) => l.key === ttsTestLangChoice)
     ? ttsTestLangChoice
     : (ttsLanguages[0]?.key ?? ttsTestLangChoice);
@@ -919,7 +919,7 @@ export function SettingsScreen() {
             aria-label="Test voice language"
             data-testid="tts-test-lang-select"
             value={ttsTestLang}
-            onChange={(e) => setTtsTestLang(e.target.value)}
+            onChange={(e) => setTtsTestLangChoice(e.target.value)}
             className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--fg)]"
           >
             {ttsLanguages.map((l) => (

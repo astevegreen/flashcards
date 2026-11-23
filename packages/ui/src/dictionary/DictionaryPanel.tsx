@@ -25,7 +25,7 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useState, type FormEv
 import { RichText } from '../components/RichText.tsx';
 import { DrawLookupPanel } from '../drawing/DrawLookupPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
-import { useActiveLanguages } from '../state/useActiveLanguages.ts';
+import { useDrawScripts, type DrawScriptLang } from '../drawing/useDrawScripts.ts';
 import { DictionaryBrowseHeader, DictionaryHome } from './DictionaryHome.tsx';
 import {
   directionTargetName,
@@ -42,12 +42,6 @@ export interface DictionaryPanelProps {
   initialDrawOpen?: boolean;
   onOpenSettings?: () => void;
 }
-
-const DRAW_SCRIPTS = [
-  { lang: 'ko', label: 'Hanja (Korean)' },
-  { lang: 'ja', label: 'Kanji (Japanese)' },
-  { lang: 'zh-Hans', label: 'Hanzi (Chinese)' },
-] as const;
 
 const PACK_SHORT_LABEL: Record<DictionaryPackId, string> = {
   'dict-hanja-unihan': 'Hanja',
@@ -816,13 +810,12 @@ export function DictionaryPanel({
   const [results, setResults] = useState<DictionaryEntry[]>([]);
   const [searching, setSearching] = useState(false);
   const [showDraw, setShowDraw] = useState(initialDrawOpen);
-  const [drawLangChoice, setDrawLang] = useState<'ko' | 'ja' | 'zh-Hans'>('ko');
-  const activeLangs = useActiveLanguages();
-  const drawScripts = DRAW_SCRIPTS.filter((s) => activeLangs.hasLanguage(s.lang));
-  const showDrawTools = activeLangs.hasFeature('handwriting') && drawScripts.length > 0;
-  const drawLang = drawScripts.some((s) => s.lang === drawLangChoice)
-    ? drawLangChoice
-    : (drawScripts[0]?.lang ?? drawLangChoice);
+  const {
+    scripts: drawScripts,
+    lang: drawLang,
+    setLang: setDrawLang,
+    show: showDrawTools,
+  } = useDrawScripts();
   const [direction, setDirection] = useState<DictionaryDirection>(readLookupDirection);
   const chooseDirection = (next: DictionaryDirection): void => {
     setDirection(next);
@@ -1213,7 +1206,7 @@ export function DictionaryPanel({
             <select
               aria-label="Draw lookup language"
               value={drawLang}
-              onChange={(e) => setDrawLang(e.target.value as 'ko' | 'ja' | 'zh-Hans')}
+              onChange={(e) => setDrawLang(e.target.value as DrawScriptLang)}
               className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--fg)]"
             >
               {drawScripts.map((s) => (

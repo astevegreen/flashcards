@@ -19,6 +19,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { NoteEditDialog } from '../components/NoteEditDialog.tsx';
 import { RichText } from '../components/RichText.tsx';
 import { useApp } from '../state/AppContext.tsx';
+import { primaryDrawLang } from '../drawing/useDrawScripts.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { CategoryPicker } from '../study/CategoryPicker.tsx';
 import { setBrowseFilter } from '../study/filterStore.ts';
@@ -448,9 +449,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
                 }
               >
                 <LazyDrawLookupPanel
-                  lang={
-                    active.hasLanguage('ko') ? 'ko' : active.hasLanguage('ja') ? 'ja' : 'zh-Hans'
-                  }
+                  lang={primaryDrawLang(active.hasLanguage)}
                   size={200}
                   onSelectCandidate={(ch) => setQuery(ch)}
                   testIdPrefix="notes-draw-lookup"

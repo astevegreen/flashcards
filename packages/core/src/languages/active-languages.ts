@@ -1,3 +1,5 @@
+import { compareCodeUnits } from '../study/queue.ts';
+
 /**
  * "Active languages" (UX #2): the languages a collection is actually used for. Options that only
  * make sense for one language (furigana, Hanja, pinyin, ...) are shown only while that language is
@@ -41,7 +43,7 @@ export function deriveActiveLanguages(
   };
   for (const deck of decks) add(deck.language);
   add(onboardingLanguage);
-  return [...out].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return [...out].sort(compareCodeUnits);
 }
 
 /**
