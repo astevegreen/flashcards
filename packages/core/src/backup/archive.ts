@@ -12,6 +12,7 @@ import { exportFlashpkgFiles } from '../import/flashpkg.ts';
 import { safeMediaMimeForExt } from '../import/media-types.ts';
 import { safeUnzip, type ArchiveLimits } from '../import/safe-unzip.ts';
 import { sha256Hex } from '../sources/hash.ts';
+import { compareCodeUnits } from '../study/queue.ts';
 
 /**
  * Rolling backups (automatic dated snapshots of the whole collection).
@@ -143,7 +144,7 @@ export function buildBackup(state: CollectionState, options: BuildBackupOptions)
     const blob = options.mediaBlobs.get(normHash) ?? options.mediaBlobs.get(hash);
     if (blob) mediaEntries[`media/${normHash}.${ext}`] = blob;
   }
-  mediaHashes.sort();
+  mediaHashes.sort(compareCodeUnits);
 
   const manifest: BackupManifest = {
     format_version: BACKUP_FORMAT_VERSION,

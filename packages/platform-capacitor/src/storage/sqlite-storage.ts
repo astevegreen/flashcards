@@ -136,6 +136,13 @@ function rowToEvent(row: StoredEventDbRow): FlashEvent {
  * Pure TypeScript in-memory SQLite-table emulator used for Node/Vitest tests and web fallback
  * when no native `@capacitor-community/sqlite` driver is injected.
  */
+/** A bound SQL parameter as text (strings as they are, anything else `String`-ed). */
+function paramText(value: unknown, fallback: string): string {
+  if (typeof value === 'string') return value;
+  if (value === undefined || value === null) return fallback;
+  return String(value as number | boolean | bigint);
+}
+
 export class InMemorySqliteDriver implements SqliteDriver {
   private events: StoredEventDbRow[] = [];
   private nextLocalSeq = 1;
@@ -212,17 +219,17 @@ export class InMemorySqliteDriver implements SqliteDriver {
       return;
     }
     if (norm.startsWith('INSERT OR REPLACE INTO backups')) {
-      const backupId = String(params[0] ?? '');
+      const backupId = paramText(params[0], '');
       this.backups.set(backupId, {
         backup_id: backupId,
         created_at: Number(params[1] ?? 0),
-        info_json: String(params[2] ?? 'null'),
-        bytes_b64: String(params[3] ?? ''),
+        info_json: paramText(params[2], 'null'),
+        bytes_b64: paramText(params[3], ''),
       });
       return;
     }
     if (norm.startsWith('DELETE FROM backups WHERE backup_id =')) {
-      this.backups.delete(String(params[0] ?? ''));
+      this.backups.delete(paramText(params[0], ''));
       return;
     }
     if (norm.startsWith('DELETE FROM kv WHERE key =')) {
@@ -295,7 +302,7 @@ export class InMemorySqliteDriver implements SqliteDriver {
         .map((r) => ({ info_json: r.info_json }) as T);
     }
     if (norm.startsWith('SELECT bytes_b64 FROM backups WHERE backup_id = ?')) {
-      const row = this.backups.get(String(params[0] ?? ''));
+      const row = this.backups.get(paramText(params[0], ''));
       return row ? ([{ bytes_b64: row.bytes_b64 }] as T[]) : [];
     }
     if (norm.startsWith('SELECT value_json FROM kv WHERE key = ?')) {

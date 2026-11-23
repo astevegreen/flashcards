@@ -14,6 +14,7 @@ import {
   type BackupContext,
   type PreparedRestore,
   type SyncFolderBackupEntry,
+  type TakeBackupResult,
 } from './backupRunner.ts';
 
 /**
@@ -32,6 +33,14 @@ function kindLabel(info: StoredBackupInfo): string {
   if (info.reason === 'pre-restore') return 'Before a restore';
   if (info.reason === 'manual') return info.media_included ? 'Manual, with media' : 'Manual';
   return info.media_included ? 'Weekly, with media' : 'Daily';
+}
+
+function backupSavedMessage(result: TakeBackupResult): string {
+  if (result.syncCopyError) {
+    return `Backup saved on this device. The sync-folder copy failed: ${result.syncCopyError}`;
+  }
+  if (result.syncCopyWritten) return 'Backup saved on this device and in the sync folder.';
+  return 'Backup saved on this device.';
 }
 
 function plural(n: number, one: string, many = `${one}s`): string {
@@ -145,13 +154,7 @@ export function BackupsPanel() {
       const result = await takeBackup(ctx(), 'manual');
       await refresh();
       if (!result) return;
-      setStatus(
-        result.syncCopyError
-          ? `Backup saved on this device. The sync-folder copy failed: ${result.syncCopyError}`
-          : result.syncCopyWritten
-            ? 'Backup saved on this device and in the sync folder.'
-            : 'Backup saved on this device.',
-      );
+      setStatus(backupSavedMessage(result));
     });
 
   const preview = (label: string, bytes: Uint8Array) => {
@@ -341,9 +344,7 @@ export function BackupsPanel() {
       </label>
 
       {status && (
-        <p role="status" className="text-xs text-emerald-700 dark:text-emerald-300">
-          {status}
-        </p>
+        <output className="block text-xs text-emerald-700 dark:text-emerald-300">{status}</output>
       )}
       {error && (
         <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">
@@ -467,50 +468,73 @@ export function BackupsPanel() {
 
       {syncing && (
         <div className="flex flex-col gap-2">
-          {remote === null ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void showRemote()}
-              className="self-start rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
-            >
-              Show copies in the sync folder
-            </button>
-          ) : remote.length === 0 ? (
-            <p className="text-xs text-[var(--muted)]">No copies in the sync folder yet.</p>
-          ) : (
-            <ul
-              className="flex flex-col divide-y divide-[var(--border)]"
-              data-testid="sync-backup-list"
-            >
-              {remote.map((r) => (
-                <li
-                  key={r.path}
-                  className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"
-                >
-                  <div className="min-w-0">
-                    <div className="font-medium text-[var(--fg)]">
-                      {r.updatedAt ? new Date(r.updatedAt).toLocaleString() : r.path}
-                    </div>
-                    <div className="text-[var(--muted)]">
-                      From {r.deviceId === meta?.deviceId ? 'this device' : r.deviceId} ·{' '}
-                      {formatBytes(r.size)}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void previewRemote(r)}
-                    className="rounded-lg border border-[var(--border)] px-2.5 py-1 font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
-                  >
-                    Restore…
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <SyncFolderCopies
+            remote={remote}
+            busy={busy}
+            thisDeviceId={meta?.deviceId}
+            onShow={() => void showRemote()}
+            onRestore={(entry) => void previewRemote(entry)}
+          />
         </div>
       )}
     </div>
+  );
+}
+
+interface SyncFolderCopiesProps {
+  remote: SyncFolderBackupEntry[] | null;
+  busy: boolean;
+  thisDeviceId: string | undefined;
+  onShow: () => void;
+  onRestore: (entry: SyncFolderBackupEntry) => void;
+}
+
+/** The snapshot copies in the sync folder, listed on request. */
+function SyncFolderCopies({
+  remote,
+  busy,
+  thisDeviceId,
+  onShow,
+  onRestore,
+}: Readonly<SyncFolderCopiesProps>) {
+  if (remote === null) {
+    return (
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onShow}
+        className="self-start rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
+      >
+        Show copies in the sync folder
+      </button>
+    );
+  }
+  if (remote.length === 0) {
+    return <p className="text-xs text-[var(--muted)]">No copies in the sync folder yet.</p>;
+  }
+  return (
+    <ul className="flex flex-col divide-y divide-[var(--border)]" data-testid="sync-backup-list">
+      {remote.map((r) => (
+        <li key={r.path} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs">
+          <div className="min-w-0">
+            <div className="font-medium text-[var(--fg)]">
+              {r.updatedAt ? new Date(r.updatedAt).toLocaleString() : r.path}
+            </div>
+            <div className="text-[var(--muted)]">
+              From {r.deviceId === thisDeviceId ? 'this device' : r.deviceId} ·{' '}
+              {formatBytes(r.size)}
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onRestore(r)}
+            className="rounded-lg border border-[var(--border)] px-2.5 py-1 font-semibold hover:bg-[var(--surface-2)] disabled:opacity-50"
+          >
+            Restore…
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }

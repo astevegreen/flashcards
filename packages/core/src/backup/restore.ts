@@ -1,7 +1,15 @@
 import type { CollectionState, EventFactory } from '../events/replay.ts';
 import { isCardSuspended } from '../events/replay.ts';
 import type { EventPayloadMap, KnownEvent, KnownEventType } from '../events/types.ts';
-import type { DeckFSRSParamsVersion, Note, ReviewRecord } from '../model/types.ts';
+import type {
+  Course,
+  Deck,
+  DeckFSRSParamsVersion,
+  Note,
+  Page,
+  ReviewRecord,
+} from '../model/types.ts';
+import { compareCodeUnits } from '../study/queue.ts';
 
 /**
  * Restoring a backup appends NEW events (authored by this device, at the current time) that move
@@ -67,8 +75,12 @@ function stableJson(value: unknown): string {
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj)
     .filter((k) => obj[k] !== undefined)
-    .sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(',')}}`;
+    .sort(compareCodeUnits);
+  return `{${keys.map((k) => stableJsonEntry(k, obj[k])).join(',')}}`;
+}
+
+function stableJsonEntry(key: string, value: unknown): string {
+  return `${JSON.stringify(key)}:${stableJson(value)}`;
 }
 
 function same(a: unknown, b: unknown): boolean {
@@ -123,45 +135,60 @@ function planModel(ctx: PlanContext): void {
   }
 }
 
+function planNewDeck(ctx: PlanContext, deck: Deck): void {
+  ctx.steps.push({
+    type: 'DeckCreated',
+    payload: {
+      deck_id: deck.id,
+      name: deck.name,
+      note_type_id: deck.note_type_id,
+      language: deck.language,
+      settings: deck.settings,
+      ...(deck.source !== undefined ? { source: deck.source } : {}),
+      created_at: deck.created_at,
+    },
+  });
+  if (deck.archived) {
+    ctx.steps.push({ type: 'DeckSettingsChanged', payload: { deck_id: deck.id, archived: true } });
+  }
+  ctx.summary.decksAdded += 1;
+}
+
+function planDeckSettings(ctx: PlanContext, deck: Deck, now: Deck): void {
+  const patch: EventPayloadMap['DeckSettingsChanged'] = { deck_id: deck.id };
+  if (now.name !== deck.name) patch.name = deck.name;
+  if (now.language !== deck.language) patch.language = deck.language;
+  if (now.archived !== deck.archived) patch.archived = deck.archived;
+  if (!same(now.settings, deck.settings)) patch.settings = deck.settings;
+  if (Object.keys(patch).length > 1) {
+    ctx.steps.push({ type: 'DeckSettingsChanged', payload: patch });
+    ctx.summary.decksChanged += 1;
+  }
+}
+
+function planDeckSource(ctx: PlanContext, deck: Deck, now: Deck): void {
+  if (deck.source !== undefined && !same(deck.source, now.source)) {
+    ctx.steps.push({
+      type: 'SourceLinked',
+      payload: { target_kind: 'deck', target_id: deck.id, source: deck.source },
+    });
+  } else if (deck.source === undefined && now.source !== undefined) {
+    ctx.steps.push({
+      type: 'SourceUnlinked',
+      payload: { target_kind: 'deck', target_id: deck.id },
+    });
+  }
+}
+
 function planDecks(ctx: PlanContext): void {
   const { current, backup, steps, summary } = ctx;
   for (const deck of backup.decks.values()) {
     const now = current.decks.get(deck.id);
-    if (!now) {
-      steps.push({
-        type: 'DeckCreated',
-        payload: {
-          deck_id: deck.id,
-          name: deck.name,
-          note_type_id: deck.note_type_id,
-          language: deck.language,
-          settings: deck.settings,
-          ...(deck.source !== undefined ? { source: deck.source } : {}),
-          created_at: deck.created_at,
-        },
-      });
-      if (deck.archived) {
-        steps.push({ type: 'DeckSettingsChanged', payload: { deck_id: deck.id, archived: true } });
-      }
-      summary.decksAdded += 1;
-      continue;
-    }
-    const patch: EventPayloadMap['DeckSettingsChanged'] = { deck_id: deck.id };
-    if (now.name !== deck.name) patch.name = deck.name;
-    if (now.language !== deck.language) patch.language = deck.language;
-    if (now.archived !== deck.archived) patch.archived = deck.archived;
-    if (!same(now.settings, deck.settings)) patch.settings = deck.settings;
-    if (Object.keys(patch).length > 1) {
-      steps.push({ type: 'DeckSettingsChanged', payload: patch });
-      summary.decksChanged += 1;
-    }
-    if (deck.source !== undefined && !same(deck.source, now.source)) {
-      steps.push({
-        type: 'SourceLinked',
-        payload: { target_kind: 'deck', target_id: deck.id, source: deck.source },
-      });
-    } else if (deck.source === undefined && now.source !== undefined) {
-      steps.push({ type: 'SourceUnlinked', payload: { target_kind: 'deck', target_id: deck.id } });
+    if (now) {
+      planDeckSettings(ctx, deck, now);
+      planDeckSource(ctx, deck, now);
+    } else {
+      planNewDeck(ctx, deck);
     }
   }
   for (const deck of current.decks.values()) {
@@ -201,7 +228,7 @@ function planFsrsParams(ctx: PlanContext): void {
         changed = true;
       }
     }
-    const backupActive = versions[versions.length - 1];
+    const backupActive = versions.at(-1);
     const currentMax = now.reduce((m, v) => Math.max(m, v.params_version), 0);
     const currentActive = now.find((v) => v.params_version === currentMax);
     if (
@@ -263,23 +290,30 @@ function noteUpsertPayload(note: Note, now: Note | undefined): EventPayloadMap['
   };
 }
 
+function planNoteArchive(ctx: PlanContext, note: Note, now: Note | undefined): void {
+  const archivedNow = now?.archived ?? ctx.current.noteArchivedState.get(note.id) ?? false;
+  if (note.archived === archivedNow) return;
+  if (note.archived) {
+    ctx.steps.push({ type: 'NoteArchived', payload: { note_id: note.id } });
+    if (now) ctx.summary.notesArchived += 1;
+  } else {
+    ctx.steps.push({ type: 'NoteRestored', payload: { note_id: note.id } });
+    if (now) ctx.summary.notesRestored += 1;
+  }
+}
+
 function planNotes(ctx: PlanContext): void {
   const { current, backup, steps, summary } = ctx;
   for (const note of backup.notes.values()) {
     const now = current.notes.get(note.id);
-    if (!now || noteContentDiffers(now, note)) {
+    if (!now) {
       steps.push({ type: 'NoteUpserted', payload: noteUpsertPayload(note, now) });
-      if (now) summary.notesChanged += 1;
-      else summary.notesAdded += 1;
+      summary.notesAdded += 1;
+    } else if (noteContentDiffers(now, note)) {
+      steps.push({ type: 'NoteUpserted', payload: noteUpsertPayload(note, now) });
+      summary.notesChanged += 1;
     }
-    const archivedNow = now?.archived ?? current.noteArchivedState.get(note.id) ?? false;
-    if (note.archived && !archivedNow) {
-      steps.push({ type: 'NoteArchived', payload: { note_id: note.id } });
-      if (now) summary.notesArchived += 1;
-    } else if (!note.archived && archivedNow) {
-      steps.push({ type: 'NoteRestored', payload: { note_id: note.id } });
-      if (now) summary.notesRestored += 1;
-    }
+    planNoteArchive(ctx, note, now);
   }
   for (const note of current.notes.values()) {
     if (!backup.notes.has(note.id) && !note.archived) {
@@ -321,37 +355,36 @@ function reviewPayload(r: ReviewRecord): EventPayloadMap['ReviewRecorded'] {
 function allReviews(state: CollectionState): ReviewRecord[] {
   const out: ReviewRecord[] = [];
   for (const list of state.reviewsByCard.values()) out.push(...list);
-  out.sort(
-    (a, b) =>
-      a.reviewed_at - b.reviewed_at ||
-      (a.review_id < b.review_id ? -1 : a.review_id > b.review_id ? 1 : 0),
-  );
+  out.sort((a, b) => a.reviewed_at - b.reviewed_at || compareCodeUnits(a.review_id, b.review_id));
   return out;
+}
+
+/** One review the backup holds: record it again, undo it, or note that it can't come back. */
+function planBackupReview(ctx: PlanContext, r: ReviewRecord, currentIds: Set<string>): void {
+  const { backup, current, steps, summary } = ctx;
+  const undoneNow = current.undoneReviewIds.has(r.review_id);
+  if (backup.undoneReviewIds.has(r.review_id)) {
+    if (currentIds.has(r.review_id) && !undoneNow) {
+      steps.push({ type: 'ReviewUndone', payload: { review_id: r.review_id } });
+      summary.reviewsUndone += 1;
+    }
+  } else if (undoneNow) {
+    summary.reviewsNotRestorable += 1;
+  } else if (!currentIds.has(r.review_id)) {
+    steps.push({ type: 'ReviewRecorded', payload: reviewPayload(r) });
+    summary.reviewsAdded += 1;
+  }
 }
 
 function planReviews(ctx: PlanContext, undoNewer: boolean): void {
   const { current, backup, steps, summary } = ctx;
+  const currentReviews = allReviews(current);
   const currentIds = new Set(current.reviewIdToCardId.keys());
-  for (const list of current.reviewsByCard.values())
-    for (const r of list) currentIds.add(r.review_id);
+  for (const r of currentReviews) currentIds.add(r.review_id);
   const backupReviews = allReviews(backup);
   const backupIds = new Set(backupReviews.map((r) => r.review_id));
-  for (const r of backupReviews) {
-    const undoneInBackup = backup.undoneReviewIds.has(r.review_id);
-    const undoneNow = current.undoneReviewIds.has(r.review_id);
-    if (undoneInBackup) {
-      if (currentIds.has(r.review_id) && !undoneNow) {
-        steps.push({ type: 'ReviewUndone', payload: { review_id: r.review_id } });
-        summary.reviewsUndone += 1;
-      }
-    } else if (undoneNow) {
-      summary.reviewsNotRestorable += 1;
-    } else if (!currentIds.has(r.review_id)) {
-      steps.push({ type: 'ReviewRecorded', payload: reviewPayload(r) });
-      summary.reviewsAdded += 1;
-    }
-  }
-  for (const r of allReviews(current)) {
+  for (const r of backupReviews) planBackupReview(ctx, r, currentIds);
+  for (const r of currentReviews) {
     if (backupIds.has(r.review_id) || current.undoneReviewIds.has(r.review_id)) continue;
     if (undoNewer) {
       steps.push({ type: 'ReviewUndone', payload: { review_id: r.review_id } });
@@ -362,13 +395,17 @@ function planReviews(ctx: PlanContext, undoNewer: boolean): void {
   }
 }
 
-function planPagesCoursesMedia(ctx: PlanContext): void {
+function pageContent(page: Page | undefined): Omit<Page, 'read_at'> | undefined {
+  if (!page) return undefined;
+  const { read_at: _readAt, ...content } = page;
+  return content;
+}
+
+function planPages(ctx: PlanContext): void {
   const { current, backup, steps, summary } = ctx;
   for (const page of backup.pages.values()) {
     const now = current.pages.get(page.id);
-    const { read_at: _readAt, ...content } = page;
-    const nowContent = now ? (({ read_at: _r, ...rest }) => rest)(now) : undefined;
-    if (!same(content, nowContent)) {
+    if (!same(pageContent(page), pageContent(now))) {
       steps.push({
         type: 'PageUpserted',
         payload: {
@@ -387,18 +424,24 @@ function planPagesCoursesMedia(ctx: PlanContext): void {
       steps.push({ type: 'PageRead', payload: { page_id: page.id, read_at: page.read_at } });
     }
   }
+}
+
+function planCourses(ctx: PlanContext): void {
+  const { current, backup, steps, summary } = ctx;
+  const change = (course: Course): void => {
+    steps.push({ type: 'CourseChanged', payload: { course } });
+    summary.coursesChanged += 1;
+  };
   for (const course of backup.courses.values()) {
-    if (!same(course, current.courses.get(course.id))) {
-      steps.push({ type: 'CourseChanged', payload: { course } });
-      summary.coursesChanged += 1;
-    }
+    if (!same(course, current.courses.get(course.id))) change(course);
   }
   for (const course of current.courses.values()) {
-    if (!backup.courses.has(course.id) && !course.archived) {
-      steps.push({ type: 'CourseChanged', payload: { course: { ...course, archived: true } } });
-      summary.coursesChanged += 1;
-    }
+    if (!backup.courses.has(course.id) && !course.archived) change({ ...course, archived: true });
   }
+}
+
+function planMediaAndPreferences(ctx: PlanContext): void {
+  const { current, backup, steps, summary } = ctx;
   for (const [hash, entry] of backup.media) {
     if (!current.media.has(hash)) {
       steps.push({ type: 'MediaAdded', payload: { media: entry } });
@@ -428,7 +471,9 @@ export function planBackupRestore(
   planModel(ctx);
   planDecks(ctx);
   planFsrsParams(ctx);
-  planPagesCoursesMedia(ctx);
+  planPages(ctx);
+  planCourses(ctx);
+  planMediaAndPreferences(ctx);
   planNotes(ctx);
   planSuspensions(ctx);
   planReviews(ctx, options.undoNewerReviews === true);
