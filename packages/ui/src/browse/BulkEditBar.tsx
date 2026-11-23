@@ -9,6 +9,7 @@ import {
   type BulkNoteAction,
 } from '@flash/core';
 import { useMemo, useState, type FormEvent } from 'react';
+import { exportAnkiCsvZip } from '../export/ankiExport.ts';
 import { useApp } from '../state/AppContext.tsx';
 
 /** Code-unit order (not localeCompare), like the rest of the collection's sorting. */
@@ -54,6 +55,7 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
   const [addText, setAddText] = useState('');
   const [removeTag, setRemoveTag] = useState('');
   const [moveDeckId, setMoveDeckId] = useState('');
+  const [forAnki, setForAnki] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
   const info = useMemo(() => {
@@ -115,6 +117,19 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
 
   const exportCsvFile = async () => {
     if (!info.onlyDeck) return;
+    if (forAnki) {
+      try {
+        const text = await exportAnkiCsvZip(platform, state, {
+          deckId: info.onlyDeck,
+          noteIds,
+          includeArchived: showingArchived,
+        });
+        setMessage({ kind: 'ok', text });
+      } catch (err) {
+        setMessage({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
     const deck = state.decks.get(info.onlyDeck);
     const { exportCsv } = await import('@flash/core/csv');
     const result = exportCsv(state, {
@@ -197,6 +212,18 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
         >
           Export CSV
         </button>
+        <label
+          className="flex items-center gap-1 text-xs"
+          title="Adds Anki's import headers and zips the CSV with its media"
+        >
+          <input
+            type="checkbox"
+            data-testid="bulk-export-for-anki"
+            checked={forAnki}
+            onChange={(e) => setForAnki(e.target.checked)}
+          />
+          For Anki
+        </label>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

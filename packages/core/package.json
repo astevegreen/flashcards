@@ -77,6 +77,10 @@
       "types": "./src/import/anki/index.ts",
       "default": "./src/import/anki/index.ts"
     },
+    "./anki-export": {
+      "types": "./src/export/anki/index.ts",
+      "default": "./src/export/anki/index.ts"
+    },
     "./import-detect": {
       "types": "./src/import/detect.ts",
       "default": "./src/import/detect.ts"
