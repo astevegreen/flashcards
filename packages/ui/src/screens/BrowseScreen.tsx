@@ -40,6 +40,9 @@ const LazyDictionaryPanel = lazy(() =>
 const LazyDrawLookupPanel = lazy(() =>
   import('../drawing/DrawLookupPanel.tsx').then((m) => ({ default: m.DrawLookupPanel })),
 );
+const LazyTagsGuidePanel = lazy(() =>
+  import('../browse/TagsGuidePanel.tsx').then((m) => ({ default: m.TagsGuidePanel })),
+);
 const LazyTagManagerPanel = lazy(() =>
   import('../browse/TagManagerPanel.tsx').then((m) => ({ default: m.TagManagerPanel })),
 );
@@ -82,6 +85,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   const [showNotesDraw, setShowNotesDraw] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [showTagManager, setShowTagManager] = useState(false);
+  const [showTagsGuide, setShowTagsGuide] = useState(false);
   // Bulk edit selection (Phase 9). Only notes in the visible list count; see `selectedVisible`.
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const parentRef = useRef<HTMLDivElement | null>(null);
@@ -401,7 +405,22 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
             >
               Manage categories
             </button>
+            <button
+              type="button"
+              data-testid="open-tags-guide"
+              aria-expanded={showTagsGuide}
+              onClick={() => setShowTagsGuide((v) => !v)}
+              className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] hover:text-[var(--fg)]"
+            >
+              How tags work
+            </button>
           </div>
+
+          {showTagsGuide && !showTagManager && (
+            <Suspense fallback={null}>
+              <LazyTagsGuidePanel onDismiss={() => setShowTagsGuide(false)} />
+            </Suspense>
+          )}
 
           {showTagManager && (
             <Suspense
