@@ -32,6 +32,12 @@ const LazyFsrsOptimizerPanel = lazy(() => import('../fsrs/FsrsOptimizerPanel.tsx
 const LazyAnkiImportPanel = lazy(() => import('../import/AnkiImportPanel.tsx'));
 const LazyBringMyCardsPanel = lazy(() => import('../import/BringMyCardsPanel.tsx'));
 
+/** Furigana only exists in Japanese text, so only Japanese decks hide it on the front by default. */
+function isJapaneseLanguage(language: string): boolean {
+  const norm = language.toLowerCase();
+  return norm === 'ja' || norm.startsWith('ja-');
+}
+
 function DeckOptionsPanel({
   deck,
   noteType,
@@ -265,7 +271,8 @@ function DeckOptionsPanel({
       answer_mode: layoutMode,
       speak_field: speakFieldKey || effectiveFront,
       speak_on: layoutMode === 'listen' ? 'front' : speakOn,
-      hide_furigana_on_front: layoutMode !== 'typed' && layoutMode !== 'draw',
+      hide_furigana_on_front:
+        isJapaneseLanguage(deck.language) && layoutMode !== 'typed' && layoutMode !== 'draw',
       enabled: false,
       ...(rubyDisplay !== 'both' ? { ruby_display: rubyDisplay } : {}),
       ...(layoutMode === 'typed' || layoutMode === 'choice' || layoutMode === 'draw'
