@@ -27,3 +27,14 @@ export {
   type AnkiRichTextConverter,
 } from './field-html.ts';
 export { AnkiZipTooLargeError, AnkiZipWriter, crc32 } from './zip-writer.ts';
+export {
+  ANKI_SCHEMA_11,
+  assembleApkg,
+  planAnkiApkgExport,
+  type AnkiApkgExportOptions,
+  type AnkiApkgPlan,
+  type AnkiApkgResult,
+  type AnkiCollectionPlan,
+  type AnkiExportTable,
+  type AnkiSqlCell,
+} from './apkg.ts';

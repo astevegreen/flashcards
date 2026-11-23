@@ -213,7 +213,7 @@ function extractSounds(text: string, sounds: string[]): string {
     if (start === -1) break;
     const end = text.indexOf(']', start + 7);
     if (end === -1) break;
-    const name = text.slice(start + 7, end).trim();
+    const name = decodeHtmlEntities(text.slice(start + 7, end)).trim();
     if (name) sounds.push(name);
     out += text.slice(pos, start);
     pos = end + 1;
@@ -345,12 +345,14 @@ class FieldTextBuilder {
     if (!this.run) return;
     const raw = this.run;
     this.run = '';
-    let text = decodeHtmlEntities(collapseWhitespace(raw)).replaceAll(' ', ' ');
-    text = extractSounds(text, this.sounds);
+    // Sounds and furigana are read before other entities are decoded, as Anki does: an escaped
+    // `&#91;abc&#93;` is literal text in Anki, not furigana. `&nbsp;` still ends a ruby base.
+    const spaced = collapseWhitespace(raw).replace(/&nbsp;|\u00a0/gi, ' ');
+    let text = extractSounds(spaced, this.sounds);
     if (this.options.furigana) {
       text = convertAnkiFuriganaRun(text, this.options.furiganaOutput ?? 'ruby');
     }
-    this.append(text);
+    this.append(decodeHtmlEntities(text).replaceAll('\u00a0', ' '));
   }
 
   private append(text: string): void {

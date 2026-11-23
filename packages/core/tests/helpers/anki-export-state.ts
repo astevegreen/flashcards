@@ -5,6 +5,7 @@ import {
 } from '../../src/events/replay.ts';
 import type { EventPayloadMap, KnownEvent, KnownEventType } from '../../src/events/types.ts';
 import { createHlcState } from '../../src/hlc.ts';
+import { deriveCardId } from '../../src/ids.ts';
 import type { Layout, NoteType } from '../../src/model/types.ts';
 import { sha256Hex } from '../../src/sources/hash.ts';
 
@@ -82,6 +83,9 @@ export const CLOZE_LAYOUT: Layout = {
   hide_furigana_on_front: false,
   enabled: true,
 };
+
+/** Note 1's typed card, suspended. */
+export const SUSPENDED_CARD = deriveCardId('note-1', 'layout-ja-typed', 0);
 
 export function buildAnkiExportState(): CollectionState {
   const f = createEventFactory('dev-x', 0, createHlcState('dev-x', T0));
@@ -163,5 +167,6 @@ export function buildAnkiExportState(): CollectionState {
     },
     tags: ['cloze'],
   });
+  push('CardSuspended', { card_id: SUSPENDED_CARD });
   return replayAllEvents(ev);
 }

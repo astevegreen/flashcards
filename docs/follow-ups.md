@@ -207,7 +207,8 @@ On 2026-11-23 an agent compared the app with Anki, about 25 features. This secti
 No open format with media and review history is widely adopted. CSV/TSV is the common format that most apps import, but it carries no media and no history. `.apkg` is in practice the main exchange format: Anki on every platform reads it, and some other apps import it too. **To build**, in this order:
 
 - [x] **"Export for Anki" option on CSV export.** Browse > select notes > tick **For Anki** > Export CSV. The zip holds the CSV with Anki's header lines, a `collection.media/` folder and a README. Ruby becomes Anki furigana, `media:` references become `<img>` / `[sound:]`. Plain CSV stays the default, because other apps would read those header lines as data. Defaults under "Decisions needed (Anki export)".
-- [ ] **`.apkg` export** of notes, media and tags. Review history comes later.
+- [x] **`.apkg` export** of notes, media and tags. Library > a deck's Options > **Export for Anki (.apkg)**. One Anki note type per note type, one card template per layout, every card new. Defaults under "Decisions needed (Anki export)".
+- [ ] **`.apkg` review history (follow-up):** write `revlog` rows and card scheduling from the review events, so a user who leaves keeps their intervals. The `revlog` table is already created, empty.
 
 ## Decisions needed (2026-11-23 batch)
 
@@ -275,7 +276,13 @@ Defaults picked for "Export for Anki". Each stays shipped until the owner decide
 - [ ] **Media file names:** `<sha256>.<ext>`, in `collection.media/` inside the zip (Anki's text import copies no media). Media this device doesn't have is left out and counted in the message. Only the importers' media types (png, jpg, webp, gif, mp3, ogg, wav, m4a) are written; any other extension counts as missing. The zip is written one file at a time into Blob parts (stored media, deflated text), so a large audio deck is never held in memory twice; the native apps still get one array at the end.
 - [ ] **Text as HTML:** `<`, `>`, `&`, `"` are escaped, line breaks become `<br>`, and literal `[` / `]` are written as `&#91;` / `&#93;`, so Anki's furigana filter can't turn `test[abc]` into ruby. Ruby becomes ` base[reading]`. A space of the text right before a base is written `&#32;` (Anki consumes the literal space as the base marker), and a space inside a base is `&#160;`.
 - [ ] **Tags:** spaces inside a tag become `_` (Anki separates tags with spaces); `::` hierarchies are kept.
-- [ ] **Rich text (follow-up):** the field editor's markup from PR #38 (`{b:…}`, `{i:…}`, `{red:…}` and the other colours, nesting) isn't converted yet. `AnkiRichTextConverter` (`packages/core/src/export/anki/field-html.ts`) is the hook: once #38 is on main it should turn the markup into `<b>`, `<i>` and `<span style="color: …">`. Plain CSV export should then strip it with `stripRichText`.
+- [ ] **Rich text (follow-up):** the field editor's markup from PR #38 (`{b:…}`, `{i:…}`, `{red:…}` and the other colours, nesting) isn't converted yet. `AnkiRichTextConverter` (`packages/core/src/export/anki/field-html.ts`) is the hook: once #38 is on main it should turn the markup into `<b>`, `<i>` and `<span style="color: …">`. Plain CSV export should then strip it with `stripRichText`. The `.apkg` export takes the same hook.
+- [ ] **`.apkg` format:** the legacy `collection.anki2` (schema 11) plus the JSON `media` map. Every Anki since 2.1 (desktop, AnkiDroid, AnkiMobile) imports it; the newer `anki21b` needs zstd and protobuf writers for no gain here.
+- [ ] **`.apkg` ids:** note types and decks get ids hashed from this app's ids, so a second export of the same deck matches them in Anki. Note and card ids count up from the export time. GUIDs follow the CSV rule above.
+- [ ] **`.apkg` templates:** one card template per layout enabled in the exported decks (all layouts if none is enabled). The front shows the front fields (`{{kanji:…}}` when a layout hides furigana on the front, `{{furigana:…}}` otherwise), typed layouts add `{{type:…}}`, the layout's spoken field gets `{{tts …}}` on the front or the answer, following when the layout speaks. Choice, listen and draw layouts become plain flip cards. A note type with a cloze layout becomes an Anki cloze note type with only that template, and the message warns when other layouts were dropped.
+- [ ] **`.apkg` cards:** all new, in note order; suspended cards stay suspended. Parent decks are created for `::` names.
+- [ ] **`.apkg` writer:** SQLite is written with sql.js in a short-lived Web Worker, reached through the existing lazy Anki service (`AnkiPackageReader.writeCollection`) rather than a new platform getter, so the study-screen bundle doesn't grow. Downloaded as `application/octet-stream`.
+- [ ] **Importer:** escaped brackets (`&#91;` / `&#93;`) in an Anki field now stay literal text instead of becoming ruby, as in Anki itself.
 
 ## Leftover nits and known limitations
 
