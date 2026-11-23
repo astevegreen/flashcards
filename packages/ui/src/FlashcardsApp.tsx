@@ -1,21 +1,22 @@
 import type { CollectionState, FlashEvent, SyncCursorState } from '@flash/core';
 import type { DeviceMeta, PlatformServices, SyncConfig } from '@flash/platform';
-import { lazy, Suspense, useState } from 'react';
+import { Suspense, useState } from 'react';
+import { lazyWithRetry } from './lazy/lazyWithRetry.tsx';
 import { AppShell, type NavTab } from './layout/AppShell.tsx';
 import { StudyScreen } from './screens/StudyScreen.tsx';
 import { AppProvider, useApp } from './state/AppContext.tsx';
 
 // Lazy-load secondary screens so initial study-screen JS stays well under the 160 KB gzip budget (§8)
-const LibraryScreen = lazy(() =>
+const LibraryScreen = lazyWithRetry(() =>
   import('./screens/LibraryScreen.tsx').then((m) => ({ default: m.LibraryScreen })),
 );
-const BrowseScreen = lazy(() =>
+const BrowseScreen = lazyWithRetry(() =>
   import('./screens/BrowseScreen.tsx').then((m) => ({ default: m.BrowseScreen })),
 );
-const StatsScreen = lazy(() =>
+const StatsScreen = lazyWithRetry(() =>
   import('./screens/StatsScreen.tsx').then((m) => ({ default: m.StatsScreen })),
 );
-const SettingsScreen = lazy(() =>
+const SettingsScreen = lazyWithRetry(() =>
   import('./screens/SettingsScreen.tsx').then((m) => ({ default: m.SettingsScreen })),
 );
 

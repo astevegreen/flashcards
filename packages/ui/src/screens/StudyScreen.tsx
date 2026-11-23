@@ -17,7 +17,9 @@ import {
   type RatingButtonMode,
   type ReviewRating,
 } from '@flash/core';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
+import { retryImport } from '../lazy/retryImport.ts';
 import type * as DeferredSyncPromptModuleType from '../onboarding/DeferredSyncPromptSlot.tsx';
 import { useApp, type AppContextValue } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
@@ -35,17 +37,19 @@ import {
 import { RatingBar } from '../study/RatingBar.tsx';
 import { StudyCard, type SwipeIntent } from '../study/StudyCard.tsx';
 
-const LazyNoteEditDialog = lazy(() =>
-  import('../components/NoteEditDialog.tsx').then((m) => ({ default: m.NoteEditDialog })),
+const LazyNoteEditDialog = lazyWithRetry(
+  () => import('../components/NoteEditDialog.tsx').then((m) => ({ default: m.NoteEditDialog })),
+  { closeWith: 'onClose' },
 );
 // Phase 9 "Study this filter" panel is off the critical path (§8).
-const LazyStudyFilterPanel = lazy(() =>
-  import('../study/StudyFilterPanel.tsx').then((m) => ({ default: m.StudyFilterPanel })),
+const LazyStudyFilterPanel = lazyWithRetry(
+  () => import('../study/StudyFilterPanel.tsx').then((m) => ({ default: m.StudyFilterPanel })),
+  { closeWith: 'onClose' },
 );
 
 // Zero-deck screen with first-run onboarding (pick a language, then a starter deck): shown only
 // while the collection is empty, so it stays off the critical path (§8).
-const LazyEmptyCollection = lazy(() =>
+const LazyEmptyCollection = lazyWithRetry(() =>
   import('../study/EmptyCollection.tsx').then((m) => ({ default: m.EmptyCollection })),
 );
 
@@ -66,7 +70,7 @@ function useDeferredSyncPromptModule(
   useEffect(() => {
     if (mod) return;
     let live = true;
-    import('../onboarding/DeferredSyncPromptSlot.tsx')
+    retryImport(() => import('../onboarding/DeferredSyncPromptSlot.tsx'))
       .then(async (m) => {
         await m.preloadDeferredSyncPrompt(storage);
         loadedDeferredSyncPrompt = m;
@@ -318,7 +322,7 @@ async function startOnboardingDeck(
   slug: string,
   app: Pick<AppContextValue, 'getEventFactory' | 'setActiveDeckId' | 'emitEvents'>,
 ): Promise<void> {
-  const decks = await import('../onboarding/starterDecks.ts');
+  const decks = await retryImport(() => import('../onboarding/starterDecks.ts'));
   await decks.startOnboardingDeck(slug, app);
 }
 

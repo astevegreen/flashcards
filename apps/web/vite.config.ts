@@ -95,6 +95,7 @@ export default defineConfig({
             norm.includes('/packages/core/src/sources/hash.ts') ||
             norm.includes('/packages/core/src/sync/types.ts') ||
             norm.includes('/packages/ui/src/components/RichText.tsx') ||
+            norm.includes('/packages/ui/src/lazy/') ||
             norm.includes('/packages/ui/src/state/AppContext.tsx') ||
             norm.includes('/packages/ui/src/state/useAudioController.ts') ||
             norm.includes('/packages/ui/src/state/useSyncController.ts')

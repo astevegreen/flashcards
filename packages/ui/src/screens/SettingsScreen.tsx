@@ -7,7 +7,8 @@ import {
 } from '@flash/core';
 import { canCreateOrImportDeck, canUseCloudSync } from '@flash/core/license';
 import type { InstalledPackInfo, TtsProviderKind } from '@flash/platform';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
 import { LanguagesCard } from '../components/LanguagesCard.tsx';
 import { StudyRemindersSetting } from '../reminders/StudyRemindersSetting.tsx';
@@ -23,13 +24,13 @@ import {
 } from '../sync/SettingsSyncBlocks.tsx';
 import { describeSyncProvider } from '../sync/syncProviderLabel.ts';
 
-const LazyPackManagerPanel = lazy(() =>
+const LazyPackManagerPanel = lazyWithRetry(() =>
   import('../packs/PackManagerPanel.tsx').then((m) => ({ default: m.PackManagerPanel })),
 );
-const LazyAboutLicensesCard = lazy(() =>
+const LazyAboutLicensesCard = lazyWithRetry(() =>
   import('../packs/AboutLicensesCard.tsx').then((m) => ({ default: m.AboutLicensesCard })),
 );
-const LazyUnlockAndSunsetCard = lazy(() =>
+const LazyUnlockAndSunsetCard = lazyWithRetry(() =>
   import('../packs/UnlockAndSunsetCard.tsx').then((m) => ({ default: m.UnlockAndSunsetCard })),
 );
 

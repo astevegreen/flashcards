@@ -11,11 +11,14 @@ import type {
   SourceSyncStatus,
   SourceWarning,
 } from '@flash/platform';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import type * as SourceRunner from '../sources/sourceRunner.ts';
 import { useApp } from '../state/AppContext.tsx';
 
-const LazyOneDrivePickerPanel = lazy(() => import('../sources/OneDrivePickerPanel.tsx'));
+const LazyOneDrivePickerPanel = lazyWithRetry(() => import('../sources/OneDrivePickerPanel.tsx'), {
+  closeWith: 'onClose',
+});
 
 function formatStatusLabel(status?: SourceSyncStatus): string {
   switch (status) {

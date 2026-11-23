@@ -7,6 +7,7 @@ import {
 } from '@flash/core';
 import { useEffect, useMemo, useState } from 'react';
 import type { loadOnboardingRecord } from '../onboarding/onboardingState.ts';
+import { retryImport } from '../lazy/retryImport.ts';
 import { useApp } from './AppContext.tsx';
 
 export interface ActiveLanguages {
@@ -29,7 +30,7 @@ let onboardingLoader: Promise<LoadOnboardingRecord> | undefined;
 
 /** One shared dynamic import for every hook instance (the record itself is still read per mount). */
 function loadOnboardingLoader(): Promise<LoadOnboardingRecord> {
-  onboardingLoader ??= import('../onboarding/onboardingState.ts')
+  onboardingLoader ??= retryImport(() => import('../onboarding/onboardingState.ts'))
     .then((m) => m.loadOnboardingRecord)
     .catch((error: unknown) => {
       onboardingLoader = undefined; // let a later mount retry after a failed chunk load

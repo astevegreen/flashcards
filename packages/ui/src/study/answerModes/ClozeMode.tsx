@@ -1,11 +1,12 @@
 import { extractClozeAnswersForVariant, parseCloze } from '@flash/core';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
 import { RichText } from '../../components/RichText.tsx';
 import { CardFieldValue, RevealedBackSteps } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 import { cardTextFitClass } from '../fitText.ts';
 
-const LazyTypedAnswerPanel = lazy(() => import('./TypedAnswerPanel.tsx'));
+const LazyTypedAnswerPanel = lazyWithRetry(() => import('./TypedAnswerPanel.tsx'));
 
 interface ClozeTextProps {
   text: string;
