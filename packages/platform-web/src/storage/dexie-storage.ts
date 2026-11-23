@@ -359,6 +359,10 @@ export class DexieStorage implements Storage {
     return this.db.media.toCollection().primaryKeys();
   }
 
+  async deleteMedia(hash: string): Promise<void> {
+    await this.db.media.delete(hash);
+  }
+
   openBackupStore(): Promise<BackupStore> {
     return import('./dexie-backup-store.ts').then((m) => m.createDexieBackupStore(this.db));
   }

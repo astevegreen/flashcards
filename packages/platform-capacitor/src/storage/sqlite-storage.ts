@@ -597,6 +597,11 @@ export class CapacitorSqliteStorage implements Storage {
     return rows.map((r) => r.hash);
   }
 
+  async deleteMedia(hash: string): Promise<void> {
+    await this.ensureReady();
+    await this.driver.execute(`DELETE FROM media WHERE hash = ?`, [hash.toLowerCase()]);
+  }
+
   /** Rolling backups in the `backups` table (manifest JSON beside the archive). */
   private orphanSweep: Promise<void> | null = null;
 

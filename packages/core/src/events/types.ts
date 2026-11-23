@@ -120,6 +120,16 @@ export interface MediaAddedPayload {
   media: MediaEntry;
 }
 
+/**
+ * Removes a media file no note uses from the collection (Check media). It stays removed unless a
+ * later (higher-HLC) `MediaAdded` adds the same hash again: replay keeps the newest add and the
+ * newest removal per hash in `fieldHlcs` (`media:<hash>:added` / `media:<hash>:removed`), so any
+ * delivery order converges. Older builds keep it in `unknownEvents` and still list the file.
+ */
+export interface MediaRemovedPayload {
+  hash: string;
+}
+
 export interface SourceLinkedPayload {
   target_kind: 'deck' | 'page';
   target_id: string;
@@ -306,6 +316,7 @@ export interface EventPayloadMap {
   PageRead: PageReadPayload;
   CourseChanged: CourseChangedPayload;
   MediaAdded: MediaAddedPayload;
+  MediaRemoved: MediaRemovedPayload;
   SourceLinked: SourceLinkedPayload;
   SourceUnlinked: SourceUnlinkedPayload;
   PreferencesChanged: PreferencesChangedPayload;
@@ -379,6 +390,7 @@ export function isKnownEventType(type: string): type is KnownEventType {
     type === 'PageRead' ||
     type === 'CourseChanged' ||
     type === 'MediaAdded' ||
+    type === 'MediaRemoved' ||
     type === 'SourceLinked' ||
     type === 'SourceUnlinked' ||
     type === 'PreferencesChanged' ||

@@ -183,10 +183,11 @@ On 2026-11-23 an agent compared the app with Anki, about 25 features. This secti
   - Optional copy in the sync folder (`backups/v1/<device>/day-<weekday>.flashpkg`, no media). The 7 weekday slots overwrite, so no transport needs a delete. Settings lists every device's copies for restore.
   - Web: backups live in IndexedDB and persistent storage is requested. OPFS was not used: it shares IndexedDB's quota and eviction, so it adds nothing. The off-device copies are a downloaded file and the sync folder.
   - The reminder still shows for users who don't sync. Automatic snapshots never count as a backup for it; downloading one does. "Export Backup" now writes the same format with media, so a manual backup keeps review history too.
-- [ ] **Check media and check database.**
-  - Check media lists media that no note uses and media that notes reference but is missing. It offers to remove unused files, because they count against the user's own Drive or Dropbox quota.
-  - Check database rebuilds state from the event log and reports any difference.
-  - Empty-cards cleanup only if optional cards (below) ship.
+- [x] **Check media and check database.** Built in `packages/core/src/check/` and Settings > Check collection (`packages/ui/src/check/`):
+  - Check media lists stored files nothing uses and files notes or pages reference that this device lacks. A file counts as used when any note (archived too), page, deck, note type, layout, course or option mentions `media:<sha256>`. Cached spoken audio is never offered.
+  - Removing unused files is confirmed. A new `MediaRemoved` event takes them out of the collection on every device (a later `MediaAdded` of the same file wins, in any order). The stored file is deleted unless a kept backup lists it; it goes once that backup rolls off.
+  - Check database rebuilds the collection from the event log and lists differences by area. When the log lacks history another device folded into a snapshot, it rebuilds from the saved snapshot instead and says so. After a full rebuild with differences, "Rebuild from history" saves it as this device's starting point and reloads. The log itself is never changed.
+  - Not done: unused files are not deleted from the sync folder, since the transport has no delete. Empty-cards cleanup only if optional cards (below) ship.
 - [x] **Optional cards (PR #34).** One rule per layout: make this card only when field X is filled (`Layout.required_field`, set in Library > deck Options > "Layouts: optional cards"). No template conditionals. A card with active reviews whose field is emptied is kept: it is hidden from Study, has only the Empty state in Browse (badge and "Empty" filter), and comes back with its schedule when the field is filled again. Reviews stay in the event log in every case. A rule on a field the note type lacks, or on a cloze layout's own text, is ignored (import drops it with a warning; the settings list flags it). Snapshots saved by older builds are re-derived on load. Stroke data from the offline packs is per device, so it can't decide which cards exist; a writing card can only depend on a note field.
 - [x] **Duplicate finder across decks (PR #36)**, on the note's key field, for imported lists (HSK, JLPT) that overlap the user's own decks. Browse > Find duplicates groups notes whose key field matches after NFC, trimming and ruby stripping (`@flash/core/duplicates`), with Open, Tag "duplicate" and Archive. No merge.
 
@@ -336,6 +337,16 @@ Defaults picked while building automatic backups. Each stays shipped until the o
 - [ ] **Sync-folder copy:** off by default. One copy per device per weekday, without media. A restore from the sync folder needs the media in the sync store, or in the full snapshot of the device it came from.
 - [ ] **Web storage:** IndexedDB with `navigator.storage.persist()`, requested by the backup check at launch, no longer by `AppContext` directly. When the browser refuses, Settings warns that backups can be cleared, and a one-time notice says so outside Settings (not shown when sync is connected).
 - [ ] **Downloads:** "Download" on a daily snapshot adds the media from this device to the file. Downloading counts as a backup for the reminder.
+
+## Decisions needed (check media and check database, 2026-11-23)
+
+Defaults picked while building the checks. Each stays shipped until the owner decides.
+
+- [ ] **Removal is an event:** `MediaRemoved` is a new event type, so removing a file reaches every synced device. Older builds keep the event unapplied and still list the file. A snapshot an older build wrote is folded on load; if that build also saw the same file added again after the removal, the re-add is lost (rare).
+- [ ] **What counts as used:** any `media:<sha256>` anywhere in notes (archived ones too), pages, decks, note types, layouts, courses and options. Spoken-audio caches are never offered for removal.
+- [ ] **Backups win over cleanup:** a file a kept backup lists stays on the device after removal from the collection, until that backup rolls off.
+- [ ] **Sync folder:** removed files stay in the sync folder (no delete in the transport). A device that downloads the history before the removal may store the file again; Check media there removes it.
+- [ ] **Rebuild from history:** offered only after a full rebuild finds differences. It rewrites this device's local snapshot and cards cache and reloads, without touching the event log or other devices. No automatic check runs at launch.
 
 ## Leftover nits and known limitations
 

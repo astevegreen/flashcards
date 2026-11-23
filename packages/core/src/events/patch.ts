@@ -41,6 +41,8 @@ export interface CollectionStatePatch {
   pages: Page[];
   courses: Course[];
   media: MediaEntry[];
+  /** Hashes a `MediaRemoved` took out of `media`. */
+  removedMedia?: string[];
   ttsMediaByKey?: Record<string, string>;
   ttsMediaByLangKey?: Record<string, string>;
   preferences?: CollectionPreferences;
@@ -179,9 +181,11 @@ export function computeStatePatch(
   }
 
   const media: MediaEntry[] = [];
+  const removedMedia: string[] = [];
   for (const hash of collector.mediaHashes) {
     const m = state.media.get(hash);
     if (m) media.push({ ...m });
+    else removedMedia.push(hash);
   }
 
   const ttsMediaByKey: Record<string, string> = {};
@@ -252,6 +256,7 @@ export function computeStatePatch(
     pages,
     courses,
     media,
+    ...(removedMedia.length > 0 ? { removedMedia } : {}),
     ...(Object.keys(ttsMediaByKey).length > 0 ? { ttsMediaByKey } : {}),
     ...(Object.keys(ttsMediaByLangKey).length > 0 ? { ttsMediaByLangKey } : {}),
     ...(collector.preferencesChanged
@@ -388,6 +393,9 @@ export function mergeStatePatch(
     target.courses.set(c.id, { ...c, items: c.items.map((item) => ({ ...item })) });
   }
 
+  for (const hash of patch.removedMedia ?? []) {
+    target.media.delete(hash.toLowerCase());
+  }
   for (const m of patch.media) {
     const normHash = m.hash.toLowerCase();
     const entry: MediaEntry = { ...m, hash: normHash };

@@ -1289,6 +1289,10 @@ function applyMediaAdded(ctx: ApplyEventContext, payload: EventPayloadMap['Media
   const { state, hlc, collector } = ctx;
   const m = payload.media;
   const normHash = m.hash.toLowerCase();
+  // `MediaRemoved`: an add older than the newest removal of the same hash stays removed.
+  shouldApplyLww(state, `media:${normHash}:added`, hlc, collector);
+  const removedAt = state.fieldHlcs.get(`media:${normHash}:removed`);
+  if (removedAt !== undefined && compareHlc(hlc, removedAt) < 0) return;
   const prev = state.media.get(normHash);
   const nextEntry: MediaEntry = {
     hash: normHash,
@@ -1313,6 +1317,16 @@ function applyMediaAdded(ctx: ApplyEventContext, payload: EventPayloadMap['Media
     collector?.ttsLangKeys.add(nextEntry.tts_lang_key);
   }
   collector?.mediaHashes.add(normHash);
+}
+
+function applyMediaRemoved(ctx: ApplyEventContext, payload: EventPayloadMap['MediaRemoved']): void {
+  const { state, hlc, collector } = ctx;
+  if (typeof payload.hash !== 'string') return;
+  const normHash = payload.hash.toLowerCase();
+  shouldApplyLww(state, `media:${normHash}:removed`, hlc, collector);
+  const addedAt = state.fieldHlcs.get(`media:${normHash}:added`);
+  if (addedAt !== undefined && compareHlc(addedAt, hlc) > 0) return;
+  if (state.media.delete(normHash)) collector?.mediaHashes.add(normHash);
 }
 
 function linkDeckSource(ctx: ApplyEventContext, p: EventPayloadMap['SourceLinked']): void {
@@ -1397,6 +1411,31 @@ export function foldSourceUnlinkedFromUnknown(
   for (const ev of unknownEvents) {
     if (ev.type === 'SourceUnlinked') {
       applySourceUnlinkedAt(state, ev.payload, ev.hlc);
+    } else {
+      remaining.push(ev);
+    }
+  }
+  return remaining;
+}
+
+/** Applies `MediaRemoved` events a snapshot from an older build kept as unknown. */
+export function foldMediaRemovedFromUnknown(
+  state: CollectionState,
+  unknownEvents: readonly UnknownEvent[],
+): UnknownEvent[] {
+  const remaining: UnknownEvent[] = [];
+  for (const ev of unknownEvents) {
+    if (ev.type === 'MediaRemoved' && ev.payload !== null && typeof ev.payload === 'object') {
+      applyMediaRemoved(
+        {
+          state,
+          hlc: ev.hlc,
+          dirtyCards: new Set(),
+          dirtyDecks: new Set(),
+          dirtyNotes: new Set(),
+        },
+        ev.payload as EventPayloadMap['MediaRemoved'],
+      );
     } else {
       remaining.push(ev);
     }
@@ -1632,6 +1671,9 @@ function applyKnownEvent(
       break;
     case 'MediaAdded':
       applyMediaAdded(ctx, event.payload);
+      break;
+    case 'MediaRemoved':
+      applyMediaRemoved(ctx, event.payload);
       break;
     case 'SourceLinked':
       applySourceLinked(ctx, event.payload);

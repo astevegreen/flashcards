@@ -13,6 +13,7 @@ import type {
 } from '../model/types.ts';
 import {
   canonicalizeOptionalCards,
+  foldMediaRemovedFromUnknown,
   foldSourceUnlinkedFromUnknown,
   getTotalAppliedEventCount,
   type CollectionState,
@@ -486,9 +487,9 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
     snapshotEventCount: serialized.totalEvents,
   };
   // Snapshots from builds that predate `NoteTagsAdded` carry those events as unknown.
-  state.unknownEvents = foldSourceUnlinkedFromUnknown(
+  state.unknownEvents = foldMediaRemovedFromUnknown(
     state,
-    foldTagAddEventsFromUnknown(state, unknownEvents),
+    foldSourceUnlinkedFromUnknown(state, foldTagAddEventsFromUnknown(state, unknownEvents)),
   );
   // ...and those that hydrated a newer snapshot keep the add registers but may have rewritten
   // `note.tags` without the adds: re-derive every such note so hydration equals a full replay.
