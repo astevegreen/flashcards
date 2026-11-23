@@ -329,8 +329,8 @@ export function AppProvider({
   });
 
   const syncStatusForNotice = syncController.syncState.status;
-  // Native shells leave a plain flag when the Keystore / Keychain key was lost and the sign-in
-  // secrets were dropped. Shown once; re-read when sync status changes (the loss is usually found
+  // The phone apps leave a plain flag when the sign-in secrets were lost (Android: the Keystore key
+  // was lost and the secrets dropped; iOS: stored Keychain items are gone). Shown once; re-read when sync status changes (the loss is usually found
   // by the first sync after launch).
   const [secureKeysLostNotice, setSecureKeysLostNotice] = useState(false);
   const secureKeysDismissedRef = useRef(false);

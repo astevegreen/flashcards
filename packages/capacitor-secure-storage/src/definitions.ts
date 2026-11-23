@@ -11,6 +11,8 @@ export interface FlashSecureStoragePlugin {
   /**
    * Reads a secret. `value` is `null` when the key has never been set (or could not be decrypted).
    * `lost` is `true` (Android) when a stored secret was dropped because the Keystore key was lost.
+   * iOS never sets it (the Keychain cannot tell a vanished item from one never stored); the app
+   * detects that case itself with plain markers in its database (`trackStoredSecrets`).
    */
   get(options: { key: string }): Promise<{ value: string | null; lost?: boolean }>;
   /**

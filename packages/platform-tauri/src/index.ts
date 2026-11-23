@@ -84,8 +84,9 @@ export interface CreateTauriPlatformOptions {
   packCatalogUrl?: string;
   starterCatalogUrl?: string;
   /**
-   * macOS iCloud Drive file I/O (createTauriICloudDocumentPlugin), always passed on macOS so a
-   * saved iCloud connection keeps working; availability is checked on each connect.
+   * macOS iCloud Drive file I/O (createTauriICloudDocumentPlugin), always passed on a Mac build
+   * that has the iCloud entitlement, so a saved iCloud connection keeps working; availability is
+   * checked on each connect. Never passed on an unsigned build (no iCloud container).
    */
   iCloudPlugin?: ICloudDocumentPlugin;
   /** False when iCloud was not available at launch: still offered, but not the default. */

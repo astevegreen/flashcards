@@ -135,6 +135,21 @@ export function pickDefaultSyncProvider(
   return availableSyncProviders(platform)[0];
 }
 
+/** One line next to iCloud Drive on a Mac where it was off at launch. */
+export const ICLOUD_OFF_HINT =
+  'iCloud Drive looks off on this Mac. To use it, turn on iCloud Drive in System Settings (your Apple Account, then iCloud).';
+
+/**
+ * The hint for a Mac where iCloud Drive was off at launch: iCloud stays listed (it may be turned
+ * on while the app runs), with this line saying how. `undefined` everywhere else, including Macs
+ * whose build cannot use iCloud at all (unsigned builds never offer it).
+ */
+export function iCloudOffHint(platform: SyncPlatformFlags): string | undefined {
+  return isSyncProviderAvailable(platform, 'icloud') && platform.iCloudAvailableAtLaunch === false
+    ? ICLOUD_OFF_HINT
+    : undefined;
+}
+
 export interface SyncMyDevicesPlan {
   /** What the main button connects (`undefined`: no provider is configured in this build). */
   primary: AddDeviceProvider | undefined;

@@ -4,7 +4,7 @@ import type { ICloudDocumentPlugin } from '@flash/platform-capacitor';
  * `ICloudDocumentPlugin` for the macOS desktop app, over the app's own Tauri commands in
  * `apps/desktop/src-tauri/src/icloud.rs`. It opens the same iCloud container and file layout as
  * the iOS plugin, so `ICloudDriveSyncTransport` gives an iPhone and a Mac one shared collection.
- * On Windows and Linux the commands report iCloud as unavailable.
+ * On Windows, Linux and unsigned Mac builds `icloud_supported` is false and nothing is offered.
  */
 
 /** `invoke` from `@tauri-apps/api/core` (injected so tests can fake it). */
@@ -68,8 +68,10 @@ export interface TauriICloudOptions {
 }
 
 /**
- * What the desktop boot passes to `createTauriPlatform` for iCloud. On macOS the plugin is always
- * passed, so a Mac already syncing with iCloud keeps its transport even when the launch probe is
+ * What the desktop boot passes to `createTauriPlatform` for iCloud. Nothing unless
+ * `icloud_supported` says this build has the iCloud entitlement (unsigned Mac builds and Windows /
+ * Linux do not, so they never offer iCloud and its sign-in error cannot appear). On an entitled
+ * Mac the plugin is always passed, so a Mac already syncing with iCloud keeps its transport even when the launch probe is
  * slow or iCloud is briefly signed out (the transport checks availability on each connect, like
  * iOS). The probe only decides whether iCloud is the "Sync my devices" default.
  */

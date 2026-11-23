@@ -178,6 +178,21 @@ describe('macOS desktop boot: iCloud options', () => {
     expect(options.iCloudAvailableAtLaunch).toBe(true);
   });
 
+  it('offers nothing on an unsigned Mac build: no iCloud plugin, no availability probe', async () => {
+    const calls: string[] = [];
+    const invoke = (async (cmd: string) => {
+      calls.push(cmd);
+      // `icloud_supported` is false when the build has no iCloud entitlement.
+      return cmd === 'icloud_supported' ? false : true;
+    }) as TauriInvoke;
+    const options = await resolveTauriICloudOptions(invoke);
+    expect(options).toEqual({});
+    expect(calls).toEqual(['icloud_supported']);
+    const platform = createTauriPlatform({ deviceId: 'mac', ...options });
+    expect(platform.iCloudSyncSupported).toBeUndefined();
+    expect(platform.createICloudTransport).toBeUndefined();
+  });
+
   it('offers no iCloud on Windows and Linux, or when the command is missing', async () => {
     expect(await resolveTauriICloudOptions((async () => false) as TauriInvoke)).toEqual({});
     expect(
