@@ -170,6 +170,44 @@ The owner answered every overnight question on 2026-11-23. **To build** marks ap
 - [ ] **Commercial Korean–English dataset as a premium pack:** deferred until after launch.
 - [x] **Auto-archive on PR close:** turned back on.
 
+## Anki feature gap: owner decisions (2026-11-23)
+
+On 2026-11-23 an agent compared the app with Anki, about 25 features. This section leaves out items already decided: raw HTML/CSS templates (the security rule), `.colpkg` and seeding FSRS from Anki scheduling (see "Anki extras" above). Ruby, furigana and pinyin already exist (`packages/core/src/parsers/`). The owner has not yet discussed card-level controls (forget, set due date, reposition, bury, flags, card info), the FSRS extras (editable steps, easy days, load balancing, simulator, answer timer) or a typed search syntax. Approved items below are not scheduled yet.
+
+### To build
+
+- [ ] **Automatic rolling backups (first priority of this list).** Sync is not a backup: a deletion or a bad import syncs to every device and to the cloud copy. Backup today is a manual full `.flashpkg` export (`SettingsScreen.tsx`). The reminder (`showBackupBanner`, `AppContext.tsx`) is hidden once sync is connected, so synced users get no backups at all. Take a dated `.flashpkg` snapshot automatically, for example once a day when the app is used, and keep the last 7–14. Store them locally, with an optional copy in the sync folder. How many to keep and where to store them on the web build are open design points.
+- [ ] **Check media and check database.**
+  - Check media lists media that no note uses and media that notes reference but is missing. It offers to remove unused files, because they count against the user's own Drive or Dropbox quota.
+  - Check database rebuilds state from the event log and reports any difference.
+  - Empty-cards cleanup only if optional cards (below) ship.
+- [ ] **Shared deck option presets.** `DeckSettings` is per deck (`packages/core/src/model/types.ts`). A preset holds limits, target retention and FSRS parameters for several decks. The main reason is FSRS: the optimizer needs many reviews, and pooling a preset's decks fits better than per-deck parameters on small decks. `design_blueprint.md` already says the optimizer runs "per deck or preset".
+- [ ] **Deck folders instead of Anki subdecks.** One level of folders, for display and "study everything in this folder", without Anki's parent and child limit rules. Pairs with presets.
+- [ ] **Optional cards.** One rule per layout: make this card only when field X is filled. Examples: a writing card only when stroke data exists, a listening card only when audio exists. No template conditionals.
+- [ ] **Duplicate finder across decks**, on the note's key field, for imported lists (HSK, JLPT) that overlap the user's own decks. Today duplicates are handled only at import.
+- [ ] **Deck descriptions**, shown before study, for starter decks and Family Library decks. `Deck` has no description field. The description in the starter catalog's `index.json` is a different thing.
+- [ ] **Limited rich text in the field editor.** Bold, italic and a small colour palette, stored as structured spans or a strict markup and rendered by our own code, never as HTML (`AGENTS.md` security rule). The main use is highlighting the target word in a sentence. It must work alongside the existing ruby markup.
+- [ ] **Paste images into fields.** Images come only from the file picker today (`NoteEditDialog.tsx`). Pasted images should go through the same `processImage` → `addMedia` path.
+- [ ] **Later:** find and replace across notes. The event log makes it undoable.
+- [ ] **Later, if cheap:** redo after undo. Undo appends `ReviewUndone` (`undoLastReview`, `AppContext.tsx`).
+
+### Waiting for customer feedback
+
+- [ ] **Recording audio.** This covers recording into a field while editing, and recording yourself during review to compare with the native audio. The owner deferred it until customers ask for it. If built, one recorder serves both uses, and recordings stay out of sync by default to save the user's quota.
+- [ ] **Multiple profiles on one device**, for example a family tablet. A possible future build item, depending on feedback. Today a device holds one collection (`collection_id`); each profile would need its own event log and its own sync connection.
+
+### Not planned
+
+- **Add-ons or a plugin system.** It conflicts with the no-raw-HTML rule, iOS restricts downloaded code, and a public API would need maintaining forever.
+- **A public shared-deck site like AnkiWeb.** It needs an always-on server, which breaks the zero-server design. It also brings moderation work and copyright risk. Sharing stays with `.flashpkg` files, shared folders, starter decks and Family Library catalogs.
+- **Image occlusion and LaTeX/MathJax.** Little value for language study.
+
+### Open: export to other apps
+
+- [ ] **Export beyond CSV and `.flashpkg`. Owner decision pending.** Owner question: is `.apkg` only for Anki users, and is there an open format? No open format with media and review history is widely adopted. CSV/TSV is the common format that most apps import, but it carries no media and no history. `.apkg` is in practice the main exchange format: Anki on every platform reads it, and some other apps import it too. Proposed, in two steps:
+  1. An "Export for Anki" option on CSV export that writes Anki's header lines (`#separator`, `#deck column`, `#tags column` and similar) and puts the media files in a zip alongside. Plain CSV stays the default, because other apps would read those header lines as data.
+  2. `.apkg` export of notes, media and tags, with review history later.
+
 ## Decisions needed (2026-11-23 batch)
 
 Defaults the 2026-11-23 agents picked. Each stays shipped until the owner decides.
