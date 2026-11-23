@@ -1,6 +1,5 @@
 import { parseMediaHashUri } from '../../audio/tts.ts';
 import type { CollectionState } from '../../events/replay.ts';
-import { safeMediaMimeForExt } from '../../import/media-types.ts';
 import type { Note, NoteType, NoteTypeField } from '../../model/types.ts';
 import { parseRuby } from '../../parsers/ruby.ts';
 import { normalizeTagList } from '../../tags/index.ts';
@@ -60,8 +59,8 @@ export class AnkiMediaNamer {
     if (existing) return existing;
     const entry = this.state.media.get(key) ?? this.state.media.get(hash);
     const ext = entry?.ext.toLowerCase().replace(/^\./, '') ?? '';
-    const mime = entry ? (safeMediaMimeForExt(ext) ?? entry.mime) : undefined;
-    if (!entry || !mime) {
+    const mime = entry?.mime;
+    if (!entry || !mime || !ext) {
       this.unknown.add(key);
       return undefined;
     }

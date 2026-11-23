@@ -1,7 +1,7 @@
 import { zipSync, type Zippable } from 'fflate';
 import type { CollectionState } from '../../events/replay.ts';
 import { encodeUtf8 } from '../../ids.ts';
-import { escapeCsvCell, selectCsvExportNotes } from '../../import/csv-export.ts';
+import { escapeCsvCell, selectDeckNotes } from './select.ts';
 import {
   AnkiMediaNamer,
   ankiFieldHtml,
@@ -82,7 +82,7 @@ export function planAnkiCsvExport(
   const delimiter = options.delimiter ?? ',';
   const deck = state.decks.get(options.deckId);
   const noteType = deck ? state.noteTypes.get(deck.note_type_id) : undefined;
-  const notes = selectCsvExportNotes(state, options);
+  const notes = selectDeckNotes(state, options);
   const fields = noteType?.fields ?? [];
   const media = new AnkiMediaNamer(state);
   const ctx = { media, ...(options.richText ? { richText: options.richText } : {}) };

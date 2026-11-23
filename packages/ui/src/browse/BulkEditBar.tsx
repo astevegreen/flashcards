@@ -9,6 +9,7 @@ import {
   type BulkNoteAction,
 } from '@flash/core';
 import { useMemo, useState, type FormEvent } from 'react';
+import { exportAnkiCsvZip } from '../export/ankiExport.ts';
 import { useApp } from '../state/AppContext.tsx';
 
 /** Code-unit order (not localeCompare), like the rest of the collection's sorting. */
@@ -118,7 +119,6 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
     if (!info.onlyDeck) return;
     if (forAnki) {
       try {
-        const { exportAnkiCsvZip } = await import('../export/ankiExport.ts');
         const text = await exportAnkiCsvZip(platform, state, {
           deckId: info.onlyDeck,
           noteIds,
