@@ -233,6 +233,11 @@ describe('KRDict topic categories', () => {
     expect(entry.topics).toEqual(['자연']);
   });
 
+  it('keeps a topic whose name contains a comma whole', () => {
+    const [entry] = parseKrdictXml(xml('<feat att="subjectCategory" val="감정, 기분 표현하기"/>'));
+    expect(entry.topics).toEqual(['감정, 기분 표현하기']);
+  });
+
   it('leaves topics out when the export has none', () => {
     const [entry] = parseKrdictXml(xml(''));
     expect(entry.topics).toBeUndefined();

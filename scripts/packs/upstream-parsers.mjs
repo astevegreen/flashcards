@@ -539,11 +539,10 @@ function parseKrdictTopics(block) {
   const pairs = [...ownFeats(block), ...elements(block, 'Sense').flatMap((s) => ownFeats(s))];
   const topics = [];
   for (const [att, val] of pairs) {
+    // One value is one topic: some topic names contain commas (`감정, 기분 표현하기`).
     if (!val || val === '없음') continue;
-    for (const part of val.split(/\s*[,;]\s*/)) {
-      if (KRDICT_SUBJECT_CATEGORY_ATTS.includes(att)) topics.push(part);
-      else if (KRDICT_SEMANTIC_CATEGORY_ATTS.includes(att)) topics.push(part.split('>')[0].trim());
-    }
+    if (KRDICT_SUBJECT_CATEGORY_ATTS.includes(att)) topics.push(val);
+    else if (KRDICT_SEMANTIC_CATEGORY_ATTS.includes(att)) topics.push(val.split('>')[0].trim());
   }
   return uniq(topics.filter(Boolean)).slice(0, KRDICT_MAX_TOPICS);
 }

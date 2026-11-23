@@ -47,8 +47,8 @@ export function choseongSyllableRange(jamo: string): [string, string] | undefine
   if (idx < 0 || jamo.length !== 1) return undefined;
   const next = CHOSEONG_JAMO[idx + 1];
   const span = next !== undefined && 'ㄲㄸㅃㅆㅉ'.includes(next) ? 2 : 1;
-  const from = String.fromCharCode(S_BASE + idx * SYLLABLES_PER_INITIAL);
-  const to = String.fromCharCode(S_BASE + (idx + span) * SYLLABLES_PER_INITIAL);
+  const from = String.fromCodePoint(S_BASE + idx * SYLLABLES_PER_INITIAL);
+  const to = String.fromCodePoint(S_BASE + (idx + span) * SYLLABLES_PER_INITIAL);
   return [from, to];
 }
 
@@ -56,7 +56,7 @@ export function choseongSyllableRange(jamo: string): [string, string] | undefine
 export function splitDictionaryGrade(grade: string | undefined): string[] {
   if (!grade) return [];
   return grade
-    .split(/\s+·\s+/)
+    .split('·')
     .map((g) => g.trim())
     .filter(Boolean);
 }
@@ -153,7 +153,8 @@ export function browsePageSize(query: DictionaryBrowseQuery): number {
 
 /** Code-unit order so summaries are identical on every machine and locale. */
 function compareKeys(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 function sortedCounts(map: Map<string, number>, order: 'count' | 'key'): DictionaryBrowseCount[] {

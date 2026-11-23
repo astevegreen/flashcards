@@ -62,12 +62,12 @@ function Chip({
   onClick,
   children,
   count,
-}: {
+}: Readonly<{
   testId: string;
   onClick: () => void;
   children: ReactNode;
   count?: number;
-}) {
+}>) {
   return (
     <button
       type="button"
@@ -85,7 +85,7 @@ function Chip({
   );
 }
 
-function SubHeading({ children }: { children: ReactNode }) {
+function SubHeading({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <h4 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
       {children}
@@ -96,10 +96,10 @@ function SubHeading({ children }: { children: ReactNode }) {
 function TopicChips({
   summary,
   onBrowse,
-}: {
+}: Readonly<{
   summary: DictionaryBrowseSummary;
   onBrowse: DictionaryHomeProps['onBrowse'];
-}) {
+}>) {
   const [expanded, setExpanded] = useState(false);
   const shown: DictionaryBrowseCount[] = expanded
     ? summary.topics
@@ -143,10 +143,10 @@ function TopicChips({
 function HanjaGrid({
   entries,
   onLookup,
-}: {
+}: Readonly<{
   entries: readonly DictionaryEntry[];
   onLookup: DictionaryHomeProps['onLookup'];
-}) {
+}>) {
   if (entries.length === 0) return null;
   return (
     <div className="flex flex-col gap-1.5">
@@ -181,12 +181,12 @@ function PackSection({
   hanjaPreview,
   onLookup,
   onBrowse,
-}: {
+}: Readonly<{
   summary: DictionaryBrowseSummary;
   hanjaPreview: readonly DictionaryEntry[];
   onLookup: DictionaryHomeProps['onLookup'];
   onBrowse: DictionaryHomeProps['onBrowse'];
-}) {
+}>) {
   const { packId } = summary;
   if (summary.total === 0) return null;
   return (
@@ -273,7 +273,7 @@ export function DictionaryHome({
   onLookup,
   onClearRecents,
   onBrowse,
-}: DictionaryHomeProps) {
+}: Readonly<DictionaryHomeProps>) {
   const ordered = [...summaries].sort((a, b) => orderOf(a.packId) - orderOf(b.packId));
   return (
     <div data-testid="dictionary-home" className="flex flex-col gap-3">
@@ -330,12 +330,12 @@ export function DictionaryBrowseHeader({
   posOptions,
   onChange,
   onBack,
-}: {
+}: Readonly<{
   selection: DictionaryBrowseSelection;
   posOptions: readonly DictionaryBrowseCount[];
   onChange: (selection: DictionaryBrowseSelection) => void;
   onBack: () => void;
-}) {
+}>) {
   const hangul = selection.packId === 'dict-krdict';
   const pill = (active: boolean) =>
     `min-h-9 min-w-9 rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -391,7 +391,8 @@ export function DictionaryBrowseHeader({
         </nav>
       )}
       {posOptions.length > 1 && (
-        <div role="group" aria-label="Part of speech" className="flex flex-wrap gap-1">
+        <fieldset className="m-0 flex min-w-0 flex-wrap gap-1 border-0 p-0">
+          <legend className="sr-only">Part of speech</legend>
           <button
             type="button"
             aria-pressed={!selection.pos}
@@ -412,7 +413,7 @@ export function DictionaryBrowseHeader({
               {partOfSpeechLabel(key)}
             </button>
           ))}
-        </div>
+        </fieldset>
       )}
     </div>
   );
