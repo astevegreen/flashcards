@@ -68,6 +68,10 @@ const KRDICT_XML = `<?xml version="1.0" encoding="UTF-8"?>
     <Equivalent><feat att="language" val="영어"/><feat att="lemma" val="recover, get better"/><feat att="definition" val="For an illness to go away."/></Equivalent>
     <SenseExample><feat att="type" val="문장"/><feat att="example" val="감기가 다 나았어요."/></SenseExample>
     <SenseRelation><feat att="type" val="유의어"/><feat att="lemma" val="회복하다"/></SenseRelation>
+    <SenseRelation><feat att="type" val="반의어"/><feat att="writtenForm" val="앓다"/></SenseRelation>
+    <SenseRelation><feat att="type" val="참고어"/><feat att="lemma" val="치료"/></SenseRelation>
+    <SenseRelation><feat att="type" val="유의어"/><feat att="lemma" val="회복하다"/></SenseRelation>
+    <SenseRelation><feat att="type" val="유의어"/></SenseRelation>
   </Sense>
   <Sense att="id" val="2">
     <feat att="definition" val="영어 대역어가 없는 뜻."/>
@@ -127,6 +131,11 @@ describe('KRDict LMF parser', () => {
             definition: 'For an illness to go away.',
             definitionNative: '병이나 상처가 없어지다.',
             examples: [{ text: '감기가 다 나았어요.', type: 'sentence' }],
+            relations: [
+              { type: 'synonym', word: '회복하다' },
+              { type: 'antonym', word: '앓다' },
+              { type: 'related', word: '치료' },
+            ],
             source: 'krdict',
           },
         ],

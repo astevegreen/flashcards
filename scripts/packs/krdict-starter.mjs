@@ -231,6 +231,25 @@ export const KRDICT_STARTER_TOPICS = {
   일하다: { subject: ['직장 생활'], semantic: ['경제 생활 > 경제 행위'] },
 };
 
+/**
+ * Hand-written Korean definitions (뜻풀이) and related-word links for the first sense of a few
+ * starter words, in the shape of KRDict's `Sense/definition` and `SenseRelation` (written for this project, not copied from any dictionary).
+ * `relations` is `[유의어 | 반의어 | 참고어, word]`.
+ */
+export const KRDICT_STARTER_EXTRAS = {
+  먹다: {
+    native: '밥이나 과일 같은 것을 입에 넣고 씹어서 넘기다.',
+    relations: [
+      ['유의어', '드시다'],
+      ['참고어', '식사'],
+    ],
+  },
+  춥다: {
+    native: '바깥이나 방 안이 차서 몸이 움츠러들 만큼 서늘하다.',
+    relations: [['반의어', '덥다']],
+  },
+};
+
 const esc = (s) =>
   String(s)
     .replaceAll('&', '&amp;')
@@ -240,7 +259,11 @@ const esc = (s) =>
 const feat = (att, val) => `<feat att="${esc(att)}" val="${esc(val)}"/>`;
 
 /** Renders the starter rows as KRDict LMF XML (the shape of the "사전 전체 내려받기" export). */
-export function renderKrdictStarterXml(rows = KRDICT_STARTER_ROWS, topics = KRDICT_STARTER_TOPICS) {
+export function renderKrdictStarterXml(
+  rows = KRDICT_STARTER_ROWS,
+  topics = KRDICT_STARTER_TOPICS,
+  extras = KRDICT_STARTER_EXTRAS,
+) {
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<LexicalResource dtdVersion="16">',
@@ -262,6 +285,8 @@ export function renderKrdictStarterXml(rows = KRDICT_STARTER_ROWS, topics = KRDI
         for (const t of topics[headword]?.subject ?? []) lines.push(feat('subjectCategory', t));
         for (const t of topics[headword]?.semantic ?? []) lines.push(feat('semanticCategory', t));
       }
+      const extra = j === 0 ? extras[headword] : undefined;
+      if (extra?.native) lines.push(feat('definition', extra.native));
       lines.push(
         `<Equivalent>${feat('language', '영어')}${feat('lemma', equivalent)}${feat('definition', definition)}</Equivalent>`,
       );
@@ -269,6 +294,9 @@ export function renderKrdictStarterXml(rows = KRDICT_STARTER_ROWS, topics = KRDI
         const type = /[.?!]$/.test(ex) && ex.split(' ').length > 2 ? '문장' : '구';
         lines.push(`<SenseExample>${feat('type', type)}${feat('example', ex)}</SenseExample>`);
       });
+      for (const [type, word] of extra?.relations ?? []) {
+        lines.push(`<SenseRelation>${feat('type', type)}${feat('lemma', word)}</SenseRelation>`);
+      }
       lines.push('</Sense>');
     });
     lines.push('</LexicalEntry>');
