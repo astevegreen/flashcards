@@ -157,17 +157,27 @@ export function createSystemBrowserLauncher(): SystemBrowserLauncher {
 // `flashcards://add-device?...` deep link (@capacitor/app)
 // ---------------------------------------------------------------------------
 
-/** Every `flashcards://add-device` URL the OS opens the app with, the launch URL included. */
-export function createAddDeviceUrlSource(): (handler: (url: string) => void) => () => void {
+/**
+ * Every `flashcards://add-device` URL the OS opens the app with. The launch URL is delivered once
+ * per process, so subscribing again never replays it.
+ */
+export function createAddDeviceUrlSource(
+  app: Pick<typeof App, 'getLaunchUrl' | 'addListener'> = App,
+): (handler: (url: string) => void) => () => void {
+  let launchUrlDelivered = false;
   return (handler) => {
     let live = true;
     const deliver = (url: string | undefined) => {
       if (live && url && isAppDeepLink(url, APP_URL_SCHEME, ADD_DEVICE_HOST)) handler(url);
     };
-    void App.getLaunchUrl()
-      .then((launch) => deliver(launch?.url))
-      .catch(() => undefined);
-    const handle = App.addListener('appUrlOpen', (event) => deliver(event.url));
+    if (!launchUrlDelivered) {
+      launchUrlDelivered = true;
+      void app
+        .getLaunchUrl()
+        .then((launch) => deliver(launch?.url))
+        .catch(() => undefined);
+    }
+    const handle = app.addListener('appUrlOpen', (event) => deliver(event.url));
     return () => {
       live = false;
       void handle.then((h) => h.remove()).catch(() => undefined);

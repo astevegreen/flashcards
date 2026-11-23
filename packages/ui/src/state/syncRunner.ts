@@ -311,10 +311,12 @@ export async function runSyncCycle(
 
     if (result.status === 'collection_choice_required') {
       // Nothing was bound, pulled or pushed: wait for the user's choice (see resolveCollectionChoice).
-      ctx.setSyncState((prev) => ({
+      ctx.setSyncState(({ errorMessage: _stale, ...prev }) => ({
         ...prev,
         status: 'idle',
         readOnly: true,
+        errorMessage:
+          'This account holds a different collection from the device that showed the code. Choose below which one to use; nothing has been changed yet.',
         pendingCount: Math.max(0, ctx.metaRef.current.seq - currentCursor.lastPushedSeq),
         collectionChoice: {
           expectedCollectionId: expectedCollectionId ?? '',

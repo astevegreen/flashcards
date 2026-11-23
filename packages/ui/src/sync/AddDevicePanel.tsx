@@ -40,7 +40,11 @@ export function addDeviceLinkBase(): string | undefined {
 
 const NOTE_CLASS = 'text-sm break-words text-[var(--muted)]';
 
-function ShareLink({ url, providerLabel }: Readonly<{ url: string; providerLabel: string }>) {
+function ShareLink({
+  url,
+  providerLabel,
+  plainText = false,
+}: Readonly<{ url: string; providerLabel: string; plainText?: boolean }>) {
   const [copyStatus, setCopyStatus] = useState('');
 
   const copy = async () => {
@@ -56,13 +60,19 @@ function ShareLink({ url, providerLabel }: Readonly<{ url: string; providerLabel
     <div className="flex min-w-0 flex-wrap items-start gap-4">
       <QrCodeSvg text={url} label={`QR code: connect a new device to ${providerLabel}`} />
       <div className="flex min-w-0 flex-1 basis-48 flex-col gap-2">
-        <a
-          data-testid="add-device-link"
-          href={url}
-          className="font-mono text-xs break-all text-[var(--accent)] underline"
-        >
-          {url}
-        </a>
+        {plainText ? (
+          <code data-testid="add-device-link" className="font-mono text-xs break-all">
+            {url}
+          </code>
+        ) : (
+          <a
+            data-testid="add-device-link"
+            href={url}
+            className="font-mono text-xs break-all text-[var(--accent)] underline"
+          >
+            {url}
+          </a>
+        )}
         <button
           type="button"
           data-testid="add-device-copy-btn"
@@ -119,6 +129,7 @@ function AddDeviceBody({
         <ShareLink
           url={buildAddDeviceDeepLink({ provider, collectionId })}
           providerLabel={info.label}
+          plainText
         />
       </>
     );

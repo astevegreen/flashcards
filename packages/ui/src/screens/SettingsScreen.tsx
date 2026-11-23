@@ -454,11 +454,11 @@ export function SettingsScreen() {
             data-testid="sync-status-pill"
             className={`min-w-[6.5rem] shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-center text-xs font-semibold ${getSyncPillClass(syncState.status)}`}
           >
-            {formatSyncStatusLabel(syncState.status)}
+            {syncState.collectionChoice ? 'Choose below' : formatSyncStatusLabel(syncState.status)}
           </span>
         </div>
 
-        {syncState.readOnly && (
+        {syncState.readOnly && !syncState.collectionChoice && (
           <div
             role="alert"
             className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300"

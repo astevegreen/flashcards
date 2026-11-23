@@ -34,6 +34,7 @@ import type { SystemBrowserLauncher } from '@flash/platform-capacitor';
 import type { SecureSecretBackend } from '../auth/refresh-token-store.ts';
 import type { TauriLoopbackOAuthPlugin } from '../auth/tauri-google-auth.ts';
 import type { DesktopNotificationBridge } from '../reminders/desktop-reminders.ts';
+import { createAddDeviceUrlSourceFrom } from './add-device-url.ts';
 import type { TauriFsBridge, TauriFsDirEntry } from '../sources/tauri-fs-watcher.ts';
 import type { TauriSqlPluginDatabase } from '../storage/tauri-sqlite-storage.ts';
 
@@ -246,39 +247,9 @@ export function createSystemBrowserLauncher(): SystemBrowserLauncher {
 // `flashcards://add-device?...` (tauri-plugin-deep-link; the scheme is registered for every host)
 // ---------------------------------------------------------------------------
 
-/** Exact `flashcards://add-device` (any path and query), compared as plain text. */
-function isAddDeviceUrl(url: string): boolean {
-  const prefix = 'flashcards://add-device';
-  if (url.length < prefix.length || url.slice(0, prefix.length).toLowerCase() !== prefix) {
-    return false;
-  }
-  const next = url.charAt(prefix.length);
-  return next === '' || next === '/' || next === '?' || next === '#';
-}
-
-/** Every `flashcards://add-device` URL the OS opens the app with, the launch URL included. */
+/** Every `flashcards://add-device` URL the OS opens the app with (see `add-device-url.ts`). */
 export function createAddDeviceUrlSource(): (handler: (url: string) => void) => () => void {
-  return (handler) => {
-    let live = true;
-    let unlisten: (() => void) | undefined;
-    const deliver = (urls: readonly string[] | null | undefined) => {
-      if (!live) return;
-      for (const url of urls ?? []) if (isAddDeviceUrl(url)) handler(url);
-    };
-    void getCurrent()
-      .then(deliver)
-      .catch(() => undefined);
-    void onOpenUrl(deliver)
-      .then((fn) => {
-        if (live) unlisten = fn;
-        else fn();
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-      unlisten?.();
-    };
-  };
+  return createAddDeviceUrlSourceFrom({ getCurrent, onOpenUrl });
 }
 
 // ---------------------------------------------------------------------------

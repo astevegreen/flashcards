@@ -48,7 +48,13 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { consumeAddDeviceLinkFromLocation, type AddDeviceLink } from '../sync/addDeviceLink.ts';
+import {
+  consumeAddDeviceLinkFromLocation,
+  mergeOpenedAddDeviceLink,
+  parseAddDeviceDeepLink,
+  type AddDeviceLink,
+} from '../sync/addDeviceLink.ts';
+import { SECURE_KEYS_LOST_KV_KEY } from './secureKeysNotice.ts';
 import { useAudioController, type AudioController } from './useAudioController.ts';
 import { isLeechBackfillReady } from './leechBackfillGate.ts';
 import { useSyncController, type SyncUiState } from './useSyncController.ts';
@@ -246,19 +252,12 @@ export function AppProvider({
   // a tapped link). It goes through the same allow-list and the same join flow as a web link.
   useEffect(() => {
     if (!platform.onAddDeviceUrl) return undefined;
-    let live = true;
-    let unsubscribe: (() => void) | undefined;
-    void import('../sync/addDeviceLink.ts').then((m) => {
-      if (!live) return;
-      unsubscribe = platform.onAddDeviceUrl?.((url) => {
-        const link = m.parseAddDeviceDeepLink(url);
-        if (link) setOpenedAddDeviceLink(link);
-      });
+    return platform.onAddDeviceUrl((url) => {
+      const link = parseAddDeviceDeepLink(url);
+      if (!link) return;
+      // The same link again (a double tap, a re-scan) keeps the current object, so nothing re-routes.
+      setOpenedAddDeviceLink((prev) => mergeOpenedAddDeviceLink(prev, link));
     });
-    return () => {
-      live = false;
-      unsubscribe?.();
-    };
   }, [platform]);
   useEffect(() => {
     const storage = platform.storage;
@@ -334,12 +333,16 @@ export function AppProvider({
   // secrets were dropped. Shown once; re-read when sync status changes (the loss is usually found
   // by the first sync after launch).
   const [secureKeysLostNotice, setSecureKeysLostNotice] = useState(false);
+  const secureKeysDismissedRef = useRef(false);
   useEffect(() => {
     let live = true;
-    void import('./secureKeysNotice.ts')
-      .then(async (m) => {
-        const flag = await platform.storage.getKv(m.SECURE_KEYS_LOST_KV_KEY);
-        if (live && flag !== undefined) setSecureKeysLostNotice(true);
+    platform.storage
+      .getKv(SECURE_KEYS_LOST_KV_KEY)
+      .then((flag) => {
+        // Once dismissed in this session, a later sync-status change never brings it back.
+        if (live && flag !== undefined && !secureKeysDismissedRef.current) {
+          setSecureKeysLostNotice(true);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -347,10 +350,9 @@ export function AppProvider({
     };
   }, [platform.storage, syncStatusForNotice]);
   const dismissSecureKeysLostNotice = useCallback(() => {
+    secureKeysDismissedRef.current = true;
     setSecureKeysLostNotice(false);
-    void import('./secureKeysNotice.ts')
-      .then((m) => platform.storage.deleteKv(m.SECURE_KEYS_LOST_KV_KEY))
-      .catch(() => undefined);
+    platform.storage.deleteKv(SECURE_KEYS_LOST_KV_KEY).catch(() => undefined);
   }, [platform.storage]);
 
   const emitEvents = useCallback(

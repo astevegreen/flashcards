@@ -107,8 +107,8 @@ export function buildAddDeviceDeepLink(link: AddDeviceLink): string {
 /**
  * Reads a `flashcards://add-device?...` link the OS opened the app with. Plain string checks, not
  * `new URL`: older Android System WebViews parse custom schemes non-standardly. The query goes
- * through the same allow-list as the web link, so anything else (another host, a path, a stray
- * param, a bad value) is `undefined`.
+ * through the same allow-list as the web link, so anything else (another host, a path, an unknown
+ * provider, a bad or repeated value) is `undefined`. Unrelated extra params are ignored, as on the web.
  */
 export function parseAddDeviceDeepLink(url: string): AddDeviceLink | undefined {
   if (url.length > 2200) return undefined;
@@ -120,6 +120,14 @@ export function parseAddDeviceDeepLink(url: string): AddDeviceLink | undefined {
   if (!rest.startsWith('?')) return undefined;
   const hash = rest.indexOf('#');
   return parseAddDeviceParams(hash === -1 ? rest : rest.slice(0, hash));
+}
+
+/** The same link again keeps the current object, so a repeated scan or tap re-routes nothing. */
+export function mergeOpenedAddDeviceLink(
+  prev: AddDeviceLink | undefined,
+  next: AddDeviceLink,
+): AddDeviceLink {
+  return prev?.provider === next.provider && prev.collectionId === next.collectionId ? prev : next;
 }
 
 interface LocationLike {

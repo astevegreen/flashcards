@@ -43,7 +43,8 @@ export interface SyncUiState {
   collectionChoice?: { expectedCollectionId: string; remoteCollectionId: string };
 }
 
-export type CollectionChoice = 'synced' | 'local';
+export type { CollectionChoice } from './collectionChoice.ts';
+import type { CollectionChoice } from './collectionChoice.ts';
 
 export interface SyncController {
   syncState: SyncUiState;
@@ -528,18 +529,17 @@ export function useSyncController({
 
   const resolveCollectionChoice = useCallback(
     async (choice: CollectionChoice): Promise<void> => {
-      const { clearAddDeviceExpectation } = await import('../sync/addDeviceExpectation.ts');
-      await clearAddDeviceExpectation(platform.storage);
-      if (choice === 'local') {
-        await disconnectSync();
-        return;
-      }
-      setSyncState((prev) => {
-        const { collectionChoice: _answered, ...rest } = prev;
-        void _answered;
-        return { ...rest, readOnly: false };
+      const [{ clearAddDeviceExpectation }, { answerCollectionChoice }] = await Promise.all([
+        import('../sync/addDeviceExpectation.ts'),
+        import('./collectionChoice.ts'),
+      ]);
+      await answerCollectionChoice({
+        choice,
+        disconnect: disconnectSync,
+        clearLink: () => clearAddDeviceExpectation(platform.storage),
+        sync: executeSync,
+        setSyncState,
       });
-      await executeSync();
     },
     [disconnectSync, executeSync, platform.storage],
   );

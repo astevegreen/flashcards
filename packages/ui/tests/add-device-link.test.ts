@@ -10,6 +10,7 @@ import {
 import {
   buildAddDeviceDeepLink,
   buildAddDeviceUrl,
+  mergeOpenedAddDeviceLink,
   parseAddDeviceDeepLink,
   checkAddDeviceCollection,
   parseAddDeviceParams,
@@ -236,5 +237,15 @@ describe('native add-device deep link (flashcards://add-device)', () => {
     ]) {
       expect(parseAddDeviceDeepLink(bad), bad).toBeUndefined();
     }
+  });
+});
+
+describe('mergeOpenedAddDeviceLink', () => {
+  it('keeps the current object for the same link and takes a different one', () => {
+    const a = { provider: 'google_drive' as const, collectionId: COLLECTION };
+    expect(mergeOpenedAddDeviceLink(a, { ...a })).toBe(a);
+    const b = { provider: 'dropbox' as const, collectionId: COLLECTION };
+    expect(mergeOpenedAddDeviceLink(a, b)).toBe(b);
+    expect(mergeOpenedAddDeviceLink(undefined, b)).toBe(b);
   });
 });
