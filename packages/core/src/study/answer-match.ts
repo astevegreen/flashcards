@@ -8,6 +8,7 @@ import { toHiragana, toKana } from 'wanakana';
 import { stripCloze } from '../parsers/cloze.ts';
 import { formatPinyin } from '../parsers/pinyin.ts';
 import type { RubyDisplay } from '../model/types.ts';
+import { stripRichText } from '../parsers/rich-text.ts';
 import { stripRuby } from '../parsers/ruby.ts';
 
 export interface AnswerMatchOptions {
@@ -304,11 +305,11 @@ function rubyReductions(rubyDisplay: RubyDisplay | undefined): RubyDisplay[] {
 }
 
 /**
- * Expands `expectedRaw` (stripping cloze, reducing ruby per {@link rubyReductions}, splitting
+ * Expands `expectedRaw` (stripping bold/italic/colour markup and cloze, reducing ruby per {@link rubyReductions}, splitting
  * `;`/`|`, expanding `(...)`) into displayable candidates.
  */
 export function expandAnswerCandidates(expectedRaw: string, rubyDisplay?: RubyDisplay): string[] {
-  const plain = stripCloze(expectedRaw);
+  const plain = stripCloze(stripRichText(expectedRaw));
   const candidates: string[] = [];
   const seen = new Set<string>();
 

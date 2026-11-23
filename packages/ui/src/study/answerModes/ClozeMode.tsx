@@ -1,7 +1,12 @@
-import { extractClozeAnswersForVariant, parseCloze } from '@flash/core';
-import { Suspense, useEffect, useState } from 'react';
+import {
+  extractClozeAnswersForVariant,
+  parseCloze,
+  parseRichText,
+  stripRichText,
+} from '@flash/core';
+import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
-import { RichText } from '../../components/RichText.tsx';
+import { RichText, renderRichNodes } from '../../components/RichText.tsx';
 import { CardFieldValue, RevealedBackSteps } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 import { cardTextFitClass } from '../fitText.ts';
@@ -25,61 +30,61 @@ function ClozeText({
   hideRuby,
   pinyinToneColors,
 }: ClozeTextProps) {
-  const segments = parseCloze(text);
-  return (
-    <span lang={lang}>
-      {segments.map((seg, idx) => {
-        if (seg.type === 'text') {
-          return (
-            <RichText
-              key={idx}
-              text={seg.value}
-              lang={lang}
-              hideRuby={hideRuby}
-              pinyinToneColors={pinyinToneColors}
-            />
-          );
-        }
-        const isActiveBlank = activeVariant === 0 || seg.index === activeVariant;
-        if (!isActiveBlank) {
-          return (
-            <RichText
-              key={idx}
-              text={seg.answer}
-              lang={lang}
-              hideRuby={hideRuby}
-              pinyinToneColors={pinyinToneColors}
-            />
-          );
-        }
-        if (!revealed) {
-          return (
-            <span
-              key={idx}
-              data-testid={`cloze-blank-c${seg.index}`}
-              className="mx-1 inline-block rounded-lg border-2 border-[var(--accent)] bg-[var(--accent-soft)] px-2.5 py-0.5 text-[0.85em] font-bold text-[var(--accent)]"
-            >
-              {seg.hint ? `[${seg.hint}]` : '[…]'}
-            </span>
-          );
-        }
+  // Bold/italic/colour spans first, so `{b:{{c1::word}}}` keeps its blank; cloze answers render
+  // through RichText again, so `{{c1::{b:word}}}` reveals in bold.
+  const leaf = (value: string, keyPrefix: string): ReactNode[] =>
+    parseCloze(value).map((seg, i) => {
+      const idx = `${keyPrefix}${i}`;
+      if (seg.type === 'text') {
+        return (
+          <RichText
+            key={idx}
+            text={seg.value}
+            lang={lang}
+            hideRuby={hideRuby}
+            pinyinToneColors={pinyinToneColors}
+          />
+        );
+      }
+      const isActiveBlank = activeVariant === 0 || seg.index === activeVariant;
+      if (!isActiveBlank) {
+        return (
+          <RichText
+            key={idx}
+            text={seg.answer}
+            lang={lang}
+            hideRuby={hideRuby}
+            pinyinToneColors={pinyinToneColors}
+          />
+        );
+      }
+      if (!revealed) {
         return (
           <span
             key={idx}
-            data-testid={`cloze-revealed-c${seg.index}`}
-            className="mx-0.5 inline-block rounded-lg bg-emerald-500/15 px-1.5 py-0.5 font-bold text-emerald-700 dark:text-emerald-300"
+            data-testid={`cloze-blank-c${seg.index}`}
+            className="mx-1 inline-block rounded-lg border-2 border-[var(--accent)] bg-[var(--accent-soft)] px-2.5 py-0.5 text-[0.85em] font-bold text-[var(--accent)]"
           >
-            <RichText
-              text={seg.answer}
-              lang={lang}
-              hideRuby={false}
-              pinyinToneColors={pinyinToneColors}
-            />
+            {seg.hint ? `[${stripRichText(seg.hint)}]` : '[…]'}
           </span>
         );
-      })}
-    </span>
-  );
+      }
+      return (
+        <span
+          key={idx}
+          data-testid={`cloze-revealed-c${seg.index}`}
+          className="mx-0.5 inline-block rounded-lg bg-emerald-500/15 px-1.5 py-0.5 font-bold text-emerald-700 dark:text-emerald-300"
+        >
+          <RichText
+            text={seg.answer}
+            lang={lang}
+            hideRuby={false}
+            pinyinToneColors={pinyinToneColors}
+          />
+        </span>
+      );
+    });
+  return <span lang={lang}>{renderRichNodes(parseRichText(text), leaf, '')}</span>;
 }
 
 function ClozeModeView({

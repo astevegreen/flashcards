@@ -5,6 +5,7 @@ import type {
   RubyDisplay,
 } from '../model/types.ts';
 import { stripCloze } from '../parsers/cloze.ts';
+import { stripRichText } from '../parsers/rich-text.ts';
 import { stripRuby } from '../parsers/ruby.ts';
 import type { StrokeScript } from './types.ts';
 
@@ -100,7 +101,7 @@ export function extractDrawableCharacters(
   lang: string = 'ja',
   opts?: { includeJaKana?: boolean; rubyDisplay?: RubyDisplay | undefined },
 ): string[] {
-  const plain = stripRuby(stripCloze(rawText), opts?.rubyDisplay).trim();
+  const plain = stripRuby(stripCloze(stripRichText(rawText)), opts?.rubyDisplay).trim();
   if (!plain) return [];
 
   const normLang = normalizeDrawingLang(lang);

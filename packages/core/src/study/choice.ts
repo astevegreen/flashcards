@@ -8,6 +8,7 @@
 import type { CollectionState } from '../events/replay.ts';
 import type { Card, RubyDisplay } from '../model/types.ts';
 import { stripCloze } from '../parsers/cloze.ts';
+import { stripRichText } from '../parsers/rich-text.ts';
 import { stripRuby } from '../parsers/ruby.ts';
 
 export interface ChoiceOption {
@@ -37,7 +38,7 @@ function hashString32(input: string): number {
 
 /** Dedupe key: the text the card shows (the layout's ruby flag picks readings or bases). */
 function normalizeChoiceDedupKey(raw: string, rubyDisplay?: RubyDisplay): string {
-  return stripRuby(stripCloze(raw), rubyDisplay)
+  return stripRuby(stripCloze(stripRichText(raw)), rubyDisplay)
     .normalize('NFKC')
     .trim()
     .replace(/\s+/g, ' ')
