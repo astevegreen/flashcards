@@ -19,8 +19,11 @@ export type StrokePackId = 'strokes-ja-kanjivg' | 'strokes-zh-mmah';
 /** Learner vocabulary level (KRDict 초급 / 중급 / 고급). */
 export type DictionaryLevel = 'beginner' | 'intermediate' | 'advanced';
 
-/** Short source id shown as a per-sense badge (Phase 10: every sense shows where it came from). */
-export type DictionarySenseSource = 'krdict';
+/**
+ * Short source id shown as a per-sense badge (Phase 10: every sense shows where it came from).
+ * `app` marks a sense written for this app (its own wording), not taken from the pack's dictionary.
+ */
+export type DictionarySenseSource = 'krdict' | 'app';
 
 export interface DictionaryExample {
   /** Example in the target language, e.g. `밥을 먹어요.` */
