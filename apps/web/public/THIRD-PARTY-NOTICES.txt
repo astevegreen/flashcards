@@ -96,6 +96,8 @@ Used in: Korean Starter: Beginner Words (English meanings; each card names its l
 Wikidata's structured data, including the Lexeme namespace, is dedicated to the public domain
 under CC0 (https://www.wikidata.org/wiki/Wikidata:Licensing). No attribution is required; it is
 given anyway. Each lexeme is pinned to one revision in content/starters/wikidata-ko-lexemes.lock.json.
+Some English meanings are the app's own wording instead (content/starters/gloss-overrides.json);
+those cards say "edited by this app".
 
 ------------------------------------------------------------------------
 
@@ -103,7 +105,9 @@ Unicode Unihan database 17.0.0: Unicode License v3
 Source: https://www.unicode.org/Public/17.0.0/ucd/Unihan.zip
 Used in: Mandarin Basics: Common Characters (kHanyuPinlu frequency order, kMandarin pinyin,
 kDefinition meanings without Cantonese-only senses, kSimplifiedVariant to leave out
-traditional-only forms and counts that belong to a simplified variant)
+traditional-only forms and counts that belong to a simplified variant). Some meanings are the
+app's own wording instead of kDefinition (content/starters/gloss-overrides.json); those cards say
+"meaning edited by this app".
 
 UNICODE LICENSE V3
 

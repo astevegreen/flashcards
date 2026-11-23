@@ -1,0 +1,686 @@
+{
+  "starter-ko-core": {
+    "nikl:개03:noun": {
+      "word": "개",
+      "upstream": "domestic animal",
+      "meaning": "dog"
+    },
+    "nikl:해01:dependent-noun": {
+      "word": "해",
+      "upstream": "year",
+      "meaning": "year (counter, 한 해)"
+    },
+    "nikl:일01:noun": {
+      "word": "일",
+      "upstream": "working/laboring (as a means of support)",
+      "meaning": "work; task; matter"
+    },
+    "nikl:일05:numeral": {
+      "word": "일",
+      "upstream": "the number 1",
+      "meaning": "one (Sino-Korean number)"
+    },
+    "nikl:하나:numeral": {
+      "word": "하나",
+      "upstream": "one",
+      "meaning": "one (native Korean number)"
+    },
+    "nikl:사람:noun": {
+      "word": "사람",
+      "upstream": "human",
+      "meaning": "person; people"
+    },
+    "nikl:마음01:noun": {
+      "word": "마음",
+      "upstream": "mind",
+      "meaning": "heart; mind; feelings"
+    },
+    "nikl:길01:noun": {
+      "word": "길",
+      "upstream": "road",
+      "meaning": "road; way; path"
+    },
+    "nikl:물01:noun": {
+      "word": "물",
+      "upstream": "clear liquid H₂O",
+      "meaning": "water"
+    },
+    "nikl:안02:adverb": {
+      "word": "안",
+      "upstream": "(adverb of negation)",
+      "meaning": "not (before a verb: 안 가요 \"I'm not going\")"
+    },
+    "nikl:못04:adverb": {
+      "word": "못",
+      "upstream": "cannot",
+      "meaning": "cannot; unable to (못 가요 \"can't go\")"
+    },
+    "nikl:아니01:adverb": {
+      "word": "아니",
+      "upstream": "(literary adverb of negation)",
+      "meaning": "not (variant of 안)"
+    },
+    "nikl:아니다:adjective": {
+      "word": "아니다",
+      "upstream": "(negative copula)",
+      "meaning": "to not be; is not (A은/는 B이/가 아니다)"
+    },
+    "nikl:않다:verb": {
+      "word": "않다",
+      "upstream": "to not do (something)",
+      "meaning": "(auxiliary) to not; -지 않다 \"do not\""
+    },
+    "nikl:있다01:verb": {
+      "word": "있다",
+      "upstream": "to be (remain in a place)",
+      "meaning": "to be (there); to exist; to have"
+    },
+    "nikl:없다01:adjective": {
+      "word": "없다",
+      "upstream": "non-existent",
+      "meaning": "to not be (there); to not exist; to not have"
+    },
+    "nikl:그01:determiner": {
+      "word": "그",
+      "upstream": "that (something close to the listener or that the listener thinks of); that (something just recently mentioned)",
+      "meaning": "that (near you / just mentioned)"
+    },
+    "nikl:그01:pronoun": {
+      "word": "그",
+      "upstream": "he or she (informal third person pronoun); that",
+      "meaning": "he; that (person)"
+    },
+    "nikl:이05:determiner": {
+      "word": "이",
+      "upstream": "this (something close to the speaker or that the speaker thinks of); this (something just recently mentioned)",
+      "meaning": "this"
+    },
+    "nikl:이09:numeral": {
+      "word": "이",
+      "upstream": "the number 2",
+      "meaning": "two (Sino-Korean number)"
+    },
+    "nikl:저04:determiner": {
+      "word": "저",
+      "upstream": "that over there",
+      "meaning": "that (over there, away from both of us)"
+    },
+    "nikl:나03:pronoun": {
+      "word": "나",
+      "upstream": "informal first person singular, I",
+      "meaning": "I; me (casual)"
+    },
+    "nikl:우리03:pronoun": {
+      "word": "우리",
+      "upstream": "we",
+      "meaning": "we; our"
+    },
+    "nikl:아무01:pronoun": {
+      "word": "아무",
+      "upstream": "anyone",
+      "meaning": "any; (with a negative) no one, nothing"
+    },
+    "nikl:보다01:verb": {
+      "word": "보다",
+      "upstream": "see; look at; notice (To perceive with eyes the existence or appearance of an object.); watch; see; enjoy (To enjoy or appreciate an object with eyes); read; look at; take a look at (To read and understand the words, pictures and symbols in a book, newspaper, map, etc.)",
+      "meaning": "to see; to look at; to watch; to read"
+    },
+    "nikl:입다01:verb": {
+      "word": "입다",
+      "upstream": "to wear (e.g. clothes); to suffer due to something received (e.g. loss or injury)",
+      "meaning": "to wear (clothes)"
+    },
+    "nikl:일하다:verb": {
+      "word": "일하다",
+      "upstream": "to work/labor; to work/serve",
+      "meaning": "to work"
+    },
+    "nikl:명03:dependent-noun": {
+      "word": "명",
+      "upstream": "classifier for people (informal)",
+      "meaning": "counter for people (두 명 \"two people\")"
+    },
+    "nikl:년02:dependent-noun": {
+      "word": "년",
+      "upstream": "year",
+      "meaning": "year (as in 2025년)"
+    },
+    "nikl:경찰04:noun": {
+      "word": "경찰",
+      "upstream": "constituted body of persons empowered by the state to enforce the law",
+      "meaning": "police; police officer"
+    },
+    "nikl:건물03:noun": {
+      "word": "건물",
+      "upstream": "structure, typically with a roof and walls, standing more or less permanently in one place",
+      "meaning": "building"
+    },
+    "nikl:공항02:noun": {
+      "word": "공항",
+      "upstream": "location where aircraft take off and land with extended support facilities for aircraft operation",
+      "meaning": "airport"
+    },
+    "nikl:안경03:noun": {
+      "word": "안경",
+      "upstream": "optical device to assist human vision",
+      "meaning": "glasses"
+    },
+    "nikl:대학교:noun": {
+      "word": "대학교",
+      "upstream": "institution of higher education",
+      "meaning": "university"
+    },
+    "nikl:바나나:noun": {
+      "word": "바나나",
+      "upstream": "banana plant (Musa acuminata); banana plant (fruit)",
+      "meaning": "banana"
+    },
+    "nikl:버스02:noun": {
+      "word": "버스",
+      "upstream": "bus (passenger vehicle); bus (data transfer system)",
+      "meaning": "bus"
+    },
+    "nikl:고기01:noun": {
+      "word": "고기",
+      "upstream": "meat (that is eaten)",
+      "meaning": "meat"
+    },
+    "nikl:샤워:noun": {
+      "word": "샤워",
+      "upstream": "showering",
+      "meaning": "shower (washing)"
+    },
+    "nikl:자동차:noun": {
+      "word": "자동차",
+      "upstream": "automobile",
+      "meaning": "car"
+    },
+    "nikl:시계01:noun": {
+      "word": "시계",
+      "upstream": "clock",
+      "meaning": "clock; watch"
+    },
+    "nikl:결혼:noun": {
+      "word": "결혼",
+      "upstream": "marriage",
+      "meaning": "marriage; wedding"
+    },
+    "nikl:우유02:noun": {
+      "word": "우유",
+      "upstream": "cow's milk",
+      "meaning": "milk"
+    },
+    "nikl:속01:noun": {
+      "word": "속",
+      "upstream": "the inside of something (particularly that with some covering around it)",
+      "meaning": "inside; within"
+    },
+    "nikl:처음:noun": {
+      "word": "처음",
+      "upstream": "the first (thing in some order, temporal or otherwise)",
+      "meaning": "first time; beginning; at first"
+    },
+    "nikl:안녕:interjection": {
+      "word": "안녕",
+      "upstream": "(friendly greeting both in meeting and in parting)",
+      "meaning": "hi; bye (casual greeting)"
+    },
+    "nikl:안녕하다:adjective": {
+      "word": "안녕하다",
+      "upstream": "peaceful or tranquil; well and healthy",
+      "meaning": "to be well (안녕하세요 \"hello\")"
+    },
+    "nikl:안녕히:adverb": {
+      "word": "안녕히",
+      "upstream": "well and healthily",
+      "meaning": "well; in peace (안녕히 가세요 \"goodbye\")"
+    },
+    "nikl:새06:determiner": {
+      "word": "새",
+      "upstream": "new (recently created)",
+      "meaning": "new (before a noun)"
+    },
+    "nikl:첫째:numeral": {
+      "word": "첫째",
+      "upstream": "first",
+      "meaning": "first; eldest child"
+    },
+    "nikl:밝다:adjective": {
+      "word": "밝다",
+      "upstream": "be bright",
+      "meaning": "to be bright"
+    },
+    "nikl:열03:numeral": {
+      "word": "열",
+      "upstream": "ten",
+      "meaning": "ten (native Korean number)"
+    },
+    "nikl:팔01:noun": {
+      "word": "팔",
+      "upstream": "arm (of a living being)",
+      "meaning": "arm"
+    },
+    "nikl:팔03:numeral": {
+      "word": "팔",
+      "upstream": "the number 8",
+      "meaning": "eight (Sino-Korean number)"
+    },
+    "nikl:삼06:numeral": {
+      "word": "삼",
+      "upstream": "the number 3",
+      "meaning": "three (Sino-Korean number)"
+    },
+    "nikl:사11:numeral": {
+      "word": "사",
+      "upstream": "the number 4",
+      "meaning": "four (Sino-Korean number)"
+    },
+    "nikl:오04:numeral": {
+      "word": "오",
+      "upstream": "the number 5",
+      "meaning": "five (Sino-Korean number)"
+    },
+    "nikl:칠01:numeral": {
+      "word": "칠",
+      "upstream": "the number 7",
+      "meaning": "seven (Sino-Korean number)"
+    },
+    "nikl:구01:numeral": {
+      "word": "구",
+      "upstream": "the number 9",
+      "meaning": "nine (Sino-Korean number)"
+    },
+    "nikl:십:numeral": {
+      "word": "십",
+      "upstream": "the number 10",
+      "meaning": "ten (Sino-Korean number)"
+    },
+    "nikl:이십:numeral": {
+      "word": "이십",
+      "upstream": "twenty",
+      "meaning": "twenty (Sino-Korean number)"
+    },
+    "nikl:삼십:numeral": {
+      "word": "삼십",
+      "upstream": "thirty",
+      "meaning": "thirty (Sino-Korean number)"
+    },
+    "nikl:사십:numeral": {
+      "word": "사십",
+      "upstream": "forty",
+      "meaning": "forty (Sino-Korean number)"
+    },
+    "nikl:오십:numeral": {
+      "word": "오십",
+      "upstream": "fifty",
+      "meaning": "fifty (Sino-Korean number)"
+    },
+    "nikl:칠십:numeral": {
+      "word": "칠십",
+      "upstream": "seventy",
+      "meaning": "seventy (Sino-Korean number)"
+    },
+    "nikl:팔십:numeral": {
+      "word": "팔십",
+      "upstream": "eighty",
+      "meaning": "eighty (Sino-Korean number)"
+    },
+    "nikl:백05:numeral": {
+      "word": "백",
+      "upstream": "100",
+      "meaning": "one hundred (Sino-Korean number)"
+    },
+    "nikl:천03:numeral": {
+      "word": "천",
+      "upstream": "the number 1000",
+      "meaning": "one thousand (Sino-Korean number)"
+    },
+    "nikl:만06:numeral": {
+      "word": "만",
+      "upstream": "the number 10,000",
+      "meaning": "ten thousand (Sino-Korean number)"
+    },
+    "nikl:둘01:numeral": {
+      "word": "둘",
+      "upstream": "two",
+      "meaning": "two (native Korean number)"
+    },
+    "nikl:셋:numeral": {
+      "word": "셋",
+      "upstream": "three",
+      "meaning": "three (native Korean number)"
+    },
+    "nikl:넷01:numeral": {
+      "word": "넷",
+      "upstream": "four",
+      "meaning": "four (native Korean number)"
+    },
+    "nikl:다섯:numeral": {
+      "word": "다섯",
+      "upstream": "five",
+      "meaning": "five (native Korean number)"
+    },
+    "nikl:여섯:numeral": {
+      "word": "여섯",
+      "upstream": "six",
+      "meaning": "six (native Korean number)"
+    },
+    "nikl:일곱:numeral": {
+      "word": "일곱",
+      "upstream": "seven",
+      "meaning": "seven (native Korean number)"
+    },
+    "nikl:여덟:numeral": {
+      "word": "여덟",
+      "upstream": "eight",
+      "meaning": "eight (native Korean number)"
+    },
+    "nikl:아홉:numeral": {
+      "word": "아홉",
+      "upstream": "nine",
+      "meaning": "nine (native Korean number)"
+    },
+    "nikl:스물:numeral": {
+      "word": "스물",
+      "upstream": "twenty",
+      "meaning": "twenty (native Korean number)"
+    },
+    "nikl:서른:numeral": {
+      "word": "서른",
+      "upstream": "thirty",
+      "meaning": "thirty (native Korean number)"
+    },
+    "nikl:마흔:numeral": {
+      "word": "마흔",
+      "upstream": "forty",
+      "meaning": "forty (native Korean number)"
+    },
+    "nikl:쉰:numeral": {
+      "word": "쉰",
+      "upstream": "fifty",
+      "meaning": "fifty (native Korean number)"
+    },
+    "nikl:예순:numeral": {
+      "word": "예순",
+      "upstream": "sixty",
+      "meaning": "sixty (native Korean number)"
+    },
+    "nikl:일흔:numeral": {
+      "word": "일흔",
+      "upstream": "seventy",
+      "meaning": "seventy (native Korean number)"
+    },
+    "nikl:여든:numeral": {
+      "word": "여든",
+      "upstream": "eighty",
+      "meaning": "eighty (native Korean number)"
+    },
+    "nikl:아흔:numeral": {
+      "word": "아흔",
+      "upstream": "ninety",
+      "meaning": "ninety (native Korean number)"
+    }
+  },
+  "starter-zh-common": {
+    "unihan:U+7684": {
+      "word": "的",
+      "upstream": "possessive, adjectival suffix",
+      "meaning": "possessive particle: 's (我的 \"my\")"
+    },
+    "unihan:U+7740": {
+      "word": "着",
+      "upstream": "make move, take action",
+      "meaning": "continuous-aspect particle (-ing)"
+    },
+    "unihan:U+4E48": {
+      "word": "么",
+      "upstream": "interrogative particle; small",
+      "meaning": "suffix in 什么 \"what\", 怎么 \"how\""
+    },
+    "unihan:U+5462": {
+      "word": "呢",
+      "upstream": "interrogative or emphatic final",
+      "meaning": "sentence-final particle (\"and you?\", \"still …\")"
+    },
+    "unihan:U+5450": {
+      "word": "呐",
+      "upstream": "raise voice, yell out loud, shout; stammer",
+      "meaning": "sentence-final particle (exclamation)"
+    },
+    "unihan:U+4E2A": {
+      "word": "个",
+      "upstream": "numerary adjunct, piece; single",
+      "meaning": "general measure word"
+    },
+    "unihan:U+5730": {
+      "word": "地",
+      "upstream": "earth; soil, ground; region",
+      "meaning": "earth; ground; adverb particle (-ly)"
+    },
+    "unihan:U+5F97": {
+      "word": "得",
+      "upstream": "obtain, get, gain, acquire",
+      "meaning": "to get; complement particle (跑得快 \"runs fast\")"
+    },
+    "unihan:U+548C": {
+      "word": "和",
+      "upstream": "harmony, peace; peaceful, calm",
+      "meaning": "and; with; harmony"
+    },
+    "unihan:U+8981": {
+      "word": "要",
+      "upstream": "necessary, essential; necessity",
+      "meaning": "to want; will; must"
+    },
+    "unihan:U+91CC": {
+      "word": "里",
+      "upstream": "unit of distance; village; lane; Kangxi radical 166",
+      "meaning": "inside; Chinese mile"
+    },
+    "unihan:U+4F1A": {
+      "word": "会",
+      "upstream": "assemble, meet together; meeting",
+      "meaning": "can; will; meeting"
+    },
+    "unihan:U+4E3A": {
+      "word": "为",
+      "upstream": "do, handle, govern, act; be",
+      "meaning": "for; because of; (wéi) to be"
+    },
+    "unihan:U+90FD": {
+      "word": "都",
+      "upstream": "metropolis, capital; all, the whole; elegant, refined",
+      "meaning": "all; both; (dū) capital"
+    },
+    "unihan:U+6CA1": {
+      "word": "没",
+      "upstream": "not, have not, none; drown, sink",
+      "meaning": "not; have not (没有)"
+    },
+    "unihan:U+628A": {
+      "word": "把",
+      "upstream": "hold, take; guard; regard as",
+      "meaning": "particle placing the object before the verb; to hold"
+    },
+    "unihan:U+53D1": {
+      "word": "发",
+      "upstream": "issue, dispatch, send out; hair",
+      "meaning": "to send out; to develop (fā); hair (fà, 头发)"
+    },
+    "unihan:U+540E": {
+      "word": "后",
+      "upstream": "queen, empress, sovereign; (simp. for 後) behind, rear, after",
+      "meaning": "after; behind; later"
+    },
+    "unihan:U+4EC0": {
+      "word": "什",
+      "upstream": "file of ten soldiers; mixed, miscellaneous",
+      "meaning": "what (in 什么)"
+    },
+    "unihan:U+51E0": {
+      "word": "几",
+      "upstream": "small table",
+      "meaning": "how many; several"
+    },
+    "unihan:U+5168": {
+      "word": "全",
+      "upstream": "maintain, keep whole or intact",
+      "meaning": "whole; all; complete"
+    },
+    "unihan:U+53EA": {
+      "word": "只",
+      "upstream": "only, just, simply",
+      "meaning": "only; just; (zhī) measure word for animals"
+    },
+    "unihan:U+751A": {
+      "word": "甚",
+      "upstream": "great extent; considerably",
+      "meaning": "very; extremely (甚至 \"even\")"
+    },
+    "unihan:U+7136": {
+      "word": "然",
+      "upstream": "yes, certainly; pledge, promise",
+      "meaning": "so; like that (然后 \"then\")"
+    },
+    "unihan:U+513F": {
+      "word": "儿",
+      "upstream": "son, child; Kangxi radical 10",
+      "meaning": "child; son; suffix (女儿 \"daughter\")"
+    },
+    "unihan:U+5B50": {
+      "word": "子",
+      "upstream": "offspring, child; fruit, seed of; first earthly branch",
+      "meaning": "child; noun suffix (桌子 \"table\")"
+    },
+    "unihan:U+79CD": {
+      "word": "种",
+      "upstream": "seed; race, breed; to plant",
+      "meaning": "kind; type; seed"
+    },
+    "unihan:U+70B9": {
+      "word": "点",
+      "upstream": "dot, speck, spot; point, degree",
+      "meaning": "dot; point; o'clock"
+    },
+    "unihan:U+4ECE": {
+      "word": "从",
+      "upstream": "from, by, since, whence, through",
+      "meaning": "from; since"
+    },
+    "unihan:U+8001": {
+      "word": "老",
+      "upstream": "old, aged; experienced; Kangxi radical 125",
+      "meaning": "old; experienced; prefix (老师 \"teacher\")"
+    },
+    "unihan:U+4E8E": {
+      "word": "于",
+      "upstream": "in, on, at; go to; surname",
+      "meaning": "in; at; to; (formal) from"
+    },
+    "unihan:U+800C": {
+      "word": "而",
+      "upstream": "and; and then; and yet; but; Kangxi radical 126",
+      "meaning": "and; but; yet"
+    },
+    "unihan:U+5FC3": {
+      "word": "心",
+      "upstream": "heart; mind, intelligence; soul; 5th lunar mansion, determinative star α Scorpii (Antares)",
+      "meaning": "heart; mind"
+    },
+    "unihan:U+4E24": {
+      "word": "两",
+      "upstream": "two, both, pair, couple; ounce",
+      "meaning": "two (before measure words); a few"
+    },
+    "unihan:U+884C": {
+      "word": "行",
+      "upstream": "go; walk; move, travel; circulate; Kangxi radical 144",
+      "meaning": "OK; to walk; to do; (háng) row, profession"
+    },
+    "unihan:U+957F": {
+      "word": "长",
+      "upstream": "long; length; excel in; leader",
+      "meaning": "(cháng) long; (zhǎng) to grow; chief"
+    },
+    "unihan:U+9AD8": {
+      "word": "高",
+      "upstream": "high, tall; lofty, elevated; Kangxi radical 189",
+      "meaning": "tall; high"
+    },
+    "unihan:U+5F53": {
+      "word": "当",
+      "upstream": "bear, accept, undertake; just",
+      "meaning": "to act as; when; just at the time of"
+    },
+    "unihan:U+673A": {
+      "word": "机",
+      "upstream": "desk; machine; moment",
+      "meaning": "machine; chance (飞机 \"plane\")"
+    },
+    "unihan:U+6C14": {
+      "word": "气",
+      "upstream": "steam, vapor; Kangxi radical 84",
+      "meaning": "air; gas; breath; anger"
+    },
+    "unihan:U+5DF1": {
+      "word": "己",
+      "upstream": "self, oneself; personal, private; 6th heavenly stem",
+      "meaning": "self (in 自己 \"oneself\")"
+    },
+    "unihan:U+6240": {
+      "word": "所",
+      "upstream": "place, location; numerary adjunct",
+      "meaning": "place; (grammar) that which (所以 \"so\")"
+    },
+    "unihan:U+7B49": {
+      "word": "等",
+      "upstream": "rank, grade; to wait; equal, “and so forth”",
+      "meaning": "to wait; and so on"
+    },
+    "unihan:U+793E": {
+      "word": "社",
+      "upstream": "god of the soil and altars to him; group of families; company, society",
+      "meaning": "society; agency (社会 \"society\")"
+    },
+    "unihan:U+5019": {
+      "word": "候",
+      "upstream": "wait; expect; visit; greet",
+      "meaning": "wait; (时候 \"time, moment\")"
+    },
+    "unihan:U+4E4B": {
+      "word": "之",
+      "upstream": "marks preceding phrase as modifier of following phrase; it, him her, them; go to",
+      "meaning": "literary \"of\""
+    },
+    "unihan:U+4F7F": {
+      "word": "使",
+      "upstream": "cause, send on a mission, order; envoy, messenger, ambassador",
+      "meaning": "to cause; to use; to make (someone do)"
+    },
+    "unihan:U+6253": {
+      "word": "打",
+      "upstream": "strike, hit, beat; fight; attack",
+      "meaning": "to hit; to play (a sport); to make (a call)"
+    },
+    "unihan:U+53EB": {
+      "word": "叫",
+      "upstream": "cry, shout; hail, greet, call",
+      "meaning": "to call; to be called; to shout"
+    },
+    "unihan:U+4ED6": {
+      "word": "他",
+      "upstream": "other, another; he, she, it",
+      "meaning": "he; him"
+    },
+    "unihan:U+6211": {
+      "word": "我",
+      "upstream": "our, us, i, me, my, we",
+      "meaning": "I; me; my"
+    },
+    "unihan:U+6765": {
+      "word": "来",
+      "upstream": "come, coming; return, returning",
+      "meaning": "to come"
+    }
+  }
+}

@@ -21,6 +21,7 @@ import {
   buildKoreanNotes,
   buildMandarinNotes,
   canonicalLexemeJson,
+  checkOverridesUsed,
   normalizeLexeme,
   parseNiklList,
   parseSimplifiedVariants,
@@ -34,6 +35,16 @@ import { NIKL_VOCAB, STARTER_DECKS_VERSION, UNIHAN, WIKIDATA } from './starters/
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
 export const GENERATED_DIR = join(REPO_ROOT, 'packages', 'core', 'src', 'starters', 'generated');
+
+/**
+ * The app's own wording for glosses the review in docs/starter-gloss-review.md found vague, wrong
+ * or encyclopedic: `{ [deckSlug]: { [noteKey]: { word, upstream, meaning } } }` (see
+ * `glossOverride` in scripts/starters/lib.mjs). Not third-party data: no licence applies.
+ */
+export const GLOSS_OVERRIDES_FILE = join(REPO_ROOT, 'content', 'starters', 'gloss-overrides.json');
+
+const KO_SLUG = 'starter-ko-core';
+const ZH_SLUG = 'starter-zh-common';
 
 /** Deck size: small enough to finish in a few weeks at 20 new cards a day (an owner question). */
 export const STARTER_DECK_SIZE = 150;
@@ -59,7 +70,8 @@ const WIKIDATA_SOURCE = {
   licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
   sourceUrl: 'https://www.wikidata.org/wiki/Wikidata:Lexicographical_data',
   attribution: 'English meanings from Wikidata lexemes (CC0 1.0), one pinned revision each.',
-  changes: 'Up to three English glosses per word, matched by spelling, part of speech and Hanja.',
+  changes:
+    'Up to three English glosses per word, matched by spelling, part of speech and Hanja. Glosses that read as definitions, grammar labels or the wrong sense are replaced with the app’s own wording; those cards say “edited by this app”.',
 };
 
 const UNIHAN_SOURCE = {
@@ -69,7 +81,7 @@ const UNIHAN_SOURCE = {
   sourceUrl: 'https://www.unicode.org/charts/unihan.html',
   attribution: `Copyright © 1991-2026 Unicode, Inc. Unihan ${UNIHAN.version} (kHanyuPinlu, kMandarin, kDefinition, kSimplifiedVariant), used under the Unicode License v3.`,
   changes:
-    'The most frequent simplified characters by their own kHanyuPinlu counts, with kMandarin pinyin (a toned reading before a neutral-tone particle one) and kDefinition without Cantonese-only senses.',
+    'The most frequent simplified characters by their own kHanyuPinlu counts, with kMandarin pinyin (a toned reading before a neutral-tone particle one) and kDefinition without Cantonese-only senses. Definitions that lead with a classical or rare sense are replaced with the app’s own wording; those cards say “meaning edited by this app”.',
 };
 
 function readCached(dir, rel, sha256) {
@@ -106,21 +118,35 @@ export function buildStarterDecks({
   unihanVariantsText,
   lexemes,
   size = STARTER_DECK_SIZE,
+  glossOverrides = {},
 }) {
-  const koNotes = buildKoreanNotes({ niklRows: parseNiklList(niklText), lexemes, size });
+  const unknown = Object.keys(glossOverrides).filter((s) => s !== KO_SLUG && s !== ZH_SLUG);
+  if (unknown.length > 0)
+    throw new Error(`gloss overrides for unknown decks: ${unknown.join(', ')}`);
+  const koOverrides = glossOverrides[KO_SLUG] ?? {};
+  const zhOverrides = glossOverrides[ZH_SLUG] ?? {};
+  const koNotes = buildKoreanNotes({
+    niklRows: parseNiklList(niklText),
+    lexemes,
+    size,
+    overrides: koOverrides,
+  });
+  checkOverridesUsed(koOverrides, koNotes, KO_SLUG);
   validateNotes(koNotes, 'word');
   const zhNotes = buildMandarinNotes({
     readings: parseUnihanReadings(unihanReadingsText),
     simplifiedVariants: parseSimplifiedVariants(unihanVariantsText),
     unihanVersion: UNIHAN.version,
     size,
+    overrides: zhOverrides,
   });
+  checkOverridesUsed(zhOverrides, zhNotes, ZH_SLUG);
   validateNotes(zhNotes, 'word');
   return [
     {
       file: 'ko-core.ts',
       info: {
-        slug: 'starter-ko-core',
+        slug: KO_SLUG,
         name: 'Korean Starter: Beginner Words',
         language: 'ko',
         noteTypeId: 'preset:vocab-ko',
@@ -136,7 +162,7 @@ export function buildStarterDecks({
     {
       file: 'zh-common.ts',
       info: {
-        slug: 'starter-zh-common',
+        slug: ZH_SLUG,
         name: 'Mandarin Basics: Common Characters',
         language: 'zh-Hans',
         noteTypeId: 'preset:vocab-zh',
@@ -182,6 +208,7 @@ export async function buildFromCache(dir) {
     unihanReadingsText,
     unihanVariantsText,
     lexemes: loadLexemes(dir),
+    glossOverrides: JSON.parse(readFileSync(GLOSS_OVERRIDES_FILE, 'utf8')),
   });
   return renderStarterModules(decks);
 }

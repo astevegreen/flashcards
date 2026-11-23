@@ -235,6 +235,71 @@ describe('starter-deck builder', () => {
     expect(zh.notes[5].fields.notes).toMatch(/^Source: /);
   });
 
+  it('applies gloss overrides by note key and credits the edit on the card', () => {
+    const glossOverrides = {
+      'starter-ko-core': {
+        'nikl:가다01:verb': { word: '가다', upstream: 'to go; to leave', meaning: 'to go' },
+      },
+      'starter-zh-common': {
+        'unihan:U+7740': {
+          word: '着',
+          upstream: 'make move, take action',
+          meaning: 'continuous-aspect particle (-ing)',
+        },
+      },
+    };
+    const [ko, zh] = buildStarterDecks({
+      niklText: NIKL,
+      unihanReadingsText: UNIHAN_READINGS,
+      unihanVariantsText: UNIHAN_VARIANTS,
+      lexemes: LEXEMES,
+      size: 10,
+      glossOverrides,
+    });
+    expect(ko.notes[0].fields.meaning).toBe('to go');
+    expect(ko.notes[0].fields.notes).toMatch(
+      /NIKL 한국어 학습용 어휘 목록 \(2003\), KOGL Type 1\. English: Wikidata L20 \(CC0\), edited by this app\.$/,
+    );
+    // Notes without an override keep the plain source credit.
+    expect(ko.notes[1].fields.notes).toMatch(/Wikidata L21 \(CC0\)\.$/);
+    const zhe = zh.notes.find((n) => n.key === 'unihan:U+7740');
+    expect(zhe.fields.meaning).toBe('continuous-aspect particle (-ing)');
+    expect(zhe.fields.notes).toMatch(/Unicode License v3; meaning edited by this app\.$/);
+    expect(zh.notes[0].fields.notes).toMatch(/Unicode License v3\.$/);
+    // The hash covers the edited notes.
+    expect(ko.info.contentHash).not.toBe(build()[0].info.contentHash);
+  });
+
+  it('rejects stale, misplaced or unknown gloss overrides', () => {
+    const withOverrides = (glossOverrides) => () =>
+      buildStarterDecks({
+        niklText: NIKL,
+        unihanReadingsText: UNIHAN_READINGS,
+        unihanVariantsText: UNIHAN_VARIANTS,
+        lexemes: LEXEMES,
+        size: 10,
+        glossOverrides,
+      });
+    const ko = (key, entry) => withOverrides({ 'starter-ko-core': { [key]: entry } });
+    expect(ko('nikl:가다01:verb', { word: '가다', upstream: 'to go', meaning: 'go' })).toThrow(
+      'source gloss is now "to go; to leave"',
+    );
+    expect(
+      ko('nikl:가다01:verb', { word: '오다', upstream: 'to go; to leave', meaning: 'go' }),
+    ).toThrow('written for "오다"');
+    expect(
+      ko('nikl:가다01:verb', {
+        word: '가다',
+        upstream: 'to go; to leave',
+        meaning: 'to go; to leave',
+      }),
+    ).toThrow('equals the source gloss');
+    expect(ko('nikl:없음:noun', { word: '없음', upstream: 'x', meaning: 'y' })).toThrow(
+      'not in the deck: nikl:없음:noun',
+    );
+    expect(withOverrides({ 'starter-xx': {} })).toThrow('unknown decks: starter-xx');
+  });
+
   it('is deterministic: input order never changes the output, and rendering is byte-identical', async () => {
     const a = await renderStarterModules(build());
     const b = await renderStarterModules(build(LEXEMES.toReversed()));

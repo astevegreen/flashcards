@@ -8,8 +8,8 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
     language: 'ko',
     noteTypeId: 'preset:vocab-ko',
     noteCount: 145,
-    version: '1.0.0',
-    contentHash: '58bd853d525abe03c1bec52fe82ffd50ebca33d13b840c94486ac5c4001419a0',
+    version: '1.1.0',
+    contentHash: 'f47888a470ed4cd741e90f65afa2d7fc70c92ff7ad59fcdfc43ea1d59a9d14ca',
     description:
       'Beginner (level A) Korean words from the NIKL learning vocabulary list, most frequent first, with Hanja for Sino-Korean words and English meanings from Wikidata.',
     sources: [
@@ -30,7 +30,7 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
         sourceUrl: 'https://www.wikidata.org/wiki/Wikidata:Lexicographical_data',
         attribution: 'English meanings from Wikidata lexemes (CC0 1.0), one pinned revision each.',
         changes:
-          'Up to three English glosses per word, matched by spelling, part of speech and Hanja.',
+          'Up to three English glosses per word, matched by spelling, part of speech and Hanja. Glosses that read as definitions, grammar labels or the wrong sense are replaced with the app’s own wording; those cards say “edited by this app”.',
       },
     ],
     module: 'ko-core',
@@ -41,8 +41,8 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
     language: 'zh-Hans',
     noteTypeId: 'preset:vocab-zh',
     noteCount: 150,
-    version: '1.0.0',
-    contentHash: '26a08bc5ecbd38a13d3f5cd439d3fa8ff43f9daffb56963ffc05fe637cd6e6bc',
+    version: '1.1.0',
+    contentHash: '8d654f26f7f0f03a713821c4142d86dfab72c1eda8484e46075210e5b50601e6',
     description:
       'The most frequent characters of modern Mandarin, with pinyin and English definitions from the Unicode Unihan database.',
     sources: [
@@ -54,7 +54,7 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
         attribution:
           'Copyright © 1991-2026 Unicode, Inc. Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition, kSimplifiedVariant), used under the Unicode License v3.',
         changes:
-          'The most frequent simplified characters by their own kHanyuPinlu counts, with kMandarin pinyin (a toned reading before a neutral-tone particle one) and kDefinition without Cantonese-only senses.',
+          'The most frequent simplified characters by their own kHanyuPinlu counts, with kMandarin pinyin (a toned reading before a neutral-tone particle one) and kDefinition without Cantonese-only senses. Definitions that lead with a classical or rare sense are replaced with the app’s own wording; those cards say “meaning edited by this app”.',
       },
     ],
     module: 'zh-common',
