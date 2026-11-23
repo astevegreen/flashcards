@@ -191,12 +191,15 @@ export interface DownloadableBlob {
   arrayBuffer(): Promise<ArrayBuffer>;
 }
 
-/** Where a streamed export goes: chunks are written in order, then `close` or `abort`. */
+/**
+ * Where a streamed export goes: chunks are written in order, then `close` or `abort`. Callers
+ * must await each `write` before the next, and must not write after `close` or `abort`.
+ */
 export interface FileSink {
   write(chunk: Uint8Array): Promise<void>;
   /** Finishes the file (the native share sheet opens, or the saved file is complete). */
   close(): Promise<void>;
-  /** Stops and deletes the partial file. Safe to call after a failed `write`. */
+  /** Stops and discards the partial file (Tauri leaves it empty). Safe after a failed `write`. */
   abort(): Promise<void>;
 }
 

@@ -10,7 +10,6 @@ function fakeFs(target: string | null) {
       calls.push({ append: opts?.append, len: data.length });
       files.set(path, opts?.append ? [...(files.get(path) ?? []), ...data] : [...data]);
     },
-    remove: async (path) => void files.delete(path),
   };
   return { files, calls, deps };
 }
@@ -33,13 +32,25 @@ describe('Tauri streamed save', () => {
     expect(fs.calls).toEqual([]);
   });
 
-  it('abort deletes the partial file', async () => {
+  it('abort truncates the partial file to empty and rejects later writes', async () => {
     const fs = fakeFs('/out/a.zip');
     const sink = await openTauriSaveStream(fs.deps, 'a.zip');
     await sink?.write(new Uint8Array([1]));
     await sink?.write(new Uint8Array([2]));
     await sink?.abort();
-    expect(fs.files.has('/out/a.zip')).toBe(false);
+    expect(fs.files.get('/out/a.zip')).toEqual([]);
+    await expect(sink?.write(new Uint8Array([3]))).rejects.toThrow('closed');
+    await expect(sink?.close()).rejects.toThrow('closed');
+    expect(fs.files.get('/out/a.zip')).toEqual([]);
+  });
+
+  it('rejects writes after close', async () => {
+    const fs = fakeFs('/out/a.zip');
+    const sink = await openTauriSaveStream(fs.deps, 'a.zip');
+    await sink?.write(new Uint8Array([1]));
+    await sink?.close();
+    await expect(sink?.write(new Uint8Array([2]))).rejects.toThrow('closed');
+    expect(fs.files.get('/out/a.zip')).toEqual([1]);
   });
 
   it('writes an empty file when closed with no chunks', async () => {

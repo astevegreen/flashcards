@@ -16,7 +16,6 @@ import {
   mkdir,
   readDir,
   readFile,
-  remove,
   rename,
   stat,
   watch,
@@ -229,7 +228,6 @@ export function createDesktopFiles(fsBridge: TauriFsBridge): Files {
         {
           save: (o) => saveDialog(o),
           writeFile: (path, data, o) => writeFile(path, data, o),
-          remove: (path) => remove(path),
         },
         filename,
       ),

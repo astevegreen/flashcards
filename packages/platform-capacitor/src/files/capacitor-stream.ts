@@ -29,7 +29,8 @@ export function createCapacitorSaveStream(deps: CapacitorStreamDeps, filename: s
   let pendingBytes = 0;
   let uri = '';
   let started = false;
-  let done = false;
+  let closed = false;
+  let shared = false;
 
   async function flush(): Promise<void> {
     if (pendingBytes === 0) return;
@@ -52,22 +53,25 @@ export function createCapacitorSaveStream(deps: CapacitorStreamDeps, filename: s
 
   return {
     async write(chunk) {
+      if (closed) throw new Error('The export file is already closed.');
       if (chunk.length === 0) return;
       pending.push(chunk);
       pendingBytes += chunk.length;
       if (pendingBytes >= FLUSH_BYTES) await flush();
     },
     async close() {
+      if (closed) throw new Error('The export file is already closed.');
+      closed = true;
       await flush();
       if (!started) uri = (await deps.writeFile({ path: filename, data: '' })).uri;
-      done = true;
       await deps.share({ title: filename, uri });
+      shared = true;
     },
     async abort() {
       pending = [];
       pendingBytes = 0;
-      if (done || !started) return;
-      done = true;
+      closed = true;
+      if (shared || !started) return;
       await deps.deleteFile({ path: filename }).catch(() => undefined);
     },
   };

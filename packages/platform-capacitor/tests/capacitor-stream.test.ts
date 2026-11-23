@@ -5,19 +5,24 @@ import {
   type CapacitorStreamDeps,
 } from '../src/files/capacitor-stream.ts';
 
+function decode(b64: string): number[] {
+  return [...Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))];
+}
+
+/** Stores real bytes: each call's base64 is decoded on its own, as the native plugin does. */
 function fakeFs() {
-  const files = new Map<string, string>();
+  const files = new Map<string, number[]>();
   const calls: string[] = [];
   const shared: string[] = [];
   const deps: CapacitorStreamDeps = {
     writeFile: async ({ path, data }) => {
       calls.push('write');
-      files.set(path, data);
+      files.set(path, decode(data));
       return { uri: `file:///cache/${path}` };
     },
     appendFile: async ({ path, data }) => {
       calls.push('append');
-      files.set(path, (files.get(path) ?? '') + data);
+      files.set(path, [...(files.get(path) ?? []), ...decode(data)]);
     },
     deleteFile: async ({ path }) => {
       calls.push('delete');
@@ -28,7 +33,9 @@ function fakeFs() {
   return { files, calls, shared, deps };
 }
 
-const big = (fill: number) => new Uint8Array(600 * 1024).fill(fill);
+// Not a multiple of 3, so every piece ends in base64 padding.
+const SIZE = 600 * 1024 + 1;
+const big = (fill: number) => new Uint8Array(SIZE).fill(fill);
 
 describe('Capacitor streamed save', () => {
   it('appends chunks in order and shares on close', async () => {
@@ -36,34 +43,16 @@ describe('Capacitor streamed save', () => {
     const sink = createCapacitorSaveStream(fs.deps, 'a.zip');
     await sink.write(big(1));
     await sink.write(big(2));
-    await sink.write(new Uint8Array([3]));
+    await sink.write(new Uint8Array([3, 4]));
     await sink.close();
     expect(fs.calls).toEqual(['write', 'append', 'append']);
-    // Each appended piece is its own base64 string, so decode the concatenation piecewise.
+    expect(fs.files.get('a.zip')).toEqual([
+      ...new Array<number>(SIZE).fill(1),
+      ...new Array<number>(SIZE).fill(2),
+      3,
+      4,
+    ]);
     expect(fs.shared).toEqual(['file:///cache/a.zip']);
-  });
-
-  it('keeps byte order across appended pieces', async () => {
-    const pieces: string[] = [];
-    const fs = fakeFs();
-    const deps: CapacitorStreamDeps = {
-      ...fs.deps,
-      writeFile: async (o) => {
-        pieces.push(o.data);
-        return { uri: 'u' };
-      },
-      appendFile: async (o) => void pieces.push(o.data),
-    };
-    const sink = createCapacitorSaveStream(deps, 'a.zip');
-    await sink.write(big(1));
-    await sink.write(big(2));
-    await sink.write(new Uint8Array([3]));
-    await sink.close();
-    const decoded = pieces.map((p) => Uint8Array.from(atob(p), (c) => c.charCodeAt(0)));
-    expect(decoded.map((d) => d.length)).toEqual([600 * 1024, 600 * 1024, 1]);
-    expect(decoded[0]?.[0]).toBe(1);
-    expect(decoded[1]?.[0]).toBe(2);
-    expect(decoded[2]?.[0]).toBe(3);
   });
 
   it('joins small chunks before one bridge call', async () => {
@@ -73,10 +62,10 @@ describe('Capacitor streamed save', () => {
     await sink.write(new Uint8Array([3]));
     await sink.close();
     expect(fs.calls).toEqual(['write']);
-    expect(atob(fs.files.get('a.zip') as string)).toBe('\x01\x02\x03');
+    expect(fs.files.get('a.zip')).toEqual([1, 2, 3]);
   });
 
-  it('abort deletes the partial file and never shares', async () => {
+  it('abort deletes the partial file, never shares, and rejects later calls', async () => {
     const fs = fakeFs();
     const sink = createCapacitorSaveStream(fs.deps, 'a.zip');
     await sink.write(big(1));
@@ -84,6 +73,9 @@ describe('Capacitor streamed save', () => {
     await sink.abort();
     expect(fs.files.has('a.zip')).toBe(false);
     expect(fs.shared).toEqual([]);
+    await expect(sink.write(new Uint8Array([1]))).rejects.toThrow('closed');
+    await expect(sink.close()).rejects.toThrow('closed');
+    expect(fs.files.has('a.zip')).toBe(false);
   });
 
   it('exposes saveStream only when the bridge provides it', () => {
