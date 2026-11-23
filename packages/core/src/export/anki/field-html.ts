@@ -20,8 +20,8 @@ import { normalizeTagList } from '../../tags/index.ts';
  */
 
 /**
- * Hook for markup this app adds to text fields later (for example the field editor's limited
- * rich text: bold, italic, colour). It receives the raw field text and `plain`, which converts
+ * Hook for the markup of the field editor's limited rich text (bold, italic, colour); the
+ * exports use `ankiRichTextToHtml` (`rich-text-html.ts`) by default. It receives the raw field text and `plain`, which converts
  * a run of ordinary text (ruby included) to Anki HTML. It returns the field's Anki HTML: for
  * example `<b>` + `plain(boldPart)` + `</b>`. Without a hook the whole text goes through `plain`.
  */

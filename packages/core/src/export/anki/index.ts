@@ -26,6 +26,7 @@ export {
   type AnkiMediaFile,
   type AnkiRichTextConverter,
 } from './field-html.ts';
+export { ANKI_RICH_TEXT_COLORS, ankiRichTextToHtml } from './rich-text-html.ts';
 export { AnkiZipTooLargeError, AnkiZipWriter, crc32 } from './zip-writer.ts';
 export {
   ANKI_SCHEMA_11,

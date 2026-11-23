@@ -11,6 +11,7 @@ import {
   type AnkiMediaFile,
   type AnkiRichTextConverter,
 } from './field-html.ts';
+import { ankiRichTextToHtml } from './rich-text-html.ts';
 
 /**
  * "Export for Anki": one deck as a CSV that Anki's text import (File > Import, Anki 2.1.54+)
@@ -32,7 +33,7 @@ export interface AnkiCsvExportOptions {
   noteIds?: Iterable<string>;
   includeArchived?: boolean;
   delimiter?: ',' | '\t';
-  /** Converter for rich-text markup in text fields (none yet; see `AnkiRichTextConverter`). */
+  /** Converter for rich-text markup in text fields (default: {@link ankiRichTextToHtml}). */
   richText?: AnkiRichTextConverter;
 }
 
@@ -84,7 +85,7 @@ export function planAnkiCsvExport(
   const notes = selectDeckNotes(state, options);
   const fields = noteType?.fields ?? [];
   const media = new AnkiMediaNamer(state);
-  const ctx = { media, ...(options.richText ? { richText: options.richText } : {}) };
+  const ctx = { media, richText: options.richText ?? ankiRichTextToHtml };
 
   const fieldNames = noteType ? ankiFieldNames(noteType) : [];
   const columns = ['GUID', 'Note type', 'Deck', ...fieldNames, 'Tags'];

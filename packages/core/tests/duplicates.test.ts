@@ -67,6 +67,17 @@ describe('duplicate finder', () => {
     expect(normalizeDuplicateKey('Apple')).not.toBe(normalizeDuplicateKey('apple'));
   });
 
+  it('strips rich-text markup, with ruby, cloze and the Korean Hanja rule', () => {
+    expect(normalizeDuplicateKey('{b:학교}')).toBe(normalizeDuplicateKey('학교'));
+    expect(normalizeDuplicateKey('{red:{b:학}}교')).toBe('학교');
+    expect(normalizeDuplicateKey('{b:学校[がっこう]}')).toBe('学校');
+    expect(normalizeDuplicateKey('{b:學校[학교]}', 'ko')).toBe('학교');
+    expect(normalizeDuplicateKey('{{c1::{i:word}}}')).toBe('{{c1::word}}');
+    // Literal and unclosed spans stay as typed.
+    expect(normalizeDuplicateKey('{b:}')).toBe('{b:}');
+    expect(normalizeDuplicateKey('{b:open')).toBe('{b:open');
+  });
+
   it('uses the sort-key field of the note type', () => {
     const ko = BUILTIN_NOTE_TYPES.find((n) => n.id === BUILTIN_NOTE_TYPE_IDS.VOCAB_KO);
     const hanja = BUILTIN_NOTE_TYPES.find((n) => n.id === BUILTIN_NOTE_TYPE_IDS.HANJA);
