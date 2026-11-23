@@ -49,6 +49,9 @@ describe('normalizeDeckDescription', () => {
     );
     expect(normalizeDeckDescription('a\u0000b\u0007c\td')).toBe('abc\td');
     expect(normalizeDeckDescription('one\n\n\n\ntwo')).toBe('one\n\ntwo');
+    expect(normalizeDeckDescription('one \n  \n\t\n\ntwo\rthree')).toBe('one\n\ntwo\nthree');
+    // Long runs of spaces without a line break stay linear (no regex backtracking).
+    expect(normalizeDeckDescription(`a${' '.repeat(200_000)}b`)).toBe('a');
     expect(normalizeDeckDescription('<b>not html</b>')).toBe('<b>not html</b>');
     expect(normalizeDeckDescription(42)).toBe('');
     expect(normalizeDeckDescription('x'.repeat(5000))).toHaveLength(DECK_DESCRIPTION_MAX_LENGTH);

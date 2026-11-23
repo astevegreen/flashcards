@@ -18,25 +18,35 @@ export const DECK_DESCRIPTION_MAX_LENGTH = 2000;
 function dropControlChars(text: string): string {
   let out = '';
   for (const ch of text) {
-    const c = ch.charCodeAt(0);
+    const c = ch.codePointAt(0) ?? 0;
     if (c === 9 || c === 10 || (c >= 32 && c !== 127)) out += ch;
   }
   return out;
 }
 
+/** Removes trailing spaces and tabs. */
+function trimEndSpaces(text: string): string {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === ' ' || text[end - 1] === '\t')) end -= 1;
+  return text.slice(0, end);
+}
+
 /**
- * Canonical description: CRLF -> LF, other control characters dropped, trailing spaces before a
+ * Canonical description: CRLF and CR -> LF, other control characters dropped, trailing spaces before a
  * line break removed, at most one blank line in a row, trimmed and capped at
  * {@link DECK_DESCRIPTION_MAX_LENGTH}. `''` means no description.
  */
 export function normalizeDeckDescription(raw: unknown): string {
   if (typeof raw !== 'string') return '';
-  return dropControlChars(raw.replace(/\r\n?/g, '\n'))
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-    .slice(0, DECK_DESCRIPTION_MAX_LENGTH)
-    .trim();
+  // A line-by-line scan, not regexes: descriptions come from users and packages, so the work
+  // stays linear in the input length.
+  const lines: string[] = [];
+  for (const line of raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')) {
+    const text = trimEndSpaces(dropControlChars(line));
+    if (text === '' && lines.at(-1) === '') continue;
+    lines.push(text);
+  }
+  return lines.join('\n').trim().slice(0, DECK_DESCRIPTION_MAX_LENGTH).trim();
 }
 
 function later(a: UnknownEvent | undefined, b: UnknownEvent): boolean {
@@ -68,7 +78,7 @@ const cache = new WeakMap<readonly UnknownEvent[], { length: number; map: Map<st
 export function getDeckDescriptions(state: CollectionState): ReadonlyMap<string, string> {
   const events = state.unknownEvents;
   const hit = cache.get(events);
-  if (hit && hit.length === events.length) return hit.map;
+  if (hit?.length === events.length) return hit.map;
   const map = buildDescriptions(events);
   cache.set(events, { length: events.length, map });
   return map;

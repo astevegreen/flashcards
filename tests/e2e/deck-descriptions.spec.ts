@@ -1,23 +1,11 @@
-import { expect, test, type Page } from '@playwright/test';
-
-const KO_DECK = 'Korean Core + Hanja';
-
-async function openLibrary(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Library' }).first().click();
-  await expect(page.getByTestId('deck-organization-panel')).toBeVisible();
-}
-
-function deckRow(page: Page) {
-  return page.locator('[data-testid^="deck-row-"]', { hasText: KO_DECK });
-}
+import { expect, test } from '@playwright/test';
+import { deckRow, openLibrary, startInLibrary } from './helpers/library.ts';
 
 test.describe('Deck descriptions', () => {
   test('a described deck shows its overview before study; others start at once', async ({
     page,
   }) => {
-    await page.goto('/?device=deckdescriptions');
-    await expect(page.getByTestId('study-card')).toBeVisible();
-    await openLibrary(page);
+    await startInLibrary(page, 'deckdescriptions');
 
     // No description yet: Study starts at once.
     await deckRow(page).getByRole('button', { name: 'Study', exact: true }).click();
