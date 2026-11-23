@@ -41,6 +41,33 @@ export async function prepareSecureStorageAtLaunch(options: {
 }
 
 /**
+ * iOS: reads every secret the routing owns once at launch, through the loss-tracking store, so a
+ * secret that is present gets its marker now (`trackStoredSecrets` writes a missing one on read).
+ * Without it, a secret an older build stored and this build never read before the next backup had
+ * no marker, and its loss after a restore went unexplained. A secret whose marker outlived it is
+ * reported here, which is where its first read would have reported it anyway. Run after
+ * `prepareSecureStorageAtLaunch` (a fresh install's wipe has cleared the leftovers by then, and a
+ * fresh database has no markers, so that stays silent). Android needs none: its plugin reports a
+ * lost key itself. Never throws; a failing read is skipped.
+ */
+export async function markStoredSecretsAtLaunch(options: {
+  platform: MobilePlatform;
+  /** The loss-tracking store (`withSecretLossDetection`). */
+  secureStorage: Pick<NativeSecureStorage, 'get'>;
+  /** Secure-store key names (`SecureKvRouting.secretKeys`). */
+  keys: readonly string[];
+}): Promise<void> {
+  if (options.platform !== 'ios') return;
+  for (const key of options.keys) {
+    try {
+      await options.secureStorage.get(key);
+    } catch {
+      // Best effort: the next read of this key tries again.
+    }
+  }
+}
+
+/**
  * Deletes the plaintext token copies `@capgo/capacitor-social-login` keeps (or an older build left)
  * in UserDefaults / SharedPreferences:
  * - Google on Android: the ID and access tokens. Nothing reads them back (refresh is a silent
