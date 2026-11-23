@@ -356,6 +356,8 @@ export interface SourcesRegistry {
   googleSources: LinkedGoogleSource[];
   /** Absent in registries saved before linked OneDrive sources existed. */
   oneDriveSources?: LinkedOneDriveSource[];
+  /** OneDrive item ids unlinked on this device; their synced decks are not re-listed as sources. */
+  unlinkedOneDriveIds?: string[];
   localFolders: LinkedLocalFolder[];
   packageSubscriptions: PackageSubscription[];
   catalogs: FamilyCatalogSubscription[];

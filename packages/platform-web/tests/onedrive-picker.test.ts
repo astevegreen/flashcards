@@ -104,6 +104,6 @@ describe('GraphOneDriveFilePicker linked-source reads', () => {
 
   it('maps a missing file to a Graph failure', async () => {
     const { picker } = setup();
-    await expect(picker.getFileInfo('nope')).rejects.toThrow(/OneDrive lookup/);
+    await expect(picker.getFileInfo('nope')).rejects.toThrow(/OneDrive file lookup/);
   });
 });

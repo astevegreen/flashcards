@@ -474,6 +474,19 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
+  const handleAllowOneDriveAccess = async () => {
+    onErrorMessage(null);
+    try {
+      const picker = await platform.getOneDrivePicker?.();
+      // Web redirects to Microsoft sign-in; native shells return once the user consents.
+      if (picker && (await picker.requestFileAccess())) {
+        onStatusMessage('OneDrive file access allowed. Refresh the source to pull it.');
+      }
+    } catch (err) {
+      onErrorMessage(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handleRefreshOneDriveOne = async (src: LinkedOneDriveSource) => {
     setBusy(true);
     onErrorMessage(null);
@@ -485,8 +498,21 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       if (!target) return;
       try {
         const res = await refreshSingleOneDriveSource(target, makeRunnerCtx(), { force: true });
-        if (target.lastStatus === 'permission_required') {
+        if (res.pending) {
+          const held = res.pending;
+          setPendingReconciliations((prev) => [
+            ...prev.filter(
+              (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
+            ),
+            held,
+          ]);
+          onStatusMessage(
+            `"${target.name}" has rows that may be renamed. Match them below to keep review history.`,
+          );
+        } else if (target.lastStatus === 'permission_required') {
           onErrorMessage(target.lastError ?? 'Allow OneDrive file access to refresh this source.');
+        } else if (target.lastError) {
+          onErrorMessage(target.lastError);
         } else {
           onStatusMessage(
             res.updated
@@ -584,7 +610,14 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     if (kind === 'google') {
       nextReg.googleSources = nextReg.googleSources.filter((s) => s.id !== id);
     } else if (kind === 'onedrive') {
+      const removed = (nextReg.oneDriveSources ?? []).find((s) => s.id === id);
       nextReg.oneDriveSources = (nextReg.oneDriveSources ?? []).filter((s) => s.id !== id);
+      // The deck keeps its source, so remember the unlink or the row comes back from the deck.
+      if (removed) {
+        nextReg.unlinkedOneDriveIds = [
+          ...new Set([...(nextReg.unlinkedOneDriveIds ?? []), removed.itemId]),
+        ];
+      }
     } else if (kind === 'folder') {
       nextReg.localFolders = nextReg.localFolders.filter((f) => f.id !== id);
       const adapter = await platform.getLocalFolderSources();
@@ -610,9 +643,34 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         if (newSortKey) renameMap[noteId] = newSortKey;
       }
 
-      const { loadSourcesRegistry, saveSourcesRegistry, scanSingleLocalFolder } =
-        await import('../sources/sourceRunner.ts');
+      const {
+        loadSourcesRegistry,
+        ONEDRIVE_RECONCILE_PREFIX,
+        refreshSingleOneDriveSource,
+        saveSourcesRegistry,
+        scanSingleLocalFolder,
+      } = await import('../sources/sourceRunner.ts');
       const nextReg = await loadSourcesRegistry(platform, state);
+      if (rec.folderId.startsWith(ONEDRIVE_RECONCILE_PREFIX)) {
+        const itemId = rec.folderId.slice(ONEDRIVE_RECONCILE_PREFIX.length);
+        const od = nextReg.oneDriveSources?.find((s) => s.itemId === itemId);
+        if (!od) return;
+        const res = await refreshSingleOneDriveSource(od, makeRunnerCtx(), {
+          force: true,
+          renameMap,
+        });
+        await saveSourcesRegistry(platform, nextReg);
+        setRegistry(nextReg);
+        setPendingReconciliations((prev) =>
+          prev.filter((r) => !(r.folderId === rec.folderId && r.relativePath === rec.relativePath)),
+        );
+        onStatusMessage(
+          res.updated
+            ? `Applied the OneDrive changes to "${rec.deckName}".`
+            : `"${rec.deckName}" is already up to date.`,
+        );
+        return;
+      }
       const folder = nextReg.localFolders.find((f) => f.id === rec.folderId);
       if (!folder) return;
 
@@ -1092,6 +1150,17 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
                 </div>
 
                 <div className="flex items-center gap-1.5">
+                  {src.lastStatus === 'permission_required' && (
+                    <button
+                      type="button"
+                      data-testid={`onedrive-allow-${src.itemId}`}
+                      disabled={busy}
+                      onClick={() => void handleAllowOneDriveAccess()}
+                      className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] font-medium hover:bg-[var(--surface-2)] disabled:opacity-40"
+                    >
+                      Allow access
+                    </button>
+                  )}
                   <button
                     type="button"
                     disabled={busy}

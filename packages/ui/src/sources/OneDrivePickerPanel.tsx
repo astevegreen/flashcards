@@ -3,7 +3,7 @@ import { canCreateOrImportDeck } from '@flash/core/license';
 import type { OneDriveBrowseItem, OneDriveFilePicker } from '@flash/platform';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
-import { linkedOneDriveDeck } from './OneDriveLinkMapping.tsx';
+import { linkedOneDriveDeck } from './oneDriveLinkedDeck.ts';
 import { importPickedOneDriveFile } from './oneDriveImport.ts';
 
 const LazyOneDriveLinkMapping = lazy(() => import('./OneDriveLinkMapping.tsx'));
@@ -212,7 +212,9 @@ export default function OneDrivePickerPanel({
         choice,
       );
       onStatusMessage(
-        `Linked "${item.name}" from OneDrive: ${res.notesTouched} note change(s). It refreshes with your other sources.`,
+        res.pending
+          ? `Linked "${item.name}", but some rows look renamed. Press Refresh on it under Sources to match them.`
+          : `Linked "${item.name}" from OneDrive: ${res.notesTouched} note change(s). It refreshes with your other sources.`,
       );
       setLinking(null);
     } catch (err) {

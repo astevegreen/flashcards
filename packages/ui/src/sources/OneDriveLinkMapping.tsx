@@ -1,4 +1,4 @@
-import { type CollectionState, type NoteType } from '@flash/core';
+import type { NoteType } from '@flash/core';
 import {
   guessDeckSetup,
   looksLikeHeaderRow,
@@ -9,6 +9,7 @@ import type { SourceColumnMapping } from '@flash/core';
 import { useMemo, useState } from 'react';
 import { ColumnMappingView, useColumnMapping } from '../import/ColumnMapping.tsx';
 import { useApp } from '../state/AppContext.tsx';
+import { linkedOneDriveDeck } from './oneDriveLinkedDeck.ts';
 
 const LANGUAGES: ReadonlyArray<{ code: string; label: string }> = [
   { code: 'ko', label: 'ko' },
@@ -16,14 +17,6 @@ const LANGUAGES: ReadonlyArray<{ code: string; label: string }> = [
   { code: 'zh-Hans', label: 'zh' },
   { code: 'en', label: 'en' },
 ];
-
-/** The deck a OneDrive file is already linked to, if any (its note type then can't change). */
-export function linkedOneDriveDeck(state: CollectionState, itemId: string) {
-  for (const deck of state.decks.values()) {
-    if (deck.source?.kind === 'onedrive_file' && deck.source.external_id === itemId) return deck;
-  }
-  return undefined;
-}
 
 function Mapping({
   grid,

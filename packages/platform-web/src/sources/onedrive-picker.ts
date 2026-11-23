@@ -160,7 +160,7 @@ export class GraphOneDriveFilePicker implements OneDriveFilePicker {
   }
 
   async getFileInfo(itemId: string): Promise<OneDriveFileInfo> {
-    const meta = await this.fetchMeta(itemId, itemId);
+    const meta = await this.fetchMeta(itemId);
     return {
       id: meta.id ?? itemId,
       name: meta.name ?? '',
@@ -177,7 +177,7 @@ export class GraphOneDriveFilePicker implements OneDriveFilePicker {
     if (knownSize !== undefined && knownSize > this.maxBytes) {
       throw new SyncTransportError('UNKNOWN', 'This file is larger than the 50 MB import limit.');
     }
-    const meta = await this.fetchMeta(itemId, itemId);
+    const meta = await this.fetchMeta(itemId);
     const name = meta.name ?? itemId;
     if (!meta.file || !isPickableOneDriveFile(name)) {
       throw new SyncTransportError(
@@ -202,11 +202,11 @@ export class GraphOneDriveFilePicker implements OneDriveFilePicker {
     return { name, bytes, ...(mime ? { mime } : {}) };
   }
 
-  private async fetchMeta(itemId: string, label: string): Promise<GraphDriveItem> {
+  private async fetchMeta(itemId: string): Promise<GraphDriveItem> {
     const res = await this.client.send(
       `${this.client.base}/me/drive/items/${encodeURIComponent(itemId)}`,
     );
-    if (!res.ok) throw await graphFailure(res, `lookup of "${label}"`);
+    if (!res.ok) throw await graphFailure(res, 'file lookup');
     return (await res.json()) as GraphDriveItem;
   }
 }
