@@ -26,12 +26,12 @@ function describeError(error: TagOperationError): string {
   switch (error.code) {
     case 'invalid_name':
       return error.problem === 'empty'
-        ? 'Enter a category name.'
+        ? 'Enter a tag name.'
         : error.problem === 'separator_char'
-          ? 'Category names cannot contain "," or ";" (CSV files use them to separate categories).'
-          : 'Each part of a "::" category needs a name.';
+          ? 'Tag names cannot contain "," or ";" (CSV files use them to separate tags).'
+          : 'Each part of a "::" tag needs a name.';
     case 'no_source':
-      return 'Choose at least one category.';
+      return 'Choose at least one tag.';
     case 'target_overlaps_source':
       return `"${error.source}" and the new name are in the same "::" branch. Pick a name outside it.`;
   }
@@ -45,7 +45,7 @@ const buttonClass =
   'shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-xs font-semibold text-[var(--fg)] hover:opacity-90 disabled:opacity-40';
 
 /**
- * Collection-wide category manager (Phase 9), lazily loaded from Browse. Each rename, merge or
+ * Collection-wide tag manager (Phase 9), lazily loaded from Browse. Each rename, merge or
  * delete is planned by `planTagOperation` in core and appended as ONE batch of tag-only
  * `NoteUpserted` events. Tags render as plain text (§13).
  */
@@ -73,7 +73,7 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
       setMessage({ kind: 'error', text: describeError(plan.error) });
       return false;
     }
-    // Saved Study Sets that reference the category follow it, in the same batch.
+    // Saved Study Sets that reference the tag follow it, in the same batch.
     const setPayloads = planStudySetTagRewrites(state, op);
     const factory = getEventFactory();
     const nowMs = Date.now();
@@ -107,7 +107,7 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
     if (
       run(
         { kind: 'merge', from, into: mergeTarget },
-        (n) => `Merged ${from.length} categories into "${mergeTarget.trim()}" on ${notesText(n)}.`,
+        (n) => `Merged ${from.length} tags into "${mergeTarget.trim()}" on ${notesText(n)}.`,
       )
     ) {
       setMergeSelection(new Set());
@@ -125,16 +125,16 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
   return (
     <div
       role="region"
-      aria-label="Manage categories"
+      aria-label="Manage tags"
       data-testid="tag-manager"
       className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-bold">
-          Manage categories{' '}
+          Manage tags{' '}
           <span className="text-sm font-normal text-[var(--muted)]">({summary.tags.length})</span>
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             data-testid="tag-manager-guide"
@@ -157,6 +157,7 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
       {showGuide && (
         <Suspense fallback={null}>
           <LazyTagsGuidePanel
+            nested
             onDismiss={() => {
               storeTagsGuideDismissed(true);
               setShowGuide(false);
@@ -166,7 +167,7 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
       )}
       <p className="text-xs text-[var(--muted)]">
         Changes apply to every note in the collection and to saved study sets. Renaming or deleting
-        a category also changes its <code>::</code> subcategories.
+        a tag also changes its <code>::</code> nested tags.
       </p>
 
       {message && (
@@ -182,16 +183,14 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
       {summary.unnormalizedNoteCount > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
           <span>
-            {notesText(summary.unnormalizedNoteCount)} store a category in a different form (for
-            example Hangul typed on a Mac).
+            {notesText(summary.unnormalizedNoteCount)} store a tag in a different form (for example
+            Hangul typed on a Mac).
           </span>
           <button
             type="button"
             data-testid="tag-manager-normalize"
             className={buttonClass}
-            onClick={() =>
-              run({ kind: 'normalize' }, (n) => `Cleaned up categories on ${notesText(n)}.`)
-            }
+            onClick={() => run({ kind: 'normalize' }, (n) => `Cleaned up tags on ${notesText(n)}.`)}
           >
             Clean up
           </button>
@@ -205,7 +204,7 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
         >
           <span className="text-xs font-semibold">Merge {mergeSelection.size} into</span>
           <input
-            aria-label="Merged category name"
+            aria-label="Merged tag name"
             data-testid="tag-manager-merge-input"
             list="tag-manager-merge-options"
             value={mergeTarget}
@@ -224,9 +223,7 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
       )}
 
       {summary.tags.length === 0 ? (
-        <p className="text-sm text-[var(--muted)]">
-          No categories yet. Add them to notes in Browse.
-        </p>
+        <p className="text-sm text-[var(--muted)]">No tags yet. Add them to notes in Browse.</p>
       ) : (
         <ul className="flex max-h-[50dvh] flex-col overflow-y-auto" data-testid="tag-manager-list">
           {summary.tags.map((tag) => {

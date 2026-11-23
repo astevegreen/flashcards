@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   availableSyncProviders,
+  ICLOUD_OFF_HINT,
+  iCloudOffHint,
   pickDefaultSyncProvider,
   planSyncMyDevices,
   type SyncPlatformFlags,
@@ -31,12 +33,18 @@ const MACOS_ICLOUD: SyncPlatformFlags = {
   iCloudSyncSupported: true,
   createICloudTransport: unavailable,
 };
-/** The Tauri shell on macOS when iCloud was off or slow at launch: offered, not the default. */
+/** The Tauri shell on macOS when iCloud said it was off at launch: offered, not the default. */
 const MACOS_ICLOUD_OFF_AT_LAUNCH: SyncPlatformFlags = {
   ...MACOS_ICLOUD,
   iCloudAvailableAtLaunch: false,
+  iCloudOffAtLaunch: true,
 };
-/** A Tauri build without iCloud support (Windows, Linux). */
+/** The Tauri shell on macOS when the launch probe timed out: not the default, but not "off". */
+const MACOS_ICLOUD_SLOW_AT_LAUNCH: SyncPlatformFlags = {
+  ...MACOS_ICLOUD,
+  iCloudAvailableAtLaunch: false,
+};
+/** A Tauri build without iCloud support (Windows, Linux, and unsigned Mac builds). */
 const MACOS_NO_ICLOUD: SyncPlatformFlags = {
   googleOAuthConfigured: true,
   supportsLocalFolderSync: true,
@@ -75,6 +83,32 @@ describe('"Sync my devices" default provider', () => {
     expect(planSyncMyDevices(MACOS_ICLOUD_OFF_AT_LAUNCH, { provider: 'icloud' }).primary).toBe(
       'icloud',
     );
+  });
+
+  it('hints to turn iCloud Drive on only on an entitled Mac where it was off at launch', () => {
+    expect(iCloudOffHint(MACOS_ICLOUD_OFF_AT_LAUNCH)).toBe(ICLOUD_OFF_HINT);
+    expect(ICLOUD_OFF_HINT).toContain('System Settings');
+    // A probe that only timed out (slow iCloud daemon) shows no hint.
+    expect(pickDefaultSyncProvider(MACOS_ICLOUD_SLOW_AT_LAUNCH)).toBe('google_drive');
+    for (const platform of [
+      MACOS_ICLOUD,
+      MACOS_ICLOUD_SLOW_AT_LAUNCH,
+      MACOS_NO_ICLOUD,
+      IOS,
+      ANDROID,
+      WEB,
+    ]) {
+      expect(iCloudOffHint(platform)).toBeUndefined();
+    }
+  });
+
+  it('never offers iCloud on an unsigned Mac build (no iCloud entitlement)', () => {
+    expect(availableSyncProviders(MACOS_NO_ICLOUD)).not.toContain('icloud');
+    expect(pickDefaultSyncProvider(MACOS_NO_ICLOUD)).toBe('google_drive');
+    expect(planSyncMyDevices(MACOS_NO_ICLOUD, { provider: 'icloud' })).toMatchObject({
+      primary: 'google_drive',
+      unavailableLinkProvider: 'icloud',
+    });
   });
 
   it('lists every other configured provider as an alternative', () => {

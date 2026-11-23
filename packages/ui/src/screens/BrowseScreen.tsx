@@ -405,23 +405,29 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
               type="button"
               data-testid="open-tag-manager"
               aria-expanded={showTagManager}
-              onClick={() => setShowTagManager((v) => !v)}
+              onClick={() => {
+                setShowTagManager((v) => !v);
+                setShowTagsGuide(false);
+              }}
               className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] hover:text-[var(--fg)]"
             >
-              Manage categories
+              Manage tags
             </button>
             <button
               type="button"
               data-testid="open-tags-guide"
               aria-expanded={showTagsGuide}
-              onClick={() => setShowTagsGuide((v) => !v)}
+              onClick={() => {
+                setShowTagsGuide((v) => !v);
+                setShowTagManager(false);
+              }}
               className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] hover:text-[var(--fg)]"
             >
               How tags work
             </button>
           </div>
 
-          {showTagsGuide && !showTagManager && (
+          {showTagsGuide && (
             <Suspense fallback={null}>
               <LazyTagsGuidePanel onDismiss={() => setShowTagsGuide(false)} />
             </Suspense>
@@ -430,9 +436,7 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
           {showTagManager && (
             <Suspense
               fallback={
-                <div className="py-6 text-center text-xs text-[var(--muted)]">
-                  Loading categories…
-                </div>
+                <div className="py-6 text-center text-xs text-[var(--muted)]">Loading tags…</div>
               }
             >
               <LazyTagManagerPanel onClose={() => setShowTagManager(false)} />

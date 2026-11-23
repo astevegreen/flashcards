@@ -54,6 +54,7 @@ export { TauriSqliteStorage, type TauriSqlPluginDatabase } from './storage/tauri
 export {
   createTauriICloudDocumentPlugin,
   probeICloudAvailable,
+  probeICloudAvailability,
   resolveTauriICloudOptions,
   type TauriICloudOptions,
   type TauriInvoke,
@@ -84,12 +85,15 @@ export interface CreateTauriPlatformOptions {
   packCatalogUrl?: string;
   starterCatalogUrl?: string;
   /**
-   * macOS iCloud Drive file I/O (createTauriICloudDocumentPlugin), always passed on macOS so a
-   * saved iCloud connection keeps working; availability is checked on each connect.
+   * macOS iCloud Drive file I/O (createTauriICloudDocumentPlugin), always passed on a Mac build
+   * that has the iCloud entitlement, so a saved iCloud connection keeps working; availability is
+   * checked on each connect. Never passed on an unsigned build (no iCloud container).
    */
   iCloudPlugin?: ICloudDocumentPlugin;
   /** False when iCloud was not available at launch: still offered, but not the default. */
   iCloudAvailableAtLaunch?: boolean;
+  /** True when iCloud answered at launch that it is off (not on a probe timeout). */
+  iCloudOffAtLaunch?: boolean;
   /** Set when sign-in secrets could not be kept in the OS keychain. */
   secureStorageWarning?: string;
 }
@@ -158,6 +162,7 @@ export function createTauriPlatform(options: CreateTauriPlatformOptions): Platfo
           ...(options.iCloudAvailableAtLaunch === undefined
             ? {}
             : { iCloudAvailableAtLaunch: options.iCloudAvailableAtLaunch }),
+          ...(options.iCloudOffAtLaunch === true ? { iCloudOffAtLaunch: true } : {}),
           createICloudTransport: async (): Promise<SyncTransport> => {
             if (iCloudPlugin.isAvailable && !(await iCloudPlugin.isAvailable())) {
               throw new SyncTransportError(

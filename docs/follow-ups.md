@@ -36,7 +36,7 @@ The owner answered every open decision on 2026-11-22. **To build** marks work th
 ### Sync and add-device
 
 - [x] **Native add-device QR code and link with a `flashcards://add-device` deep link (PR #20, 2026-11-23).** Not yet tried on a real phone or desktop (see "Not verified"). Original brief: It needs no domain. It uses the same payload (the provider code and the manifest `collection_id`) and the same allow-list parsing and URL stripping as the web build. Register the scheme for Android (intent filter), iOS (`CFBundleURLTypes`) and Tauri (deep-link plugin). Show the QR code in native shells. App Links and universal links wait for the §16 domain decision.
-- [ ] **macOS iCloud transport (PR #22, 2026-11-23): built, but unsigned and untested on a Mac.** The Tauri iCloud Drive transport and the new `.github/workflows/desktop.yml` unsigned macOS CI build are merged. Remaining: wire the entitlements into `tauri.conf.json` (needs a signing identity and provisioning profile), sign and notarize, and test real iCloud sync on a Mac (see "Decisions needed (overnight)"). Original brief: **macOS iCloud transport** for the Tauri desktop app, matching the iOS iCloud Drive transport (the ubiquity container and the same file layout, so iOS and macOS share one collection). Once it exists, iCloud becomes the "Sync my devices" default on macOS. It can't be built or signed on the Windows machine: compile it in macOS CI, and list the entitlements and Apple-side setup the owner has to do.
+- [ ] **macOS iCloud transport (PR #22, 2026-11-23): built, but unsigned and untested on a Mac.** The Tauri iCloud Drive transport and the new `.github/workflows/desktop.yml` unsigned macOS CI build are merged. Remaining: wire the entitlements into `tauri.conf.json` (needs a signing identity and provisioning profile), sign and notarize, and test real iCloud sync on a Mac (see "Owner decisions (2026-11-23)"; the owner has no Apple Developer account yet). Original brief: **macOS iCloud transport** for the Tauri desktop app, matching the iOS iCloud Drive transport (the ubiquity container and the same file layout, so iOS and macOS share one collection). Once it exists, iCloud becomes the "Sync my devices" default on macOS. It can't be built or signed on the Windows machine: compile it in macOS CI, and list the entitlements and Apple-side setup the owner has to do.
 - [x] **Merged the duplicate Google Drive entry (PR #20, 2026-11-23).** Original brief: Keep "Sync my devices" at the top, and hide a provider's own Connect button while that provider is the active sync choice.
 - [x] **Ask before adopting a different collection (PR #20, 2026-11-23).** Original brief: On a collection mismatch, offer "Use the synced collection" or "Keep this device's cards" before the engine switches. Both choices keep every event, so either can be undone.
 - [x] **A device with cards opened from an add-device link** goes to Settings once per page load: kept.
@@ -65,7 +65,7 @@ The owner answered every open decision on 2026-11-22. **To build** marks work th
 ### UX feedback (owner, 2026-11-22)
 
 - [x] **#1 Remove "Paste CSV / TSV":** done in the column-mapping change (PR #14).
-- [ ] **#2 language-aware menus and settings: mostly done (PR #23, 2026-11-23).** `deriveActiveLanguages` in core drives the menus and settings. Remaining: the owner questions and nits under "Decisions needed (overnight)" and "Leftover nits and known limitations" (no add-a-language control, pack manager and dictionary pack tabs not filtered). Original brief: Options that apply only to one language (furigana and `kana:`/`kanji:` import options, Hanja, pinyin, stroke order, per-language TTS voices and so on) appear only when that language is in the collection or was chosen at onboarding. Adding a language later brings its options back. Nothing is deleted, and an imported deck in a new language counts as adding that language.
+- [ ] **#2 language-aware menus and settings: mostly done (PR #23, 2026-11-23).** `deriveActiveLanguages` in core drives the menus and settings. Remaining: the owner questions and nits under "Owner decisions (2026-11-23)" and "Leftover nits and known limitations" (no add-a-language control, pack manager and dictionary pack tabs not filtered). Original brief: Options that apply only to one language (furigana and `kana:`/`kanji:` import options, Hanja, pinyin, stroke order, per-language TTS voices and so on) appear only when that language is in the collection or was chosen at onboarding. Adding a language later brings its options back. Nothing is deleted, and an imported deck in a new language counts as adding that language.
 - [x] **#3 explain tags (PR #21, 2026-11-23):** a "How tags work" panel and an import hint. Original brief: Add a short "How tags work" panel in the tag manager and Browse. It covers tags as categories, the `::` hierarchy, and filtering Browse and Study sets. Add a hint on the import mapping step where category columns become tags.
 - [x] **#4 Linked sources on PC:** this was never a PC limit. Linked OneDrive sources hadn't been built yet. They're now To build (see "OneDrive" below).
 - [x] **#5 Dictionary browsing without typing, in both directions:** done in PR #13.
@@ -143,29 +143,32 @@ Only Chromium Playwright with faked endpoints has covered these.
 - [x] **Related, synonym and antonym links (PR #18, 2026-11-23):** parsed from KRDict and shown as links. The `SenseRelation` attribute names (`lemma` / `writtenForm`) are unverified against a real export.
 - [x] **Korean definitions (`definitionNative`) (PR #18, 2026-11-23):** now shown.
 - [x] **Japanese deinflection** (`食べた` → `食べる`) and Korean-style ranking for `ja` / `zh-Hans` (PR #18, 2026-11-23).
-- [ ] **Owner decision, licences:** 우리말샘, 표준국어대사전 (CC BY-SA 2.0 KR) and Kaikki Wiktionary (CC BY-SA 4.0) are share-alike, and kengdic's licence is unclear. None goes in without the owner's OK. With one source, there is nothing for the merge pipeline (unify, rank, dedupe) to do yet.
-- [ ] **Owner decision:** whether to license a commercial Korean–English dataset as a premium pack.
+- [x] **Owner decision, licences (2026-11-23):** 우리말샘 and Kaikki approved as optional separately licensed packs; kengdic stays out (see "Owner decisions (2026-11-23)"). Original: 우리말샘, 표준국어대사전 (CC BY-SA 2.0 KR) and Kaikki Wiktionary (CC BY-SA 4.0) are share-alike, and kengdic's licence is unclear. None goes in without the owner's OK. With one source, there is nothing for the merge pipeline (unify, rank, dedupe) to do yet.
+- [x] **Owner decision (2026-11-23): deferred until after launch.** Whether to license a commercial Korean–English dataset as a premium pack.
 
-## Decisions needed (overnight)
+## Owner decisions (2026-11-23)
 
-Defaults the overnight children (2026-11-22/23) picked for the owner. Each stays shipped until decided.
+The owner answered every overnight question on 2026-11-23. **To build** marks approved work; tick it once merged. **Kept** marks a shipped default that stays.
 
-- [ ] **#23, archived decks and language:** archived decks count toward a language today. Should archiving the only Japanese deck hide furigana?
-- [ ] **#23, "add a language" control:** the brief mentioned one in Settings. It was not built.
-- [ ] **#23, offline pack manager and Hanja/Kanji dictionary pack tabs:** not filtered by language.
-- [ ] **#23, Ruby toggle for Korean-only and Chinese collections:** they keep the Ruby toggle and the per-layout ruby selector, because Hanja and pinyin ruby is a ko/zh feature. The brief had furigana as Japanese-only. Confirm.
-- [ ] **#6/#21, tag copy:** it uses both "tag" and "category". The How tags work panel opens by default in the tag manager until first dismissed.
-- [ ] **#20, iOS Keychain loss:** not detected. The notice is Android-only.
+- [ ] **#23, archived decks and language. To build:** archived decks no longer count toward a language. Archiving the only Japanese deck hides furigana; un-archiving brings it back. Nothing is deleted.
+- [ ] **#23, "add a language" control. To build:** a Languages list in Settings, with a tick box per language. Ticking one brings its options back before any deck in it exists.
+- [ ] **#23, offline pack manager and Hanja/Kanji dictionary pack tabs. To build:** filtered by active language, with a "Show all languages" switch.
+- [ ] **#23, Ruby for Korean. To build (owner changed the default):** remove ruby for Korean and Hanja. Korean no longer switches on the Ruby toggle or the per-layout ruby selector; Chinese keeps them for pinyin, Japanese for furigana. No stored data is rewritten.
+- [ ] **#6/#21, tag copy. To build:** say "tag" everywhere. "Category" appears only in one explainer line ("tags work like categories") and in the import hint where category columns become tags. **Kept:** the How tags work panel stays open by default until first dismissed.
+- [ ] **#20, iOS Keychain loss. To build:** detect it on iOS and show the same one-time notice as Android.
 - [ ] **#22, macOS iCloud setup:**
-  - Entitlements are not wired into `tauri.conf.json`; that needs a signing identity and a provisioning profile.
-  - Distribution is assumed to be Developer ID, not the Mac App Store.
-  - The macOS App ID reuses `app.flashcards.localfirst`. It has to be in the same Apple team as the iOS app for a shared container.
-  - Macs where iCloud was off at launch still list iCloud Drive as an alternative.
-  - Unsigned Mac builds show a non-working "Use iCloud Drive" option with a misleading sign-in error until the entitlements are wired.
-- [ ] **#18, provenance:** two hand-written starter definitions (춥다, 먹다) were reworded independently after looking too close to 표준국어대사전. Hand-written definitions still carry a KRDict badge.
-- [ ] **Starter-deck gloss report (#16):** review `docs/starter-gloss-review.md` and pick the fixes.
-- [ ] **Dependabot PR #4 (TypeScript 6):** open and untouched.
-- [ ] **Still open from Phase 10, untouched:** the KRDict audio licence, and the share-alike dictionary sources (see "Phase 10 remainder").
+  - **Apple Developer account: the owner has none yet.** Signing, notarizing, wiring the entitlements and real iCloud tests wait until there is one. An account (Apple Developer Program) is also needed for any iOS or Mac store release, so it is on the launch path anyway.
+  - **Distribution: Developer ID** (outside the Mac App Store). Kept.
+  - **To build:** hide "Use iCloud Drive" on unsigned Mac builds (no entitlement), so the misleading sign-in error can't appear.
+  - **To build:** a Mac where iCloud was off at launch keeps iCloud Drive listed, with a hint to turn iCloud Drive on.
+  - The macOS App ID reuses `app.flashcards.localfirst`; it must be in the same Apple team as the iOS app. Kept, for when the account exists.
+- [ ] **#18, provenance. To build:** the 춥다 and 먹다 rewording is accepted. Hand-written definitions get their own badge instead of KRDict's.
+- [ ] **Starter-deck gloss report (#16). To build:** accept every suggested fix in `docs/starter-gloss-review.md`, applied through `scripts/build-starter-decks.mjs` (never by hand-editing the generated decks).
+- [ ] **Dependabot PR #4 (TypeScript 6):** ask Dependabot to rebase it, then merge if CI is green.
+- [ ] **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending.
+- [ ] **Share-alike dictionary sources. Approved:** 우리말샘 and Kaikki Wiktionary as optional, separately licensed download packs with attribution (their share-alike terms apply to those packs, not the app). 표준국어대사전 is not approved yet. **kengdic stays out** (unclear licence). Building the packs is a separate task: the upstream data needs manual download.
+- [ ] **Commercial Korean–English dataset as a premium pack:** deferred until after launch.
+- [x] **Auto-archive on PR close:** turned back on.
 
 ## Leftover nits and known limitations
 

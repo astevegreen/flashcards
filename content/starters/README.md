@@ -5,6 +5,14 @@ live in `packages/core/src/starters/generated/`. Never edit those files by hand.
 
 - `wikidata-ko-lexemes.lock.json`: the Wikidata lexemes (CC0) used for the Korean deck's English
   meanings. Each lexeme is pinned to one revision, with the sha256 of its normalized record.
+- `gloss-overrides.json`: the app's own wording for glosses that read as definitions, grammar
+  labels or the wrong sense (the fixes accepted from `docs/starter-gloss-review.md`). Keyed by deck
+  slug, then by the note's stable key (`nikl:개03:noun`, `unihan:U+7684`). Each entry has `word`
+  (the card front), `upstream` (the exact gloss the build derives from the pinned source) and
+  `meaning` (what the card shows). The build fails when `word` or `upstream` no longer match, or
+  when a key names no note, so an upstream change is reviewed instead of keeping a stale fix. An
+  edited card's Notes credit says so ("edited by this app"); the word list keeps its NIKL or Unihan
+  credit. This is not third-party data, so no licence applies.
 
 Rebuild:
 

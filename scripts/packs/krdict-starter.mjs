@@ -234,7 +234,8 @@ export const KRDICT_STARTER_TOPICS = {
 /**
  * Hand-written Korean definitions (뜻풀이) and related-word links for the first sense of a few
  * starter words, in the shape of KRDict's `Sense/definition` and `SenseRelation` (written for this project, not copied from any dictionary).
- * `relations` is `[유의어 | 반의어 | 참고어, word]`.
+ * `relations` is `[유의어 | 반의어 | 참고어, word]`. These senses carry an App source badge, not
+ * KRDict (see `markAppWrittenSenses`).
  */
 export const KRDICT_STARTER_EXTRAS = {
   먹다: {
@@ -303,4 +304,24 @@ export function renderKrdictStarterXml(
   });
   lines.push('</Lexicon>', '</LexicalResource>', '');
   return lines.join('\n');
+}
+
+/**
+ * Marks the senses that carry a hand-written `KRDICT_STARTER_EXTRAS` definition as written for
+ * this app (`source: 'app'`), so the dictionary shows them with an App badge instead of KRDict.
+ * Takes parsed starter entries (`parseKrdictXml(renderKrdictStarterXml())`) and returns new ones;
+ * fails when an extras headword is not in the fixture.
+ */
+export function markAppWrittenSenses(entries, extras = KRDICT_STARTER_EXTRAS) {
+  const missing = new Set(Object.keys(extras));
+  const out = entries.map((entry) => {
+    if (!Object.hasOwn(extras, entry.headword)) return entry;
+    missing.delete(entry.headword);
+    const [first, ...rest] = entry.senses;
+    return { ...entry, senses: [{ ...first, source: 'app' }, ...rest] };
+  });
+  if (missing.size > 0) {
+    throw new Error(`KRDICT_STARTER_EXTRAS names words not in the fixture: ${[...missing]}`);
+  }
+  return out;
 }

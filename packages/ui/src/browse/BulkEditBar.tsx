@@ -28,7 +28,7 @@ export interface BulkEditBarProps {
 function describeError(error: BulkActionError): string {
   switch (error.code) {
     case 'invalid_tag':
-      return `"${error.tag}" is not a valid category name (no "," or ";", no empty "::" parts).`;
+      return `"${error.tag}" is not a valid tag name (no "," or ";", no empty "::" parts).`;
     case 'unknown_deck':
       return 'Choose a deck to move the notes to.';
     case 'note_type_mismatch':
@@ -202,9 +202,9 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
       <div className="flex flex-wrap items-center gap-2">
         <form onSubmit={submitAdd} className="flex items-center gap-1.5">
           <input
-            aria-label="Categories to add"
+            aria-label="Tags to add"
             data-testid="bulk-add-tags-input"
-            placeholder="Add categories…"
+            placeholder="Add tags…"
             value={addText}
             onChange={(e) => setAddText(e.target.value)}
             className={`${inputClass} w-40`}
@@ -221,13 +221,13 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
 
         <div className="flex items-center gap-1.5">
           <select
-            aria-label="Category to remove"
+            aria-label="Tag to remove"
             data-testid="bulk-remove-tag-select"
             value={removeTag}
             onChange={(e) => setRemoveTag(e.target.value)}
             className={inputClass}
           >
-            <option value="">Remove category…</option>
+            <option value="">Remove tag…</option>
             {info.tags.map(([key, label]) => (
               <option key={key} value={key}>
                 #{label}

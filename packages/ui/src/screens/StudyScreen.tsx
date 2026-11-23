@@ -22,6 +22,7 @@ import type * as DeferredSyncPromptModuleType from '../onboarding/DeferredSyncPr
 import { useApp, type AppContextValue } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
+import { showRubyToggle } from '../study/rubyToggle.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
 import {
   isStudyFilterInScope,
@@ -539,8 +540,9 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCard?.id]);
 
-  // Ruby (furigana, Hanja, pinyin) is offered for ja/ko/zh, and always where the layout hides it.
-  const showFuriganaToggle = rubyLanguage || Boolean(currentLayout?.hide_furigana_on_front);
+  // Ruby (furigana, pinyin) is offered for ja/zh. Korean shows Hanja as plain text, so a Korean
+  // card gets the toggle only when ruby already stored in it is hidden on the front.
+  const showFuriganaToggle = showRubyToggle(rubyLanguage, currentLayout, currentNote);
   const hideFrontRuby =
     furiganaOverride ?? (!isRevealed && Boolean(currentLayout?.hide_furigana_on_front));
 

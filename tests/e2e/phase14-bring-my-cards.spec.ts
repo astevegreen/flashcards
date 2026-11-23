@@ -440,7 +440,7 @@ test.describe('Bring my cards column mapping', () => {
     await expect(columnTarget(page, 6)).toHaveAttribute('data-target', 'notes');
     const preview = page.getByTestId('bring-map-preview');
     await expect(preview).toContainText('Meaning: tree');
-    await expect(preview).toContainText('Categories: nature, A1, noun');
+    await expect(preview).toContainText('Tags: nature, A1, noun');
     await expect(preview).toContainText('Notes: source: textbook');
 
     // Without a column for the front, Import is blocked and says why.

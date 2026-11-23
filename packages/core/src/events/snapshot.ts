@@ -246,6 +246,14 @@ export function serializeCollectionState(
       )
     : undefined;
 
+  const sortedLanguages = state.preferences.languages
+    ? Object.fromEntries(
+        Object.keys(state.preferences.languages)
+          .sort(cmpStr)
+          .map((k) => [k, state.preferences.languages?.[k] === true]),
+      )
+    : undefined;
+
   return {
     formatVersion: SERIALIZED_STATE_FORMAT_VERSION,
     totalEvents: getTotalAppliedEventCount(state),
@@ -267,6 +275,7 @@ export function serializeCollectionState(
       ...state.preferences,
       ...(sortedTtsVoices !== undefined ? { tts_voices: sortedTtsVoices } : {}),
       ...(sortedDrawingModes !== undefined ? { drawing_modes: sortedDrawingModes } : {}),
+      ...(sortedLanguages !== undefined ? { languages: sortedLanguages } : {}),
     },
     unknownEvents: state.unknownEvents.map((ev) => cloneJsonValue(ev)),
     fieldHlcs,
@@ -454,6 +463,9 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
         : {}),
       ...(serialized.preferences.drawing_modes !== undefined
         ? { drawing_modes: { ...serialized.preferences.drawing_modes } }
+        : {}),
+      ...(serialized.preferences.languages !== undefined
+        ? { languages: { ...serialized.preferences.languages } }
         : {}),
     },
     unknownEvents,

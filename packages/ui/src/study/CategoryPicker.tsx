@@ -12,9 +12,9 @@ export interface CategoryPickerProps {
 }
 
 const MODES: ReadonlyArray<{ mode: CategoryMatchMode; label: string; hint: string }> = [
-  { mode: 'any', label: 'Any', hint: 'Notes with at least one selected category' },
-  { mode: 'all', label: 'All', hint: 'Notes with every selected category' },
-  { mode: 'none', label: 'None', hint: 'Notes with none of the selected categories' },
+  { mode: 'any', label: 'Any', hint: 'Notes with at least one selected tag' },
+  { mode: 'all', label: 'All', hint: 'Notes with every selected tag' },
+  { mode: 'none', label: 'None', hint: 'Notes with none of the selected tags' },
 ];
 
 /** `a::b::` for `a::b::c`, `''` for a top-level tag. */
@@ -72,13 +72,13 @@ export function CategoryPicker({
             : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--fg)]'
         }`}
       >
-        Categories{selected.size > 0 ? ` · ${mode} of ${selected.size}` : ''}
+        Tags{selected.size > 0 ? ` · ${mode} of ${selected.size}` : ''}
       </button>
 
       {open && (
         <div
           role="group"
-          aria-label="Category filter"
+          aria-label="Tag filter"
           data-testid={`${testIdPrefix}-panel`}
           className="flex w-full flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3"
         >
@@ -116,7 +116,7 @@ export function CategoryPicker({
           </div>
 
           {options.length === 0 ? (
-            <p className="text-xs text-[var(--muted)]">No categories yet.</p>
+            <p className="text-xs text-[var(--muted)]">No tags yet.</p>
           ) : (
             <ul className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto">
               {options.map((c) => {

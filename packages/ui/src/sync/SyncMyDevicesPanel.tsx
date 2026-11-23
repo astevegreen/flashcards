@@ -2,7 +2,12 @@ import { useApp } from '../state/AppContext.tsx';
 import { peekAddDeviceExpectation } from './addDeviceExpectation.ts';
 import type { AddDeviceLink, AddDeviceProvider } from './addDeviceLink.ts';
 import { describeSyncProvider } from './syncProviderLabel.ts';
-import { planSyncMyDevices, syncProviderInfo, type SyncProviderInfo } from './syncProviders.ts';
+import {
+  iCloudOffHint,
+  planSyncMyDevices,
+  syncProviderInfo,
+  type SyncProviderInfo,
+} from './syncProviders.ts';
 import { useConnectSyncProvider } from './useConnectSyncProvider.ts';
 
 /**
@@ -140,6 +145,7 @@ export function SyncMyDevicesPanel({
     openedLink ??
     (syncState.provider === 'none' ? peekAddDeviceExpectation(platform.storage) : undefined);
   const plan = planSyncMyDevices(platform, addDeviceLink);
+  const iCloudHint = iCloudOffHint(platform);
   const isPanel = variant === 'panel';
   // In the panel, a device that already syncs just says so (unless a link asks to switch).
   const showConnected =
@@ -180,6 +186,12 @@ export function SyncMyDevicesPanel({
             onConnect={onConnect}
           />
           {isPanel && <Alternatives kinds={plan.alternatives} busy={busy} onConnect={onConnect} />}
+          {iCloudHint !== undefined &&
+            (plan.primary === 'icloud' || (isPanel && plan.alternatives.includes('icloud'))) && (
+              <p data-testid="icloud-off-hint" className="text-xs break-words text-[var(--muted)]">
+                {iCloudHint}
+              </p>
+            )}
         </>
       )}
       <output

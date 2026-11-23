@@ -179,7 +179,7 @@ const LEVELS: ReadonlySet<string> = new Set<DictionaryLevel>([
   'advanced',
 ]);
 const EXAMPLE_TYPES: ReadonlySet<string> = new Set(['phrase', 'sentence', 'dialogue']);
-const SENSE_SOURCES: ReadonlySet<string> = new Set<DictionarySenseSource>(['krdict']);
+const SENSE_SOURCES: ReadonlySet<string> = new Set<DictionarySenseSource>(['krdict', 'app']);
 
 function asRecord(val: unknown): Record<string, unknown> | undefined {
   return val && typeof val === 'object' ? (val as Record<string, unknown>) : undefined;

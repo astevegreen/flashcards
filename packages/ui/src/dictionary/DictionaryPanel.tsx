@@ -26,6 +26,8 @@ import { RichText } from '../components/RichText.tsx';
 import { DrawLookupPanel } from '../drawing/DrawLookupPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { useDrawScripts, type DrawScriptLang } from '../drawing/useDrawScripts.ts';
+import { ShowAllLanguagesSwitch } from '../packs/ShowAllLanguagesSwitch.tsx';
+import { homeSummariesFor, searchPackIds, useVisiblePacks } from './useVisiblePacks.ts';
 import { DictionaryBrowseHeader, DictionaryHome } from './DictionaryHome.tsx';
 import {
   directionTargetName,
@@ -36,6 +38,11 @@ import {
   writeRecentLookups,
   type DictionaryBrowseSelection,
 } from './dictionary-home-model.ts';
+import {
+  SENSE_SOURCE_ATTRIBUTION,
+  SENSE_SOURCE_CLASS,
+  SENSE_SOURCE_LABEL,
+} from './sense-source.ts';
 
 export interface DictionaryPanelProps {
   initialQuery?: string;
@@ -49,11 +56,6 @@ const PACK_SHORT_LABEL: Record<DictionaryPackId, string> = {
   'dict-cc-cedict': 'Chinese',
   'dict-jmdict': 'Japanese',
   'dict-krdict': 'Korean',
-};
-
-/** Per-sense source badge (Phase 10: every sense shows where it came from). */
-const SENSE_SOURCE_LABEL: Record<DictionarySenseSource, string> = {
-  krdict: 'KRDict',
 };
 
 const LEVEL_LABEL: Record<DictionaryLevel, string> = {
@@ -392,6 +394,23 @@ function EntryHeadline(props: EntryLangProps & { onLookup: (text: string) => voi
   );
 }
 
+/** Where one sense came from (KRDict, or the app's own wording), with its attribution as a tooltip. */
+function SenseSourceBadge({
+  source,
+  testId,
+}: Readonly<{ source: DictionarySenseSource; testId: boolean }>) {
+  return (
+    <span
+      data-testid={testId ? 'dict-sense-source' : undefined}
+      data-source={source}
+      title={SENSE_SOURCE_ATTRIBUTION[source]}
+      className={`rounded px-1 py-0.5 text-[10px] font-semibold ${SENSE_SOURCE_CLASS[source]}`}
+    >
+      {SENSE_SOURCE_LABEL[source]}
+    </span>
+  );
+}
+
 const RELATION_LABEL: Record<DictionaryRelationType, string> = {
   synonym: 'Synonyms',
   antonym: 'Antonyms',
@@ -467,14 +486,7 @@ function SenseItem({
         <span className="font-semibold text-[var(--fg)]">
           {sense.equivalents.length > 0 ? sense.equivalents.join('; ') : sense.definition}
         </span>
-        {sense.source && (
-          <span
-            data-testid="dict-sense-source"
-            className="rounded bg-[var(--surface-2)] px-1 py-0.5 text-[10px] font-semibold text-[var(--muted)]"
-          >
-            {SENSE_SOURCE_LABEL[sense.source]}
-          </span>
-        )}
+        {sense.source && <SenseSourceBadge source={sense.source} testId />}
       </div>
       {sense.definition && sense.equivalents.length > 0 && (
         <p className="text-xs text-[var(--muted)]">{sense.definition}</p>
@@ -939,6 +951,16 @@ export function DictionaryPanel({
     };
   }, [platform, installedPacks]);
 
+  // UX #2: pack filters (and "All") cover the languages in use unless "Show all languages" is on.
+  const {
+    visiblePacks,
+    hiddenPackCount,
+    packFilter,
+    allPackIdsKey,
+    showAllLanguages,
+    setShowAllLanguages,
+  } = useVisiblePacks(installedPacks, selectedPack);
+
   const loadBrowsePage = useCallback(
     async (sel: DictionaryBrowseSelection, after?: string) => {
       if (!platform.getDictionaryService) return;
@@ -975,16 +997,16 @@ export function DictionaryPanel({
   };
 
   const runSearch = useCallback(
-    async (rawQuery: string, packFilter: DictionaryPackId | 'all') => {
+    async (rawQuery: string, filter: DictionaryPackId | 'all') => {
       const trimmed = rawQuery.trim();
-      if (!trimmed || !platform.getDictionaryService) {
+      const packIds = searchPackIds(filter, allPackIdsKey);
+      if (!trimmed || !platform.getDictionaryService || packIds?.length === 0) {
         setResults([]);
         return;
       }
       setSearching(true);
       try {
         const svc = await platform.getDictionaryService();
-        const packIds = packFilter === 'all' ? undefined : [packFilter];
         const found = isSingleIdeograph(trimmed)
           ? await svc.lookupCharacter(trimmed, packIds ? { packIds } : undefined)
           : await svc.search(trimmed, { ...(packIds ? { packIds } : {}), limit: 60, direction });
@@ -993,15 +1015,15 @@ export function DictionaryPanel({
         setSearching(false);
       }
     },
-    [platform, direction],
+    [platform, direction, allPackIdsKey],
   );
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void runSearch(query, selectedPack);
+      void runSearch(query, packFilter);
     }, 100);
     return () => window.clearTimeout(timer);
-  }, [query, runSearch, selectedPack]);
+  }, [query, runSearch, packFilter]);
 
   // A lookup that found something and stayed on screen goes into Recent.
   useEffect(() => {
@@ -1014,7 +1036,7 @@ export function DictionaryPanel({
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (query.trim()) rememberLookup(query);
-    void runSearch(query, selectedPack);
+    void runSearch(query, packFilter);
   };
 
   const handleAddEntryToDeck = (entry: DictionaryEntry, deckId: string) => {
@@ -1081,10 +1103,10 @@ export function DictionaryPanel({
   };
 
   const targetName = directionTargetName(
-    selectedPack === 'all' ? installedPacks.map((p) => p.language) : [PACK_LANG[selectedPack]],
+    packFilter === 'all' ? visiblePacks.map((p) => p.language) : [PACK_LANG[packFilter]],
   );
-  const homeSummaries =
-    selectedPack === 'all' ? summaries : summaries.filter((x) => x.packId === selectedPack);
+  const homeSummaries = homeSummariesFor(summaries, packFilter, visiblePacks);
+  const hanjaVisible = homeSummaries.some((x) => x.packId === 'dict-hanja-unihan');
   const browsePos = browseSel
     ? (summaries.find((x) => x.packId === browseSel.packId)?.pos ?? [])
     : [];
@@ -1173,14 +1195,14 @@ export function DictionaryPanel({
             type="button"
             onClick={() => setSelectedPack('all')}
             className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-              selectedPack === 'all'
+              packFilter === 'all'
                 ? 'bg-[var(--accent)] text-white'
                 : 'bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--fg)]'
             }`}
           >
-            All ({installedPacks.length})
+            All ({visiblePacks.length})
           </button>
-          {installedPacks.map((pack) => {
+          {visiblePacks.map((pack) => {
             const packId = pack.id as DictionaryPackId;
             return (
               <button
@@ -1189,7 +1211,7 @@ export function DictionaryPanel({
                 data-testid={`dict-filter-${pack.id}`}
                 onClick={() => setSelectedPack(packId)}
                 className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                  selectedPack === packId
+                  packFilter === packId
                     ? 'bg-[var(--accent)] text-white'
                     : 'bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--fg)]'
                 }`}
@@ -1198,6 +1220,14 @@ export function DictionaryPanel({
               </button>
             );
           })}
+          {installedPacks.length > 0 && (
+            <ShowAllLanguagesSwitch
+              testId="dict-show-all-languages"
+              checked={showAllLanguages}
+              onChange={setShowAllLanguages}
+              hiddenCount={hiddenPackCount}
+            />
+          )}
         </div>
 
         {showDraw && showDrawTools && (
@@ -1244,7 +1274,7 @@ export function DictionaryPanel({
             size={210}
             onSelectCandidate={(ch) => {
               lookUp(ch);
-              void runSearch(ch, selectedPack);
+              void runSearch(ch, packFilter);
             }}
             testIdPrefix="browse-draw-lookup"
           />
@@ -1278,9 +1308,7 @@ export function DictionaryPanel({
       {view === 'home' && (
         <DictionaryHome
           summaries={homeSummaries}
-          hanjaPreview={
-            selectedPack === 'all' || selectedPack === 'dict-hanja-unihan' ? hanjaPreview : []
-          }
+          hanjaPreview={hanjaVisible ? hanjaPreview : []}
           recents={recents}
           onLookup={lookUp}
           onClearRecents={() => {
@@ -1455,11 +1483,7 @@ function DetailSense({
         <span className="font-semibold text-[var(--fg)]">
           {sense.equivalents.length > 0 ? sense.equivalents.join('; ') : sense.definition}
         </span>
-        {sense.source && (
-          <span className="rounded bg-[var(--surface-2)] px-1 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
-            {SENSE_SOURCE_LABEL[sense.source]}
-          </span>
-        )}
+        {sense.source && <SenseSourceBadge source={sense.source} testId={false} />}
       </div>
       {sense.definition && sense.equivalents.length > 0 && (
         <p className="text-sm text-[var(--muted)]">{sense.definition}</p>

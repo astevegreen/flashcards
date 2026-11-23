@@ -80,7 +80,7 @@ export function createSecureSecretBackend(): SecureSecretBackend {
 // iCloud Drive (app commands in apps/desktop/src-tauri/src/icloud.rs; macOS only)
 // ---------------------------------------------------------------------------
 
-/** The iCloud plugin on macOS (always) and whether iCloud was available at launch. */
+/** The iCloud plugin on entitled macOS builds and whether iCloud was available at launch. */
 export function createICloudOptions(): Promise<TauriICloudOptions> {
   return resolveTauriICloudOptions(invoke);
 }

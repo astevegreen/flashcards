@@ -414,6 +414,9 @@ describe('Phase 10 pack codec (backwards compatible optional fields)', () => {
               source: 'krdict',
             },
             { equivalents: [], source: 'evil' },
+            // A sense written for the app keeps its own badge; an unknown source is dropped.
+            { equivalents: ['dine'], definitionNative: '식사를 하다.', source: 'app' },
+            { equivalents: ['consume'], source: 'evil' },
             'junk',
           ],
         },
@@ -443,6 +446,8 @@ describe('Phase 10 pack codec (backwards compatible optional fields)', () => {
           ],
           source: 'krdict',
         },
+        { equivalents: ['dine'], definitionNative: '식사를 하다.', source: 'app' },
+        { equivalents: ['consume'] },
       ],
     });
     expect(decoded.entries[1]).toEqual({ headword: '한국', readings: [], meanings: ['Korea'] });

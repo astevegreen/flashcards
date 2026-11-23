@@ -218,8 +218,10 @@ function indexLexemesByHangul(lexemes) {
  * unambiguous match are skipped rather than guessed. A row whose word, Hanja and meaning all
  * equal an earlier note's (one word listed under two parts of speech, e.g. 이 as pronoun and
  * determiner) would be an identical card: it is merged into that note as an extra tag instead.
+ * `overrides` (see `glossOverride`) replaces a note's Wikidata gloss with the app's own wording,
+ * after that merge, and the card's credit then says the English was edited by this app.
  */
-export function buildKoreanNotes({ niklRows, lexemes, size, maxGlosses = 3 }) {
+export function buildKoreanNotes({ niklRows, lexemes, size, maxGlosses = 3, overrides = {} }) {
   const byLemma = indexLexemesByHangul(lexemes);
   const homographs = countHomographs(niklRows);
   const rows = niklRows
@@ -244,14 +246,16 @@ export function buildKoreanNotes({ niklRows, lexemes, size, maxGlosses = 3 }) {
       if (!same.tags.includes(pos.tag)) same.tags.push(pos.tag);
       continue;
     }
+    const key = `nikl:${row.entry}:${pos.tag}`;
+    const edited = glossOverride(overrides, key, row.word, meaning);
     const note = {
-      key: `nikl:${row.entry}:${pos.tag}`,
+      key,
       fields: {
         word: row.word,
         hanja,
-        meaning,
+        meaning: edited ?? meaning,
         example: '',
-        notes: `Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata ${lexeme.id} (CC0).`,
+        notes: `Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata ${lexeme.id} (CC0)${edited === undefined ? '' : ', edited by this app'}.`,
       },
       tags: ['nikl-a', pos.tag],
     };
@@ -378,8 +382,16 @@ function ownCounts(cp, counts, pinlu, simplifiedVariants) {
  * the kHanyuPinlu counts (from 《現代漢語頻率詞典》, summed over the character's own readings, see
  * `ownCounts`), with their kMandarin pinyin (see `cardReading`) and the Unihan English definition
  * without Cantonese-only senses. Traditional-only forms are left out. Ties break by code point.
+ * `overrides` (see `glossOverride`) replaces a kDefinition gloss with the app's own wording, and
+ * the card's credit then says the meaning was edited by this app.
  */
-export function buildMandarinNotes({ readings, simplifiedVariants, unihanVersion, size }) {
+export function buildMandarinNotes({
+  readings,
+  simplifiedVariants,
+  unihanVersion,
+  size,
+  overrides = {},
+}) {
   const { pinlu, definition, mandarin } = readings;
   const traditional = traditionalOnly(simplifiedVariants);
   const ranked = [...pinlu.entries()]
@@ -394,18 +406,63 @@ export function buildMandarinNotes({ readings, simplifiedVariants, unihanVersion
     const reading = cardReading(mandarin.get(cp));
     const others = counts.map((r) => r.pinyin).filter((p) => p !== reading);
     const also = others.length > 0 ? `Also read: ${others.join(', ')}. ` : '';
+    const key = `unihan:${hexCodePoint(cp)}`;
+    const word = String.fromCodePoint(cp);
+    const meaning = mandarinDefinition(definition.get(cp));
+    const edited = glossOverride(overrides, key, word, meaning);
     return {
-      key: `unihan:${hexCodePoint(cp)}`,
+      key,
       fields: {
-        word: String.fromCodePoint(cp),
+        word,
         reading,
-        meaning: mandarinDefinition(definition.get(cp)),
+        meaning: edited ?? meaning,
         example: '',
-        notes: `${also}Source: Unicode Unihan ${unihanVersion} (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3.`,
+        notes: `${also}Source: Unicode Unihan ${unihanVersion} (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3${edited === undefined ? '' : '; meaning edited by this app'}.`,
       },
       tags: ['hanzi-common'],
     };
   });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Gloss overrides (content/starters/gloss-overrides.json)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The app's own wording for one note's meaning, or undefined when the note has no override.
+ * `overrides` maps a stable note key to `{ word, upstream, meaning }`: `word` must be the note's
+ * front and `upstream` exactly the gloss the build derived from the pinned source, so a changed
+ * source or key never keeps a stale override silently (the build fails and the entry is reviewed).
+ */
+export function glossOverride(overrides, key, word, upstream) {
+  if (!Object.hasOwn(overrides, key)) return undefined;
+  const entry = overrides[key];
+  if (entry.word !== word) {
+    throw new Error(
+      `gloss override ${key}: written for "${entry.word}", but the note is "${word}"`,
+    );
+  }
+  if (entry.upstream !== upstream) {
+    throw new Error(
+      `gloss override ${key}: the source gloss is now "${upstream}", not "${entry.upstream}"; review the override`,
+    );
+  }
+  if (typeof entry.meaning !== 'string' || entry.meaning.trim() !== entry.meaning) {
+    throw new Error(`gloss override ${key}: meaning must be trimmed text`);
+  }
+  if (entry.meaning === '' || entry.meaning === upstream) {
+    throw new Error(`gloss override ${key}: meaning is empty or equals the source gloss`);
+  }
+  return entry.meaning;
+}
+
+/** Fails when an override names a note the deck does not have (a typo, or a dropped word). */
+export function checkOverridesUsed(overrides, notes, deck) {
+  const keys = new Set(notes.map((n) => n.key));
+  const unused = Object.keys(overrides).filter((k) => !keys.has(k));
+  if (unused.length > 0) {
+    throw new Error(`${deck}: gloss overrides for notes not in the deck: ${unused.join(', ')}`);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
