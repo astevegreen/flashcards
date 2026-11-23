@@ -15,7 +15,6 @@ export type AnkiCollectionKind = 'anki2' | 'anki21' | 'anki21b';
 export type UnsupportedImportReason =
   | 'empty'
   | 'zip-other'
-  | 'xlsx'
   | 'sqlite'
   | 'binary'
   | 'utf16'
@@ -32,6 +31,8 @@ export type UnsupportedImportReason =
 export type DetectedImport =
   | { kind: 'anki'; collection: AnkiCollectionKind }
   | { kind: 'flashpkg' }
+  /** An Excel workbook (`.xlsx`): its first sheet is read as a table. */
+  | { kind: 'xlsx' }
   | {
       kind: 'csv';
       /** `flashcards-deluxe` when the header uses its `Text 1`, `Text 2`, … columns. */
@@ -46,7 +47,7 @@ export type DetectedImport =
 const TEXT_SNIFF_BYTES = 64 * 1024;
 
 const SUPPORTED_HINT =
-  'Bring my cards reads Anki packages (.apkg), .flashpkg files, CSV/TSV files (including Flashcards Deluxe exports) and Google Sheets links.';
+  'Bring my cards reads Anki packages (.apkg), .flashpkg files, Excel (.xlsx) and CSV/TSV files (including Flashcards Deluxe exports) and Google Sheets links.';
 
 function unsupported(reason: UnsupportedImportReason, message: string): DetectedImport {
   return { kind: 'unsupported', reason, message };
@@ -89,10 +90,7 @@ function detectZip(entries: readonly string[], fileName: string | undefined): De
   if (anki) return { kind: 'anki', collection: anki };
   if (names.has('manifest.json')) return { kind: 'flashpkg' };
   if (names.has('[Content_Types].xml') && entries.some((n) => n.startsWith('xl/'))) {
-    return unsupported(
-      'xlsx',
-      'This is an Excel workbook. Save it as CSV (or upload it to Google Sheets and paste the link), then try again.',
-    );
+    return { kind: 'xlsx' };
   }
   return unsupported(
     'zip-other',

@@ -78,6 +78,18 @@ async function startOver(page: Page): Promise<void> {
 
 const route = (page: Page) => page.getByTestId('bring-route');
 
+/** The Anki route stops at a summary; Import imports. */
+async function confirmAnki(page: Page): Promise<void> {
+  const status = page.getByTestId('anki-import-status');
+  await expect(status).toHaveAttribute('data-phase', 'ready', { timeout: 30_000 });
+  await page.getByTestId('anki-import-btn').click();
+}
+
+const deckRow = (page: Page, name: string) =>
+  page.locator('[data-testid^="deck-row-"]', { hasText: name });
+
+const columnTarget = (page: Page, index: number) => page.getByTestId(`bring-map-col-${index}`);
+
 test.describe('Phase 14 Bring my cards: format detection routes to the existing importers', () => {
   test('Anki .apkg (legacy and anki21b) goes to the Anki importer, history off', async ({
     page,
@@ -87,6 +99,13 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
     await pick(page, fixture('anki/basic-reversed.apkg'));
     await expect(route(page)).toHaveAttribute('data-kind', 'anki');
     const status = page.getByTestId('anki-import-status');
+    // A summary first: nothing is imported until Import is pressed.
+    await expect(status).toHaveAttribute('data-phase', 'ready', { timeout: 30_000 });
+    await expect(status).toContainText('Ready to import 2 notes into 1 deck (1 new)');
+    await expect(status).toContainText('Decks: Japanese::Vocab (new).');
+    await expect(page.getByTestId('bring-start-over-btn')).toBeEnabled();
+    await expect(deckRow(page, 'Japanese::Vocab')).toHaveCount(0);
+    await page.getByTestId('anki-import-btn').click();
     await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
     await expect(status).toContainText('Imported 2 notes into 1 deck (1 new)');
     await expect(page.getByTestId('anki-include-history')).not.toBeChecked();
@@ -99,6 +118,7 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
     await startOver(page);
     await pick(page, fixture('anki/cloze.apkg'));
     await expect(route(page)).toHaveAttribute('data-kind', 'anki');
+    await confirmAnki(page);
     await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
     await expect(
       page.locator('[data-testid^="deck-row-"]', { hasText: 'Geography' }),
@@ -107,6 +127,7 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
     await startOver(page);
     await pick(page, fixture('anki/anki21b.apkg'));
     await expect(route(page)).toHaveAttribute('data-kind', 'anki');
+    await confirmAnki(page);
     await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
     await expect(
       page.locator('[data-testid^="deck-row-"]', { hasText: 'Korean::Greetings' }),
@@ -119,7 +140,8 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
     await pick(page, fixture('bring/flashcards-deluxe.txt'));
     await expect(route(page)).toHaveAttribute('data-kind', 'csv');
     await expect(page.getByTestId('bring-csv-form')).toContainText('Flashcards Deluxe file');
-    await expect(page.getByTestId('bring-csv-mapping')).toContainText('Text 1 → Word');
+    await expect(columnTarget(page, 0)).toHaveAttribute('data-target', 'field:word');
+    await expect(page.getByTestId('bring-map-target-0')).toHaveValue('field:word');
     await expect(page.getByTestId('bring-csv-deck-name')).toHaveValue('flashcards-deluxe');
 
     await page.getByTestId('bring-csv-deck-name').fill('FD Korean');
@@ -290,13 +312,22 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
       `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`,
     );
 
-    const link = page.getByTestId('bring-sheets-link-btn');
-    await expect(link).toBeEnabled();
-    await link.click();
+    const read = page.getByTestId('bring-sheets-read-btn');
+    await expect(read).toBeEnabled();
+    await read.click();
     const status = page.getByTestId('bring-sheets-status');
-    await expect(status).toHaveAttribute('data-phase', 'working');
+    await expect(status).toHaveAttribute('data-phase', 'reading');
     await expect(page.getByTestId('bring-start-over-btn')).toBeDisabled();
     releaseRows();
+    await expect(status).toHaveAttribute('data-phase', 'mapping');
+    await expect(page.getByTestId('bring-start-over-btn')).toBeEnabled();
+    await expect(page.getByTestId('bring-sheets')).toContainText('Nature Words Sheet');
+    // A Sheet always has a header row (Card IDs are written under it): no switch is offered.
+    await expect(page.getByTestId('bring-map-header-row')).toHaveCount(0);
+    await expect(columnTarget(page, 0)).toHaveAttribute('data-target', 'field:word');
+    await expect(columnTarget(page, 2)).toHaveAttribute('data-target', 'tags');
+    await expect(columnTarget(page, 3)).toHaveAttribute('data-target', 'card_id');
+    await page.getByTestId('bring-sheets-link-btn').click();
     await expect(status).toHaveAttribute('data-phase', 'done');
     await expect(page.getByTestId('bring-start-over-btn')).toBeEnabled();
     await expect(status).toContainText('Linked 1 Google file(s): 2 note(s)');
@@ -355,10 +386,17 @@ test.describe('Phase 14 Bring my cards layout stability', () => {
 
       await pick(page, fixture('bring/flashcards-deluxe.txt'));
       await expect(route(page)).toHaveAttribute('data-kind', 'csv');
+      await expect(page.getByTestId('bring-mapping')).toBeVisible();
       expect(await size()).toEqual(fallback);
+      // The column cards wrap inside the panel instead of pushing the page sideways.
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true);
       await startOver(page);
 
       await pick(page, fixture('anki/media.apkg'));
+      await confirmAnki(page);
+      expect(await size()).toEqual(fallback);
       await expect(page.getByTestId('anki-import-status')).toHaveAttribute('data-phase', 'done', {
         timeout: 30_000,
       });
@@ -371,4 +409,100 @@ test.describe('Phase 14 Bring my cards layout stability', () => {
       await context.unroute('**/BringMyCardsPanel-*.js');
     });
   }
+});
+
+test.describe('Bring my cards column mapping', () => {
+  const OWNER_CSV = [
+    'word,definition,example,category1,category2,category3,source',
+    '나무,tree,나무가 커요.,nature,A1,noun,textbook',
+    '먹다,to eat,밥을 먹어요.,food,A1,verb,',
+  ].join('\n');
+
+  test('maps word / definition / example / category columns, and the user can change any', async ({
+    page,
+  }) => {
+    await openBringMyCards(page, 'pmapowner');
+    await page.getByTestId('bring-drop-zone').evaluate((zone, text) => {
+      const data = new DataTransfer();
+      data.items.add(new File([text], 'my words.csv', { type: 'text/csv' }));
+      zone.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true }));
+    }, OWNER_CSV);
+    await expect(route(page)).toHaveAttribute('data-kind', 'csv');
+    await expect(page.getByTestId('bring-csv-note-type')).toHaveValue('preset:vocab-ko');
+    await expect(page.getByTestId('bring-csv-rows')).toHaveText('2 rows');
+    await expect(page.getByTestId('bring-map-header-row')).toBeChecked();
+
+    const expected = ['field:word', 'field:meaning', 'field:example', 'tags', 'tags', 'tags'];
+    for (const [i, target] of expected.entries()) {
+      await expect(columnTarget(page, i)).toHaveAttribute('data-target', target);
+    }
+    // An unknown column is kept as a Notes line, not dropped.
+    await expect(columnTarget(page, 6)).toHaveAttribute('data-target', 'notes');
+    const preview = page.getByTestId('bring-map-preview');
+    await expect(preview).toContainText('Meaning: tree');
+    await expect(preview).toContainText('Categories: nature, A1, noun');
+    await expect(preview).toContainText('Notes: source: textbook');
+
+    // Without a column for the front, Import is blocked and says why.
+    const importBtn = page.getByTestId('bring-csv-import-btn');
+    await page.getByTestId('bring-map-target-0').selectOption('ignore');
+    await expect(page.getByTestId('bring-map-problems')).toContainText('Choose a column for Word');
+    await expect(importBtn).toBeDisabled();
+    await page.getByTestId('bring-map-target-0').selectOption('field:word');
+    await expect(page.getByTestId('bring-map-problems')).toHaveCount(0);
+
+    // The user's change wins: the source column is not imported.
+    await page.getByTestId('bring-map-target-6').selectOption('ignore');
+    await expect(columnTarget(page, 6)).toContainText('Your choice');
+    await expect(preview).not.toContainText('textbook');
+
+    await importBtn.click();
+    const status = page.getByTestId('bring-csv-status');
+    await expect(status).toHaveAttribute('data-phase', 'done');
+    await expect(status).toContainText('Imported 2 note(s) into "my words"');
+    await expect(deckRow(page, 'my words')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Browse' }).first().click();
+    const search = page.getByLabel('Search notes by text or tag');
+    await search.fill('#noun');
+    await expect(page.getByTestId('browse-list')).toContainText('나무');
+    await expect(page.getByTestId('browse-list')).not.toContainText('먹다');
+    await search.fill('to eat');
+    await expect(page.getByTestId('browse-list')).toContainText('먹다');
+  });
+
+  test('pasted rows with no header row import every row', async ({ page }) => {
+    await openBringMyCards(page, 'pmappaste');
+    await page.getByTestId('bring-link-input').fill('나무\ttree\n하늘\tsky\n바다\tsea');
+    await page.getByTestId('bring-link-submit').click();
+    await expect(route(page)).toHaveAttribute('data-kind', 'csv');
+    await expect(page.getByTestId('bring-csv-form')).toContainText('Pasted rows');
+    // Row 1 looks like the Korean rows under it, so it is read as a card.
+    await expect(page.getByTestId('bring-map-header-row')).not.toBeChecked();
+    await expect(page.getByTestId('bring-csv-rows')).toHaveText('3 rows');
+    await expect(columnTarget(page, 0)).toContainText('Column 1');
+    await expect(columnTarget(page, 0)).toHaveAttribute('data-target', 'field:word');
+    await expect(columnTarget(page, 1)).toHaveAttribute('data-target', 'field:meaning');
+
+    await page.getByTestId('bring-csv-deck-name').fill('Pasted Nature');
+    await page.getByTestId('bring-csv-import-btn').click();
+    await expect(page.getByTestId('bring-csv-status')).toContainText(
+      'Imported 3 note(s) into "Pasted Nature"',
+    );
+  });
+
+  test('an Excel workbook goes through the same mapping step', async ({ page }) => {
+    await openBringMyCards(page, 'pmapxlsx');
+    // 단어 / 뜻 / 예문 / 주제 with two rows (see tests/fixtures/bring/README.md).
+    await pick(page, fixture('bring/korean-words.xlsx'));
+    await expect(route(page)).toHaveAttribute('data-kind', 'csv');
+    await expect(page.getByTestId('bring-csv-form')).toContainText('Excel workbook');
+    for (const [i, target] of ['field:word', 'field:meaning', 'field:example', 'tags'].entries()) {
+      await expect(columnTarget(page, i)).toHaveAttribute('data-target', target);
+    }
+    await page.getByTestId('bring-csv-import-btn').click();
+    await expect(page.getByTestId('bring-csv-status')).toContainText(
+      'Imported 2 note(s) into "korean-words"',
+    );
+  });
 });

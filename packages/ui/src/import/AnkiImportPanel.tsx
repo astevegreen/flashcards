@@ -1,10 +1,13 @@
+import { createEventFactory, createHlcState, type CollectionState } from '@flash/core';
 import type {
   ANKI_FIELD_LANGUAGES,
   AnkiFieldLanguageOption,
   ankiFieldLanguageEvents,
   AnkiImportedNoteType,
   AnkiImportResult,
+  AnkiRawPackage,
   AnkiSkippedReviews,
+  importAnkiPackage,
 } from '@flash/core/anki';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import { useEffect, useRef, useState } from 'react';
@@ -14,22 +17,33 @@ import { ANKI_IMPORT_PANEL_HEIGHT } from './anki-import-layout.ts';
 
 const MAX_LISTED_WARNINGS = 5;
 
-type Phase = 'idle' | 'reading' | 'converting' | 'saving' | 'done' | 'error';
+/** `ready`: the package is read and summarized, waiting for Import. */
+type Phase = 'idle' | 'reading' | 'converting' | 'ready' | 'saving' | 'done' | 'error';
 
 const PHASE_TEXT: Record<Phase, string> = {
   idle: 'Choose an .apkg file exported from Anki.',
   reading: 'Reading the Anki package…',
   converting: 'Converting notes and layouts…',
+  ready: '',
   saving: 'Saving media and notes…',
   done: '',
   error: '',
 };
 
-/** What the panel keeps of the lazily loaded `@flash/core/anki` after an import. */
+/** What the panel keeps of the lazily loaded `@flash/core/anki`. */
 interface AnkiModule {
   ANKI_FIELD_LANGUAGES: typeof ANKI_FIELD_LANGUAGES;
   ankiFieldLanguageEvents: typeof ankiFieldLanguageEvents;
+  importAnkiPackage: typeof importAnkiPackage;
 }
+
+/** A package read once (with its review history) and converted as a dry run for the summary. */
+interface PreparedPackage {
+  raw: AnkiRawPackage;
+  preview: AnkiImportResult;
+}
+
+const MAX_LISTED_DECKS = 6;
 
 function plural(count: number, one: string, many = `${one}s`): string {
   return `${count} ${count === 1 ? one : many}`;
@@ -59,6 +73,43 @@ export function describeAnkiImport(result: AnkiImportResult, includeHistory: boo
     const skippedText = skipped ? ` Skipped: ${skipped}.` : '';
     lines.push(`Review history: ${plural(summary.reviews, 'review')} imported.${skippedText}`);
   }
+  return lines.join('\n');
+}
+
+/** Deck names of a dry run: existing decks by their current name, new ones from the events. */
+function previewDeckNames(result: AnkiImportResult, state: CollectionState): string[] {
+  const created = new Map<string, string>();
+  for (const event of result.events) {
+    if (event.type === 'DeckCreated') created.set(event.payload.deck_id, event.payload.name);
+  }
+  return result.deckIds.map((id) => {
+    const existing = state.decks.get(id);
+    return existing ? existing.name : `${created.get(id) ?? id} (new)`;
+  });
+}
+
+/**
+ * Plain-text summary shown before anything is imported (read with history, so it can say how
+ * many reviews the box would bring along).
+ */
+export function describeAnkiPreview(result: AnkiImportResult, state: CollectionState): string {
+  const { summary } = result;
+  const names = previewDeckNames(result, state);
+  const shown = names.slice(0, MAX_LISTED_DECKS).join(', ');
+  const more =
+    names.length > MAX_LISTED_DECKS ? `, and ${names.length - MAX_LISTED_DECKS} more` : '';
+  const lines = [
+    `Ready to import ${plural(summary.notes, 'note')} into ${plural(summary.decks, 'deck')} (${summary.newDecks} new): ${summary.changedNotes} to add or update, ${plural(summary.noteTypes, 'new note type')}, ${plural(summary.media, 'media file')}.`,
+  ];
+  if (names.length > 0) lines.push(`Decks: ${shown}${more}.`);
+  if (summary.suspended > 0) {
+    lines.push(`${plural(summary.suspended, 'card')} suspended in Anki will stay suspended.`);
+  }
+  lines.push(
+    summary.reviews > 0
+      ? `Review history: ${plural(summary.reviews, 'review')} can come along if you tick "Include review history".`
+      : 'This package has no review history to bring along.',
+  );
   return lines.join('\n');
 }
 
@@ -144,8 +195,8 @@ export interface AnkiImportPanelProps {
   /** Called after a successful import with the decks the package filled. */
   onImported?: (deckIds: readonly string[]) => void;
   /**
-   * A package the guided "Bring my cards" flow already detected: imported once on mount (review
-   * history off, the owner default), after which the panel works as usual.
+   * A package the guided "Bring my cards" flow already detected: read and summarized once on
+   * mount, then imported when the user presses Import (review history off unless ticked).
    */
   pendingFile?: PendingAnkiFile;
   /** Drop the panel's own border and fixed height (it sits inside another fixed-height box). */
@@ -171,6 +222,7 @@ export function AnkiImportPanel({
   const [message, setMessage] = useState(PHASE_TEXT.idle);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [imported, setImported] = useState<AnkiImportedNoteType[]>([]);
+  const [prepared, setPrepared] = useState<PreparedPackage | null>(null);
   const ankiModule = useRef<AnkiModule | null>(null);
   // Bytes of the pending file already imported: they are transferred to the reader Worker, so a
   // second run (a re-render passing an equal file) would fail on a detached buffer.
@@ -192,17 +244,37 @@ export function AnkiImportPanel({
     setMessage(text);
   };
 
-  const runImport = async (bytes: Uint8Array, withHistory: boolean) => {
+  const tzOffsetMinutes = () => -new Date().getTimezoneOffset();
+
+  /** Reads the package once, with its history, and converts it as a dry run for the summary. */
+  const prepare = async (bytes: Uint8Array) => {
     if (!platform.getAnkiPackageReader) return;
     go('reading');
     const reader = await platform.getAnkiPackageReader();
-    const raw = await reader.read(bytes, { includeReviewHistory: withHistory });
+    const raw = await reader.read(bytes, { includeReviewHistory: true });
     go('converting');
     const mod = await import('@flash/core/anki');
     ankiModule.current = mod;
-    const result = mod.importAnkiPackage(raw, state, getEventFactory(), {
+    // A throwaway factory: the dry run must not use up this device's event sequence numbers.
+    const dryRun = createEventFactory('dry-run', 0, createHlcState('dry-run', Date.now()));
+    const preview = mod.importAnkiPackage(raw, state, dryRun, {
+      includeReviewHistory: true,
+      tzOffsetMinutes: tzOffsetMinutes(),
+    });
+    setPrepared({ raw, preview });
+    setWarnings([...new Set(preview.warnings)]);
+    setPhase('ready');
+    setMessage(describeAnkiPreview(preview, state));
+  };
+
+  /** Converts again against the collection as it is now, then stores media and events. */
+  const commit = async (pkg: PreparedPackage, withHistory: boolean) => {
+    const mod = ankiModule.current;
+    if (!mod) return;
+    go('converting');
+    const result = mod.importAnkiPackage(pkg.raw, state, getEventFactory(), {
       includeReviewHistory: withHistory,
-      tzOffsetMinutes: -new Date().getTimezoneOffset(),
+      tzOffsetMinutes: tzOffsetMinutes(),
     });
     if (result.summary.newDecks > 0) {
       const activeDecks = [...state.decks.values()].filter((d) => !d.archived).length;
@@ -217,6 +289,7 @@ export function AnkiImportPanel({
       await platform.storage.putMedia({ hash: media.hash, mime: media.mime, bytes: media.bytes });
     }
     if (result.events.length > 0) emitEvents(result.events);
+    setPrepared(null);
     setWarnings([...new Set(result.warnings)]);
     setImported(result.noteTypes);
     setPhase('done');
@@ -224,11 +297,21 @@ export function AnkiImportPanel({
     onImported?.(result.deckIds);
   };
 
-  const importSafely = async (bytes: Uint8Array, withHistory: boolean) => {
+  const prepareSafely = async (bytes: Uint8Array) => {
     setWarnings([]);
     setImported([]);
+    setPrepared(null);
     try {
-      await runImport(bytes, withHistory);
+      await prepare(bytes);
+    } catch (err) {
+      fail(describeImportError(err));
+    }
+  };
+
+  const handleImport = async () => {
+    if (!prepared) return;
+    try {
+      await commit(prepared, includeHistory);
     } catch (err) {
       fail(describeImportError(err));
     }
@@ -238,7 +321,7 @@ export function AnkiImportPanel({
     try {
       const picked = await platform.files.pickFile({ accept: '.apkg' });
       if (!picked) return;
-      await importSafely(picked.bytes, includeHistory);
+      await prepareSafely(picked.bytes);
     } catch (err) {
       fail(describeImportError(err));
     }
@@ -247,8 +330,8 @@ export function AnkiImportPanel({
   useEffect(() => {
     if (!pendingFile || startedPending.current === pendingFile.bytes) return;
     startedPending.current = pendingFile.bytes;
-    void importSafely(pendingFile.bytes, false);
-    // The pending file is imported exactly once; later renders must not re-run it.
+    void prepareSafely(pendingFile.bytes);
+    // The pending file is read exactly once; later renders must not re-run it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingFile]);
 
@@ -271,7 +354,8 @@ export function AnkiImportPanel({
         <h2 className="text-sm font-semibold">Import from Anki</h2>
         <p className="text-xs text-[var(--muted)]">
           Notes, note types, cloze, tags and media from an Anki .apkg export. Each Anki deck becomes
-          a deck here; scheduling starts fresh unless you include review history.
+          a deck here; scheduling starts fresh unless you include review history. A summary comes
+          first; nothing is imported until you press Import.
         </p>
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-3">
@@ -285,6 +369,15 @@ export function AnkiImportPanel({
           />
           <span>Include review history</span>
         </label>
+        <button
+          type="button"
+          data-testid="anki-import-btn"
+          disabled={busy || phase !== 'ready' || !prepared}
+          onClick={() => void handleImport()}
+          className="rounded-lg bg-[var(--accent)] px-3 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-40"
+        >
+          Import
+        </button>
         <button
           type="button"
           data-testid="anki-pick-file-btn"

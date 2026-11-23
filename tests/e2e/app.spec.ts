@@ -81,15 +81,15 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     await prodToggle.click();
     await expect(prodToggle).toHaveAttribute('aria-pressed', 'true');
 
-    // Paste CSV rows into Korean Core + Hanja deck
+    // Paste CSV rows into Korean Core + Hanja deck (through Bring my cards)
+    await page.getByTestId('bring-my-cards-btn').click();
     await page
-      .getByLabel('Target deck for CSV paste')
-      .selectOption({ label: 'Korean Core + Hanja' });
-    await page
-      .getByTestId('csv-paste-input')
+      .getByTestId('bring-link-input')
       .fill('Word,Meaning,Tags\n바다,ocean,nature\n산,mountain,nature');
-    await page.getByTestId('csv-paste-submit').click();
-    await expect(page.getByTestId('library-status')).toContainText('Imported 2 note(s)');
+    await page.getByTestId('bring-link-submit').click();
+    await page.getByTestId('bring-csv-target').selectOption({ label: 'Korean Core + Hanja' });
+    await page.getByTestId('bring-csv-import-btn').click();
+    await expect(page.getByTestId('bring-csv-status')).toContainText('Imported 2 note(s)');
 
     // Verify sibling burying: Korean deck now has 6 notes x 2 layouts (12 cards),
     // but only 6 cards (1 per note) appear as New today because siblings are buried!

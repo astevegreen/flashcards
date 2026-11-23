@@ -149,11 +149,13 @@ async function seedReviewHistory(page: Page, deckId: string): Promise<number> {
  */
 async function seedAndReload(page: Page): Promise<{ deckId: string; eligible: number }> {
   await page.getByRole('button', { name: 'Library' }).first().click();
-  await page.getByLabel('Target deck for CSV paste').selectOption({ label: DECK_NAME });
+  await page.getByTestId('bring-my-cards-btn').click();
   const rows = Array.from({ length: PASTED_NOTES }, (_, i) => `단어${i},meaning ${i},optimizer`);
-  await page.getByTestId('csv-paste-input').fill(['Word,Meaning,Tags', ...rows].join('\n'));
-  await page.getByTestId('csv-paste-submit').click();
-  await expect(page.getByTestId('library-status')).toContainText(
+  await page.getByTestId('bring-link-input').fill(['Word,Meaning,Tags', ...rows].join('\n'));
+  await page.getByTestId('bring-link-submit').click();
+  await page.getByTestId('bring-csv-target').selectOption({ label: DECK_NAME });
+  await page.getByTestId('bring-csv-import-btn').click();
+  await expect(page.getByTestId('bring-csv-status')).toContainText(
     `Imported ${PASTED_NOTES} note(s)`,
   );
 

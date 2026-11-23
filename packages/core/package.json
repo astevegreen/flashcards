@@ -76,6 +76,10 @@
     "./import-detect": {
       "types": "./src/import/detect.ts",
       "default": "./src/import/detect.ts"
+    },
+    "./import-mapping": {
+      "types": "./src/import/column-mapping.ts",
+      "default": "./src/import/column-mapping.ts"
     }
   },
   "scripts": {

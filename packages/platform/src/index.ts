@@ -4,6 +4,7 @@ import type {
   FlashEvent,
   HlcState,
   SerializedCollectionState,
+  SourceColumnMapping,
   SyncCursorState,
 } from '@flash/core';
 import type {
@@ -229,6 +230,11 @@ export interface LinkedGoogleSource {
   noteTypeId?: string;
   language?: string;
   sheetTab?: string;
+  /**
+   * The column mapping chosen when the Sheet was linked through Bring my cards. The deck's
+   * synced `source.column_map` wins once it exists; this copy covers the first pull.
+   */
+  columnMap?: SourceColumnMapping[];
   readOnly?: boolean;
   lastModifiedTime?: string;
   lastSyncedAt?: number;

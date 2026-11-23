@@ -1,6 +1,6 @@
 # Follow-ups
 
-Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). Tick an item off, or delete it, once it is resolved. Product decisions belong to the owner. Until one is made, the shipped default is the least-committal, reversible option described here.
+Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). The owner's decisions of 2026-11-22 are recorded below; items marked **To build** are approved work. Tick an item off, or delete it, once it is resolved. Product decisions belong to the owner. Until one is made, the shipped default is the least-committal, reversible option described here.
 
 ## Phase 14 batch: what landed (2026-11-22)
 
@@ -18,46 +18,64 @@ Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). Tick an it
 - [x] **Onboarding:** Korean is listed first (English first on a Korean-locale device), with nothing preselected. Onboarding appears only on empty collections; existing users with no sync get the one-time "Sync my devices" prompt. Empty screen: "I already use this app: sync my devices" and "Bring my cards"; "Load Sample Decks" is removed. Reset Local Device Data clears `onboarding_v1`.
 - [ ] `docs/onboarding-review.md`: it now holds a **developer-measured baseline** (Chromium Playwright on Windows: 2 taps; about 0.3 s on desktop and 1.1 s on a phone viewport) and templates for the real audit. The **tester audit on real devices** with non-technical testers is still to do, and it is the store-launch gate.
 
-## Owner decisions from the Phase 14 batch (defaults shipped)
+## Owner decisions from the Phase 14 batch (decided 2026-11-22)
+
+The owner answered every open decision on 2026-11-22. **To build** marks work that is now approved. **Kept** marks a shipped default that stays. Tick a To build item once it is merged.
 
 ### Starter decks
 
-- [ ] **Japanese starter deck: blocked by licences.** JMdict/EDICT and KANJIDIC2 are CC BY-SA 4.0. The tanos JLPT lists are unclear (the site is gone, and the glosses likely come from EDICT). Unihan kJapanese readings are under licence from CITPC. Options: (a) accept CC BY-SA JMdict for a separately licensed deck; (b) a Unihan-only kanji deck (kJoyoKanji + kJapaneseOn/Kun + kDefinition, all Unicode License v3; weaker, with no frequency field and Chinese-oriented glosses); (c) keep the sample decks (the current default).
-- [ ] **Mandarin is common characters, not HSK 1.** Official HSK lists have no open licence, and HSK compilations embed CC-CEDICT glosses (CC BY-SA). Accept character cards, or allow HSK words under CC BY-SA?
-- [ ] **Korean is NIKL level A (beginner), not an official TOPIK I list**, which has no open licence.
-- [ ] **Deck size:** about 150 notes (`STARTER_DECK_SIZE` in `scripts/build-starter-decks.mjs`). The Korean deck has 145, because only that many level-A words had an unambiguous CC0 gloss.
-- [ ] **Gloss quality:** the Wikidata glosses are never hand-edited, and some are vague or encyclopedic (개 "domestic animal"). Unihan's `kDefinition` is terse. Spot-check them.
-- [ ] **Korean homographs** (그, 이, 일, 팔) have the same front and differ only on the back. Showing part of speech or hanja on the front would change the `vocab-ko` template.
-- [ ] **Attribution placement:** a one-line credit is in every card's Notes field. Onboarding doesn't show the deck description or credits yet; `OnboardingDeckInfo` carries both. Consider listing the sources in Settings > About & Open Data Licenses too.
-- [ ] **Any English starter deck?** No open source has been evaluated yet.
+- [x] **Japanese starter deck: kept.** It keeps the sample decks. JMdict/EDICT and KANJIDIC2 (CC BY-SA 4.0) and the Unihan-only kanji deck were both turned down for now.
+- [x] **Mandarin: kept.** Common characters from Unihan (Unicode License v3), not HSK words under CC BY-SA.
+- [x] **Korean is NIKL level A (beginner), not TOPIK I: kept.**
+- [x] **Deck size of about 150 notes (`STARTER_DECK_SIZE`): kept.**
+- [ ] **To build: gloss spot-check report.** List the vague, encyclopedic or wrong Wikidata glosses (개 "domestic animal") and terse Unihan `kDefinition` glosses in both starter decks, each with a suggested fix and the licence of the fix's source. Nothing is hand-edited: the owner reviews the report first, and fixes have to go through `scripts/build-starter-decks.mjs`.
+- [x] **Korean homographs** (그, 이, 일, 팔): kept as they are. The `vocab-ko` template doesn't change.
+- [x] **Attribution placement: kept.** The per-card credit in Notes stays. Nothing is added to Settings > About or to onboarding.
+- [x] **English starter deck: kept.** It keeps the sample deck, and no source research is planned.
 
 ### Sync and add-device
 
-- [ ] **Native add-device QR code and link.** Native shells (Capacitor, Tauri) show text instructions only, because their origins can't be shared and no app link exists. Options: a public app URL with Android App Links and iOS associated domains (blocked on the §16 domain decision), or a `flashcards://add-device` deep link.
-- [ ] **macOS has no iCloud transport**, so the macOS desktop app defaults to Google Drive. Build one?
-- [ ] **Duplicate Google Drive entry in Settings:** "Sync my devices (uses Google Drive)" sits above the existing "Connect Google Drive" button.
-- [ ] **A collection mismatch only warns, with a Dismiss button.** The engine has already adopted the other collection.
-- [ ] **A device with cards opened from an add-device link** is sent to Settings once per page load.
+- [ ] **To build: native add-device QR code and link with a `flashcards://add-device` deep link.** It needs no domain. It uses the same payload (the provider code and the manifest `collection_id`) and the same allow-list parsing and URL stripping as the web build. Register the scheme for Android (intent filter), iOS (`CFBundleURLTypes`) and Tauri (deep-link plugin). Show the QR code in native shells. App Links and universal links wait for the §16 domain decision.
+- [ ] **To build: macOS iCloud transport** for the Tauri desktop app, matching the iOS iCloud Drive transport (the ubiquity container and the same file layout, so iOS and macOS share one collection). Once it exists, iCloud becomes the "Sync my devices" default on macOS. It can't be built or signed on the Windows machine: compile it in macOS CI, and list the entitlements and Apple-side setup the owner has to do.
+- [ ] **To build: merge the duplicate Google Drive entry.** Keep "Sync my devices" at the top, and hide a provider's own Connect button while that provider is the active sync choice.
+- [ ] **To build: ask before adopting a different collection.** On a collection mismatch, offer "Use the synced collection" or "Keep this device's cards" before the engine switches. Both choices keep every event, so either can be undone.
+- [x] **A device with cards opened from an add-device link** goes to Settings once per page load: kept.
 
 ### Import
 
-- [ ] **Bring my cards imports a detected `.apkg` right away**, with review history off (the owner default). To include history, tick the box and pick the file again. Show a pre-import summary with an Import button instead?
-- [ ] **`kana:` / `kanji:` filters are applied at import time**, so the dropped text can't be recovered in the app. A reversible alternative is to keep ruby and add a per-layout "readings only" / "bases only" render flag.
-- [ ] **Flashcards Deluxe / generic CSV mapping:** Bring my cards imports into a new deck with `preset:vocab-ko`, mapping columns by position. Add a Front/Back preset or a column-mapping step?
-- [ ] **Imported suspensions use reason `manual`.** A separate `imported` reason would need an event schema change.
-- [ ] **A pasted Google Sheets link** returns 404 under `drive.file` when the app was never granted that file; the UI then suggests the Picker. Acceptable?
+- [x] **Anki pre-import summary (2026-11-22).** A picked or detected `.apkg` is read once (with its review history) and converted as a dry run. The summary lists notes, decks (new or existing), note types, media, suspended cards and how many reviews could come along. Nothing is imported until Import is pressed, and "Include review history" stays off unless ticked. Import converts again against the current collection. The Library's "Import Anki (.apkg)" panel works the same way.
+- [ ] **To build: keep ruby for `kana:` / `kanji:` and add a render flag.** Import stores the full ruby. A per-layout flag (readings only, bases only or both) decides what's shown, so no text is lost. Cards imported before the change keep their reduced text.
+- [x] **Column-mapping step (2026-11-22)** for CSV/TSV, Flashcards Deluxe, Excel `.xlsx` (first sheet), rows pasted into the Bring my cards text box, and Google Sheets.
+  - **The guess** (`@flash/core/import-mapping`): header names first (field keys and labels, then English and Korean synonyms, so `word / definition / example / category1-3` maps with no changes). Then the first 20 rows (script, length, repeated values, media URLs). Then column order.
+  - **The note type and language** of a new deck are guessed from the script of the rows. Whether row 1 holds column names is guessed too, and can be switched.
+  - **On screen:** every column can be changed, and a preview shows the first notes as stored.
+  - **Unmapped columns and categories:** columns nobody could place go to Notes as `Header: value` lines; empty ones are skipped. Category columns become flat tags, one per value.
+  - **Saved mapping:** a Sheet's mapping is saved on its deck as `SourceRef.column_map` (through `DeckCreated` / `SourceLinked`), so it syncs and applies on every refresh. A column added later falls back to matching by name.
+  - **Removed from the Library:** the Paste CSV / TSV form, the "Import CSV/TSV" button and its "Anki furigana" toggle. The toggle is now on the mapping screen.
+  - Builds from before this change ignore `column_map`. When one of them refreshes a Sheet, its `SourceLinked` drops the saved mapping, which then needs linking again from Bring my cards.
+- [x] **Imported suspensions use reason `manual`: kept.**
+- [x] **A pasted Google Sheets link that returns 404** under `drive.file`, followed by the Picker hint: kept.
 
 ### Phone secure storage
 
-- [ ] The BYO cloud TTS key (`tts_config_v1`) also moved to Keychain/Keystore, beyond the spec. On a fresh install the app wipes leftover Keychain items, because iOS keeps them across reinstalls. If the Keystore key is lost, every stored secret is dropped and the user signs in again, with no message.
-- [ ] The plugin's WebView fallback, used only when no browser at all can open the sign-in page, is kept.
-- [ ] The SQLite database is still included in Android backups; only the token files are excluded.
+- [ ] **To build: say why after a lost Keystore key.** When stored secrets are dropped because the Keystore or Keychain key is gone, tell the user once why they have to sign in again, instead of signing them out silently. Moving the BYO TTS key and wiping leftover Keychain items on a fresh install stay as they are.
+- [x] The plugin's WebView fallback, used only when no browser at all can open the sign-in page: kept.
+- [x] The SQLite database stays in Android backups; only the token files are excluded: kept.
+
+### UX feedback (owner, 2026-11-22)
+
+- [x] **#1 Remove "Paste CSV / TSV":** done in the column-mapping change (PR #14).
+- [ ] **To build: #2 language-aware menus and settings.** Options that apply only to one language (furigana and `kana:`/`kanji:` import options, Hanja, pinyin, stroke order, per-language TTS voices and so on) appear only when that language is in the collection or was chosen at onboarding. Adding a language later brings its options back. Nothing is deleted, and an imported deck in a new language counts as adding that language.
+- [ ] **To build: #3 explain tags.** Add a short "How tags work" panel in the tag manager and Browse. It covers tags as categories, the `::` hierarchy, and filtering Browse and Study sets. Add a hint on the import mapping step where category columns become tags.
+- [x] **#4 Linked sources on PC:** this was never a PC limit. Linked OneDrive sources hadn't been built yet. They're now To build (see "OneDrive" below).
+- [x] **#5 Dictionary browsing without typing, in both directions:** done in PR #13.
+- [x] **#6 Differently structured files:** done in the column-mapping step (PR #14).
 
 ## Not verified on real devices or services
 
 Only Chromium Playwright with faked endpoints has covered these.
 
-- [ ] **First Gradle and Xcode builds of `@flash/capacitor-secure-storage`.** The Java and Swift code has never been compiled: the build machine has no JDK, Android SDK or Xcode. Then on devices: the Keychain/Keystore round trip, the Custom Tabs OneDrive redirect (including a WebView older than Chromium M130), migration of an existing plaintext token on upgrade, backup exclusions, and the CapacitorHttp refresh against real Entra.
+- [ ] **`@flash/capacitor-secure-storage` on devices.** Its Java and Swift code now compiles in CI (`.github/workflows/native.yml`: Gradle `assembleDebug` and an unsigned Simulator `xcodebuild`, PR #10). It has never run on a device. Still to check there: the Keychain/Keystore round trip, the Custom Tabs OneDrive redirect (including a WebView older than Chromium M130), migration of an existing plaintext token on upgrade, backup exclusions, and the CapacitorHttp refresh against real Entra.
 - [ ] Capacitor `pickFile({ maxBytes })`: `@capawesome/capacitor-file-picker` with `readData: false`, then `Filesystem.readFile` on the returned path (an Android `content://` URI or an iOS temporary file). Never run on a device.
 - [ ] Recheck the capgo plugin's internal plaintext key names (`packages/platform-capacitor/src/secure/secure-store.ts` and the native allowlists) on every `@capgo/capacitor-social-login` upgrade. They are pinned for 8.7.x.
 - [ ] Add-device QR codes scanned with a real phone camera.
@@ -93,15 +111,15 @@ Only Chromium Playwright with faked endpoints has covered these.
 - [x] **A stale refresh token could survive a new sign-in.** A sign-in that returns no refresh token now deletes the stored one, on phones (`microsoft-secure-bridge.ts`) and on desktop (Tauri OneDrive loopback and Google loopback). A refresh that rotates nothing still keeps the current token.
 - [x] **Bring my cards read oversized files before checking them.** `Files.pickFile` takes `maxBytes`. Web and Tauri check the size first, and Capacitor picks with `readData: false`, checks the size, then reads the path with `Filesystem.readFile`. A file over 300 MB is never loaded. Files under the limit are still read in full, because the importers need the bytes (the drag-and-drop path already checked `file.size`).
 
-### Anki extras (owner: no preference; proposed defaults)
+### Anki extras (owner accepted the proposed defaults, 2026-11-22)
 
-- [ ] **Current scheduling:** seed FSRS from Anki's due/interval/ease when review history isn't imported. Proposed: no for now, because the mapping from SM-2 state is lossy.
-- [ ] **`.colpkg` full backups.** Proposed: later. Bring my cards currently routes a raw `.colpkg` to the Anki importer.
-- [ ] **Older builds and `NoteTagsAdded`.** Builds from before `NoteTagsAdded` keep the event as unknown and don't show the tag. Acceptable before launch.
+- [x] **Current scheduling:** seed FSRS from Anki's due/interval/ease when review history isn't imported. Proposed: no for now, because the mapping from SM-2 state is lossy.
+- [x] **`.colpkg` full backups.** Proposed: later. Bring my cards currently routes a raw `.colpkg` to the Anki importer.
+- [x] **Older builds and `NoteTagsAdded`.** Builds from before `NoteTagsAdded` keep the event as unknown and don't show the tag. Acceptable before launch.
 
-### OneDrive later
+### OneDrive
 
-- [ ] **Linked OneDrive sources** that refresh like Google Sheets sources (owner: yes, later). Today the picker is a one-shot import.
+- [ ] **To build (approved 2026-11-22): linked OneDrive sources** for `.xlsx` and `.csv` files that refresh like Google Sheets sources, reusing the column-mapping step and `SourceRef.column_map`. Today the picker is a one-shot import.
 - Not planned: a web fallback without the token-helper, and Microsoft's hosted File Picker v8.
 
 ## Phase 10 remainder (audited 2026-11-22)

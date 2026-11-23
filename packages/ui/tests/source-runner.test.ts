@@ -21,6 +21,7 @@ import type {
 import { describe, expect, it } from 'vitest';
 import {
   linkAndScanLocalFolder,
+  linkPickedGoogleFiles,
   refreshSingleGoogleSource,
   scanSingleLocalFolder,
 } from '../src/sources/sourceRunner.ts';
@@ -468,5 +469,109 @@ describe('sourceRunner — PC Local Folder end-to-end (relative media, .xlsx rec
     const res2 = await refreshSingleGoogleSource(sheetSource, ctx, { force: true });
     expect(audioFetchCount).toBe(1);
     expect(res2.notesTouched).toBe(0);
+  });
+});
+
+describe('sourceRunner — Google Sheets column mapping (Bring my cards)', () => {
+  it('saves the chosen mapping on the deck source and keeps using it on later refreshes', async () => {
+    const state = createEmptyState();
+    const factory = createEventFactory('dev-map', 0, createHlcState('dev-map', 9000));
+    const emitted: KnownEvent[] = [];
+    let modifiedTime = '2026-11-22T10:00:00Z';
+    let values = [
+      ['word', 'definition', 'category1', 'category2', 'Card ID'],
+      ['나무', 'tree', 'nature', 'A1', 'map-1'],
+    ];
+    const platform = {
+      storage: makeInMemoryStorage(),
+      getGoogleSourcesClient: async () => ({
+        getFileMetadata: async () => ({
+          id: 'sheet-map-1',
+          name: 'Owner Sheet',
+          mimeType: 'application/vnd.google-apps.spreadsheet',
+          modifiedTime,
+          canEdit: false,
+        }),
+        readSheet: async () => ({
+          spreadsheetId: 'sheet-map-1',
+          title: 'Owner Sheet',
+          sheetTitle: 'Sheet1',
+          modifiedTime,
+          readOnly: true,
+          embeddedImageRows: [],
+          values,
+        }),
+        writeSheetCells: async () => {},
+        createSheetFromTemplate: async () => {
+          throw new Error('unused');
+        },
+        exportDocAsMarkdown: async () => {
+          throw new Error('unused');
+        },
+      }),
+    } as unknown as PlatformServices;
+    const ctx = {
+      platform,
+      getState: () => state,
+      getEventFactory: () => factory,
+      emitEvents: (events: readonly KnownEvent[]) => {
+        emitted.push(...events);
+        applyEvents(state, events);
+      },
+    };
+    const columnMap = [
+      { header: 'word', target: 'field:word' },
+      { header: 'definition', target: 'field:meaning' },
+      { header: 'category1', target: 'tags' },
+      { header: 'category2', target: 'tags' },
+      { header: 'Card ID', target: 'card_id' },
+    ];
+
+    const summary = await linkPickedGoogleFiles(
+      [
+        {
+          id: 'sheet-map-1',
+          name: 'Owner Sheet',
+          mimeType: 'application/vnd.google-apps.spreadsheet',
+        },
+      ],
+      ctx,
+      { defaultNoteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO, defaultLanguage: 'ko', columnMap },
+    );
+    expect(summary.errors).toEqual([]);
+    const created = emitted.find((e) => e.type === 'DeckCreated');
+    if (created?.type !== 'DeckCreated') throw new Error('no deck');
+    expect(created.payload.source?.column_map).toEqual(columnMap);
+    expect(state.decks.get(created.payload.deck_id)?.source?.column_map).toEqual(columnMap);
+    const tree = [...state.notes.values()].find((n) => n.source_key === 'map-1');
+    expect(tree?.fields).toEqual({ word: '나무', meaning: 'tree' });
+    // The Sheets diff stores tags sorted (as before the mapping step).
+    expect(tree?.tags).toEqual(['A1', 'nature']);
+
+    // Another device (a registry entry with no mapping of its own) refreshes after the Sheet
+    // changed: the deck's synced mapping still applies, and SourceLinked carries it forward.
+    modifiedTime = '2026-11-23T10:00:00Z';
+    values = [
+      ['word', 'definition', 'category1', 'category2', 'Card ID'],
+      ['나무', 'big tree', 'nature', 'A1', 'map-1'],
+    ];
+    emitted.length = 0;
+    await refreshSingleGoogleSource(
+      {
+        id: 'gsheet:sheet-map-1',
+        kind: 'google_sheets',
+        fileId: 'sheet-map-1',
+        name: 'Owner Sheet',
+        uri: 'https://docs.google.com/spreadsheets/d/sheet-map-1/edit',
+        deckId: created.payload.deck_id,
+      },
+      ctx,
+      { force: true },
+    );
+    const relinked = emitted.find((e) => e.type === 'SourceLinked');
+    if (relinked?.type !== 'SourceLinked') throw new Error('no SourceLinked');
+    expect(relinked.payload.source.column_map).toEqual(columnMap);
+    const updated = [...state.notes.values()].find((n) => n.source_key === 'map-1');
+    expect(updated?.fields['meaning']).toBe('big tree');
   });
 });

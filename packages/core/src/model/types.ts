@@ -76,6 +76,20 @@ export interface SourceRef {
   package_id?: string;
   package_version?: string;
   last_synced_at?: number;
+  /**
+   * Where each column of a linked Sheet goes, chosen in the import mapping step. Matched by header
+   * name on every refresh; a column it doesn't list falls back to matching by name.
+   */
+  column_map?: SourceColumnMapping[];
+}
+
+/**
+ * One column of a saved import mapping. `target` is `field:<field key>`, `tags`, `card_id`,
+ * `notes` (appended to the Notes field as `Header: value`) or `ignore`.
+ */
+export interface SourceColumnMapping {
+  header: string;
+  target: string;
 }
 
 export interface Deck {

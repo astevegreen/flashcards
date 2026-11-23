@@ -4,6 +4,13 @@ import type { KnownEvent } from '../events/types.ts';
 import type { Note, NoteType } from '../model/types.ts';
 import { convertAnkiRuby } from '../parsers/ruby.ts';
 import { normalizeTagList } from '../tags/index.ts';
+import {
+  columnDisplayName,
+  joinNotes,
+  notesFieldKey,
+  notesLine,
+  type ColumnTarget,
+} from './column-target.ts';
 
 export * from './csv-export.ts';
 
@@ -154,6 +161,13 @@ export function buildEventsFromCsv(
      * even when its id was not derived from this deck (a note moved here from another deck).
      */
     existingNotes?: Iterable<Note>;
+    /**
+     * Where each column goes, by position (the Bring my cards mapping step). Replaces matching
+     * headers by name; columns past the end of the list are not imported.
+     */
+    columns?: readonly ColumnTarget[];
+    /** `false` when row 1 is already data (no header row). Defaults to `true`. */
+    hasHeaderRow?: boolean;
   },
 ): CsvImportResult {
   const { deckId, noteType, eventFactory } = options;
@@ -168,6 +182,12 @@ export function buildEventsFromCsv(
   if (parsed.headers.length === 0) {
     return { events: [], importedCount: 0, warnings, mappedHeaders };
   }
+  const hasHeaderRow = options.hasHeaderRow ?? true;
+  // Without a header row, row 1 is data: put it back in front of the rows.
+  const dataRows = hasHeaderRow ? parsed.rows : [parsed.headers, ...parsed.rows];
+  const headerNames = hasHeaderRow ? parsed.headers : [];
+  // 1-based file row of `dataRows[i]`.
+  const rowOffset = hasHeaderRow ? 2 : 1;
 
   const fieldByLookup = new Map<string, string>();
   for (const field of noteType.fields) {
@@ -175,61 +195,70 @@ export function buildEventsFromCsv(
     fieldByLookup.set(field.label.toLowerCase(), field.key);
   }
 
-  type ColumnRole =
-    | { kind: 'field'; fieldKey: string }
-    | { kind: 'tags' }
-    | { kind: 'card_id' }
-    | { kind: 'ignore' };
-
-  const seenNormalized = new Set<string>();
-  const columnRoles: ColumnRole[] = parsed.headers.map((header) => {
-    const norm = header.trim().toLowerCase();
-    if (!norm) return { kind: 'ignore' };
-
-    if (seenNormalized.has(norm)) {
-      warnings.push({
-        code: 'duplicate_header',
-        header,
-        message: `Duplicate column header "${header}" ignored.`,
-      });
+  const notesKey = notesFieldKey(noteType);
+  const explicitRoles = options.columns?.map((target, index): ColumnTarget => {
+    const header = columnDisplayName(headerNames[index] ?? '', index);
+    if (target.kind === 'notes' && !notesKey) return { kind: 'ignore' };
+    if (target.kind === 'field' && !noteType.fields.some((f) => f.key === target.fieldKey)) {
       return { kind: 'ignore' };
     }
-    seenNormalized.add(norm);
-
-    if (norm === 'card id' || norm === 'card_id' || norm === 'id' || norm === 'source_key') {
-      mappedHeaders[header] = 'source_key';
-      return { kind: 'card_id' };
-    }
-
-    if (norm === 'tags' || norm === 'tag' || /^category\s*\d*$/.test(norm)) {
-      mappedHeaders[header] = 'tags';
-      return { kind: 'tags' };
-    }
-
-    const directField = fieldByLookup.get(norm);
-    if (directField) {
-      mappedHeaders[header] = directField;
-      return { kind: 'field', fieldKey: directField };
-    }
-
-    // Flashcards Deluxe compatibility: "Text 1", "Text 2", "Text 3", ...
-    const textNumMatch = /^text\s*(\d+)$/.exec(norm);
-    if (textNumMatch) {
-      const idx = Number(textNumMatch[1]) - 1;
-      const targetField = noteType.fields[idx];
-      if (targetField) {
-        mappedHeaders[header] = targetField.key;
-        return { kind: 'field', fieldKey: targetField.key };
-      }
-    }
-
-    warnings.push({
-      code: 'unknown_header',
-      header,
-      message: `Unknown column header "${header}" was ignored.`,
-    });
-    return { kind: 'ignore' };
+    if (target.kind === 'field') mappedHeaders[header] = target.fieldKey;
+    else if (target.kind === 'card_id') mappedHeaders[header] = 'source_key';
+    else if (target.kind !== 'ignore') mappedHeaders[header] = target.kind;
+    return target;
   });
+
+  const seenNormalized = new Set<string>();
+  const columnRoles: ColumnTarget[] =
+    explicitRoles ??
+    parsed.headers.map((header) => {
+      const norm = header.trim().toLowerCase();
+      if (!norm) return { kind: 'ignore' };
+
+      if (seenNormalized.has(norm)) {
+        warnings.push({
+          code: 'duplicate_header',
+          header,
+          message: `Duplicate column header "${header}" ignored.`,
+        });
+        return { kind: 'ignore' };
+      }
+      seenNormalized.add(norm);
+
+      if (norm === 'card id' || norm === 'card_id' || norm === 'id' || norm === 'source_key') {
+        mappedHeaders[header] = 'source_key';
+        return { kind: 'card_id' };
+      }
+
+      if (norm === 'tags' || norm === 'tag' || /^category\s*\d*$/.test(norm)) {
+        mappedHeaders[header] = 'tags';
+        return { kind: 'tags' };
+      }
+
+      const directField = fieldByLookup.get(norm);
+      if (directField) {
+        mappedHeaders[header] = directField;
+        return { kind: 'field', fieldKey: directField };
+      }
+
+      // Flashcards Deluxe compatibility: "Text 1", "Text 2", "Text 3", ...
+      const textNumMatch = /^text\s*(\d+)$/.exec(norm);
+      if (textNumMatch) {
+        const idx = Number(textNumMatch[1]) - 1;
+        const targetField = noteType.fields[idx];
+        if (targetField) {
+          mappedHeaders[header] = targetField.key;
+          return { kind: 'field', fieldKey: targetField.key };
+        }
+      }
+
+      warnings.push({
+        code: 'unknown_header',
+        header,
+        message: `Unknown column header "${header}" was ignored.`,
+      });
+      return { kind: 'ignore' };
+    });
 
   const existingIdBySourceKey = new Map<string, string>();
   for (const note of options.existingNotes ?? []) {
@@ -241,11 +270,12 @@ export function buildEventsFromCsv(
   const events: KnownEvent[] = [];
   const seenSourceKeys = new Set<string>();
 
-  for (let rowIdx = 0; rowIdx < parsed.rows.length; rowIdx++) {
-    const row = parsed.rows[rowIdx];
+  for (let rowIdx = 0; rowIdx < dataRows.length; rowIdx++) {
+    const row = dataRows[rowIdx];
     if (!row) continue;
     const fields: Record<string, string> = {};
     const rawTags: string[] = [];
+    const notes: string[] = [];
     let rawSourceKey = '';
 
     for (let colIdx = 0; colIdx < columnRoles.length; colIdx++) {
@@ -255,19 +285,25 @@ export function buildEventsFromCsv(
       if (!value) continue;
 
       if (role.kind === 'field') {
-        fields[role.fieldKey] = options.ankiRuby ? convertAnkiRuby(value) : value;
+        const text = options.ankiRuby ? convertAnkiRuby(value) : value;
+        const prev = fields[role.fieldKey];
+        // Two columns into one field (only the mapping step allows it, for Notes) are joined.
+        fields[role.fieldKey] = prev && explicitRoles ? `${prev}\n${text}` : text;
       } else if (role.kind === 'tags') {
         rawTags.push(...value.split(/[;,]/));
       } else if (role.kind === 'card_id') {
-        rawSourceKey = value;
+        if (!rawSourceKey) rawSourceKey = value;
+      } else if (role.kind === 'notes') {
+        notes.push(notesLine(headerNames[colIdx] ?? '', colIdx, value));
       }
     }
+    if (notesKey && notes.length > 0) fields[notesKey] = joinNotes(fields[notesKey], notes);
 
     if (Object.keys(fields).length === 0) {
       warnings.push({
         code: 'empty_row_skipped',
-        row: rowIdx + 2,
-        message: `Row ${rowIdx + 2} had no mapped field values and was skipped.`,
+        row: rowIdx + rowOffset,
+        message: `Row ${rowIdx + rowOffset} had no mapped field values and was skipped.`,
       });
       continue;
     }
@@ -279,8 +315,8 @@ export function buildEventsFromCsv(
       const replacement = uuidv7(nowMs);
       warnings.push({
         code: 'duplicate_card_id',
-        row: rowIdx + 2,
-        message: `Duplicate Card ID "${sourceKey}" on row ${rowIdx + 2}; assigned new ID "${replacement}".`,
+        row: rowIdx + rowOffset,
+        message: `Duplicate Card ID "${sourceKey}" on row ${rowIdx + rowOffset}; assigned new ID "${replacement}".`,
       });
       sourceKey = replacement;
     }

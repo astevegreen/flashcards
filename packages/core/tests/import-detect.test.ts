@@ -47,7 +47,7 @@ describe('detectImportFile (magic bytes + zip entry names + header row)', () => 
       'Excel workbook',
       zip({ '[Content_Types].xml': '<x/>', 'xl/workbook.xml': '<w/>' }),
       'cards.xlsx',
-      'unsupported:xlsx',
+      'xlsx',
     ],
     [
       'Flashcards Deluxe TSV',
