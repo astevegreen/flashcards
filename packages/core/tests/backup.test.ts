@@ -10,6 +10,7 @@ import {
   mediaHashesUsedByBackups,
   packBackup,
   packBackupAsync,
+  packBackupStream,
   parseSyncFolderBackupPath,
   PRE_RESTORE_KEEP_COUNT,
   planBackupRestore,
@@ -19,6 +20,7 @@ import {
   syncFolderBackupPath,
   verifyBackupMedia,
   withBackupMedia,
+  withBackupMediaStream,
   type BackupManifest,
 } from '../src/backup/index.ts';
 import {
@@ -38,6 +40,16 @@ import { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } from '../src/samples/deck
 import { sha256Hex } from '../src/sources/hash.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
+
+function join(chunks: readonly Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
+}
 const T0 = SAMPLE_SEED_EPOCH_MS + 30 * DAY;
 
 function factoryFor(device: string): EventFactory {
@@ -362,6 +374,80 @@ describe('backup archive validation and async packing', () => {
     // The synchronous packer reads back the same.
     const sync = readBackupArchive(packBackup(built, { withMedia: true }).bytes);
     expect(activeNotes(sync.state)).toEqual(activeNotes(read.state));
+  });
+
+  it('streams the archive to a slow sink, waiting for each write before packing more', async () => {
+    const { state } = buildCollection();
+    const built = await buildBackupAsync(state, {
+      backupId: 'b-stream',
+      kind: 'full',
+      reason: 'manual',
+      nowMs: T0,
+      deviceId: 'dev-a',
+      mediaBlobs: new Map([[PNG_HASH, PNG]]),
+    });
+    const chunks: Uint8Array[] = [];
+    let inFlight = 0;
+    let maxInFlightAtPause = 0;
+    const { manifest } = await packBackupStream(
+      built,
+      { withMedia: true },
+      (chunk) => {
+        inFlight += 1;
+        chunks.push(chunk.slice());
+        return new Promise<void>((resolve) =>
+          setTimeout(() => {
+            inFlight -= 1;
+            resolve();
+          }, 1),
+        );
+      },
+      async () => {
+        maxInFlightAtPause = Math.max(maxInFlightAtPause, inFlight);
+      },
+    );
+    expect(inFlight).toBe(0);
+    expect(maxInFlightAtPause).toBe(0);
+    expect(manifest.media_included).toBe(true);
+    const read = readBackupArchive(join(chunks));
+    expect(read.media.get(PNG_HASH)?.bytes).toEqual(PNG);
+    expect(activeNotes(read.state)).toEqual(activeNotes(state));
+    // Same contents as the one-array packer.
+    const whole = readBackupArchive((await packBackupAsync(built, { withMedia: true })).bytes);
+    expect(activeNotes(whole.state)).toEqual(activeNotes(read.state));
+  });
+
+  it('streams a daily snapshot with the media from this device added', async () => {
+    const { state } = buildCollection();
+    const daily = packBackup(
+      buildBackup(state, {
+        backupId: 'b-daily',
+        kind: 'daily',
+        reason: 'auto',
+        nowMs: T0,
+        deviceId: 'dev-a',
+      }),
+      { withMedia: false },
+    ).bytes;
+    const chunks: Uint8Array[] = [];
+    const streamed = await withBackupMediaStream(
+      daily,
+      new Map([[PNG_HASH, PNG]]),
+      async (chunk) => {
+        chunks.push(chunk.slice());
+      },
+    );
+    const sync = withBackupMedia(daily, new Map([[PNG_HASH, PNG]]));
+    expect(streamed.manifest).toEqual(sync.manifest);
+    expect(streamed.missingMedia).toBe(sync.missingMedia);
+    const read = readBackupArchive(join(chunks));
+    expect(read.manifest.media_included).toBe(true);
+    expect(read.media.get(PNG_HASH)?.bytes).toEqual(PNG);
+    await expect(
+      withBackupMediaStream(daily, new Map([[PNG_HASH, PNG]]), () =>
+        Promise.reject(new Error('disk full')),
+      ),
+    ).rejects.toThrow('disk full');
   });
 
   it('rejects a malformed state.json before any of it becomes an event', () => {

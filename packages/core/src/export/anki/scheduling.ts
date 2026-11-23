@@ -66,7 +66,10 @@ export interface AnkiCardScheduling {
  */
 export interface AnkiSchedulingClock {
   nowMs: number;
-  /** Minutes east of UTC: the latest active review's offset (0 without reviews). */
+  /**
+   * Minutes east of UTC: the offset at export when the caller knows it, else the latest
+   * active review's offset (0 without reviews).
+   */
   tzOffsetMinutes: number;
   /** `preferences.day_start_hour`, clamped to 0-23. */
   dayStartHour: number;
@@ -74,7 +77,15 @@ export interface AnkiSchedulingClock {
   crt: number;
 }
 
-export function ankiSchedulingClock(state: CollectionState, nowMs: number): AnkiSchedulingClock {
+export function ankiSchedulingClock(
+  state: CollectionState,
+  nowMs: number,
+  exportTzOffsetMinutes?: number,
+): AnkiSchedulingClock {
+  const hour = Math.max(0, Math.min(23, Math.floor(state.preferences.day_start_hour)));
+  if (exportTzOffsetMinutes !== undefined && Number.isFinite(exportTzOffsetMinutes)) {
+    return clockAt(nowMs, Math.round(exportTzOffsetMinutes), hour);
+  }
   let latest: ReviewRecord | undefined;
   for (const reviews of state.reviewsByCard.values()) {
     for (const r of reviews) {
@@ -82,8 +93,10 @@ export function ankiSchedulingClock(state: CollectionState, nowMs: number): Anki
       if (!latest || compareReviewRecords(r, latest) > 0) latest = r;
     }
   }
-  const tz = latest?.tz_offset ?? 0;
-  const hour = Math.max(0, Math.min(23, Math.floor(state.preferences.day_start_hour)));
+  return clockAt(nowMs, latest?.tz_offset ?? 0, hour);
+}
+
+function clockAt(nowMs: number, tz: number, hour: number): AnkiSchedulingClock {
   const day = studyDay(nowMs, tz, hour);
   const crt = (day * MS_PER_DAY + hour * MS_PER_HOUR - tz * MS_PER_MINUTE) / 1000;
   return { nowMs, tzOffsetMinutes: tz, dayStartHour: hour, crt };

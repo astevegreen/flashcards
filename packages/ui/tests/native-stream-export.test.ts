@@ -184,3 +184,45 @@ describe('native streamed export: failures and .apkg', () => {
     expect(log).toEqual(['close', 'abort']);
   });
 });
+
+describe('native streamed backup file', () => {
+  it('streams Export Backup to the sink one write at a time, and it reads back', async () => {
+    const { readBackupArchive } = await import('@flash/core/backup');
+    const { saveFullBackupFile } = await import('../src/backups/backupRunner.ts');
+    const { state } = sampleState();
+    const chunks: Uint8Array[] = [];
+    const log: string[] = [];
+    let writing = 0;
+    let overlapped = false;
+    const sink: FileSink = {
+      write: async (c) => {
+        writing += 1;
+        if (writing > 1) overlapped = true;
+        chunks.push(c.slice());
+        await new Promise((r) => setTimeout(r, 1));
+        writing -= 1;
+      },
+      close: async () => void log.push('close'),
+      abort: async () => void log.push('abort'),
+    };
+    const downloadFile = async () => {
+      throw new Error('fallback must not run');
+    };
+    await saveFullBackupFile(fakePlatform({ downloadFile, saveStream: async () => sink }), state, {
+      deviceId: 'dev',
+      fileName: 'flashcards-backup-2026-11-23.flashpkg',
+    });
+    expect(log).toEqual(['close']);
+    expect(overlapped).toBe(false);
+    expect(chunks.length).toBeGreaterThan(1);
+    const joined = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+    let at = 0;
+    for (const c of chunks) {
+      joined.set(c, at);
+      at += c.length;
+    }
+    const read = readBackupArchive(joined);
+    expect(read.manifest.reason).toBe('manual');
+    expect(read.state.decks.size).toBe(state.decks.size);
+  });
+});

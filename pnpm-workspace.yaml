@@ -19,3 +19,7 @@ packageExtensions:
   '@capgo/capacitor-social-login':
     dependencies:
       tslib: ^2.8.1
+overrides:
+  # Dependabot alerts 1 and 2: workbox-build (via vite-plugin-pwa) pins glob 11, whose glob and
+  # minimatch 10 have advisories. glob 14.0.2+ keeps the `globSync` API workbox-build calls.
+  'workbox-build>glob': ^14.0.2
