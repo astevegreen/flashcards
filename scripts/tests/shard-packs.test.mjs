@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   decodeDictionaryShard,
@@ -50,8 +51,9 @@ describe('build-packs.mjs sharding', () => {
     expect(shardFiles.length).toBeGreaterThan(1);
     // Other packs are untouched.
     expect(catalog.packs.find((p) => p.id === 'dict-jmdict')?.shards).toBeUndefined();
-    expect(readFileSync(join(out, 'dict-jmdict.json.gz'))).toEqual(
-      readFileSync(join(STARTER, 'dict-jmdict.json.gz')),
+    // Compare the JSON, not the gzip bytes: zlib output differs between platforms.
+    expect(gunzipSync(readFileSync(join(out, 'dict-jmdict.json.gz')))).toEqual(
+      gunzipSync(readFileSync(join(STARTER, 'dict-jmdict.json.gz'))),
     );
 
     const index = decodePackArchive(new Uint8Array(readFileSync(join(out, entry?.url.slice(7)))), {
