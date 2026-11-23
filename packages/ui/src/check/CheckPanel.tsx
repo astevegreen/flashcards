@@ -136,9 +136,8 @@ export function CheckPanel() {
         const name = deckId ? stateRef.current.decks.get(deckId)?.name : undefined;
         if (name) decks.add(name);
       }
-      parts.push(
-        `${plural(noteIds.length, 'note')}${decks.size > 0 ? ` in ${[...decks].slice(0, 3).join(', ')}` : ''}`,
-      );
+      const where = decks.size > 0 ? ' in ' + [...decks].slice(0, 3).join(', ') : '';
+      parts.push(plural(noteIds.length, 'note') + where);
     }
     if (pageIds.length > 0) parts.push(plural(pageIds.length, 'page'));
     if (elsewhere) parts.push('a deck or layout');
@@ -180,9 +179,7 @@ export function CheckPanel() {
 
       {busy && <p className="text-xs text-[var(--muted)]">Checking…</p>}
       {status && (
-        <p role="status" className="text-xs text-emerald-700 dark:text-emerald-300">
-          {status}
-        </p>
+        <output className="block text-xs text-emerald-700 dark:text-emerald-300">{status}</output>
       )}
       {error && (
         <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">

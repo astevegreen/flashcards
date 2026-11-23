@@ -6,6 +6,7 @@ import {
 } from '../events/replay.ts';
 import { serializeCollectionState, type SerializedCollectionState } from '../events/snapshot.ts';
 import type { FlashEvent } from '../events/types.ts';
+import { compareCodeUnits } from '../study/queue.ts';
 
 /**
  * Check database: rebuild the collection from the event log (the truth) and compare it with the
@@ -59,7 +60,7 @@ function canonical(value: unknown): string {
   return JSON.stringify(value, (_key, v: unknown) => {
     if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
     const sorted: Record<string, unknown> = {};
-    for (const k of Object.keys(v as Record<string, unknown>).sort()) {
+    for (const k of Object.keys(v as Record<string, unknown>).sort(compareCodeUnits)) {
       sorted[k] = (v as Record<string, unknown>)[k];
     }
     return sorted;
@@ -145,7 +146,7 @@ export function compareCollectionStates(
   for (const area of AREA_ORDER) {
     const w = want[area];
     const h = have[area];
-    const ids = [...new Set([...w.keys(), ...h.keys()])].sort();
+    const ids = [...new Set([...w.keys(), ...h.keys()])].sort(compareCodeUnits);
     for (const id of ids) {
       const a = w.get(id);
       const b = h.get(id);
@@ -182,7 +183,7 @@ export function checkLogCoverage(
 ): LogCoverage {
   const seqs = new Map<string, Set<number>>();
   for (const ev of events) {
-    if (!(ev.seq > 0)) continue;
+    if (!Number.isFinite(ev.seq) || ev.seq <= 0) continue;
     let set = seqs.get(ev.device);
     if (!set) {
       set = new Set();
@@ -193,7 +194,7 @@ export function checkLogCoverage(
   const maxSeqByDevice: Record<string, number> = {};
   const devicesWithGaps: string[] = [];
   const devices = new Set<string>([...seqs.keys(), ...watermarks.keys()]);
-  for (const device of [...devices].sort()) {
+  for (const device of [...devices].sort(compareCodeUnits)) {
     const set = seqs.get(device) ?? new Set<number>();
     let max = 0;
     for (const s of set) if (s > max) max = s;

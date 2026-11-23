@@ -1,4 +1,5 @@
 import type { CollectionState } from '../events/replay.ts';
+import { compareCodeUnits } from '../study/queue.ts';
 
 /**
  * Check media: which media files the collection stores but nothing uses, and which ones notes or
@@ -22,7 +23,7 @@ export interface MediaReference {
 
 function scan(value: unknown, onHash: (hash: string) => void): void {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
-  if (!text || !text.includes('media:')) return;
+  if (!text?.includes('media:')) return;
   MEDIA_REF_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = MEDIA_REF_RE.exec(text)) !== null) {
@@ -126,68 +127,96 @@ export interface MediaCheckInput {
   backupHashes?: Iterable<string>;
 }
 
-export function checkMedia(state: CollectionState, input: MediaCheckInput): MediaCheckReport {
-  const stored = new Set<string>();
-  for (const h of input.storedHashes) stored.add(h.toLowerCase());
-  const backup = new Set<string>();
-  for (const h of input.backupHashes ?? []) backup.add(h.toLowerCase());
-  const refs = collectMediaReferences(state);
-  const spoken = spokenAudioHashes(state);
+function lowerSet(hashes: Iterable<string> | undefined): Set<string> {
+  const out = new Set<string>();
+  for (const h of hashes ?? []) out.add(h.toLowerCase());
+  return out;
+}
 
-  const candidates = new Set<string>(stored);
-  for (const hash of state.media.keys()) candidates.add(hash.toLowerCase());
+interface MediaCheckSets {
+  state: CollectionState;
+  stored: Set<string>;
+  backup: Set<string>;
+  refs: Map<string, MediaReference>;
+  spoken: Set<string>;
+}
 
-  const unused: UnusedMediaFile[] = [];
-  let usedCount = 0;
-  let keptForBackups = 0;
-  let spokenAudio = 0;
-  let unusedBytes = 0;
-  for (const hash of [...candidates].sort()) {
-    const isStored = stored.has(hash);
-    if (refs.has(hash)) {
-      if (isStored) usedCount += 1;
-      continue;
-    }
-    if (spoken.has(hash)) {
-      spokenAudio += 1;
-      continue;
-    }
-    const entry = state.media.get(hash);
-    if (!entry && backup.has(hash)) {
-      keptForBackups += 1;
-      continue;
-    }
-    if (entry && entry.size > 0) unusedBytes += entry.size;
-    unused.push({
+type MediaVerdict =
+  | { kind: 'used' }
+  | { kind: 'spoken' }
+  | { kind: 'keptForBackups' }
+  | { kind: 'unused'; file: UnusedMediaFile };
+
+/** What one stored or listed file is: used, spoken audio, held for backups, or unused. */
+function classifyMedia(sets: MediaCheckSets, hash: string): MediaVerdict {
+  if (sets.refs.has(hash)) return { kind: 'used' };
+  if (sets.spoken.has(hash)) return { kind: 'spoken' };
+  const entry = sets.state.media.get(hash);
+  if (!entry && sets.backup.has(hash)) return { kind: 'keptForBackups' };
+  const stored = sets.stored.has(hash);
+  return {
+    kind: 'unused',
+    file: {
       hash,
       inCollection: entry !== undefined,
-      stored: isStored,
-      keepFileForBackups: isStored && backup.has(hash),
+      stored,
+      keepFileForBackups: stored && sets.backup.has(hash),
       ...(entry ? { size: entry.size, mime: entry.mime, ext: entry.ext } : {}),
-    });
-  }
+    },
+  };
+}
 
+function missingMedia(sets: MediaCheckSets): MissingMediaFile[] {
   const missing: MissingMediaFile[] = [];
-  for (const [hash, ref] of [...refs.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    if (stored.has(hash)) continue;
+  const hashes = [...sets.refs.keys()].sort(compareCodeUnits);
+  for (const hash of hashes) {
+    const ref = sets.refs.get(hash);
+    if (!ref || sets.stored.has(hash)) continue;
     missing.push({
       hash,
-      noteIds: [...ref.noteIds].sort(),
-      pageIds: [...ref.pageIds].sort(),
+      noteIds: [...ref.noteIds].sort(compareCodeUnits),
+      pageIds: [...ref.pageIds].sort(compareCodeUnits),
       elsewhere: ref.elsewhere,
-      inCollection: state.media.has(hash),
+      inCollection: sets.state.media.has(hash),
     });
   }
+  return missing;
+}
 
-  return {
-    usedCount,
-    storedCount: stored.size,
-    unused,
-    unusedBytes,
-    missing,
-    keptForBackups,
-    spokenAudio,
+export function checkMedia(state: CollectionState, input: MediaCheckInput): MediaCheckReport {
+  const sets: MediaCheckSets = {
+    state,
+    stored: lowerSet(input.storedHashes),
+    backup: lowerSet(input.backupHashes),
+    refs: collectMediaReferences(state),
+    spoken: spokenAudioHashes(state),
   };
+  const candidates = new Set<string>(sets.stored);
+  for (const hash of state.media.keys()) candidates.add(hash.toLowerCase());
+
+  const report: MediaCheckReport = {
+    usedCount: 0,
+    storedCount: sets.stored.size,
+    unused: [],
+    unusedBytes: 0,
+    missing: missingMedia(sets),
+    keptForBackups: 0,
+    spokenAudio: 0,
+  };
+  for (const hash of [...candidates].sort(compareCodeUnits)) {
+    const verdict = classifyMedia(sets, hash);
+    if (verdict.kind === 'used') {
+      if (sets.stored.has(hash)) report.usedCount += 1;
+    } else if (verdict.kind === 'spoken') {
+      report.spokenAudio += 1;
+    } else if (verdict.kind === 'keptForBackups') {
+      report.keptForBackups += 1;
+    } else {
+      report.unused.push(verdict.file);
+      report.unusedBytes += Math.max(0, verdict.file.size ?? 0);
+    }
+  }
+  return report;
 }
 
 export interface MediaRemovalStep {
