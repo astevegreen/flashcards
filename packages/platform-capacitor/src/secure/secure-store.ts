@@ -3,6 +3,7 @@
  * Backed by the workspace plugin `@flash/capacitor-secure-storage` (iOS Keychain, Android Keystore);
  * tests inject an in-memory fake.
  */
+import { ONEDRIVE_NATIVE_SESSION_KV_KEY } from '@flash/platform-web/native-support';
 import { CAPACITOR_GOOGLE_SESSION_KV_KEY } from '../auth/native-google-auth.ts';
 
 export interface SecureStore {
@@ -30,7 +31,7 @@ export type MobilePlatform = 'android' | 'ios';
 export const MICROSOFT_REFRESH_TOKEN_KEY = 'microsoft_refresh_token_v1';
 
 /** The OneDrive session record; present while OneDrive is connected (or needs reconnecting). */
-export const ONEDRIVE_SESSION_KV_KEY = 'onedrive_native_session_v1';
+export const ONEDRIVE_SESSION_KV_KEY = ONEDRIVE_NATIVE_SESSION_KV_KEY;
 
 /**
  * Same value as `TTS_CONFIG_KV_KEY` in `packages/ui/src/state/useAudioController.ts` (this package
@@ -43,7 +44,7 @@ export const TTS_CONFIG_KV_KEY = 'tts_config_v1';
  * secure store instead of SQLite (`createSecureKvRouting`):
  * - `CAPACITOR_GOOGLE_SESSION_KV_KEY`: Google access token (`CapacitorGoogleAuth`).
  * - `ONEDRIVE_SESSION_KV_KEY`: OneDrive access token and scopes (`NativeMicrosoftAuth` in
- *   `@flash/platform-web`, which keeps its key private; a unit test proves it is routed).
+ *   `@flash/platform-web`, which exports the key from its `native-support` entry).
  * - `TTS_CONFIG_KV_KEY`: the bring-your-own cloud TTS API key (`useAudioController`; a unit test
  *   checks the two constants match).
  */

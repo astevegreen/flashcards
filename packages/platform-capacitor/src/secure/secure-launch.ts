@@ -16,7 +16,8 @@ import {
 /**
  * Runs before the app reads any session. On a fresh database (first launch after install), deletes
  * secrets left by an earlier install: iOS keeps Keychain items when an app is deleted. Otherwise
- * moves secret KV rows an older build wrote to SQLite into the secure store.
+ * moves secret KV rows an older build wrote to SQLite into the secure store, and the one time that
+ * sweep runs, scrubs the database's free pages so the deleted rows' bytes are gone too.
  *
  * Failures are logged, not thrown, so the app still starts; the routed `getKv` retries the move on
  * first read.
@@ -25,12 +26,14 @@ export async function prepareSecureStorageAtLaunch(options: {
   /** The unwrapped SQLite storage. */
   database: Storage;
   routing: SecureKvRouting;
+  /** Rebuilds the database file (`VACUUM`); called once, after the first migration sweep. */
+  scrubFreePages?: () => Promise<void>;
 }): Promise<void> {
   try {
     if ((await options.database.getDeviceMeta()) === undefined) {
       await options.routing.removeSecrets();
-    } else {
-      await options.routing.migrateLegacyRows();
+    } else if (await options.routing.migrateLegacyRows()) {
+      await options.scrubFreePages?.();
     }
   } catch (err) {
     console.warn('Secure storage setup failed at launch; it is retried on first use:', err);

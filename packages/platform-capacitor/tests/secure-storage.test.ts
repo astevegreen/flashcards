@@ -196,6 +196,26 @@ describe('secure KV routing (§16: tokens only in Keychain/Keystore)', () => {
     });
   });
 
+  it('scrubs free pages once, right after the first migration sweep', async () => {
+    const { driver, database, routing } = setup();
+    const execute = vi.spyOn(driver, 'execute');
+    const scrubFreePages = vi.fn(() => database.scrubFreePages());
+
+    // A fresh database has nothing to scrub.
+    await prepareSecureStorageAtLaunch({ database, routing, scrubFreePages });
+    expect(scrubFreePages).not.toHaveBeenCalled();
+
+    await database.setDeviceMeta({ deviceId: 'd', seq: 0, hlc: createHlcState('d', 0) });
+    await database.setKv('tts_config_v1', { apiKey: 'tts-key' });
+    await prepareSecureStorageAtLaunch({ database, routing, scrubFreePages });
+    expect(scrubFreePages).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith('VACUUM');
+
+    // Later launches skip the sweep, so they never rebuild the file again.
+    await prepareSecureStorageAtLaunch({ database, routing, scrubFreePages });
+    expect(scrubFreePages).toHaveBeenCalledTimes(1);
+  });
+
   it('wipes secrets left by an earlier install when the database is fresh', async () => {
     const { database, secure, routing } = setup();
     secure.values.set(MICROSOFT_REFRESH_TOKEN_KEY, 'from-previous-install');
@@ -276,8 +296,8 @@ describe('secure KV routing (§16: tokens only in Keychain/Keystore)', () => {
     expect(TTS_CONFIG_KV_KEY).toBe(UI_TTS_CONFIG_KV_KEY);
     expect(SECURE_KV_KEYS).toContain(ONEDRIVE_SESSION_KV_KEY);
 
-    // `NativeMicrosoftAuth` keeps its key private, so prove behaviourally that whatever key it and
-    // `CapacitorGoogleAuth` write is routed: neither may write any KV row to SQLite.
+    // Also prove behaviourally that whatever key `NativeMicrosoftAuth` and `CapacitorGoogleAuth`
+    // write is routed: neither may write any KV row to SQLite.
     const { database, secure, routing } = setup();
     const now = 1_000_000;
     const microsoft = new NativeMicrosoftAuth({

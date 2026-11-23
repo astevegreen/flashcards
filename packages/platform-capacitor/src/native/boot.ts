@@ -78,7 +78,11 @@ export async function bootCapacitorPlatform(
     kvKeys: SECURE_KV_KEYS,
     extraSecretKeys: [MICROSOFT_REFRESH_TOKEN_KEY],
   });
-  await prepareSecureStorageAtLaunch({ database, routing: secureKv });
+  await prepareSecureStorageAtLaunch({
+    database,
+    routing: secureKv,
+    scrubFreePages: () => database.scrubFreePages(),
+  });
 
   const googleSignInPlugin = await loadGoogleSignInPlugin(
     config,

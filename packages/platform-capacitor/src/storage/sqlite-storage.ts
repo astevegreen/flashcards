@@ -505,6 +505,16 @@ export class CapacitorSqliteStorage implements Storage {
     return true;
   }
 
+  /**
+   * Rebuilds the database file (`VACUUM`), so free pages keep nothing an older build deleted
+   * before `secure_delete` was on (e.g. tokens moved to the Keychain / Keystore). Slow on a large
+   * collection: run it once, not on every launch.
+   */
+  async scrubFreePages(): Promise<void> {
+    await this.ensureReady();
+    await this.driver.execute('VACUUM');
+  }
+
   async clearAll(): Promise<void> {
     await this.ensureReady();
     await this.driver.execute(`DELETE FROM events`);

@@ -19,9 +19,9 @@ export interface SecureKvRouting {
   storage: Storage;
   /**
    * Moves every routed key still in the wrapped storage into the secure store (copy, then delete).
-   * Runs once per database (`SECURE_KV_MIGRATED_KEY`).
+   * Runs once per database (`SECURE_KV_MIGRATED_KEY`); resolves `true` when this call ran the sweep.
    */
-  migrateLegacyRows(): Promise<void>;
+  migrateLegacyRows(): Promise<boolean>;
   /** Deletes every secret this routing owns (routed KV keys and `extraSecretKeys`). */
   removeSecrets(): Promise<void>;
 }
@@ -123,7 +123,7 @@ export function createSecureKvRouting(options: {
   return {
     storage,
     migrateLegacyRows: async () => {
-      if ((await inner.getKv(SECURE_KV_MIGRATED_KEY)) !== undefined) return;
+      if ((await inner.getKv(SECURE_KV_MIGRATED_KEY)) !== undefined) return false;
       for (const key of routed) {
         if ((await readSecure(key)) === null) {
           await moveLegacyRow(key);
@@ -133,6 +133,7 @@ export function createSecureKvRouting(options: {
         }
       }
       await inner.setKv(SECURE_KV_MIGRATED_KEY, true);
+      return true;
     },
     removeSecrets,
   };
