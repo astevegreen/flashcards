@@ -187,7 +187,7 @@ On 2026-11-23 an agent compared the app with Anki, about 25 features. This secti
 - [ ] **Duplicate finder across decks**, on the note's key field, for imported lists (HSK, JLPT) that overlap the user's own decks. Today duplicates are handled only at import.
 - [ ] **Deck descriptions**, shown before study, for starter decks and Family Library decks. `Deck` has no description field. The description in the starter catalog's `index.json` is a different thing.
 - [ ] **Limited rich text in the field editor.** Bold, italic and a small colour palette, stored as structured spans or a strict markup and rendered by our own code, never as HTML (`AGENTS.md` security rule). The main use is highlighting the target word in a sentence. It must work alongside the existing ruby markup.
-- [ ] **Paste images into fields.** Images come only from the file picker today (`NoteEditDialog.tsx`). Pasted images should go through the same `processImage` → `addMedia` path.
+- [x] **Paste images into fields.** Pasting or dropping an image on an image field's drop zone in `NoteEditDialog.tsx` goes through the same `processImage` → `addMedia` path as the file picker, with the same type and size checks (`editor-paste-image.spec.ts`). Defaults under "Decisions needed (2026-11-23 field editor)".
 - [ ] **Later:** find and replace across notes. The event log makes it undoable.
 - [ ] **Later, if cheap:** redo after undo. Undo appends `ReviewUndone` (`undoLastReview`, `AppContext.tsx`).
 
@@ -239,6 +239,13 @@ Defaults picked while clearing the leftover nits. Each stays shipped until the o
 - [ ] **Typed-answer strictness with ruby:** `both` and `readings` layouts also accept the other form (see "#17" below).
 - [ ] **macOS temp sweep:** temp files must be at least an hour old before they're deleted.
 - [ ] **Dictionary shards:** loaded lazily, with an opt-in "Download all for offline" (see "Phase 10 remainder").
+
+## Decisions needed (2026-11-23 field editor)
+
+Defaults picked while building the field editor items of "Anki feature gap" above. Each stays shipped until the owner decides.
+
+- [ ] **Pasted images, where they go:** a paste or drop on an image field's drop zone goes to that field. Anywhere else in the editor, an image with no text alongside it goes to the note's only image field; with no image field, or two or more, it is ignored. A file dropped anywhere else in the editor never opens in the browser tab.
+- [ ] **Pasted images, size cap:** a pasted or dropped file over 20 MiB is refused before it is read, the same cap `processImage` applies. The file picker still reads the file first.
 
 ## Leftover nits and known limitations
 

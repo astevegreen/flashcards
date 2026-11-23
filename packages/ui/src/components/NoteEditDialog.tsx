@@ -1,8 +1,37 @@
 import type { Note, NoteType, SourceRef } from '@flash/core';
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type FormEvent,
+} from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { MediaAudioPlayer } from './MediaAudioPlayer.tsx';
 import { MediaImage } from './MediaImage.tsx';
+
+/**
+ * Largest pasted or dropped image read into memory. Mirrors the 20 MiB input cap that
+ * `processImage` enforces, so a huge clipboard file is refused before it is read.
+ */
+const MAX_IMAGE_INPUT_BYTES = 20 * 1024 * 1024;
+
+/** The first image file in a paste or drop, or `null` when it carries no file at all. */
+function firstImageFile(data: DataTransfer | null): { file: File | null; hasFiles: boolean } {
+  if (!data) return { file: null, hasFiles: false };
+  const files = Array.from(data.files);
+  const fromItems = Array.from(data.items ?? [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((f): f is File => f !== null);
+  const all = files.length > 0 ? files : fromItems;
+  return {
+    file: all.find((f) => f.type.startsWith('image/')) ?? null,
+    hasFiles: all.length > 0,
+  };
+}
 
 export interface NoteEditDialogProps {
   note: Note | null;
@@ -106,18 +135,20 @@ export function NoteEditDialog({
     };
   }, [onClose]);
 
-  const handleUploadImage = async (fieldKey: string) => {
+  /** The one path every image takes: validate + resize (`processImage`), store, then reference. */
+  const storeImage = async (
+    fieldKey: string,
+    readBytes: () => Promise<{ bytes: Uint8Array; mime: string } | null>,
+  ) => {
     setUploadError(null);
     setUploadingField(fieldKey);
     try {
-      const picked = await platform.files.pickFile({
-        accept: 'image/png,image/jpeg,image/webp,image/gif',
-      });
+      const picked = await readBytes();
       if (!picked) return;
       if (!platform.processImage) {
         throw new Error('Image processing is unavailable on this platform.');
       }
-      const processed = await platform.processImage(picked.bytes, picked.mime ?? '');
+      const processed = await platform.processImage(picked.bytes, picked.mime);
       await addMedia(processed);
       setDraftFields((prev) => ({ ...prev, [fieldKey]: `media:${processed.hash}` }));
     } catch (err) {
@@ -125,6 +156,57 @@ export function NoteEditDialog({
     } finally {
       setUploadingField(null);
     }
+  };
+
+  const handleUploadImage = (fieldKey: string) =>
+    storeImage(fieldKey, async () => {
+      const picked = await platform.files.pickFile({
+        accept: 'image/png,image/jpeg,image/webp,image/gif',
+      });
+      return picked ? { bytes: picked.bytes, mime: picked.mime ?? '' } : null;
+    });
+
+  /** Pasted or dropped image file: same checks as the picker, plus a size cap before reading. */
+  const handleImageFile = (fieldKey: string, file: File) =>
+    storeImage(fieldKey, async () => {
+      if (file.size > MAX_IMAGE_INPUT_BYTES) {
+        throw new Error(
+          `Image exceeds maximum input size (${Math.round(MAX_IMAGE_INPUT_BYTES / (1024 * 1024))} MiB).`,
+        );
+      }
+      return { bytes: new Uint8Array(await file.arrayBuffer()), mime: file.type };
+    });
+
+  const imageFieldKeys = (noteType?.fields ?? [])
+    .filter((f) => f.kind === 'image')
+    .map((f) => f.key);
+
+  /**
+   * Paste or drop on an image field's drop zone goes to that field. Anywhere else in the dialog,
+   * an image (with no text alongside it) goes to the note's only image field, if it has exactly
+   * one; otherwise the event is left alone, apart from stopping a dropped file from opening.
+   */
+  const routeImageTransfer = (
+    e: ClipboardEvent<HTMLElement> | DragEvent<HTMLElement>,
+    data: DataTransfer | null,
+  ) => {
+    const { file, hasFiles } = firstImageFile(data);
+    if (!hasFiles) return;
+    const zone = (e.target as HTMLElement | null)?.closest?.('[data-image-drop-field]');
+    const zoneKey = zone?.getAttribute('data-image-drop-field') ?? null;
+    const isDrop = e.type === 'drop';
+    if (zoneKey) {
+      e.preventDefault();
+      if (file) void handleImageFile(zoneKey, file);
+      else setUploadError('Only PNG, JPEG, WebP, or GIF images can be added here.');
+      return;
+    }
+    if (isDrop) e.preventDefault();
+    const hasText = (data?.getData('text/plain') ?? '').length > 0;
+    const onlyImageField = imageFieldKeys.length === 1 ? imageFieldKeys[0] : undefined;
+    if (!file || hasText || onlyImageField === undefined) return;
+    e.preventDefault();
+    void handleImageFile(onlyImageField, file);
   };
 
   const handleUploadAudio = async (fieldKey: string) => {
@@ -177,7 +259,15 @@ export function NoteEditDialog({
       {...({ closedby: 'any' } as Record<string, string>)}
       className="flash-dialog m-auto w-[min(92vw,34rem)] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-0 text-[var(--fg)] shadow-2xl"
     >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 p-5">
+      <form
+        onSubmit={handleSubmit}
+        onPaste={(e) => routeImageTransfer(e, e.clipboardData)}
+        onDragOver={(e) => {
+          if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+        }}
+        onDrop={(e) => routeImageTransfer(e, e.dataTransfer)}
+        className="flex flex-col gap-4 p-5"
+      >
         <div className="flex items-center justify-between gap-2">
           <h2 id={titleId} className="text-lg font-semibold">
             Edit Note
@@ -232,11 +322,22 @@ export function NoteEditDialog({
               return (
                 <div key={field.key} className="flex flex-col gap-1.5 text-sm">
                   <span className="font-medium text-[var(--muted)]">{field.label}</span>
-                  {value && (
-                    <div className="flex flex-col items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-2">
+                  <div
+                    tabIndex={0}
+                    role="group"
+                    aria-label={`${field.label}: paste or drop an image here`}
+                    data-image-drop-field={field.key}
+                    data-testid={`image-drop-${field.key}`}
+                    className="flex flex-col items-start gap-2 rounded-xl border border-dashed border-[var(--border)] bg-[var(--bg)] p-2 focus:border-[var(--accent)] focus:outline-none"
+                  >
+                    {value ? (
                       <MediaImage src={value} alt={field.label} className="max-h-40" />
-                    </div>
-                  )}
+                    ) : (
+                      <span className="text-xs text-[var(--muted)]">
+                        {busy ? 'Processing…' : 'Paste or drop an image here'}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
