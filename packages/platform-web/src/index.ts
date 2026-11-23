@@ -102,22 +102,29 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
   // chunk: one boot-chunk entry instead of one per service (§8).
   let lazyServices: Promise<LazyWebServices> | undefined;
   const lazy = () =>
-    (lazyServices ??= import('./lazy-services.ts').then((m) =>
-      m.createLazyWebServices({
-        slug: resolved.slug,
-        isDevMode,
-        storage,
-        googleClientId,
-        tokenHelperUrl,
-        googleApiKey,
-        dropboxAppKey,
-        microsoftClientId,
-        microsoftTenant,
-        packCatalogUrl,
-        isPersonalBuild: options?.isPersonalBuild ?? true,
-        licensePublicKeyHex: options?.licensePublicKeyHex,
-      }),
-    ));
+    (lazyServices ??= import('./lazy-services.ts')
+      .then((m) =>
+        m.createLazyWebServices({
+          slug: resolved.slug,
+          isDevMode,
+          storage,
+          googleClientId,
+          tokenHelperUrl,
+          googleApiKey,
+          dropboxAppKey,
+          microsoftClientId,
+          microsoftTenant,
+          packCatalogUrl,
+          isPersonalBuild: options?.isPersonalBuild ?? true,
+          licensePublicKeyHex: options?.licensePublicKeyHex,
+        }),
+      )
+      .catch((err: unknown) => {
+        // A failed chunk fetch (offline before precache, a replaced deploy) must not stick: the
+        // next call tries again, as each service's own import() did before.
+        lazyServices = undefined;
+        throw err;
+      }));
   /** A platform method that forwards to the lazily loaded service of the same name. */
   const defer = <K extends keyof LazyWebServices>(key: K): LazyWebServices[K] =>
     (async (...args: unknown[]) =>

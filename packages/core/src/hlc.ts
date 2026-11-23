@@ -10,7 +10,11 @@ export interface HlcState {
   deviceId: string;
 }
 
-/** Largest counter value before the HLC carries into wallMs. */
+/**
+ * Largest counter value before the HLC carries into wallMs.
+ *
+ * @internal `hlc-merge.ts` only; otherwise used only inside this module.
+ */
 export const HLC_MAX_COUNTER = 0xffff;
 
 export function createHlcState(deviceId: string, initialWallMs = 0): HlcState {

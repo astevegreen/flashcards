@@ -86,6 +86,7 @@ function addToIndex(index: Map<string, Set<string>>, noteId: string, tag: string
   else index.set(noteId, new Set([tag]));
 }
 
+/** @internal snapshot-upgrade only (`snapshot-upgrade.ts`); otherwise called only inside this module. */
 export function tagAddIndex(state: CollectionState): Map<string, Set<string>> {
   let index = tagAddIndexes.get(state);
   if (!index) {

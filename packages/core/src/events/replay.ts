@@ -510,6 +510,8 @@ interface PlannedCard {
  * `required_field` is empty (`model/optional-cards.ts`) makes no card, unless that card already
  * has active reviews: then it is kept with its history and flagged `empty` (hidden from Study,
  * listed in Browse). Depends only on replayed state, so every device derives the same cards.
+ *
+ * @internal snapshot-upgrade only (`snapshot-upgrade.ts`); otherwise called only inside replay.
  */
 export function planNoteCards(
   state: CollectionState,
@@ -553,7 +555,11 @@ function deriveNoteCards(
   }
 }
 
-/** Enabled layouts of the deck that carry a `required_field` (usable or not). */
+/**
+ * Enabled layouts of the deck that carry a `required_field` (usable or not).
+ *
+ * @internal snapshot-upgrade only (`snapshot-upgrade.ts`); otherwise called only inside replay.
+ */
 export function ruleLayoutsForDeck(state: CollectionState, deck: Deck): Layout[] {
   return getEnabledLayoutsForDeck(state, deck).filter(
     (l) => l.required_field !== undefined && l.required_field !== '',
@@ -631,6 +637,7 @@ function rebuildCardsForDeck(
   }
 }
 
+/** @internal snapshot-upgrade only (`snapshot-upgrade.ts`); otherwise called only inside replay. */
 export function rebuildCardsForNote(
   state: CollectionState,
   noteId: string,
@@ -1276,6 +1283,7 @@ function applyMediaAdded(ctx: ApplyEventContext, payload: EventPayloadMap['Media
   collector?.mediaHashes.add(normHash);
 }
 
+/** @internal snapshot-upgrade only (`snapshot-upgrade.ts`); otherwise called only inside replay. */
 export function applyMediaRemoved(
   ctx: ApplyEventContext,
   payload: EventPayloadMap['MediaRemoved'],
@@ -1331,6 +1339,8 @@ function applySourceLinked(ctx: ApplyEventContext, p: EventPayloadMap['SourceLin
  * `SourceUnlinked`: clears the target's source when the unlink is the newest write to its source
  * register (shared with `SourceLinked`, so an older link arriving later stays out). Before the
  * deck/page exists, the buffered source is dropped instead. Malformed payloads are ignored.
+ *
+ * @internal snapshot-upgrade only (`snapshot-upgrade.ts`); otherwise called only inside replay.
  */
 export function applySourceUnlinkedAt(
   state: CollectionState,
