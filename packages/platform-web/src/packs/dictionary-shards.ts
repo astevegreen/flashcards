@@ -132,7 +132,7 @@ export class DictionaryShardLoader {
       const state = states.get(entry.packId);
       const shard = state ? findShardForHeadword(state.sharding, entry.headword) : undefined;
       if (!state || !shard || state.loaded.includes(shard.key)) continue;
-      const id = `${entry.packId}${shard.key}`;
+      const id = `${entry.packId}\u0001${shard.key}`;
       if (seen.has(id)) continue;
       seen.add(id);
       if (wanted.length >= maxShards) break;
