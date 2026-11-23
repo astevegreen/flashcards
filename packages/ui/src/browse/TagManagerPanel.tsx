@@ -167,7 +167,7 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
       )}
       <p className="text-xs text-[var(--muted)]">
         Changes apply to every note in the collection and to saved study sets. Renaming or deleting
-        a tag also changes its <code>::</code> subcategories.
+        a tag also changes its <code>::</code> nested tags.
       </p>
 
       {message && (

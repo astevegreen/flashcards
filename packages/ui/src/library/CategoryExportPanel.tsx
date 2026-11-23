@@ -127,7 +127,7 @@ export function CategoryExportPanel({
       <div>
         <h2 className="text-sm font-semibold">Export a tag</h2>
         <p className="text-xs text-[var(--muted)]">
-          Every note in a tag (and its <code>::</code> subcategories) as CSV or .flashpkg, with its
+          Every note in a tag (and its <code>::</code> nested tags) as CSV or .flashpkg, with its
           tags kept. To export hand-picked notes, select them in Browse.
         </p>
       </div>
