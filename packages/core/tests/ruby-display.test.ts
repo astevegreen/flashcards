@@ -267,7 +267,15 @@ describe('choice dedupe follows the ruby flag', () => {
   const t0 = Date.UTC(2026, 5, 2, 10, 0, 0);
   const DECK = 'deck-homophones';
   const LAYOUT = 'layout:custom:homophones';
-  const WORDS = ['橋[はし]', '箸[はし]', '端[はし]', '雨[あめ]', '飴[あめ]', '山[やま]', '川[かわ]'];
+  const WORDS = [
+    '橋[はし]',
+    '箸[はし]',
+    '端[はし]',
+    '雨[あめ]',
+    '飴[あめ]',
+    '山[やま]',
+    '川[かわ]',
+  ];
 
   function homophoneState(rubyDisplay: RubyDisplay | undefined) {
     const state = createEmptyState();

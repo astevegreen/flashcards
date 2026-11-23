@@ -37,7 +37,11 @@ function hashString32(input: string): number {
 
 /** Dedupe key: the text the card shows (the layout's ruby flag picks readings or bases). */
 function normalizeChoiceDedupKey(raw: string, rubyDisplay?: RubyDisplay): string {
-  return stripRuby(stripCloze(raw), rubyDisplay).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+  return stripRuby(stripCloze(raw), rubyDisplay)
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
 }
 
 /**
