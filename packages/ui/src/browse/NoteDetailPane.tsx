@@ -168,8 +168,8 @@ export function NoteDetailPane({ note, onEdit }: Readonly<NoteDetailPaneProps>) 
                   {card.variant > 0 ? ` · c${card.variant}` : ''}
                 </span>
                 <span className="flex flex-wrap items-center gap-2 text-[var(--muted)]">
-                  <span>{learningStateLabel(kinds)}</span>
-                  <span>{dueLabel(card, kinds, nowMs)}</span>
+                  {!kinds.has('empty') && <span>{learningStateLabel(kinds)}</span>}
+                  {!kinds.has('empty') && <span>{dueLabel(card, kinds, nowMs)}</span>}
                   <span>
                     {card.schedule.reps} reviews · {card.schedule.lapses} lapses
                   </span>

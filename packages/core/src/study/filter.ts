@@ -373,11 +373,12 @@ export function getCardStateKinds(
 ): Set<CardStateKind> {
   const kinds = new Set<CardStateKind>();
   const s = card.schedule;
-  if (s.state === 0) kinds.add('new');
+  // An empty card is never studied, so it has no study state of its own (only `empty`).
+  if (card.empty === true) kinds.add('empty');
+  else if (s.state === 0) kinds.add('new');
   else if (s.state === 1 || s.state === 3) kinds.add('learning');
   else kinds.add('review');
-  if (card.empty === true) kinds.add('empty');
-  else if (s.state !== 0) {
+  if (card.empty !== true && s.state !== 0) {
     const dayStart = effectiveDayStart(state, card.deck_id, ctx);
     if (s.due < getNextStudyDayRolloverMs(ctx.nowMs, ctx.tzOffsetMinutes, dayStart)) {
       kinds.add('due');

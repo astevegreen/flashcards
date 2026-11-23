@@ -27,6 +27,7 @@ import {
   type ArchiveLimits,
 } from './safe-unzip.ts';
 import { safeMediaMimeForExt } from './media-types.ts';
+import { requiredFieldProblem } from '../model/optional-cards.ts';
 import {
   normalizeMarkdownPage,
   parseMarkdownFrontmatter,
@@ -77,7 +78,13 @@ export interface FlashpkgImportResult {
   pagesImported: number;
   upgradedDecks: number;
   extractedMedia: ExtractedPackageMedia[];
-  warnings: PageNormalizeWarning[];
+  warnings: Array<PageNormalizeWarning | FlashpkgLayoutWarning>;
+}
+
+/** A layout's `required_field` that the import dropped (see `model/optional-cards.ts`). */
+export interface FlashpkgLayoutWarning {
+  code: 'layout_required_field_dropped';
+  message: string;
 }
 
 export class FlashpkgSecurityError extends Error {
@@ -508,7 +515,8 @@ export function importFlashpkg(
 
   const events: KnownEvent[] = [];
   const extractedMedia: ExtractedPackageMedia[] = [];
-  const warnings: PageNormalizeWarning[] = [];
+  const warnings: Array<PageNormalizeWarning | FlashpkgLayoutWarning> = [];
+  const packageNoteTypeFields = new Map<string, { key: string }[]>();
   let firstImportedNoteTypeId: string | undefined;
 
   if (extracted.has('note_types.json')) {
@@ -518,6 +526,7 @@ export function importFlashpkg(
     }
     firstImportedNoteTypeId = ntRes.data[0]?.id;
     for (const nt of ntRes.data) {
+      packageNoteTypeFields.set(nt.id, nt.fields);
       events.push(
         eventFactory.create(
           'NoteTypeChanged',
@@ -547,6 +556,20 @@ export function importFlashpkg(
       throw new FlashpkgValidationError('Invalid layouts.json', layoutRes.errors);
     }
     for (const layout of layoutRes.data) {
+      // A rule on a field the note type lacks (or on a cloze layout's text) would hide cards or
+      // be ignored; drop it so the layout makes a card for every note.
+      const ntFields = packageNoteTypeFields.get(layout.note_type_id);
+      const problem = requiredFieldProblem(
+        layout,
+        ntFields ? { fields: ntFields } : state.noteTypes.get(layout.note_type_id),
+      );
+      const requiredField = problem === undefined ? layout.required_field : undefined;
+      if (problem !== undefined) {
+        warnings.push({
+          code: 'layout_required_field_dropped',
+          message: `Layout "${layout.name}": ignored the rule "only when ${layout.required_field ?? ''} is filled" (${problem === 'cloze_text' ? 'a cloze layout cannot depend on its own text' : 'the note type has no such field'}).`,
+        });
+      }
       events.push(
         eventFactory.create(
           'LayoutChanged',
@@ -565,9 +588,7 @@ export function importFlashpkg(
               enabled: layout.enabled,
               ...(layout.cloze_typed !== undefined ? { cloze_typed: layout.cloze_typed } : {}),
               ...(layout.answer_field !== undefined ? { answer_field: layout.answer_field } : {}),
-              ...(layout.required_field !== undefined
-                ? { required_field: layout.required_field }
-                : {}),
+              ...(requiredField !== undefined ? { required_field: requiredField } : {}),
             },
           },
           nowMs,

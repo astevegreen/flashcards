@@ -12,6 +12,7 @@ import type {
   ReviewRecord,
 } from '../model/types.ts';
 import {
+  canonicalizeOptionalCards,
   foldSourceUnlinkedFromUnknown,
   getTotalAppliedEventCount,
   type CollectionState,
@@ -492,5 +493,7 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
   // ...and those that hydrated a newer snapshot keep the add registers but may have rewritten
   // `note.tags` without the adds: re-derive every such note so hydration equals a full replay.
   canonicalizeAllTagAddNotes(state);
+  // Snapshots from builds that predate optional cards derived every card of a rule layout.
+  canonicalizeOptionalCards(state);
   return state;
 }

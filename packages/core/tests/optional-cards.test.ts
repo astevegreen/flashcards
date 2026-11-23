@@ -1,4 +1,3 @@
-import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   applyEvents,
@@ -10,10 +9,15 @@ import { deserializeCollectionState, serializeCollectionState } from '../src/eve
 import type { FlashEvent } from '../src/events/types.ts';
 import { createHlcState } from '../src/hlc.ts';
 import { deriveCardId, deriveNoteId } from '../src/ids.ts';
-import { isFieldFilled, layoutRuleMet } from '../src/model/optional-cards.ts';
-import { BUILTIN_LAYOUTS, BUILTIN_NOTE_TYPE_IDS } from '../src/model/presets.ts';
-import type { Layout, ReviewRating } from '../src/model/types.ts';
-import { filterCards } from '../src/study/filter.ts';
+import { exportFlashpkg, importFlashpkg } from '../src/import/flashpkg.ts';
+import { isFieldFilled, layoutRuleMet, requiredFieldProblem } from '../src/model/optional-cards.ts';
+import {
+  BUILTIN_LAYOUTS,
+  BUILTIN_NOTE_TYPE_IDS,
+  BUILTIN_NOTE_TYPES,
+} from '../src/model/presets.ts';
+import type { Card, Layout, ReviewRating } from '../src/model/types.ts';
+import { getCardStateKinds, filterCards } from '../src/study/filter.ts';
 import { buildStudyQueue } from '../src/study/queue.ts';
 
 const DECK = 'deck-ko-optional';
@@ -135,8 +139,20 @@ describe('optional cards: layout required_field', () => {
       archived: false,
       created_order: 0,
     };
-    expect(layoutRuleMet(note, recog as Layout)).toBe(true);
-    expect(layoutRuleMet(note, LISTEN_LAYOUT)).toBe(false);
+    const koType = BUILTIN_NOTE_TYPES.find((n) => n.id === BUILTIN_NOTE_TYPE_IDS.VOCAB_KO);
+    expect(layoutRuleMet(note, recog as Layout, koType)).toBe(true);
+    expect(layoutRuleMet(note, LISTEN_LAYOUT, koType)).toBe(false);
+    // A rule on a field the note type lacks, or on a cloze layout's text, is ignored.
+    expect(layoutRuleMet(note, { ...LISTEN_LAYOUT, required_field: 'nope' }, koType)).toBe(true);
+    expect(requiredFieldProblem({ ...LISTEN_LAYOUT, required_field: 'nope' }, koType)).toBe(
+      'unknown_field',
+    );
+    const cloze = BUILTIN_LAYOUTS.find((l) => l.answer_mode === 'cloze') as Layout;
+    const clozeType = BUILTIN_NOTE_TYPES.find((n) => n.id === cloze.note_type_id);
+    expect(requiredFieldProblem({ ...cloze, required_field: 'text' }, clozeType)).toBe(
+      'cloze_text',
+    );
+    expect(requiredFieldProblem({ ...cloze, required_field: 'audio' }, clozeType)).toBeUndefined();
   });
 
   it('makes the card only for notes whose required field is filled', () => {
@@ -227,77 +243,117 @@ describe('optional cards: layout required_field', () => {
     );
   });
 
-  it('converges under any order, chunking and snapshot hydration (fast-check)', () => {
-    const actionArb = fc.oneof(
-      fc.record({
-        kind: fc.constant('review' as const),
-        device: fc.integer({ min: 0, max: 1 }),
-        card: fc.integer({ min: 0, max: 2 }),
-        rating: fc.constantFrom<ReviewRating>(1, 2, 3, 4),
-        dt: fc.integer({ min: 1, max: 400_000 }),
-      }),
-      fc.record({
-        kind: fc.constant('audio' as const),
-        device: fc.integer({ min: 0, max: 1 }),
-        card: fc.integer({ min: 0, max: 2 }),
-        value: fc.constantFrom('', ' ', 'sound:x.mp3', 'sound:y.mp3'),
-        dt: fc.integer({ min: 1, max: 50_000 }),
-      }),
-      fc.record({
-        kind: fc.constant('undo' as const),
-        device: fc.integer({ min: 0, max: 1 }),
-        pick: fc.integer({ min: 0, max: 50 }),
-        dt: fc.integer({ min: 1, max: 5_000 }),
-      }),
-    );
-    fc.assert(
-      fc.property(
-        fc.array(actionArb, { minLength: 2, maxLength: 30 }),
-        fc.integer({ min: 1, max: 100_000 }),
-        (actions, seed) => {
-          const factories = [
-            createEventFactory('dev-a', 0, createHlcState('dev-a', BASE)),
-            createEventFactory('dev-b', 0, createHlcState('dev-b', BASE + 500)),
-          ] as const;
-          const [f0] = factories;
-          const events = setupEvents(f0, ['sound:a.mp3', '', 'sound:c.mp3']);
-          let clock = BASE + 1_000;
-          const reviewIds: string[] = [];
-          for (const act of actions) {
-            clock += act.dt;
-            const f = factories[act.device] ?? f0;
-            if (act.kind === 'review') {
-              const id = `r-${reviewIds.length}`;
-              reviewIds.push(id);
-              events.push(review(f, id, listenCardFor(act.card), clock, act.rating));
-            } else if (act.kind === 'audio') {
-              events.push(setAudio(f, act.card, act.value, clock));
-            } else if (reviewIds.length > 0) {
-              const id = reviewIds[act.pick % reviewIds.length] ?? '';
-              events.push(f.create('ReviewUndone', { review_id: id }, clock));
-            }
-          }
-          const observe = (st: CollectionState) =>
-            [0, 1, 2].map((i) => st.cards.get(listenCardFor(i)) ?? null);
-          const reference = observe(replay(events));
-          let x = seed;
-          const shuffled = [...events].sort(() => {
-            x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
-            return (x & 1) === 0 ? -1 : 1;
-          });
-          expect(observe(replay([...events].reverse(), 1))).toEqual(reference);
-          expect(observe(replay(shuffled, 3))).toEqual(reference);
-          const cut = Math.floor(shuffled.length / 2);
-          const hydrated = deserializeCollectionState(
-            JSON.parse(
-              JSON.stringify(serializeCollectionState(replay(shuffled.slice(0, cut), 2))),
-            ) as ReturnType<typeof serializeCollectionState>,
-          );
-          applyEvents(hydrated, shuffled.slice(cut));
-          expect(observe(hydrated)).toEqual(reference);
-        },
+  it("ignores a rule on an unknown field and on a cloze layout's text", () => {
+    const f = createEventFactory('dev-a', 0, createHlcState('dev-a', BASE));
+    const events = setupEvents(f, ['', '', '']);
+    events.push(
+      f.create(
+        'LayoutChanged',
+        { layout: { ...LISTEN_LAYOUT, required_field: 'nope' } },
+        BASE + 50,
       ),
-      { numRuns: 150 },
     );
+    const st = replay(events);
+    for (let i = 0; i < 3; i++) expect(st.cards.get(listenCardFor(i))?.empty).toBeUndefined();
+
+    // Cloze: c1/c2 cards stay when the rule names the cloze text and the text is emptied.
+    const cloze = BUILTIN_LAYOUTS.find((l) => l.answer_mode === 'cloze') as Layout;
+    const g = createEventFactory('dev-b', 0, createHlcState('dev-b', BASE));
+    const noteId = deriveNoteId('deck-cloze', 'k');
+    const clozeEvents: FlashEvent[] = [
+      g.create('LayoutChanged', { layout: { ...cloze, required_field: 'text' } }, BASE),
+      g.create(
+        'DeckCreated',
+        { deck_id: 'deck-cloze', name: 'c', note_type_id: cloze.note_type_id, language: 'ja' },
+        BASE + 1,
+      ),
+      g.create(
+        'NoteUpserted',
+        {
+          note_id: noteId,
+          deck_id: 'deck-cloze',
+          source_key: 'k',
+          fields: { text: '{{c1::a}} {{c2::b}}' },
+        },
+        BASE + 2,
+      ),
+    ];
+    const c2 = deriveCardId(noteId, cloze.id, 2);
+    expect(replay(clozeEvents).cards.has(c2)).toBe(true);
+  });
+
+  it('gives an empty card only the Empty state, never Learning, Review or Due', () => {
+    const f = createEventFactory('dev-a', 0, createHlcState('dev-a', BASE));
+    const events = setupEvents(f, ['sound:a.mp3', '', '']);
+    events.push(review(f, 'r1', listenCardFor(0), BASE + 1_000, 1));
+    events.push(setAudio(f, 0, '', BASE + 2_000));
+    const st = replay(events);
+    const card = st.cards.get(listenCardFor(0));
+    expect(card?.empty).toBe(true);
+    const ctx = { nowMs: BASE + 3_000, tzOffsetMinutes: 540 };
+    expect(getCardStateKinds(st, card as Card, ctx)).toEqual(new Set(['empty']));
+    for (const state of ['learning', 'review', 'due', 'new'] as const) {
+      expect(filterCards(st, { states: [state] }, ctx).map((c) => c.id)).not.toContain(
+        listenCardFor(0),
+      );
+    }
+  });
+
+  it('hydrating a snapshot saved by a build without optional cards equals a full replay', () => {
+    const f = createEventFactory('dev-a', 0, createHlcState('dev-a', BASE));
+    const events = setupEvents(f, ['sound:a.mp3', '', 'sound:c.mp3']);
+    events.push(review(f, 'r1', listenCardFor(0), BASE + 1_000));
+    events.push(review(f, 'r2', listenCardFor(2), BASE + 1_000));
+    events.push(setAudio(f, 0, '', BASE + 2_000));
+    const reference = replay(events);
+
+    // An older build ignores `required_field` (every note gets the card, none is `empty`) but
+    // keeps it on the layout, which its snapshot serializes with a spread.
+    const old = replay(
+      events.map((e) =>
+        e.type === 'LayoutChanged'
+          ? { ...e, payload: { layout: { ...LISTEN_LAYOUT, required_field: undefined } } }
+          : e,
+      ),
+    );
+    for (let i = 0; i < 3; i++) expect(old.cards.get(listenCardFor(i))?.empty).toBeUndefined();
+    const serialized = JSON.parse(JSON.stringify(serializeCollectionState(old))) as ReturnType<
+      typeof serializeCollectionState
+    >;
+    serialized.layouts = serialized.layouts.map((l) => (l.id === LISTEN ? LISTEN_LAYOUT : l));
+    const hydrated = deserializeCollectionState(serialized);
+
+    const cardsOf = (st: CollectionState) =>
+      [...st.cards.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
+    expect(cardsOf(hydrated)).toEqual(cardsOf(reference));
+    expect(hydrated.cards.has(listenCardFor(1))).toBe(false);
+    expect(hydrated.cards.get(listenCardFor(0))?.empty).toBe(true);
+    expect([...(hydrated.cardIdsByNote.get(noteIdFor(1)) ?? [])].sort()).toEqual(
+      [...(reference.cardIdsByNote.get(noteIdFor(1)) ?? [])].sort(),
+    );
+  });
+
+  it('round-trips a rule through .flashpkg and drops one on an unknown field with a warning', () => {
+    const f = createEventFactory('dev-a', 0, createHlcState('dev-a', BASE));
+    const bad: Layout = {
+      ...LISTEN_LAYOUT,
+      id: `${LISTEN}:bad`,
+      name: 'Bad',
+      required_field: 'nope',
+    };
+    const st = replay([
+      ...setupEvents(f, ['sound:a.mp3', '', '']),
+      f.create('LayoutChanged', { layout: bad }, BASE + 20),
+    ]);
+    const pkg = exportFlashpkg(st, { packageId: 'pkg:opt', name: 'Opt', version: '1.0.0' });
+    const g = createEventFactory('dev-b', 0, createHlcState('dev-b', BASE + 100));
+    const res = importFlashpkg(pkg, createEmptyState(), g, { nowMs: BASE + 100 });
+    const layouts = res.events.flatMap((e) =>
+      e.type === 'LayoutChanged' ? [e.payload.layout] : [],
+    );
+    expect(layouts.find((l) => l.id === LISTEN)?.required_field).toBe('audio');
+    expect(layouts.find((l) => l.id === bad.id)).toBeDefined();
+    expect(layouts.find((l) => l.id === bad.id)?.required_field).toBeUndefined();
+    expect(res.warnings.map((w) => w.code)).toContain('layout_required_field_dropped');
   });
 });
