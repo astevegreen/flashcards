@@ -65,6 +65,7 @@ function setup(provider: SyncProviderKind = 'none') {
 }
 
 describe('rolling backups on a device', () => {
+  // 21 snapshots: about 2 s alone, past the 5 s default when the whole suite runs at once.
   it('takes one automatic snapshot a day, only after a change, and prunes to 14', async () => {
     const { storage, ctx, factory, state } = setup();
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -92,7 +93,7 @@ describe('rolling backups on a device', () => {
     expect(kept).toHaveLength(14);
     // Sample decks carry no media, so every snapshot is a daily one.
     expect(kept.every((b) => b.kind === 'daily' && b.reason === 'auto')).toBe(true);
-  });
+  }, 20_000);
 
   it('copies each snapshot to the sync folder when asked, one slot per weekday', async () => {
     const { storage, ctx } = setup('dev_channel');
