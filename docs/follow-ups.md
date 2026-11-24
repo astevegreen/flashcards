@@ -238,7 +238,8 @@ In priority order. Items already recorded elsewhere in this file are only pointe
    - [x] Library > Export Backup now writes the same backup file as Settings (with `backup/state.json` and review history). Before, it wrote a plain `.flashpkg` without history.
    - [x] `.apkg` day anchor: the UI passes the export-time offset (`tzOffsetMinutes`), so `crt` and due days follow the clock at export. Without it, core still falls back to the latest review's offset.
    - Size: the initial study-screen JS is 156.0 of 160 KB gz after #44–#49. The next ~0.7 KB would mean touching boot code, not just moving lazy-only code (#44).
-   - GitHub reports 3 moderate Dependabot alerts on main.
+   - [x] Dependabot: the `glob` and `minimatch` alerts are fixed on main.
+   - [ ] Dependabot alert 3, `glib` < 0.20 (moderate; unsound `VariantStrIter` iterators). It comes from Tauri's Linux GTK3 stack (`gtk` 0.18 pins `glib` 0.18.5, through `tao` 0.37 / `wry` 0.57 / `webkit2gtk` 2.0), and Tauri 2.12.7 is the newest compatible release, so no update fixes it. The app never calls `glib` directly, and only Linux desktop builds include it. Owner decision: dismiss it as "no fix available / vulnerable code not used", or leave it open until Tauri moves to a newer gtk-rs.
 
 ## Decisions needed (2026-11-23 batch)
 
