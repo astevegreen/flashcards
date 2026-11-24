@@ -31,6 +31,8 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_events_device_seq ON events(device, seq)`,
   `CREATE INDEX IF NOT EXISTS idx_events_hlc ON events(hlc)`,
   `CREATE INDEX IF NOT EXISTS idx_events_card_id ON events(card_id)`,
+  // Keyset pagination in `getEvents` seeks on (hlc, id).
+  `CREATE INDEX IF NOT EXISTS idx_events_hlc_id ON events(hlc, id)`,
   `CREATE TABLE IF NOT EXISTS cards_cache (
     id TEXT PRIMARY KEY,
     deck_id TEXT NOT NULL,
@@ -63,13 +65,35 @@ const SCHEMA_STATEMENTS = [
     b64 TEXT NOT NULL,
     PRIMARY KEY (backup_id, idx)
   )`,
+  // Serialized local snapshots for large collections (25k+ notes) also exceed Android's bridge
+  // JSON string budget as a single row, so store them in bounded text chunks too. Each write uses
+  // a new `gen`; the `__local_snapshot_meta` kv row names the generation that is current.
+  `CREATE TABLE IF NOT EXISTS local_snapshot_chunks (
+    gen TEXT NOT NULL,
+    idx INTEGER NOT NULL,
+    chunk TEXT NOT NULL,
+    PRIMARY KEY (gen, idx)
+  )`,
+  // An earlier development build's single-generation chunk table.
+  `DROP TABLE IF EXISTS snapshot_chunks`,
 ] as const;
+
+interface SnapshotMeta {
+  gen: string;
+  chunks: number;
+  localSeq: number;
+  savedAt: number;
+}
 
 const KNOWN_ENVELOPE_KEYS = new Set(['id', 'device', 'seq', 'hlc', 'type', 'v', 'payload']);
 const META_KV_KEY = '__device_meta';
 const SYNC_CURSOR_KV_KEY = 'sync_cursor';
 const SYNC_CONFIG_KV_KEY = 'sync_config';
 const SNAPSHOT_KV_KEY = '__local_snapshot';
+const SNAPSHOT_META_KV_KEY = '__local_snapshot_meta';
+const SNAPSHOT_CHUNK_CHARS = 512 * 1024;
+const EVENT_QUERY_PAGE = 500;
+const CARD_CACHE_QUERY_PAGE = 2000;
 
 function bytesToBase64(bytes: Uint8Array): string {
   let bin = '';
@@ -190,10 +214,13 @@ export class InMemorySqliteDriver implements SqliteDriver {
     { backup_id: string; created_at: number; info_json: string; bytes_b64: string }
   >();
   private backupChunks = new Map<string, string>();
+  /** `local_snapshot_chunks`, keyed by `${gen}\u0000${idx}`. */
+  private snapshotChunks = new Map<string, string>();
 
   async execute(sql: string, params: readonly unknown[] = []): Promise<void> {
     const norm = sql.trim().replace(/\s+/g, ' ');
     if (norm.startsWith('CREATE TABLE') || norm.startsWith('CREATE INDEX')) return;
+    if (norm.startsWith('DROP TABLE')) return;
 
     if (norm.startsWith('INSERT OR IGNORE INTO events')) {
       const id = String(params[0] ?? '');
@@ -275,6 +302,23 @@ export class InMemorySqliteDriver implements SqliteDriver {
       }
       return;
     }
+    if (norm.startsWith('INSERT INTO local_snapshot_chunks')) {
+      const key = `${paramText(params[0], '')}\u0000${Number(params[1] ?? 0)}`;
+      if (this.snapshotChunks.has(key)) throw new Error('UNIQUE constraint failed');
+      this.snapshotChunks.set(key, paramText(params[2], ''));
+      return;
+    }
+    if (norm.startsWith('DELETE FROM local_snapshot_chunks')) {
+      const gen = paramText(params[0], '');
+      const keep = norm.endsWith('WHERE gen <> ?');
+      const only = norm.endsWith('WHERE gen = ?');
+      for (const key of [...this.snapshotChunks.keys()]) {
+        const keyGen = key.slice(0, key.indexOf('\u0000'));
+        if ((keep && keyGen === gen) || (only && keyGen !== gen)) continue;
+        this.snapshotChunks.delete(key);
+      }
+      return;
+    }
     if (norm.startsWith('DELETE FROM backups WHERE backup_id =')) {
       this.backups.delete(paramText(params[0], ''));
       return;
@@ -315,9 +359,12 @@ export class InMemorySqliteDriver implements SqliteDriver {
 
     if (norm.includes('FROM events')) {
       let rows = [...this.events];
-      if (norm.includes('WHERE hlc >= ?')) {
-        const since = String(params[0] ?? '');
-        rows = rows.filter((r) => r.hlc >= since);
+      let limit: number | undefined;
+      if (norm.includes('WHERE hlc >= ? AND (hlc > ? OR id > ?)')) {
+        const afterHlc = String(params[0] ?? '');
+        const afterId = String(params[2] ?? '');
+        rows = rows.filter((r) => r.hlc > afterHlc || (r.hlc === afterHlc && r.id > afterId));
+        limit = Number(params[3]);
       } else if (norm.includes('WHERE card_id = ?')) {
         const cardId = String(params[0] ?? '');
         rows = rows.filter((r) => r.card_id === cardId);
@@ -331,14 +378,26 @@ export class InMemorySqliteDriver implements SqliteDriver {
         const afterLocal = Number(params[0] ?? 0);
         rows = rows.filter((r) => r.local_seq > afterLocal);
         rows.sort((a, b) => a.local_seq - b.local_seq);
-        return rows as T[];
+        return (norm.endsWith('LIMIT ?') ? rows.slice(0, Number(params[1])) : rows) as T[];
       }
       rows.sort((a, b) => (a.hlc < b.hlc ? -1 : a.hlc > b.hlc ? 1 : a.id < b.id ? -1 : 1));
-      return rows as T[];
+      return (limit === undefined ? rows : rows.slice(0, limit)) as T[];
     }
 
     if (norm.includes('FROM cards_cache')) {
-      return [...this.cards.values()] as T[];
+      let rows = [...this.cards.values()];
+      if (norm.includes('WHERE id > ? ORDER BY id ASC LIMIT ?')) {
+        const afterId = String(params[0] ?? '');
+        rows = rows.filter((r) => r.id > afterId).sort((a, b) => (a.id < b.id ? -1 : 1));
+        rows = rows.slice(0, Number(params[1]));
+      }
+      return rows as T[];
+    }
+    if (norm.startsWith('SELECT chunk FROM local_snapshot_chunks WHERE gen = ? AND idx = ?')) {
+      const raw = this.snapshotChunks.get(
+        `${paramText(params[0], '')}\u0000${Number(params[1] ?? 0)}`,
+      );
+      return raw === undefined ? [] : ([{ chunk: raw }] as T[]);
     }
     if (norm.startsWith('SELECT hash, mime, bytes_b64 FROM media WHERE hash = ?')) {
       const row = this.media.get(String(params[0] ?? ''));
@@ -374,6 +433,8 @@ export class InMemorySqliteDriver implements SqliteDriver {
 export class CapacitorSqliteStorage implements Storage {
   private readonly driver: SqliteDriver;
   private initializedPromise: Promise<void> | null = null;
+  /** Tail of the queued snapshot writes; it never rejects. */
+  private snapshotWrites: Promise<void> = Promise.resolve();
 
   constructor(driver?: SqliteDriver) {
     this.driver = driver ?? new InMemorySqliteDriver();
@@ -415,13 +476,23 @@ export class CapacitorSqliteStorage implements Storage {
 
   async getEvents(sinceHlc?: string): Promise<FlashEvent[]> {
     await this.ensureReady();
-    const rows = sinceHlc
-      ? await this.driver.query<StoredEventDbRow>(
-          `SELECT * FROM events WHERE hlc >= ? ORDER BY hlc ASC, id ASC`,
-          [sinceHlc],
-        )
-      : await this.driver.query<StoredEventDbRow>(`SELECT * FROM events ORDER BY hlc ASC, id ASC`);
-    return rows.map(rowToEvent);
+    const out: FlashEvent[] = [];
+    // Keyset pages on (hlc, id): each page starts from an index seek, not an OFFSET scan. The
+    // first page's empty `afterId` takes every row at `sinceHlc` (ids are never empty).
+    let afterHlc = sinceHlc ?? '';
+    let afterId = '';
+    for (;;) {
+      const rows = await this.driver.query<StoredEventDbRow>(
+        `SELECT * FROM events WHERE hlc >= ? AND (hlc > ? OR id > ?) ORDER BY hlc ASC, id ASC LIMIT ?`,
+        [afterHlc, afterHlc, afterId, EVENT_QUERY_PAGE],
+      );
+      for (const row of rows) out.push(rowToEvent(row));
+      const last = rows.at(-1);
+      if (!last || rows.length < EVENT_QUERY_PAGE) break;
+      afterHlc = last.hlc;
+      afterId = last.id;
+    }
+    return out;
   }
 
   async getEventsForCard(cardId: string): Promise<FlashEvent[]> {
@@ -450,13 +521,20 @@ export class CapacitorSqliteStorage implements Storage {
     afterLocalSeq: number,
   ): Promise<{ events: FlashEvent[]; maxLocalSeq: number }> {
     await this.ensureReady();
-    const rows = await this.driver.query<StoredEventDbRow>(
-      `SELECT * FROM events WHERE local_seq > ? ORDER BY local_seq ASC`,
-      [afterLocalSeq],
-    );
-    const maxLocalSeq =
-      rows.length > 0 ? (rows[rows.length - 1]?.local_seq ?? afterLocalSeq) : afterLocalSeq;
-    return { events: rows.map(rowToEvent), maxLocalSeq };
+    const events: FlashEvent[] = [];
+    let maxLocalSeq = afterLocalSeq;
+    for (;;) {
+      const rows = await this.driver.query<StoredEventDbRow>(
+        `SELECT * FROM events WHERE local_seq > ? ORDER BY local_seq ASC LIMIT ?`,
+        [maxLocalSeq, EVENT_QUERY_PAGE],
+      );
+      for (const row of rows) {
+        events.push(rowToEvent(row));
+        if (row.local_seq > maxLocalSeq) maxLocalSeq = row.local_seq;
+      }
+      if (rows.length < EVENT_QUERY_PAGE) break;
+    }
+    return { events, maxLocalSeq };
   }
 
   async getMaxLocalSeq(): Promise<number> {
@@ -503,22 +581,34 @@ export class CapacitorSqliteStorage implements Storage {
 
   async loadMaterializedCards(): Promise<MaterializedCardRow[]> {
     await this.ensureReady();
-    const rows = await this.driver.query<{
-      id: string;
-      deck_id: string;
-      note_id: string;
-      layout_id: string;
-      due: number;
-      schedule_json: string;
-    }>(`SELECT id, deck_id, note_id, layout_id, due, schedule_json FROM cards_cache`);
-    return rows.map((r) => ({
-      id: r.id,
-      deck_id: r.deck_id,
-      note_id: r.note_id,
-      layout_id: r.layout_id,
-      due: r.due,
-      schedule: JSON.parse(r.schedule_json) as MaterializedCardRow['schedule'],
-    }));
+    const out: MaterializedCardRow[] = [];
+    let afterId = '';
+    for (;;) {
+      const rows = await this.driver.query<{
+        id: string;
+        deck_id: string;
+        note_id: string;
+        layout_id: string;
+        due: number;
+        schedule_json: string;
+      }>(
+        `SELECT id, deck_id, note_id, layout_id, due, schedule_json FROM cards_cache WHERE id > ? ORDER BY id ASC LIMIT ?`,
+        [afterId, CARD_CACHE_QUERY_PAGE],
+      );
+      afterId = rows.at(-1)?.id ?? afterId;
+      for (const r of rows) {
+        out.push({
+          id: r.id,
+          deck_id: r.deck_id,
+          note_id: r.note_id,
+          layout_id: r.layout_id,
+          due: r.due,
+          schedule: JSON.parse(r.schedule_json) as MaterializedCardRow['schedule'],
+        });
+      }
+      if (rows.length < CARD_CACHE_QUERY_PAGE) break;
+    }
+    return out;
   }
 
   async getSyncCursor(): Promise<SyncCursorState | undefined> {
@@ -537,12 +627,85 @@ export class CapacitorSqliteStorage implements Storage {
     await this.setKv(SYNC_CONFIG_KV_KEY, config);
   }
 
-  async getLocalSnapshot(): Promise<LocalSnapshotRecord | undefined> {
-    return this.getKv<LocalSnapshotRecord>(SNAPSHOT_KV_KEY);
+  private readSnapshotChunk(gen: string, idx: number): Promise<{ chunk: string }[]> {
+    return this.driver.query<{ chunk: string }>(
+      `SELECT chunk FROM local_snapshot_chunks WHERE gen = ? AND idx = ?`,
+      [gen, idx],
+    );
   }
 
+  async getLocalSnapshot(): Promise<LocalSnapshotRecord | undefined> {
+    await this.snapshotWrites;
+    const meta = await this.getKv<SnapshotMeta>(SNAPSHOT_META_KV_KEY);
+    if (meta && typeof meta.gen === 'string' && Number.isInteger(meta.chunks) && meta.chunks > 0) {
+      const parts: string[] = [];
+      for (let idx = 0; idx < meta.chunks; idx++) {
+        // One chunk per call, so no bridge response carries more than one chunk.
+        const rows = await this.readSnapshotChunk(meta.gen, idx); // NOSONAR
+        const part = rows[0]?.chunk;
+        if (part === undefined) return undefined;
+        parts.push(part);
+      }
+      try {
+        const snapshot = JSON.parse(parts.join('')) as LocalSnapshotRecord['snapshot'];
+        return { snapshot, localSeq: meta.localSeq, savedAt: meta.savedAt };
+      } catch {
+        return undefined;
+      }
+    }
+    try {
+      return await this.getKv<LocalSnapshotRecord>(SNAPSHOT_KV_KEY);
+    } catch {
+      // A legacy single-row snapshot can be too big to read back across the bridge (the reason
+      // for chunking). Boot then replays the log instead, and the next save replaces the row.
+      return undefined;
+    }
+  }
+
+  /**
+   * Writes the chunks under a new generation and switches the meta row to it last, so a failed
+   * or interrupted write leaves the previous snapshot whole. Writes run one at a time.
+   */
   async setLocalSnapshot(record: LocalSnapshotRecord): Promise<void> {
-    await this.setKv(SNAPSHOT_KV_KEY, record);
+    const run = this.snapshotWrites.then(() => this.writeLocalSnapshot(record));
+    this.snapshotWrites = run.catch(() => undefined);
+    return run;
+  }
+
+  private async writeLocalSnapshot(record: LocalSnapshotRecord): Promise<void> {
+    await this.ensureReady();
+    const raw = JSON.stringify(record.snapshot);
+    const gen = globalThis.crypto.randomUUID();
+    let chunks = 0;
+    try {
+      let start = 0;
+      do {
+        let end = Math.min(raw.length, start + SNAPSHOT_CHUNK_CHARS);
+        // Never split a surrogate pair (a code point above U+FFFF starting at the last unit): a lone
+        // half does not survive the UTF-8 conversion on the way into SQLite.
+        if (end < raw.length && (raw.codePointAt(end - 1) ?? 0) > 0xffff) end--;
+        await this.driver.execute(
+          `INSERT INTO local_snapshot_chunks (gen, idx, chunk) VALUES (?, ?, ?)`,
+          [gen, chunks, raw.slice(start, end)],
+        );
+        chunks++;
+        start = end;
+      } while (start < raw.length);
+    } catch (err) {
+      await this.driver
+        .execute(`DELETE FROM local_snapshot_chunks WHERE gen = ?`, [gen])
+        .catch(() => undefined);
+      throw err;
+    }
+    const meta: SnapshotMeta = {
+      gen,
+      chunks,
+      localSeq: record.localSeq,
+      savedAt: record.savedAt,
+    };
+    await this.setKv(SNAPSHOT_META_KV_KEY, meta);
+    await this.driver.execute(`DELETE FROM local_snapshot_chunks WHERE gen <> ?`, [gen]);
+    await this.deleteKv(SNAPSHOT_KV_KEY);
   }
 
   async getKv<T = unknown>(key: string): Promise<T | undefined> {
@@ -695,6 +858,8 @@ export class CapacitorSqliteStorage implements Storage {
   /** Clears the collection. Backups stay, and so does the media a kept backup lists. */
   async clearAll(): Promise<void> {
     await this.ensureReady();
+    // A snapshot write still queued would otherwise land after the clear.
+    await this.snapshotWrites;
     await this.driver.execute(`DELETE FROM events`);
     await this.driver.execute(`DELETE FROM cards_cache`);
     const backupRows = await this.driver.query<{ info_json: string }>(
@@ -711,6 +876,7 @@ export class CapacitorSqliteStorage implements Storage {
         }
       }
     }
+    await this.driver.execute(`DELETE FROM local_snapshot_chunks`);
     await this.driver.execute(`DELETE FROM kv`);
   }
 }
