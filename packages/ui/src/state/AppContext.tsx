@@ -27,7 +27,9 @@ import {
   type KnownEvent,
   type Layout,
   type Note,
+  type NoteTagsAddedPayload,
   type ReviewRating,
+  type ReviewRecordedPayload,
   type SyncCursorState,
 } from '@flash/core';
 import type {
@@ -75,6 +77,10 @@ export interface UndoEntry {
   leechSuspended?: boolean;
   /** The review made the card a leech and tagged its note `leech`; Undo removes the tag. */
   leechTagged?: boolean;
+  /** The review as recorded, so Redo can record it again after an Undo. */
+  review: ReviewRecordedPayload;
+  /** The `leech` tag add the review made, re-added by Redo. */
+  tagAdd?: NoteTagsAddedPayload;
 }
 
 export interface AppContextValue {
@@ -118,6 +124,10 @@ export interface AppContextValue {
     options?: { typedAnswer?: string },
   ) => void;
   undoLastReview: () => boolean;
+  /** Reviews undone in this session that Redo can record again (newest last). */
+  redoStack: readonly UndoEntry[];
+  /** Records the last undone review again; false when there is nothing to redo. */
+  redoLastUndo: () => boolean;
   /** Forgets the study undo history (after a restore changed the collection under it). */
   clearUndoStack: () => void;
   /** Resolves once queued writes and media re-adds have reached storage (call before a reload). */
@@ -222,6 +232,7 @@ export function AppProvider({
   const [entitlement, setEntitlement] = useState<EntitlementState>(DEFAULT_PERSONAL_ENTITLEMENT);
   const entitlementRef = useRef<EntitlementState>(DEFAULT_PERSONAL_ENTITLEMENT);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const [redoStack, setRedoStack] = useState<UndoEntry[]>([]);
   const [activeDeckId, setActiveDeckId] = useState<string | undefined>(undefined);
   const [persistQueue] = useState<PersistQueue>(createPersistQueue);
   const lastLocalSnapEventsRef = useRef<number>(getTotalAppliedEventCount(collectionState));
@@ -530,22 +541,19 @@ export function AppProvider({
       const reviewId = uuidv7(nowMs);
       const layout = st.layouts.get(card.layout_id);
 
-      const ev = factory.create(
-        'ReviewRecorded',
-        {
-          review_id: reviewId,
-          card_id: card.id,
-          rating,
-          reviewed_at: nowMs,
-          tz_offset: tzOffset,
-          duration_ms: Math.max(0, Math.round(durationMs)),
-          answer_mode: layout?.answer_mode ?? 'flip',
-          ...(options?.typedAnswer !== undefined ? { typed_answer: options.typedAnswer } : {}),
-          fsrs_params_version: paramsVersion,
-          resulting_due_at,
-        },
-        nowMs,
-      );
+      const review: ReviewRecordedPayload = {
+        review_id: reviewId,
+        card_id: card.id,
+        rating,
+        reviewed_at: nowMs,
+        tz_offset: tzOffset,
+        duration_ms: Math.max(0, Math.round(durationMs)),
+        answer_mode: layout?.answer_mode ?? 'flip',
+        ...(options?.typedAnswer !== undefined ? { typed_answer: options.typedAnswer } : {}),
+        fsrs_params_version: paramsVersion,
+        resulting_due_at,
+      };
+      const ev = factory.create('ReviewRecorded', review, nowMs);
 
       // Phase 9 leech auto-suspend (setting, default off): decided once here, logged as an event.
       const events: KnownEvent[] = [ev];
@@ -569,9 +577,12 @@ export function AppProvider({
           cardId: card.id,
           deckId: card.deck_id,
           ...(leech && { leechSuspended: true }),
-          ...(leechTag && { leechTagged: true }),
+          ...(leechTag && { leechTagged: true, tagAdd: leechTag }),
+          review,
         },
       ]);
+      // A new answer ends the redo history, as in any editor.
+      setRedoStack([]);
       emitEvents(events);
     },
     [collectionState, emitEvents, eventFactory],
@@ -593,9 +604,42 @@ export function AppProvider({
     const untag = card && planLeechTagUndo(st, card);
     if (untag) events.push(factory.create('NoteUpserted', untag, nowMs));
     setUndoStack((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev.slice(-49), last]);
     emitEvents(events);
     return true;
   }, [collectionState, emitEvents, eventFactory, undoStack]);
+
+  // Redo records the undone review again under a new id, with its original time and answer, so
+  // replay gives the card the schedule it had before the Undo. Refused (and dropped) once the card
+  // has a newer review, e.g. synced from another device, which the old one would now precede.
+  const redoLastUndo = useCallback((): boolean => {
+    const last = redoStack[redoStack.length - 1];
+    if (!last) return false;
+    setRedoStack((prev) => prev.slice(0, -1));
+    const st = stateRef.current ?? collectionState;
+    if (!st.cards.has(last.cardId)) return false;
+    const newer = (st.reviewsByCard.get(last.cardId) ?? []).some(
+      (r) => !st.undoneReviewIds.has(r.review_id) && r.reviewed_at > last.review.reviewed_at,
+    );
+    if (newer) return false;
+    const factory = factoryRef.current ?? eventFactory;
+    const nowMs = Date.now();
+    const review: ReviewRecordedPayload = { ...last.review, review_id: uuidv7(nowMs) };
+    const events: KnownEvent[] = [factory.create('ReviewRecorded', review, nowMs)];
+    if (last.leechSuspended) {
+      events.push(
+        factory.create(
+          'CardSuspended',
+          { card_id: last.cardId, reason: 'leech', review_id: review.review_id },
+          nowMs,
+        ),
+      );
+    }
+    if (last.tagAdd) events.push(factory.create('NoteTagsAdded', last.tagAdd, nowMs));
+    setUndoStack((prev) => [...prev.slice(-49), { ...last, reviewId: review.review_id, review }]);
+    emitEvents(events);
+    return true;
+  }, [collectionState, emitEvents, eventFactory, redoStack]);
 
   const updateNote = useCallback(
     (note: Note, fields: Record<string, string>, tags: string[]) => {
@@ -1036,7 +1080,11 @@ export function AppProvider({
     entitlement,
     refreshEntitlement,
     undoStack,
-    clearUndoStack: () => setUndoStack([]),
+    redoStack,
+    clearUndoStack: () => {
+      setUndoStack([]);
+      setRedoStack([]);
+    },
     whenSaved,
     activeDeckId,
     setActiveDeckId,
@@ -1059,6 +1107,7 @@ export function AppProvider({
     getEventFactory,
     rateCard,
     undoLastReview,
+    redoLastUndo,
     updateNote,
     setNoteArchived,
     markNoteReviewed,
