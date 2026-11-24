@@ -1,4 +1,5 @@
 import type { PlatformServices } from '@flash/platform';
+import { ExportCancelledError } from './exportCancelled.ts';
 
 /**
  * Streams a zip from the Anki writers to the platform and saves it. Lazily imported by the two
@@ -12,12 +13,14 @@ export async function saveStreamedZip<R extends { fileName: string }>(
   platform: PlatformServices,
   mimeType: string,
   fileName: string,
-  write: (emit: (chunk: Uint8Array) => void) => Promise<R>,
+  write: (emit: (chunk: Uint8Array) => void | Promise<void>) => Promise<R>,
 ): Promise<R> {
   if (!platform.files.downloadBlob && platform.files.saveStream) {
     const sink = await platform.files.saveStream(fileName, mimeType);
-    if (!sink) throw new Error('Export cancelled.');
-    // `emit` is synchronous, so writes are chained on `queue`, one awaited at a time.
+    if (!sink) throw new ExportCancelledError();
+    // Writes are chained on `queue`, one awaited at a time. `emit` returns the queue, and the
+    // zip writers wait for it before reading the next media file (backpressure), so a disk slower
+    // than the zip never piles chunks up in memory.
     let queue: Promise<void> = Promise.resolve();
     let failure: unknown;
     let failed = false;
@@ -31,6 +34,7 @@ export async function saveStreamedZip<R extends { fileName: string }>(
             failed = true;
             failure = err;
           });
+        return queue;
       });
       await queue;
       if (failed) throw failure;
@@ -45,7 +49,9 @@ export async function saveStreamedZip<R extends { fileName: string }>(
     }
   }
   const parts: Blob[] = [];
-  const result = await write((chunk) => parts.push(new Blob([chunk as Uint8Array<ArrayBuffer>])));
+  const result = await write((chunk) => {
+    parts.push(new Blob([chunk as Uint8Array<ArrayBuffer>]));
+  });
   const blob = new Blob(parts, { type: mimeType });
   parts.length = 0;
   if (platform.files.downloadBlob) {

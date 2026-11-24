@@ -10,6 +10,7 @@ import {
 } from '@flash/core';
 import { Suspense, useMemo, useState, type FormEvent } from 'react';
 import { exportAnkiCsvZip } from '../export/ankiExport.ts';
+import { isExportCancelled } from '../export/exportCancelled.ts';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
 
@@ -133,7 +134,11 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
         });
         setMessage({ kind: 'ok', text });
       } catch (err) {
-        setMessage({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
+        setMessage(
+          isExportCancelled(err)
+            ? { kind: 'ok', text: 'Export cancelled.' }
+            : { kind: 'error', text: err instanceof Error ? err.message : String(err) },
+        );
       }
       return;
     }

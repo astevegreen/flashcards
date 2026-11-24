@@ -1,4 +1,6 @@
-import { expect, test, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { expect, test, type Download, type Page } from '@playwright/test';
+import { readBackupArchive } from '../../packages/core/src/backup/archive.ts';
 
 /**
  * Rolling backups: the app takes a dated snapshot on its own shortly after launch, the snapshot
@@ -26,6 +28,11 @@ async function countBackups(page: Page): Promise<number> {
       db.close();
     }
   }, dbNameFor(page));
+}
+
+async function readDownloadedBackup(download: Download) {
+  expect(download.suggestedFilename()).toMatch(/^flashcards-backup-\d{4}-\d{2}-\d{2}\.flashpkg$/);
+  return readBackupArchive(new Uint8Array(readFileSync((await download.path()) ?? '')));
 }
 
 test.describe('Automatic backups', () => {
@@ -68,5 +75,36 @@ test.describe('Automatic backups', () => {
 
     await page.getByRole('button', { name: 'Library' }).first().click();
     await expect(page.locator('[data-testid^="deck-row-"]')).toHaveCount(5);
+  });
+
+  test('Export Backup and a snapshot Download save streamed archives that read back', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.goto('/?device=backupdownload');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await expect.poll(() => countBackups(page), { timeout: 30_000 }).toBe(1);
+    await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
+
+    const [full] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export Backup' }).click(),
+    ]);
+    const exported = await readDownloadedBackup(full);
+    // The sample decks hold no media, so the file is packed as a daily (media-less) snapshot.
+    expect(exported.manifest.reason).toBe('manual');
+    expect(exported.manifest.counts.decks).toBe(5);
+    await expect(page.getByText('Backup exported successfully.')).toBeVisible();
+
+    const panel = page.getByTestId('backups-panel');
+    const [snapshot] = await Promise.all([
+      page.waitForEvent('download'),
+      panel.getByTestId('backup-row').getByRole('button', { name: 'Download' }).click(),
+    ]);
+    const saved = await readDownloadedBackup(snapshot);
+    expect(saved.manifest.reason).toBe('auto');
+    expect(saved.manifest.counts.decks).toBe(5);
+    expect(saved.state.decks.size).toBe(exported.state.decks.size);
+    await expect(panel.getByRole('status')).toContainText('Saved.');
   });
 });

@@ -12,6 +12,7 @@ import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
 import { LanguagesCard } from '../components/LanguagesCard.tsx';
 import { StudyRemindersSetting } from '../reminders/StudyRemindersSetting.tsx';
+import { isExportCancelled } from '../export/exportCancelled.ts';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
@@ -384,21 +385,22 @@ export function SettingsScreen() {
   const handleExportBackup = async () => {
     try {
       // A `.flashpkg` any build can import, plus the review history a restore needs.
-      const { buildFullBackupFile } = await import('../backups/backupRunner.ts');
-      const bytes = await buildFullBackupFile(platform.storage, state, {
+      const { saveFullBackupFile } = await import('../backups/backupRunner.ts');
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      await saveFullBackupFile(platform, state, {
         deviceId: meta?.deviceId ?? platform.deviceId,
         ...(meta?.collectionId !== undefined ? { collectionId: meta.collectionId } : {}),
+        fileName: `flashcards-backup-${dateStamp}.flashpkg`,
       });
-      const dateStamp = new Date().toISOString().slice(0, 10);
-      await platform.files.downloadFile(
-        `flashcards-backup-${dateStamp}.flashpkg`,
-        bytes,
-        'application/zip',
-      );
       await markBackupCompleted();
       setStatus('Backup exported successfully.');
       setError(null);
     } catch (err) {
+      if (isExportCancelled(err)) {
+        setStatus('Export cancelled.');
+        setError(null);
+        return;
+      }
       setError(err instanceof Error ? err.message : String(err));
     }
   };

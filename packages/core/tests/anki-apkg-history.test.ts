@@ -237,4 +237,30 @@ describe('.apkg review history', () => {
     const card = table(p, 'cards').find((c) => c['queue'] === 2);
     expect(card?.['due']).toBe(Number(card?.['ivl']) - 1);
   });
+
+  it('anchors crt to the export offset when given, not the latest review (DST change)', () => {
+    // Last review at 22:00 EDT (UTC-4) on 20 Nov; export at 03:30 EST (UTC-5) on 25 Nov, half an
+    // hour before the rollover, so still study day 24 Nov. The review's offset would say 04:30
+    // and study day 25 Nov.
+    const at = Date.UTC(2026, 10, 21, 2, 0);
+    const now = Date.UTC(2026, 10, 25, 8, 30);
+    const state = oneReviewState(at, -240);
+    const stale = planAnkiApkgExport(state, { nowMs: now, deckIds: [VOCAB_DECK] });
+    expect(table(stale, 'col')[0]?.['crt']).toBe(Date.UTC(2026, 10, 25, 8) / 1000);
+
+    const p = planAnkiApkgExport(state, {
+      nowMs: now,
+      tzOffsetMinutes: -300,
+      deckIds: [VOCAB_DECK],
+    });
+    const col = table(p, 'col')[0] ?? {};
+    // 04:00 EST on 24 Nov.
+    expect(col['crt']).toBe(Date.UTC(2026, 10, 24, 9) / 1000);
+    const conf = JSON.parse(String(col['conf'])) as Record<string, unknown>;
+    expect([conf['rollover'], conf['creationOffset']]).toEqual([4, 300]);
+    expect(ankiToday(p, now)).toBe(0);
+    const card = table(p, 'cards').find((c) => c['queue'] === 2);
+    // Reviewed on study day 20 Nov (21:00 EST); today is 24 Nov.
+    expect(card?.['due']).toBe(Number(card?.['ivl']) - 4);
+  });
 });
