@@ -33,6 +33,7 @@ import { useDeckOrganization } from '../library/useDeckOrganization.ts';
 import { setStudyFilter } from '../study/filterStore.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
+import { isExportCancelled } from '../export/exportCancelled.ts';
 import { useApp } from '../state/AppContext.tsx';
 import { ANKI_IMPORT_PANEL_HEIGHT } from '../import/anki-import-layout.ts';
 import { BRING_MY_CARDS_PANEL_HEIGHT } from '../import/bring-my-cards-layout.ts';
@@ -801,6 +802,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     upsertPage,
     markBackupCompleted,
     syncState,
+    meta,
   } = useApp();
 
   // Opening the Library copies every preset into any member deck that fell behind it (also run
@@ -955,6 +957,11 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
       setStatusMessage(await exportAnkiApkg(platform, state, { deckIds: [deck.id] }));
       setErrorMessage(null);
     } catch (err) {
+      if (isExportCancelled(err)) {
+        setStatusMessage('Export cancelled.');
+        setErrorMessage(null);
+        return;
+      }
       setErrorMessage(err instanceof Error ? err.message : String(err));
     }
   };
@@ -982,22 +989,24 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
 
   const handleExportAll = async () => {
     try {
-      const { exportFlashpkg } = await import('@flash/core/flashpkg');
-      const mediaBlobs = await collectMediaBlobs();
-      const bytes = exportFlashpkg(state, {
-        name: 'Flashcards Collection Backup',
-        mediaBlobs,
-      });
+      // The same file as Settings > Export Backup: a `.flashpkg` any build imports, plus the
+      // review history a restore needs, streamed to the file on native shells.
+      const { saveFullBackupFile } = await import('../backups/backupRunner.ts');
       const dateStamp = new Date().toISOString().slice(0, 10);
-      await platform.files.downloadFile(
-        `flashcards-backup-${dateStamp}.flashpkg`,
-        bytes,
-        'application/zip',
-      );
+      await saveFullBackupFile(platform, state, {
+        deviceId: meta?.deviceId ?? platform.deviceId,
+        ...(meta?.collectionId !== undefined ? { collectionId: meta.collectionId } : {}),
+        fileName: `flashcards-backup-${dateStamp}.flashpkg`,
+      });
       await markBackupCompleted();
       setStatusMessage(`Exported full collection backup (${decks.length} deck(s)).`);
       setErrorMessage(null);
     } catch (err) {
+      if (isExportCancelled(err)) {
+        setStatusMessage('Export cancelled.');
+        setErrorMessage(null);
+        return;
+      }
       setErrorMessage(err instanceof Error ? err.message : String(err));
     }
   };
