@@ -7,6 +7,9 @@ import {
   type SqliteDriver,
 } from '../src/storage/sqlite-storage.ts';
 
+/** Mirrors `SNAPSHOT_CHUNK_CHARS` in sqlite-storage.ts. */
+const SNAPSHOT_CHUNK_CHARS = 512 * 1024;
+
 function info(id: string, createdAt: number): StoredBackupInfo {
   return {
     format_version: 1,
@@ -105,59 +108,103 @@ describe.each([
     expect(await storage.getMedia(a)).toBeUndefined();
   });
 
-  it('stores large local snapshots in bounded chunks, reads legacy unchunked ones, and paginates events', async () => {
+  it('stores large local snapshots in bounded chunks and reads legacy unchunked ones', async () => {
     const storage = await make();
-    // Large snapshot spanning multiple 512K-char chunks
-    const bigText = '가'.repeat(1_200_000);
-    const snapshot = { version: 2, bigText } as never;
+    const snapshot = { version: 2, bigText: '가'.repeat(1_200_000) } as never;
     await storage.setLocalSnapshot({ snapshot, localSeq: 42, savedAt: 1234 });
     expect(await storage.getKv('__local_snapshot')).toBeUndefined();
-    expect(await storage.getLocalSnapshot()).toEqual({
-      snapshot,
-      localSeq: 42,
-      savedAt: 1234,
-    });
+    expect(await storage.getLocalSnapshot()).toEqual({ snapshot, localSeq: 42, savedAt: 1234 });
 
     await storage.clearAll();
     expect(await storage.getLocalSnapshot()).toBeUndefined();
 
-    // Legacy single-row `__local_snapshot` still loads when `__local_snapshot_meta` is absent
-    await storage.setKv('__local_snapshot', {
-      snapshot: { version: 2 },
-      localSeq: 7,
-      savedAt: 99,
-    });
-    expect(await storage.getLocalSnapshot()).toEqual({
-      snapshot: { version: 2 },
-      localSeq: 7,
-      savedAt: 99,
-    });
+    // A legacy single-row `__local_snapshot` still loads when no chunked meta exists.
+    const legacy = { snapshot: { version: 2 }, localSeq: 7, savedAt: 99 };
+    await storage.setKv('__local_snapshot', legacy);
+    expect(await storage.getLocalSnapshot()).toEqual(legacy);
+  });
 
-    // Paginated events beyond 500 rows
-    const batch = Array.from({ length: 650 }, (_, i) => ({
-      id: `ev-${String(i).padStart(4, '0')}`,
-      device: 'dev-a',
-      seq: i + 1,
-      hlc: `0000000000001:${String(i).padStart(4, '0')}:dev-a`,
-      type: 'DeckCreated',
-      v: 1,
-      payload: { deck_id: `d-${i}` },
-    }));
+  it('keeps a surrogate pair whole when it straddles a chunk boundary', async () => {
+    const storage = await make();
+    // Puts the emoji's high surrogate on the last code unit of the first chunk.
+    const head = '{"version":2,"t":"'.length;
+    const t = 'a'.repeat(SNAPSHOT_CHUNK_CHARS - 1 - head) + '😀' + '가'.repeat(10);
+    const snapshot = { version: 2, t } as never;
+    await storage.setLocalSnapshot({ snapshot, localSeq: 1, savedAt: 1 });
+    expect(await storage.getLocalSnapshot()).toEqual({ snapshot, localSeq: 1, savedAt: 1 });
+  });
+
+  it('runs overlapping snapshot writes one at a time, so the last one wins whole', async () => {
+    const storage = await make();
+    const a = { version: 2, t: 'a'.repeat(1_100_000) } as never;
+    const b = { version: 2, t: 'b'.repeat(1_100_000) } as never;
+    await Promise.all([
+      storage.setLocalSnapshot({ snapshot: a, localSeq: 1, savedAt: 1 }),
+      storage.setLocalSnapshot({ snapshot: b, localSeq: 2, savedAt: 2 }),
+    ]);
+    expect(await storage.getLocalSnapshot()).toEqual({ snapshot: b, localSeq: 2, savedAt: 2 });
+  });
+
+  it('pages events and the card cache in order across page boundaries', async () => {
+    const storage = await make();
+    // hlc runs against insertion order, and neighbours share an hlc so the id tie-break is
+    // exercised across the 500-row page boundary.
+    const n = 1200;
+    const batch = Array.from({ length: n }, (_, i) => {
+      const j = n - 1 - i;
+      return {
+        id: `ev-${String(i).padStart(4, '0')}`,
+        device: 'dev-a',
+        seq: i + 1,
+        hlc: `0000000000001:${String(Math.floor((j + 1) / 2)).padStart(4, '0')}:dev-a`,
+        type: 'DeckCreated',
+        v: 1,
+        payload: { deck_id: `d-${i}` },
+      };
+    });
     await storage.appendEvents(batch as never);
-    const all = await storage.getAllEvents();
-    expect(all).toHaveLength(650);
-    const delta = await storage.getEventsAfterLocalSeq(600);
-    expect(delta.events).toHaveLength(50);
-    expect(delta.maxLocalSeq).toBe(650);
+    const byHlcThenId = [...batch].sort((x, y) =>
+      x.hlc === y.hlc ? (x.id < y.id ? -1 : 1) : x.hlc < y.hlc ? -1 : 1,
+    );
+    expect((await storage.getAllEvents()).map((e) => e.id)).toEqual(byHlcThenId.map((e) => e.id));
+    const since = byHlcThenId[700]?.hlc ?? '';
+    expect((await storage.getEvents(since)).map((e) => e.id)).toEqual(
+      byHlcThenId.filter((e) => e.hlc >= since).map((e) => e.id),
+    );
+
+    const all = await storage.getEventsAfterLocalSeq(0);
+    expect(all.events.map((e) => e.id)).toEqual(batch.map((e) => e.id));
+    expect(all.maxLocalSeq).toBe(n);
+    const delta = await storage.getEventsAfterLocalSeq(100);
+    expect(delta.events).toHaveLength(n - 100);
+    expect(delta.events[0]?.id).toBe('ev-0100');
+    expect(delta.maxLocalSeq).toBe(n);
+
+    const cards = Array.from({ length: 4500 }, (_, i) => ({
+      id: `c-${String(4499 - i).padStart(4, '0')}`,
+      deck_id: 'd',
+      note_id: `n-${i}`,
+      layout_id: 'l',
+      due: i,
+      schedule: { state: 'new' },
+    }));
+    await storage.saveMaterializedCards(cards as never);
+    const loaded = await storage.loadMaterializedCards();
+    expect(loaded.map((c) => c.id)).toEqual(cards.map((c) => c.id).reverse());
+    expect(loaded[0]?.schedule).toEqual({ state: 'new' });
   });
 });
 
-/** Fails the `n`th chunk insert, like a disk that fills up halfway through a backup. */
-function failingOnChunk(driver: SqliteDriver, n: number): SqliteDriver {
+/** Fails the `n`th chunk insert, like a disk that fills up halfway through a write. */
+function failingOnChunk(
+  driver: SqliteDriver,
+  n: number,
+  insert = 'INSERT INTO backup_chunks',
+): SqliteDriver {
   let chunks = 0;
   return {
     execute: async (sql, params) => {
-      if (sql.startsWith('INSERT INTO backup_chunks') && ++chunks === n) {
+      if (sql.startsWith(insert) && ++chunks === n) {
         throw new Error('SQLITE_FULL');
       }
       await driver.execute(sql, params);
@@ -183,6 +230,43 @@ describe.each([
   ['in-memory driver', async (): Promise<SqliteDriver> => new InMemorySqliteDriver()],
   ['sql.js', sqlJsDriver],
 ])('CapacitorSqliteStorage backup writes that fail (%s)', (_label, makeDriver) => {
+  it('keeps the previous local snapshot whole when a snapshot write fails halfway', async () => {
+    const driver = await makeDriver();
+    const kept = { snapshot: { version: 2, t: 'kept' } as never, localSeq: 1, savedAt: 1 };
+    await new CapacitorSqliteStorage(driver).setLocalSnapshot(kept);
+    const storage = new CapacitorSqliteStorage(
+      failingOnChunk(driver, 2, 'INSERT INTO local_snapshot_chunks'),
+    );
+    const big = {
+      snapshot: { version: 2, t: 'x'.repeat(1_100_000) } as never,
+      localSeq: 2,
+      savedAt: 2,
+    };
+    await expect(storage.setLocalSnapshot(big)).rejects.toThrow('SQLITE_FULL');
+    expect(await new CapacitorSqliteStorage(driver).getLocalSnapshot()).toEqual(kept);
+    // The queue is not stuck behind the failure.
+    await storage.setLocalSnapshot(big);
+    expect(await storage.getLocalSnapshot()).toEqual(big);
+  });
+
+  it('boots without a snapshot when a legacy row is too big to read back', async () => {
+    const driver = await makeDriver();
+    await new CapacitorSqliteStorage(driver).setKv('__local_snapshot', {
+      snapshot: {},
+      localSeq: 1,
+    });
+    const storage = new CapacitorSqliteStorage({
+      execute: (sql, params) => driver.execute(sql, params),
+      query: async (sql, params) => {
+        if (sql.includes('FROM kv') && params?.[0] === '__local_snapshot') {
+          throw new Error('Row too big to fit into CursorWindow');
+        }
+        return driver.query(sql, params);
+      },
+    });
+    expect(await storage.getLocalSnapshot()).toBeUndefined();
+  });
+
   it('leaves no chunks or row behind when a write fails halfway', async () => {
     const driver = await makeDriver();
     const storage = new CapacitorSqliteStorage(failingOnChunk(driver, 3));
