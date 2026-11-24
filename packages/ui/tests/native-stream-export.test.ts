@@ -10,6 +10,7 @@ import type { FileSink, PlatformServices } from '@flash/platform';
 import { describe, expect, it } from 'vitest';
 import { exportAnkiApkg } from '../src/export/ankiApkgExport.ts';
 import { exportAnkiCsvZip } from '../src/export/ankiExport.ts';
+import { isExportCancelled } from '../src/export/exportCancelled.ts';
 
 function sampleState(): { state: CollectionState; deckId: string } {
   const factory = createEventFactory('dev', 0, createHlcState('dev', 0));
@@ -95,6 +96,14 @@ describe('native streamed export (UI call site)', () => {
         { deckId },
       ),
     ).rejects.toThrow('Export cancelled.');
+    const err = await exportAnkiCsvZip(
+      fakePlatform({ downloadFile: noDownload, saveStream: async () => null }),
+      state,
+      { deckId },
+    ).catch((e: unknown) => e);
+    // Screens show it as a status line, not an error.
+    expect(isExportCancelled(err)).toBe(true);
+    expect(isExportCancelled(new Error('Export cancelled.'))).toBe(false);
   });
 
   it('falls back to downloadFile when saveStream is missing', async () => {

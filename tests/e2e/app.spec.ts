@@ -111,6 +111,8 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
       const buf = readFileSync(dlPath);
       expect(buf[0]).toBe(0x50); // 'P'
       expect(buf[1]).toBe(0x4b); // 'K'
+      // The same backup file as Settings > Export Backup, with the review history for a restore.
+      expect(buf.includes('backup/state.json')).toBe(true);
     }
 
     // Navigate to Browse and verify virtualized search finds imported CSV note

@@ -12,6 +12,7 @@ import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
 import { LanguagesCard } from '../components/LanguagesCard.tsx';
 import { StudyRemindersSetting } from '../reminders/StudyRemindersSetting.tsx';
+import { isExportCancelled } from '../export/exportCancelled.ts';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
@@ -395,6 +396,11 @@ export function SettingsScreen() {
       setStatus('Backup exported successfully.');
       setError(null);
     } catch (err) {
+      if (isExportCancelled(err)) {
+        setStatus('Export cancelled.');
+        setError(null);
+        return;
+      }
       setError(err instanceof Error ? err.message : String(err));
     }
   };

@@ -23,6 +23,7 @@ import {
   type SyncFolderBackupEntry,
   type TakeBackupResult,
 } from './backupRunner.ts';
+import { isExportCancelled } from '../export/exportCancelled.ts';
 
 /**
  * Settings > Automatic backups: the rolling snapshots on this device, "Back up now", the optional
@@ -174,7 +175,8 @@ export function BackupsPanel() {
     try {
       await task();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (isExportCancelled(err)) setStatus('Export cancelled.');
+      else setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
