@@ -29,6 +29,18 @@ function notesText(n: number): string {
   return `${n} note${n === 1 ? '' : 's'}`;
 }
 
+function linkedWarning(count: number): string {
+  if (count === 0) return '';
+  const verb = count === 1 ? 'is' : 'are';
+  return ` ${notesText(count)} ${verb} in a deck linked to a Sheet, folder or package; the next refresh may bring the old text back.`;
+}
+
+function skippedText(count: number): string {
+  if (count === 0) return '';
+  if (count === 1) return ' 1 field was edited since and kept as it is.';
+  return ` ${count} fields were edited since and kept as they are.`;
+}
+
 function describeError(error: FindReplaceError): string {
   return error.code === 'empty_find'
     ? 'Type the text to find.'
@@ -47,7 +59,7 @@ function excerpt(text: string): string {
  * of `NoteUpserted` events carrying only the changed fields. "Undo replace" puts the old text
  * back in each field that still holds the replaced text.
  */
-export function FindReplacePanel({ noteIds, onClose }: FindReplacePanelProps) {
+export function FindReplacePanel({ noteIds, onClose }: Readonly<FindReplacePanelProps>) {
   const { state, stateVersion, emitEvents, getEventFactory } = useApp();
   const [find, setFind] = useState('');
   const [replace, setReplace] = useState('');
@@ -55,7 +67,7 @@ export function FindReplacePanel({ noteIds, onClose }: FindReplacePanelProps) {
   const [matchCase, setMatchCase] = useState(false);
   const [regex, setRegex] = useState(false);
   const [lastChanges, setLastChanges] = useState<FindReplaceChange[] | null>(null);
-  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   const fields = useMemo(() => {
     const byKey = new Map<string, string>();
@@ -92,14 +104,9 @@ export function FindReplacePanel({ noteIds, onClose }: FindReplacePanelProps) {
     const nowMs = Date.now();
     emitEvents(plan.payloads.map((p) => factory.create('NoteUpserted', p, nowMs)));
     setLastChanges(plan.changes);
-    const linked =
-      plan.linkedNoteCount > 0
-        ? ` ${notesText(plan.linkedNoteCount)} ${plan.linkedNoteCount === 1 ? 'is' : 'are'} in a deck linked to a Sheet, folder or package; the next refresh may bring the old text back.`
-        : '';
-    setMessage({
-      kind: 'ok',
-      text: `Replaced ${plural(plan.replacementCount, 'match')} in ${notesText(plan.changedNoteCount)}.${linked}`,
-    });
+    setMessage(
+      `Replaced ${plural(plan.replacementCount, 'match')} in ${notesText(plan.changedNoteCount)}.${linkedWarning(plan.linkedNoteCount)}`,
+    );
   };
 
   const undo = () => {
@@ -111,14 +118,9 @@ export function FindReplacePanel({ noteIds, onClose }: FindReplacePanelProps) {
       emitEvents(undoPlan.payloads.map((p) => factory.create('NoteUpserted', p, nowMs)));
     }
     setLastChanges(null);
-    const skipped =
-      undoPlan.skippedCount > 0
-        ? ` ${undoPlan.skippedCount} field${undoPlan.skippedCount === 1 ? ' was' : 's were'} edited since and kept as ${undoPlan.skippedCount === 1 ? 'it is' : 'they are'}.`
-        : '';
-    setMessage({
-      kind: 'ok',
-      text: `Put back the old text in ${undoPlan.restoredCount} field${undoPlan.restoredCount === 1 ? '' : 's'}.${skipped}`,
-    });
+    setMessage(
+      `Put back the old text in ${undoPlan.restoredCount} field${undoPlan.restoredCount === 1 ? '' : 's'}.${skippedText(undoPlan.skippedCount)}`,
+    );
   };
 
   let summary: { kind: 'ok' | 'error'; text: string } | null = null;
@@ -184,7 +186,7 @@ export function FindReplacePanel({ noteIds, onClose }: FindReplacePanelProps) {
             checked={matchCase}
             onChange={(e) => setMatchCase(e.target.checked)}
           />
-          Match case
+          <span>Match case</span>
         </label>
         <label
           className="flex items-center gap-1 text-xs"
@@ -196,7 +198,7 @@ export function FindReplacePanel({ noteIds, onClose }: FindReplacePanelProps) {
             checked={regex}
             onChange={(e) => setRegex(e.target.checked)}
           />
-          Regular expression
+          <span>Regular expression</span>
         </label>
         <span className="flex-1" />
         <button
@@ -229,14 +231,19 @@ export function FindReplacePanel({ noteIds, onClose }: FindReplacePanelProps) {
       <p className="text-xs text-[var(--muted)]">
         Searches the text fields of the selected notes. Image and audio links are never changed.
       </p>
-      {summary && !message && (
+      {summary && !message && summary.kind === 'error' && (
         <p
-          role={summary.kind === 'error' ? 'alert' : 'status'}
+          role="alert"
           data-testid="find-replace-summary"
-          className={`text-xs ${summary.kind === 'error' ? 'text-rose-600 dark:text-rose-300' : ''}`}
+          className="text-xs text-rose-600 dark:text-rose-300"
         >
           {summary.text}
         </p>
+      )}
+      {summary && !message && summary.kind === 'ok' && (
+        <output data-testid="find-replace-summary" className="block text-xs">
+          {summary.text}
+        </output>
       )}
       {plan && !plan.error && !message && plan.changes.length > 0 && (
         <ul data-testid="find-replace-preview" className="flex flex-col gap-0.5 text-xs">
@@ -256,13 +263,12 @@ export function FindReplacePanel({ noteIds, onClose }: FindReplacePanelProps) {
         </ul>
       )}
       {message && (
-        <p
-          role={message.kind === 'error' ? 'alert' : 'status'}
+        <output
           data-testid="find-replace-message"
-          className="text-xs text-emerald-700 dark:text-emerald-300"
+          className="block text-xs text-emerald-700 dark:text-emerald-300"
         >
-          {message.text}
-        </p>
+          {message}
+        </output>
       )}
     </form>
   );

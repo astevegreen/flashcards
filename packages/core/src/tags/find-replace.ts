@@ -57,7 +57,7 @@ function cmpStr(a: string, b: string): number {
 }
 
 function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 /** The note's searchable fields, in note type order. */
@@ -82,7 +82,7 @@ function compile(options: FindReplaceOptions): RegExp | FindReplaceError {
  * the callback form (needed to skip zero-length matches) does not expand them.
  */
 function expandReplacement(replacement: string, args: unknown[]): string {
-  const last = args[args.length - 1];
+  const last = args.at(-1);
   const named =
     typeof last === 'object' && last !== null ? (last as Record<string, unknown>) : null;
   const tail = named ? 3 : 2;
@@ -97,8 +97,7 @@ function expandReplacement(replacement: string, args: unknown[]): string {
     if (what === "'") return input.slice(offset + match.length);
     if (typeof name === 'string') {
       if (!named) return token;
-      const value = named[name];
-      return value === undefined ? '' : String(value);
+      return groupText(named[name]);
     }
     // `$12` means group 12 when it exists, else group 1 followed by "2".
     const two = Number(what);
@@ -109,8 +108,9 @@ function expandReplacement(replacement: string, args: unknown[]): string {
   });
 }
 
+/** A capture group's text: a string, or `undefined` for a group that did not take part. */
 function groupText(value: unknown): string {
-  return value === undefined ? '' : String(value);
+  return typeof value === 'string' ? value : '';
 }
 
 /** Replaces outside media references; returns the new text and how many matches changed. */
@@ -158,6 +158,28 @@ function noteTypeOf(state: CollectionState, note: Note): NoteType | undefined {
   return id ? state.noteTypes.get(id) : undefined;
 }
 
+/** The note's changed fields; adds each change and its match count to `plan`. */
+function replaceInNote(
+  state: CollectionState,
+  note: Note,
+  pattern: RegExp,
+  options: FindReplaceOptions,
+  plan: FindReplacePlan,
+): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const field of searchableFields(noteTypeOf(state, note))) {
+    if (options.fieldKey !== undefined && field.key !== options.fieldKey) continue;
+    const before = note.fields[field.key];
+    if (!before) continue;
+    const { text: after, count } = replaceInText(before, pattern, options);
+    if (count === 0 || after === before) continue;
+    fields[field.key] = after;
+    plan.replacementCount += count;
+    plan.changes.push({ noteId: note.id, fieldKey: field.key, before, after });
+  }
+  return fields;
+}
+
 export function planFindReplace(
   state: CollectionState,
   noteIds: Iterable<string>,
@@ -174,17 +196,7 @@ export function planFindReplace(
   if (!(pattern instanceof RegExp)) return { ...empty, error: pattern };
   const plan = empty;
   for (const note of selectedNotes(state, noteIds)) {
-    const fields: Record<string, string> = {};
-    for (const field of searchableFields(noteTypeOf(state, note))) {
-      if (options.fieldKey !== undefined && field.key !== options.fieldKey) continue;
-      const before = note.fields[field.key];
-      if (!before) continue;
-      const { text: after, count } = replaceInText(before, pattern, options);
-      if (count === 0 || after === before) continue;
-      fields[field.key] = after;
-      plan.replacementCount += count;
-      plan.changes.push({ noteId: note.id, fieldKey: field.key, before, after });
-    }
+    const fields = replaceInNote(state, note, pattern, options, plan);
     if (Object.keys(fields).length === 0) continue;
     plan.payloads.push({
       note_id: note.id,
