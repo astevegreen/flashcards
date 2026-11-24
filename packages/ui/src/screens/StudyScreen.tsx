@@ -181,7 +181,8 @@ const SWIPE_RATING: Record<Exclude<SwipeIntent, null>, ReviewRating> = {
   easy: 4,
 };
 
-type StudyKeyAction = 'undo' | 'reveal' | 'furigana' | 'speak' | 'slow' | 'edit' | ReviewRating;
+type StudyKeyAction =
+  'undo' | 'redo' | 'reveal' | 'furigana' | 'speak' | 'slow' | 'edit' | ReviewRating;
 
 const LETTER_KEY_ACTIONS: Record<string, StudyKeyAction> = {
   f: 'furigana',
@@ -219,7 +220,11 @@ function resolveStudyKeyAction(
   ratingMode: RatingButtonMode,
 ): StudyKeyAction | undefined {
   const key = e.key;
-  if ((e.ctrlKey || e.metaKey) && key.toLowerCase() === 'z') return 'undo';
+  if (e.ctrlKey || e.metaKey) {
+    const lower = key.toLowerCase();
+    if ((lower === 'z' && e.shiftKey) || (lower === 'y' && !e.shiftKey)) return 'redo';
+    if (lower === 'z') return 'undo';
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return undefined;
   if (key === ' ' || key === 'Enter') return confirmKeyAction(e, isFullyRevealed);
   const letter = LETTER_KEY_ACTIONS[key.toLowerCase()];
@@ -334,9 +339,11 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     activeDeckId,
     setActiveDeckId,
     undoStack,
+    redoStack,
     audio,
     rateCard,
     undoLastReview,
+    redoLastUndo,
     updateNote,
     markNoteReviewed,
     emitEvents,
@@ -670,6 +677,19 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     }
   }, [stopAudio, studyFilter, undoLastReview]);
 
+  // Redo is for FSRS reviews only; a practice session keeps its own one-way Undo.
+  const canRedo = !studyFilter?.session?.undo && redoStack.length > 0;
+  const handleRedo = useCallback(() => {
+    if (!canRedo) return;
+    stopAudio();
+    if (redoLastUndo()) {
+      setRevealStep(0);
+      setFuriganaOverride(null);
+      setEvaluation(null);
+      cardShownAtRef.current = Date.now();
+    }
+  }, [canRedo, redoLastUndo, stopAudio]);
+
   // A layout that shows only readings or only bases has no ruby to hide, so F does nothing there.
   const rubyFlagged =
     currentLayout?.ruby_display === 'readings' || currentLayout?.ruby_display === 'bases';
@@ -683,6 +703,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     const runKeyAction = (action: StudyKeyAction) => {
       if (typeof action === 'number') handleRate(action);
       else if (action === 'undo') handleUndo();
+      else if (action === 'redo') handleRedo();
       else if (action === 'reveal') handleRevealNext();
       else if (action === 'furigana') handleToggleFurigana();
       else if (action === 'edit') setEditingNote(currentNote ?? null);
@@ -706,6 +727,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     handleRate,
     handleRevealNext,
     handleSpeak,
+    handleRedo,
     handleToggleFurigana,
     handleUndo,
     isFullyRevealed,
@@ -907,6 +929,18 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           >
             Undo
           </button>
+
+          {canRedo && (
+            <button
+              type="button"
+              data-testid="study-redo"
+              onClick={handleRedo}
+              title="Redo the undone review (Ctrl+Shift+Z)"
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+            >
+              Redo
+            </button>
+          )}
 
           {currentNote && (
             <button
