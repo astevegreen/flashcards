@@ -53,7 +53,9 @@ export async function openCapacitorSqliteDriver(dbName = 'flashcards'): Promise<
   await db.open();
   // Deleted rows are overwritten with zeros, so a secret moved out of SQLite (or any deleted card)
   // does not linger in free pages. Per connection, so it is set on every open.
-  await db.execute('PRAGMA secure_delete = ON;', false);
+  // Use `query()` instead of `execute()`: `PRAGMA secure_delete = ON;` returns a 1-row result,
+  // which Android's `execSQL()` rejects ("Queries can be performed using ... rawQuery methods only").
+  await db.query('PRAGMA secure_delete = ON;');
   return {
     execute: async (sql, params) => {
       // `transaction: false` — `CapacitorSqliteStorage` issues its own BEGIN/COMMIT when needed.

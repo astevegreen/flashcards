@@ -63,6 +63,12 @@ const SCHEMA_STATEMENTS = [
     b64 TEXT NOT NULL,
     PRIMARY KEY (backup_id, idx)
   )`,
+  // Serialized local snapshots for large collections (25k+ notes) also exceed Android's bridge
+  // JSON string budget as a single row, so store them in bounded text chunks too.
+  `CREATE TABLE IF NOT EXISTS snapshot_chunks (
+    idx INTEGER PRIMARY KEY,
+    chunk TEXT NOT NULL
+  )`,
 ] as const;
 
 const KNOWN_ENVELOPE_KEYS = new Set(['id', 'device', 'seq', 'hlc', 'type', 'v', 'payload']);
@@ -70,6 +76,10 @@ const META_KV_KEY = '__device_meta';
 const SYNC_CURSOR_KV_KEY = 'sync_cursor';
 const SYNC_CONFIG_KV_KEY = 'sync_config';
 const SNAPSHOT_KV_KEY = '__local_snapshot';
+const SNAPSHOT_META_KV_KEY = '__local_snapshot_meta';
+const SNAPSHOT_CHUNK_CHARS = 512 * 1024;
+const EVENT_QUERY_PAGE = 500;
+const CARD_CACHE_QUERY_PAGE = 2000;
 
 function bytesToBase64(bytes: Uint8Array): string {
   let bin = '';
@@ -190,6 +200,7 @@ export class InMemorySqliteDriver implements SqliteDriver {
     { backup_id: string; created_at: number; info_json: string; bytes_b64: string }
   >();
   private backupChunks = new Map<string, string>();
+  private snapshotChunks = new Map<number, string>();
 
   async execute(sql: string, params: readonly unknown[] = []): Promise<void> {
     const norm = sql.trim().replace(/\s+/g, ' ');
@@ -275,6 +286,14 @@ export class InMemorySqliteDriver implements SqliteDriver {
       }
       return;
     }
+    if (norm.startsWith('INSERT OR REPLACE INTO snapshot_chunks')) {
+      this.snapshotChunks.set(Number(params[0] ?? 0), paramText(params[1], ''));
+      return;
+    }
+    if (norm.startsWith('DELETE FROM snapshot_chunks')) {
+      this.snapshotChunks.clear();
+      return;
+    }
     if (norm.startsWith('DELETE FROM backups WHERE backup_id =')) {
       this.backups.delete(paramText(params[0], ''));
       return;
@@ -315,6 +334,7 @@ export class InMemorySqliteDriver implements SqliteDriver {
 
     if (norm.includes('FROM events')) {
       let rows = [...this.events];
+      const hasLimit = norm.includes('LIMIT ? OFFSET ?');
       if (norm.includes('WHERE hlc >= ?')) {
         const since = String(params[0] ?? '');
         rows = rows.filter((r) => r.hlc >= since);
@@ -331,14 +351,34 @@ export class InMemorySqliteDriver implements SqliteDriver {
         const afterLocal = Number(params[0] ?? 0);
         rows = rows.filter((r) => r.local_seq > afterLocal);
         rows.sort((a, b) => a.local_seq - b.local_seq);
+        if (hasLimit) {
+          const limit = Number(params[params.length - 2] ?? rows.length);
+          const offset = Number(params[params.length - 1] ?? 0);
+          return rows.slice(offset, offset + limit) as T[];
+        }
         return rows as T[];
       }
       rows.sort((a, b) => (a.hlc < b.hlc ? -1 : a.hlc > b.hlc ? 1 : a.id < b.id ? -1 : 1));
+      if (hasLimit) {
+        const limit = Number(params[params.length - 2] ?? rows.length);
+        const offset = Number(params[params.length - 1] ?? 0);
+        return rows.slice(offset, offset + limit) as T[];
+      }
       return rows as T[];
     }
 
     if (norm.includes('FROM cards_cache')) {
-      return [...this.cards.values()] as T[];
+      const rows = [...this.cards.values()];
+      if (norm.includes('LIMIT ? OFFSET ?')) {
+        const limit = Number(params[params.length - 2] ?? rows.length);
+        const offset = Number(params[params.length - 1] ?? 0);
+        return rows.slice(offset, offset + limit) as T[];
+      }
+      return rows as T[];
+    }
+    if (norm.startsWith('SELECT chunk FROM snapshot_chunks WHERE idx = ?')) {
+      const raw = this.snapshotChunks.get(Number(params[0] ?? 0));
+      return raw !== undefined ? ([{ chunk: raw }] as T[]) : [];
     }
     if (norm.startsWith('SELECT hash, mime, bytes_b64 FROM media WHERE hash = ?')) {
       const row = this.media.get(String(params[0] ?? ''));
@@ -415,13 +455,21 @@ export class CapacitorSqliteStorage implements Storage {
 
   async getEvents(sinceHlc?: string): Promise<FlashEvent[]> {
     await this.ensureReady();
-    const rows = sinceHlc
-      ? await this.driver.query<StoredEventDbRow>(
-          `SELECT * FROM events WHERE hlc >= ? ORDER BY hlc ASC, id ASC`,
-          [sinceHlc],
-        )
-      : await this.driver.query<StoredEventDbRow>(`SELECT * FROM events ORDER BY hlc ASC, id ASC`);
-    return rows.map(rowToEvent);
+    const out: FlashEvent[] = [];
+    for (let offset = 0; ; offset += EVENT_QUERY_PAGE) {
+      const rows = sinceHlc
+        ? await this.driver.query<StoredEventDbRow>(
+            `SELECT * FROM events WHERE hlc >= ? ORDER BY hlc ASC, id ASC LIMIT ? OFFSET ?`,
+            [sinceHlc, EVENT_QUERY_PAGE, offset],
+          )
+        : await this.driver.query<StoredEventDbRow>(
+            `SELECT * FROM events ORDER BY hlc ASC, id ASC LIMIT ? OFFSET ?`,
+            [EVENT_QUERY_PAGE, offset],
+          );
+      for (const row of rows) out.push(rowToEvent(row));
+      if (rows.length < EVENT_QUERY_PAGE) break;
+    }
+    return out;
   }
 
   async getEventsForCard(cardId: string): Promise<FlashEvent[]> {
@@ -450,13 +498,20 @@ export class CapacitorSqliteStorage implements Storage {
     afterLocalSeq: number,
   ): Promise<{ events: FlashEvent[]; maxLocalSeq: number }> {
     await this.ensureReady();
-    const rows = await this.driver.query<StoredEventDbRow>(
-      `SELECT * FROM events WHERE local_seq > ? ORDER BY local_seq ASC`,
-      [afterLocalSeq],
-    );
-    const maxLocalSeq =
-      rows.length > 0 ? (rows[rows.length - 1]?.local_seq ?? afterLocalSeq) : afterLocalSeq;
-    return { events: rows.map(rowToEvent), maxLocalSeq };
+    const events: FlashEvent[] = [];
+    let maxLocalSeq = afterLocalSeq;
+    for (let offset = 0; ; offset += EVENT_QUERY_PAGE) {
+      const rows = await this.driver.query<StoredEventDbRow>(
+        `SELECT * FROM events WHERE local_seq > ? ORDER BY local_seq ASC LIMIT ? OFFSET ?`,
+        [afterLocalSeq, EVENT_QUERY_PAGE, offset],
+      );
+      for (const row of rows) {
+        events.push(rowToEvent(row));
+        if (row.local_seq > maxLocalSeq) maxLocalSeq = row.local_seq;
+      }
+      if (rows.length < EVENT_QUERY_PAGE) break;
+    }
+    return { events, maxLocalSeq };
   }
 
   async getMaxLocalSeq(): Promise<number> {
@@ -503,22 +558,32 @@ export class CapacitorSqliteStorage implements Storage {
 
   async loadMaterializedCards(): Promise<MaterializedCardRow[]> {
     await this.ensureReady();
-    const rows = await this.driver.query<{
-      id: string;
-      deck_id: string;
-      note_id: string;
-      layout_id: string;
-      due: number;
-      schedule_json: string;
-    }>(`SELECT id, deck_id, note_id, layout_id, due, schedule_json FROM cards_cache`);
-    return rows.map((r) => ({
-      id: r.id,
-      deck_id: r.deck_id,
-      note_id: r.note_id,
-      layout_id: r.layout_id,
-      due: r.due,
-      schedule: JSON.parse(r.schedule_json) as MaterializedCardRow['schedule'],
-    }));
+    const out: MaterializedCardRow[] = [];
+    for (let offset = 0; ; offset += CARD_CACHE_QUERY_PAGE) {
+      const rows = await this.driver.query<{
+        id: string;
+        deck_id: string;
+        note_id: string;
+        layout_id: string;
+        due: number;
+        schedule_json: string;
+      }>(
+        `SELECT id, deck_id, note_id, layout_id, due, schedule_json FROM cards_cache ORDER BY id ASC LIMIT ? OFFSET ?`,
+        [CARD_CACHE_QUERY_PAGE, offset],
+      );
+      for (const r of rows) {
+        out.push({
+          id: r.id,
+          deck_id: r.deck_id,
+          note_id: r.note_id,
+          layout_id: r.layout_id,
+          due: r.due,
+          schedule: JSON.parse(r.schedule_json) as MaterializedCardRow['schedule'],
+        });
+      }
+      if (rows.length < CARD_CACHE_QUERY_PAGE) break;
+    }
+    return out;
   }
 
   async getSyncCursor(): Promise<SyncCursorState | undefined> {
@@ -538,11 +603,49 @@ export class CapacitorSqliteStorage implements Storage {
   }
 
   async getLocalSnapshot(): Promise<LocalSnapshotRecord | undefined> {
+    const meta = await this.getKv<{ localSeq: number; savedAt: number; chunks: number }>(
+      SNAPSHOT_META_KV_KEY,
+    );
+    if (meta && typeof meta.chunks === 'number' && meta.chunks >= 0) {
+      const parts: string[] = [];
+      for (let idx = 0; idx < meta.chunks; idx++) {
+        const rows = await this.driver.query<{ chunk: string }>(
+          `SELECT chunk FROM snapshot_chunks WHERE idx = ?`,
+          [idx],
+        );
+        const part = rows[0]?.chunk;
+        if (part === undefined) return undefined;
+        parts.push(part);
+      }
+      try {
+        const snapshot = JSON.parse(parts.join('')) as LocalSnapshotRecord['snapshot'];
+        return { snapshot, localSeq: meta.localSeq, savedAt: meta.savedAt };
+      } catch {
+        return undefined;
+      }
+    }
     return this.getKv<LocalSnapshotRecord>(SNAPSHOT_KV_KEY);
   }
 
   async setLocalSnapshot(record: LocalSnapshotRecord): Promise<void> {
-    await this.setKv(SNAPSHOT_KV_KEY, record);
+    await this.ensureReady();
+    const raw = JSON.stringify(record.snapshot);
+    const chunks = Math.max(1, Math.ceil(raw.length / SNAPSHOT_CHUNK_CHARS));
+    await this.driver.execute(`DELETE FROM snapshot_chunks`);
+    for (let idx = 0; idx < chunks; idx++) {
+      const start = idx * SNAPSHOT_CHUNK_CHARS;
+      const chunk = raw.slice(start, start + SNAPSHOT_CHUNK_CHARS);
+      await this.driver.execute(
+        `INSERT OR REPLACE INTO snapshot_chunks (idx, chunk) VALUES (?, ?)`,
+        [idx, chunk],
+      );
+    }
+    await this.setKv(SNAPSHOT_META_KV_KEY, {
+      localSeq: record.localSeq,
+      savedAt: record.savedAt,
+      chunks,
+    });
+    await this.deleteKv(SNAPSHOT_KV_KEY);
   }
 
   async getKv<T = unknown>(key: string): Promise<T | undefined> {
@@ -711,6 +814,7 @@ export class CapacitorSqliteStorage implements Storage {
         }
       }
     }
+    await this.driver.execute(`DELETE FROM snapshot_chunks`);
     await this.driver.execute(`DELETE FROM kv`);
   }
 }

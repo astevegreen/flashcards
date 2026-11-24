@@ -104,6 +104,52 @@ describe.each([
     expect(await storage.listMediaHashes()).toEqual([b]);
     expect(await storage.getMedia(a)).toBeUndefined();
   });
+
+  it('stores large local snapshots in bounded chunks, reads legacy unchunked ones, and paginates events', async () => {
+    const storage = await make();
+    // Large snapshot spanning multiple 512K-char chunks
+    const bigText = '가'.repeat(1_200_000);
+    const snapshot = { version: 2, bigText } as never;
+    await storage.setLocalSnapshot({ snapshot, localSeq: 42, savedAt: 1234 });
+    expect(await storage.getKv('__local_snapshot')).toBeUndefined();
+    expect(await storage.getLocalSnapshot()).toEqual({
+      snapshot,
+      localSeq: 42,
+      savedAt: 1234,
+    });
+
+    await storage.clearAll();
+    expect(await storage.getLocalSnapshot()).toBeUndefined();
+
+    // Legacy single-row `__local_snapshot` still loads when `__local_snapshot_meta` is absent
+    await storage.setKv('__local_snapshot', {
+      snapshot: { version: 2 },
+      localSeq: 7,
+      savedAt: 99,
+    });
+    expect(await storage.getLocalSnapshot()).toEqual({
+      snapshot: { version: 2 },
+      localSeq: 7,
+      savedAt: 99,
+    });
+
+    // Paginated events beyond 500 rows
+    const batch = Array.from({ length: 650 }, (_, i) => ({
+      id: `ev-${String(i).padStart(4, '0')}`,
+      device: 'dev-a',
+      seq: i + 1,
+      hlc: `0000000000001:${String(i).padStart(4, '0')}:dev-a`,
+      type: 'DeckCreated',
+      v: 1,
+      payload: { deck_id: `d-${i}` },
+    }));
+    await storage.appendEvents(batch as never);
+    const all = await storage.getAllEvents();
+    expect(all).toHaveLength(650);
+    const delta = await storage.getEventsAfterLocalSeq(600);
+    expect(delta.events).toHaveLength(50);
+    expect(delta.maxLocalSeq).toBe(650);
+  });
 });
 
 /** Fails the `n`th chunk insert, like a disk that fills up halfway through a backup. */

@@ -451,3 +451,38 @@ Defaults picked while building the checks. Each stays shipped until the owner de
 - [ ] Real iCloud sync and signed Mac builds.
 - [ ] Real Graph/OneDrive.
 - [ ] The Capacitor and Tauri shells were not run for #23.
+
+## Cross-platform gaps found on device & code review (2026-11-23)
+
+Observed while bringing up the Capacitor Android debug build on a Pixel 9 Pro and auditing the platform adapters (`platform-capacitor`, `platform-tauri`, `platform-web`, `apps/web`, `apps/mobile`, `apps/desktop`).
+
+### Native Device TTS (missed in initial build plan)
+
+- [ ] **Android native `TextToSpeech` bridge (`deviceSpeech`).** The plan (`docs/design_blueprint.md` §7, `docs/native-shells.md`) assumed Web `speechSynthesis` (`WebDeviceSpeechPlayer`) would run inside the WebView, so `boot.ts` (`packages/platform-capacitor/src/native/boot.ts`) passes no native `deviceSpeech`. Verified on Pixel 9 Pro: Android System WebView omits `window.speechSynthesis`, so offline/device TTS fails on Android. `DeviceSpeechPlayer` (`packages/platform/src/index.ts`) and `createCapacitorPlatform({ deviceSpeech })` are already ready for a lightweight native plugin wrapping `android.speech.tts.TextToSpeech`.
+- [ ] **Misleading error when `deviceSpeech` is unavailable.** When `WebDeviceSpeechPlayer.speak()` returns `status: 'unavailable'`, `useAudioController.ts` drops `speechRes.message`, causing `audioCloudRunner.ts` (`runTestTtsVoice`) to show `"Audio playback was blocked or unavailable in this browser."`. Forward `speechRes.message` so unavailable platforms report the real reason.
+- [ ] **iOS `AVSpeechSynthesizer` vs. `WKWebView` `speechSynthesis`.** `WKWebView` exposes `window.speechSynthesis`, but behaviour under the iOS hardware silent switch, `voiceschanged` timing, and `localService` reporting has not been verified on a real iPhone; consider wrapping `AVSpeechSynthesizer` if `WKWebView` misreports local voices or respects the mute switch.
+- [ ] **Desktop (Tauri) `speechSynthesis` on Linux WebKitGTK.** `platform-tauri` inherits `WebDeviceSpeechPlayer` too; Linux WebKitGTK builds without `speech-dispatcher` (or missing OS voice packages) have no `window.speechSynthesis` voices. `SettingsScreen.tsx` also subscribes directly to `window.speechSynthesis` (`voiceschanged`) instead of a `deviceSpeech` event, so native `deviceSpeech` implementations won't trigger voice-list refreshes there without an adapter hook.
+
+### Android (`apps/mobile/android`, `@flash/platform-capacitor`)
+
+- [ ] **Android hardware/gesture Back button.** No `App.addListener('backButton', ...)` or `history.pushState` handling exists in `platform-capacitor` or `packages/ui`, so pressing Back in modals (`NoteEditDialog`, dialogs) or secondary tabs (Library/Browse/Settings) backgrounds/exits the app instead of navigating back.
+- [ ] **Soft keyboard resize & Android 15/16 edge-to-edge (`targetSdkVersion = 36`).** `AndroidManifest.xml` has no `android:windowSoftInputMode="adjustResize"` and `@capacitor/keyboard` is not installed; verify typed-answer study, Browse search, and the note editor toolbar aren't covered by the soft keyboard. Also observed on Pixel 9 Pro boot: Capacitor 8's `SystemBars` logs `Error injecting safe area CSS: TypeError: Cannot read properties of null (reading 'style')` before DOM ready; verify `env(safe-area-inset-*)` padding in `AppShell.tsx` under gesture navigation and cutouts.
+- [ ] **Notification rescheduling after reboot (`@capacitor/local-notifications`).** `local-notification-reminders.ts` schedules inexact `allowWhileIdle` alarms only when the app opens; Android clears alarms on device reboot unless a `BOOT_COMPLETED` receiver reschedules them, so reminders stop after a phone restart until the app is opened again.
+- [ ] **Export temp files accumulate in `Directory.Cache`.** `saveAndShareFile` and `openSaveStream` (`plugins.ts`, `capacitor-stream.ts`) write `.flashpkg`/`.apkg`/CSV exports to `Directory.Cache` and hand the URI to `Share.share(...)` without cleaning up old export files afterward (only `abort()` deletes them).
+
+### All native shells (Capacitor + Tauri)
+
+- [ ] **Disable PWA Service Worker (`sw.js`) inside native shells.** `VitePWA` (`apps/web/vite.config.ts`) injects `registerSW.js` unconditionally, so Capacitor (`https://localhost`) and Tauri precache `index.html` and JS chunks into WebView Cache Storage. Verified on Pixel 9 Pro: after `adb install -r`, the old Workbox SW served the previous APK's bundle until `pm clear` wiped app data. Native shells already bundle every asset locally and should skip SW registration when `Capacitor.isNativePlatform()` or `__TAURI_INTERNALS__` is present.
+
+### iOS (`apps/mobile/ios`, `@flash/platform-capacitor`)
+
+- [ ] **`Info.plist` App Store / TestFlight readiness & `audioSession` check.** `apps/mobile/ios/App/App/Info.plist` lacks `ITSAppUsesNonExemptEncryption` (adding `false` avoids manual export-compliance prompts on every TestFlight upload if only HTTPS/Keychain are used). `navigator.audioSession.type = 'playback'` in `WebAudioPlayer` (`web-audio-player.ts`) has not been verified on a physical iPhone in `WKWebView` against the hardware silent switch.
+
+### Desktop (`apps/desktop`, `@flash/platform-tauri`)
+
+- [ ] **Background study reminders.** `boot.ts` (`platform-tauri`) uses `studyReminderDelivery: 'while-app-runs'` because `tauri-plugin-notification` cannot schedule OS notifications after quit (documented in Settings, no tray/daemon scheduler planned yet).
+- [ ] **Linux WebKitGTK media codecs & keyring availability.** `<audio>` playback of MP3/M4A clips on Linux depends on host GStreamer plugins (`gst-plugins-good`/`bad`/`ugly`), and Linux without Secret Service (GNOME Keyring/KWallet) falls back to SQLite token storage with a Settings warning; neither Linux runtime has been smoke-tested on a real machine.
+
+### Web / PWA (`apps/web`, `@flash/platform-web`)
+
+- [ ] **Non-Chromium browser limits (Safari / iOS Safari / Firefox).** Local Folder Sync (`showDirectoryPicker`) is Chromium-only; Safari/iOS WebKit can evict unpersisted IndexedDB after 7 days without interaction when `navigator.storage.persist()` is refused (Home Screen install + sync/download reminders mitigate this); iOS Safari `speechSynthesis.getVoices()` commonly returns `[]` until `voiceschanged` or a user gesture, and `localService` reporting varies by browser/OS.
