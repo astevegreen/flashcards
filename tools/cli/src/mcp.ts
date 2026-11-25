@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import * as process from 'node:process';
 import { createInterface } from 'node:readline';
@@ -632,7 +631,7 @@ function proposePackageTool(
   const built = buildPackageFromSpec({
     // Never caller-chosen (S9): a reused id would make the Inbox import upgrade, rewrite or
     // restore the notes of an earlier package. Each proposal is its own package and deck.
-    packageId: `pkg:ai-proposal:${randomUUID()}`,
+    packageId: `pkg:ai-proposal:${crypto.randomUUID()}`,
     name,
     version: '1.0.0',
     aiProvenance: true,
