@@ -7,9 +7,10 @@ import type {
   UnknownEvent,
 } from '../events/types.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
-import type { Card, ReviewRating } from '../model/types.ts';
+import type { Card, PracticeOrder, ReviewRating } from '../model/types.ts';
 import type { StatsFilter } from '../stats/stats.ts';
 import {
+  compareHardestCards,
   filterCardIds,
   filterCards,
   isCardFilterEmpty,
@@ -19,6 +20,7 @@ import {
   type CardFilter,
   type CardFilterContext,
 } from './filter.ts';
+import { compareSeededRandom, compareSourceOrder } from './card-order.ts';
 import { isRaiseOnDay, listNewCardRaises } from './new-card-raises.ts';
 import { resolveDayStartHour, type StudyCounts, type StudyQueueResult } from './queue.ts';
 
@@ -344,6 +346,31 @@ export interface PracticeQueueOptions extends QueueScope {
   filter: CardFilter;
   /** The practice session whose answers advance the queue. */
   sessionId: string;
+  /**
+   * Study-screen practice order. Omitted = the filter's canonical order (hardest first for a
+   * hardest filter, else card id). 
+andom is seeded by the session id (reproducible).
+   */
+  order?: PracticeOrder;
+}
+
+/**
+ * Practice cards in order: deck = by deck id, then source order (note order, Recognition
+ * before Production, variant); 
+andom = seeded shuffle (same seed, same order); hardest = most
+ * lapses, lowest stability, highest difficulty first.
+ */
+export function sortPracticeCards(
+  state: CollectionState,
+  cards: readonly Card[],
+  order: PracticeOrder,
+  seed: string,
+): Card[] {
+  const out = [...cards];
+  if (order === 'hardest') return out.sort(compareHardestCards);
+  if (order === 'random') return out.sort(compareSeededRandom(`practice:${seed}`));
+  const bySource = compareSourceOrder(state);
+  return out.sort((a, b) => cmpStr(a.deck_id, b.deck_id) || bySource(a, b));
 }
 
 export interface PracticeQueueResult extends StudyQueueResult {
@@ -355,7 +382,8 @@ export interface PracticeQueueResult extends StudyQueueResult {
 
 /**
  * Cram / practice queue for a filter: every matching card (suspended cards excluded), ignoring
- * due dates and daily limits, in the filter's canonical order (hardest first for `hardest`).
+ * due dates and daily limits, in `order` (default: the filter's canonical order, hardest first for
+ * `hardest`).
  * A card leaves the queue once answered Hard/Good/Easy in this session; Again sends it to the
  * back. Sibling burying applies: at most one card per note per session, and a note's other cards
  * are buried when one of its cards was reviewed today or practiced in this session.
@@ -370,9 +398,13 @@ export function buildPracticeQueue(
     ...(options.dayStartHour === undefined ? {} : { dayStartHour: options.dayStartHour }),
     excludeSuspended: true,
   };
-  const candidates = filterCards(state, options.filter, ctx).filter(
+  const matched = filterCards(state, options.filter, ctx).filter(
     (c) => options.deckId === undefined || c.deck_id === options.deckId,
   );
+  const candidates =
+    options.order === undefined
+      ? matched
+      : sortPracticeCards(state, matched, options.order, options.sessionId);
 
   const { latest, practicedByNote } = practiceSessionState(state, options.sessionId);
   const reviewedToday = cardsReviewedTodayByNote(state, options);
