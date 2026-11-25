@@ -1,5 +1,6 @@
 import { SyncTransportError } from '@flash/core';
 import type { Auth, GooglePickedFile, GooglePickerAdapter } from '@flash/platform';
+import { GOOGLE_DRIVE_PICKER_MIME_TYPES } from './google-drive-files.ts';
 
 const GOOGLE_API_SCRIPT_SRC = 'https://apis.google.com/js/api.js';
 const SCRIPT_LOAD_TIMEOUT_MS = 15_000;
@@ -27,18 +28,26 @@ interface GooglePickerBuilderLike {
   build(): { setVisible(visible: boolean): void };
 }
 
+interface GooglePickerViewLike {
+  setIncludeFolders?(include: boolean): GooglePickerViewLike;
+  setMimeTypes?(mimeTypes: string): GooglePickerViewLike;
+}
+
+interface GooglePickerApi {
+  /** `DOCS` (`'all'`) is every Drive file type; older fakes omit it. */
+  ViewId: { SPREADSHEETS: string; DOCUMENTS: string; DOCS?: string };
+  Feature: { MULTISELECT_ENABLED: string };
+  Action: { PICKED: string; CANCEL: string };
+  DocsView: new (viewId: string) => GooglePickerViewLike;
+  PickerBuilder: new () => GooglePickerBuilderLike;
+}
+
 export interface GooglePickerGlobals {
   gapi?: {
     load(api: string, callback: () => void): void;
   };
   google?: {
-    picker?: {
-      ViewId: { SPREADSHEETS: string; DOCUMENTS: string };
-      Feature: { MULTISELECT_ENABLED: string };
-      Action: { PICKED: string; CANCEL: string };
-      DocsView: new (viewId: string) => unknown;
-      PickerBuilder: new () => GooglePickerBuilderLike;
-    };
+    picker?: GooglePickerApi;
   };
   location?: { origin?: string };
 }
@@ -159,6 +168,28 @@ export class WebGooglePicker implements GooglePickerAdapter {
   }
 
   async pickSheetsAndDocs(): Promise<GooglePickedFile[]> {
+    return this.openPicker((api) => [
+      new api.DocsView(api.ViewId.SPREADSHEETS),
+      new api.DocsView(api.ViewId.DOCUMENTS),
+    ]);
+  }
+
+  /**
+   * One Drive view listing Sheets, Docs, and `.csv` / `.tsv` / `.xlsx` / `.flashpkg` files (and
+   * folders to browse). Still `drive.file`: the app only gets the files the user picks.
+   */
+  async pickDriveFiles(): Promise<GooglePickedFile[]> {
+    return this.openPicker((api) => {
+      const view = new api.DocsView(api.ViewId.DOCS ?? 'all');
+      view.setIncludeFolders?.(true);
+      view.setMimeTypes?.(GOOGLE_DRIVE_PICKER_MIME_TYPES.join(','));
+      return [view];
+    });
+  }
+
+  private async openPicker(
+    makeViews: (api: GooglePickerApi) => GooglePickerViewLike[],
+  ): Promise<GooglePickedFile[]> {
     if (!this.apiKey) {
       throw new SyncTransportError(
         'AUTH_REQUIRED',
@@ -178,15 +209,13 @@ export class WebGooglePicker implements GooglePickerAdapter {
     }
 
     return new Promise<GooglePickedFile[]>((resolve) => {
-      const sheetsView = new pickerApi.DocsView(pickerApi.ViewId.SPREADSHEETS);
-      const docsView = new pickerApi.DocsView(pickerApi.ViewId.DOCUMENTS);
-
       let builder = new pickerApi.PickerBuilder()
         .enableFeature(pickerApi.Feature.MULTISELECT_ENABLED)
         .setOAuthToken(accessToken)
-        .setDeveloperKey(this.apiKey)
-        .addView(sheetsView)
-        .addView(docsView);
+        .setDeveloperKey(this.apiKey);
+      for (const view of makeViews(pickerApi)) {
+        builder = builder.addView(view);
+      }
 
       if (this.appId) {
         builder = builder.setAppId(this.appId);

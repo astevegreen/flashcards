@@ -84,6 +84,7 @@ export type SourceKind =
   | 'google_sheets'
   | 'google_docs'
   | 'onedrive_file'
+  | 'google_drive_file'
   | 'local_file'
   | 'package'
   | 'package_url'
