@@ -42,6 +42,7 @@ import type {
 } from '@flash/platform';
 import {
   createContext,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -61,7 +62,9 @@ import { createPersistQueue, type PersistQueue } from './persistQueue.ts';
 import { snapshotWriteAllowed } from './rebuildSignal.ts';
 import { useAudioController, type AudioController } from './useAudioController.ts';
 import { isLeechBackfillReady } from './leechBackfillGate.ts';
-import { useSyncController, type SyncUiState } from './useSyncController.ts';
+import { buildWatermarks, createSyncShell, initialSyncUiState } from './syncShell.ts';
+import type { SyncUiState } from './useSyncController.ts';
+import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
 
 export type { AudioController } from './useAudioController.ts';
@@ -173,6 +176,11 @@ export interface AppContextValue {
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
+
+const LazySyncRuntime = lazyWithRetry(
+  () => import('./SyncRuntime.tsx').then((m) => ({ default: m.SyncRuntime })),
+  { quiet: true },
+);
 
 const LOCAL_SNAPSHOT_INTERVAL = 200;
 
@@ -360,19 +368,38 @@ export function AppProvider({
     setStateVersion((v) => v + 1);
   }, []);
 
-  const syncController = useSyncController({
-    platform,
-    stateRef,
-    metaRef,
-    factoryRef,
-    ...(initialSyncConfig !== undefined ? { initialSyncConfig } : {}),
-    ...(initialSyncCursor !== undefined ? { initialSyncCursor } : {}),
-    ...(initialOAuthError !== undefined ? { initialOAuthError } : {}),
-    enqueuePersist,
-    startedAtMs,
-    onStateMutated: handleRemoteStateMutated,
-    onReplaceState: handleReplaceState,
-  });
+  // The sync controller loads after first paint (SyncRuntime); the shell queues for it (P1).
+  const [syncState, setSyncState] = useState<SyncUiState>(() =>
+    initialSyncUiState(
+      initialSyncConfig?.provider ?? (platform.hasDeviceSlug ? 'dev_channel' : 'none'),
+      initialMeta,
+      initialSyncConfig,
+      initialSyncCursor,
+      initialOAuthError,
+    ),
+  );
+  const [syncController] = useState(() =>
+    createSyncShell(() =>
+      buildWatermarks(metaRef.current.deviceId, metaRef.current.seq, initialSyncCursor),
+    ),
+  );
+  const syncRuntime = (
+    <LazySyncRuntime
+      shell={syncController}
+      platform={platform}
+      stateRef={stateRef}
+      metaRef={metaRef}
+      factoryRef={factoryRef}
+      {...(initialSyncConfig !== undefined ? { initialSyncConfig } : {})}
+      {...(initialSyncCursor !== undefined ? { initialSyncCursor } : {})}
+      enqueuePersist={enqueuePersist}
+      {...(startedAtMs !== undefined ? { startedAtMs } : {})}
+      onStateMutated={handleRemoteStateMutated}
+      onReplaceState={handleReplaceState}
+      syncState={syncState}
+      setSyncState={setSyncState}
+    />
+  );
 
   const emitEvents = useCallback(
     (events: readonly KnownEvent[]) => {
@@ -458,7 +485,7 @@ export function AppProvider({
   // of the tag elsewhere, both skip the note). Leeches that arrive later are picked up at the next
   // launch. Idempotent.
   const [launchedAtMs] = useState(() => Date.now());
-  const backfillReady = isLeechBackfillReady(syncController.syncState, launchedAtMs);
+  const backfillReady = isLeechBackfillReady(syncState, launchedAtMs);
   const backfillDoneRef = useRef(false);
   const emitEventsRef = useRef(emitEvents);
   emitEventsRef.current = emitEvents;
@@ -474,7 +501,7 @@ export function AppProvider({
 
   // Deck option presets: after each sync completed in this launch, copy every preset into any
   // member deck that fell behind it (lazy; see library/presetCatchUp.ts). Idempotent.
-  const presetCatchUpAt = backfillReady ? syncController.syncState.lastSyncedAt : undefined;
+  const presetCatchUpAt = backfillReady ? syncState.lastSyncedAt : undefined;
   useEffect(() => {
     if (presetCatchUpAt === undefined) return;
     void import('../library/presetCatchUp.ts')
@@ -1023,7 +1050,7 @@ export function AppProvider({
 
   // Once this device syncs with the link's provider, the link has done its job.
   const addDeviceLink =
-    openedAddDeviceLink && syncController.syncState.provider !== openedAddDeviceLink.provider
+    openedAddDeviceLink && syncState.provider !== openedAddDeviceLink.provider
       ? openedAddDeviceLink
       : undefined;
 
@@ -1048,7 +1075,7 @@ export function AppProvider({
     activeDeckId,
     setActiveDeckId,
     audio,
-    syncState: syncController.syncState,
+    syncState: syncState,
     syncNow: syncController.syncNow,
     flushPendingSync: syncController.flushPendingSync,
     connectGoogleDrive: syncController.connectGoogleDrive,
@@ -1083,7 +1110,12 @@ export function AppProvider({
     resetLocalData,
   };
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      {children}
+      <Suspense fallback={null}>{syncRuntime}</Suspense>
+    </AppContext.Provider>
+  );
 }
 
 export function useApp(): AppContextValue {

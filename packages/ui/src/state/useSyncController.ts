@@ -13,7 +13,17 @@ import type {
   SyncProviderKind,
   SyncTransport,
 } from '@flash/platform';
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from 'react';
+import { buildWatermarks, isNavigatorOnline, isNetworkSyncProvider } from './syncShell.ts';
+
+export { isNetworkSyncProvider } from './syncShell.ts';
 
 export type SyncUiStatus =
   | 'disconnected'
@@ -76,27 +86,20 @@ export interface UseSyncControllerOptions {
   factoryRef: MutableRefObject<EventFactory>;
   initialSyncConfig?: SyncConfig;
   initialSyncCursor?: SyncCursorState;
-  initialOAuthError?: string;
   enqueuePersist: (task: () => Promise<void>) => Promise<void>;
   /** When this tab started; sync snapshot writes check the rebuild stamp against it. */
   startedAtMs?: number;
   onStateMutated: (nextMeta?: DeviceMeta) => void;
   onReplaceState: (nextState: CollectionState, nextMeta: DeviceMeta) => void;
+  /** Held by AppProvider (seeded by `initialSyncUiState`) so first paint needs no controller. */
+  syncState: SyncUiState;
+  setSyncState: Dispatch<SetStateAction<SyncUiState>>;
 }
 
 const REVIEWS_PER_AUTO_SYNC = 20;
 const AUTO_SYNC_INTERVAL_MS = 120_000;
 export const IDLE_PUSH_DEBOUNCE_MS = 8_000;
 export const FOREGROUND_PULL_COOLDOWN_MS = 15_000;
-
-export function isNetworkSyncProvider(provider: SyncProviderKind): boolean {
-  return (
-    provider === 'google_drive' ||
-    provider === 'dropbox' ||
-    provider === 'onedrive' ||
-    provider === 'dev_channel'
-  );
-}
 
 export function shouldFlushPendingSync(params: {
   provider: SyncProviderKind;
@@ -127,22 +130,6 @@ export function shouldTriggerForegroundPull(params: {
   return true;
 }
 
-function isNavigatorOnline(): boolean {
-  return typeof navigator === 'undefined' ? true : navigator.onLine;
-}
-
-function buildWatermarks(
-  deviceId: string,
-  ownSeq: number,
-  cursor?: SyncCursorState,
-): Record<string, number> {
-  const wm: Record<string, number> = { ...(cursor?.remoteWatermarks ?? {}) };
-  if (ownSeq > 0) {
-    wm[deviceId] = Math.max(wm[deviceId] ?? 0, ownSeq);
-  }
-  return wm;
-}
-
 export function useSyncController({
   platform,
   stateRef,
@@ -150,11 +137,12 @@ export function useSyncController({
   factoryRef,
   initialSyncConfig,
   initialSyncCursor,
-  initialOAuthError,
   enqueuePersist,
   startedAtMs,
   onStateMutated,
   onReplaceState,
+  syncState,
+  setSyncState,
 }: UseSyncControllerOptions): SyncController {
   const defaultProvider: SyncProviderKind =
     initialSyncConfig?.provider ?? (platform.hasDeviceSlug ? 'dev_channel' : 'none');
@@ -184,36 +172,6 @@ export function useSyncController({
       idlePushTimerRef.current = null;
     }
   }, []);
-
-  const [syncState, setSyncState] = useState<SyncUiState>(() => {
-    const online = isNavigatorOnline();
-    const pendingCount = Math.max(0, metaRef.current.seq - (initialSyncCursor?.lastPushedSeq ?? 0));
-    const status: SyncUiStatus = initialOAuthError
-      ? 'error'
-      : defaultProvider === 'none'
-        ? 'disconnected'
-        : !online && isNetworkSyncProvider(defaultProvider)
-          ? 'offline'
-          : initialSyncCursor?.lastSyncedAt
-            ? 'synced'
-            : 'idle';
-    return {
-      provider: defaultProvider,
-      status,
-      isOnline: online,
-      readOnly: false,
-      ...(initialSyncCursor?.lastSyncedAt !== undefined
-        ? { lastSyncedAt: initialSyncCursor.lastSyncedAt }
-        : {}),
-      ...(initialSyncConfig?.localFolderName !== undefined
-        ? { localFolderName: initialSyncConfig.localFolderName }
-        : {}),
-      pendingCount,
-      ...(initialOAuthError !== undefined ? { errorMessage: initialOAuthError } : {}),
-      lastPulledCount: 0,
-      lastPushedCount: 0,
-    };
-  });
 
   // Clean up Web Worker and timers on unmount
   useEffect(() => {
@@ -256,6 +214,7 @@ export function useSyncController({
       onReplaceState,
       onStateMutated,
       platform,
+      setSyncState,
       startedAtMs,
       stateRef,
     ],
@@ -300,7 +259,7 @@ export function useSyncController({
         void executeSync();
       }
     }
-  }, [clearIdlePushTimer, makeRunnerCtx, metaRef]);
+  }, [clearIdlePushTimer, makeRunnerCtx, metaRef, setSyncState]);
 
   const syncNow = useCallback(async (): Promise<void> => {
     await executeSync();
@@ -360,7 +319,7 @@ export function useSyncController({
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
-  }, [executeSync]);
+  }, [executeSync, setSyncState]);
 
   // Trigger 3: Backgrounding push + throttled foreground pull
   useEffect(() => {
@@ -460,7 +419,7 @@ export function useSyncController({
         }, IDLE_PUSH_DEBOUNCE_MS);
       }
     },
-    [clearIdlePushTimer, executeSync, flushPendingSync, metaRef],
+    [clearIdlePushTimer, executeSync, flushPendingSync, metaRef, setSyncState],
   );
 
   const getCurrentWatermarks = useCallback((): Record<string, number> => {
@@ -564,7 +523,7 @@ export function useSyncController({
         setSyncState,
       });
     },
-    [disconnectSync, executeSync, platform.storage],
+    [disconnectSync, executeSync, platform.storage, setSyncState],
   );
 
   const resetSyncState = useCallback(() => {
@@ -591,7 +550,7 @@ export function useSyncController({
       lastPulledCount: 0,
       lastPushedCount: 0,
     });
-  }, [clearIdlePushTimer, platform.hasDeviceSlug]);
+  }, [clearIdlePushTimer, platform.hasDeviceSlug, setSyncState]);
 
   return {
     syncState,
