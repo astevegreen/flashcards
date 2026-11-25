@@ -1077,7 +1077,8 @@ export function applyCardIdsToGridAndSerialize(
     row[cell.colIndex] = cell.newCardId;
   }
 
-  const colCount = Math.max(...mutable.map((r) => r.length));
+  // A reduce, not `Math.max(...)`: spreading ~150k+ rows overflows the stack (C16).
+  const colCount = mutable.reduce((max, r) => Math.max(max, r.length), 0);
   return (
     mutable
       .map((row) => {

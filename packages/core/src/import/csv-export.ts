@@ -95,7 +95,8 @@ export function exportCsv(state: CollectionState, options: CsvExportOptions): Cs
 
   const fields = noteType?.fields ?? [];
   const tagLists = notes.map((n) => normalizeTagList(n.tags));
-  const categoryColumns = Math.max(1, ...tagLists.map((t) => t.length));
+  // A reduce, not `Math.max(...)`: spreading ~150k+ arguments overflows the stack (C16).
+  const categoryColumns = tagLists.reduce((max, t) => Math.max(max, t.length), 1);
   const headers = [
     'Card ID',
     ...(noteType ? fieldHeaders(noteType) : []),
