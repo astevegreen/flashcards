@@ -16,6 +16,26 @@ export interface StoreBillingPlugin {
   queryEntitlements(): Promise<string[]>;
 }
 
+/** The fields of a `@capgo/native-purchases` transaction that say whether it is complete. */
+export interface StoreTransactionState {
+  transactionId?: string;
+  /** Android only: `"1"` is PURCHASED, `"0"` is PENDING (e.g. a cash payment not yet made). */
+  purchaseState?: string;
+  /** iOS only: set when Apple revoked the transaction (a refund). */
+  revocationDate?: string;
+  isActive?: boolean;
+}
+
+/**
+ * True for a purchase that should unlock: it has a transaction, and on Android its payment has
+ * cleared (S8: a pending Play purchase used to unlock at once), and on iOS it isn't revoked.
+ */
+export function isCompletedStorePurchase(tx: StoreTransactionState): boolean {
+  if (!tx.transactionId) return false;
+  if (tx.purchaseState !== undefined && tx.purchaseState !== '1') return false;
+  return !tx.revocationDate && tx.isActive !== false;
+}
+
 const STORE_ENTITLEMENT_KV_KEY = 'capacitor_store_entitlement_v1';
 
 interface CachedStoreEntitlement {
