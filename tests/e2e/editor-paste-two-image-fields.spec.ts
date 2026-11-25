@@ -105,8 +105,8 @@ function transfer(target: Locator, kind: 'paste' | 'drop'): Promise<boolean> {
 async function openEditor(page: Page, device: string): Promise<Locator> {
   await page.goto(`/?device=${device}`);
   await expect(page.getByTestId('study-card')).toBeVisible();
-  await page.getByRole('button', { name: 'Library' }).first().click();
-  await page.getByTestId('bring-my-cards-btn').click();
+  await page.getByRole('button', { name: 'Decks' }).first().click();
+  await page.getByTestId('import-export-btn').click();
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser'),
     page.getByTestId('bring-pick-file-btn').click(),

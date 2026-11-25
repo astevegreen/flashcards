@@ -17,7 +17,7 @@ test.describe('Dictionary browse without typing', () => {
     await expect(page.getByTestId('study-card')).toBeVisible();
     await installPacks(page, ['dict-krdict', 'dict-hanja-unihan']);
 
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByTestId('browse-tab-dictionary').click();
     const panel = page.getByTestId('dictionary-panel');
     await expect(panel).toBeVisible();
@@ -88,7 +88,7 @@ test.describe('Dictionary browse without typing', () => {
     await expect(home.getByTestId('dict-recent-學')).toBeVisible();
     await expect(home.getByTestId('dict-recent-school')).toBeVisible({ timeout: 5_000 });
     await page.reload();
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByTestId('browse-tab-dictionary').click();
     await expect(page.getByTestId('dict-direction-from-english')).toHaveAttribute(
       'aria-checked',

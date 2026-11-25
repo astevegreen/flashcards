@@ -77,7 +77,7 @@ test.describe('Phase 8 Licensing, Sunset Promise & Native Picker Bridge E2E (§1
     );
 
     // Creating a new deck beyond FREE_TIER_MAX_DECKS (2) is gated on the commercial free tier
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByPlaceholder('Deck name (e.g., TOPIK II Verbs)').fill('Blocked Free Deck');
     await page.getByRole('button', { name: 'Create Deck' }).click();
     await expect(page.getByRole('alert')).toContainText('Free tier supports up to 2 local decks');
@@ -96,7 +96,7 @@ test.describe('Phase 8 Licensing, Sunset Promise & Native Picker Bridge E2E (§1
     await expect(page.getByTestId('license-status-badge')).toContainText('Unlocked (Ed25519 Key)');
 
     // Once unlocked offline, creating unlimited decks in Library succeeds immediately
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByPlaceholder('Deck name (e.g., TOPIK II Verbs)').fill('Unlocked Custom Deck');
     await page.getByRole('button', { name: 'Create Deck' }).click();
     await expect(page.getByTestId('library-status')).toContainText(
@@ -124,7 +124,7 @@ test.describe('Phase 8 Licensing, Sunset Promise & Native Picker Bridge E2E (§1
     await page.getByTestId('archive-note-btn').click();
 
     // Verify note appears in Browse -> Archived (1) and can be restored in 1 tap
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     const archivedFilter = page.getByTestId('archived-notes-filter');
     await expect(archivedFilter).toContainText('Archived (1)');
     await archivedFilter.click();
@@ -134,7 +134,7 @@ test.describe('Phase 8 Licensing, Sunset Promise & Native Picker Bridge E2E (§1
     await expect(archivedFilter).toContainText('Archived (0)');
 
     // Archive a deck in Library -> Options -> Archive Deck, then restore it
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByRole('button', { name: 'Options' }).first().click();
     await page.locator('[data-testid^="archive-deck-btn-"]').first().click();
     await expect(page.getByTestId('library-status')).toContainText('Archived deck');

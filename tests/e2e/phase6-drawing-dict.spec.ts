@@ -80,7 +80,7 @@ test.describe('Phase 6 Drawing, Offline Dictionaries & Built-in Starter Catalog 
     await waitForOfflinePrecacheReady(page);
 
     // 1. Open Library -> Japanese Essentials (JA) -> enable built-in Draw layout & pre-cache strokes
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const jaRow = page.locator('[data-testid^="deck-row-"]', {
       hasText: 'Japanese Essentials (JA)',
     });
@@ -200,7 +200,7 @@ test.describe('Phase 6 Drawing, Offline Dictionaries & Built-in Starter Catalog 
 
     // 2. Go OFFLINE and open Browse -> Dictionary & Draw
     await context.setOffline(true);
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByTestId('browse-tab-dictionary').click();
     await expect(page.getByTestId('dictionary-panel')).toBeVisible();
 
@@ -294,7 +294,7 @@ test.describe('Phase 6 Drawing, Offline Dictionaries & Built-in Starter Catalog 
     await page.goto(`/?device=p6starter&starterCatalog=${encodeURIComponent(starterCatalogUrl)}`);
     await expect(page.getByTestId('study-card')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const starterSection = page.getByTestId('starter-decks-section');
     await expect(starterSection).toBeVisible({ timeout: 10_000 });
     await expect(starterSection).toContainText('Official Starter Decks');

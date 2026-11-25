@@ -83,7 +83,7 @@ test.describe('Phase 12 OneDrive storage connector (fake Graph)', () => {
     await page.goto(`/?device=odpick`);
     await expect(page.getByTestId('study-card')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('onedrive-import-btn').click();
     await page.getByTestId('onedrive-grant-access-btn').click();
 
@@ -93,7 +93,7 @@ test.describe('Phase 12 OneDrive storage connector (fake Graph)', () => {
     await page.getByRole('button', { name: 'Settings' }).first().click();
     await expect(page.getByTestId('connect-onedrive-btn')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('onedrive-import-btn').click();
     await page.getByTestId('onedrive-folder-Decks').click();
     await expect(page.getByTestId('onedrive-file-notes.txt')).toHaveCount(0);
@@ -126,12 +126,12 @@ test.describe('Phase 12 OneDrive storage connector (fake Graph)', () => {
     await page.goto(`/?device=odlink`);
     await expect(page.getByTestId('study-card')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('onedrive-import-btn').click();
     await page.getByTestId('onedrive-grant-access-btn').click();
     await expect(page.getByTestId('study-card')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('onedrive-import-btn').click();
     await page.getByTestId('onedrive-folder-Decks').click();
     await page.getByTestId('onedrive-link-Linked.csv').click();
@@ -158,14 +158,14 @@ test.describe('Phase 12 OneDrive storage connector (fake Graph)', () => {
     await expect(page.getByTestId('count-new')).toHaveText('3');
 
     // Unlink keeps the deck and its cards; the row stays gone after the panel reloads.
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await row.getByRole('button', { name: 'Unlink' }).click();
     await expect(page.getByText('Source unlinked.')).toBeVisible();
     await expect(row).toHaveCount(0);
     await page.getByRole('button', { name: 'Study' }).first().click();
     await page.getByLabel('Select deck to study').selectOption({ label: 'Linked' });
     await expect(page.getByTestId('count-new')).toHaveText('3');
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await expect(page.getByTestId('sources-panel')).toBeVisible();
     await expect(row).toHaveCount(0);
     await context.close();
@@ -183,11 +183,11 @@ test.describe('Phase 12 OneDrive storage connector (fake Graph)', () => {
     const page = await context.newPage();
     await page.goto(`/?device=odlayout`);
     await expect(page.getByTestId('study-card')).toBeVisible();
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('onedrive-import-btn').click();
     await page.getByTestId('onedrive-grant-access-btn').click();
     await expect(page.getByTestId('study-card')).toBeVisible();
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
 
     // Every frame from the click on: the fallback or panel height (with the state it is in).
     await page.evaluate(() => {

@@ -80,7 +80,7 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
     await expect(pageA.getByTestId('count-new')).toHaveText(String(initialKoNew - 1));
 
     // 3. Update Korean deck Target retention to 0.85 in Library on Device A
-    await pageA.getByRole('button', { name: 'Library' }).first().click();
+    await pageA.getByRole('button', { name: 'Decks' }).first().click();
     const koRowA = pageA.locator('[data-testid^="deck-row-"]', { hasText: 'Korean Core + Hanja' });
     await koRowA.getByRole('button', { name: 'Options' }).click();
     const retInputA = koRowA.getByLabel('Target retention');
@@ -98,12 +98,12 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
     await expect(pageB.getByTestId('count-new')).toHaveText(String(initialKoNew - 1));
 
     // Verify edited note content converged to Device B (Browse search)
-    await pageB.getByRole('button', { name: 'Browse' }).first().click();
+    await pageB.getByRole('button', { name: 'Words' }).first().click();
     await pageB.getByLabel('Search notes by text or tag').fill('Synced across devices!');
     await expect(pageB.getByTestId('browse-list')).toContainText('학교');
 
     // Verify deck Target retention converged on Device B
-    await pageB.getByRole('button', { name: 'Library' }).first().click();
+    await pageB.getByRole('button', { name: 'Decks' }).first().click();
     const koRowB = pageB.locator('[data-testid^="deck-row-"]', { hasText: 'Korean Core + Hanja' });
     await koRowB.getByRole('button', { name: 'Options' }).click();
     await expect(koRowB.getByLabel('Target retention')).toHaveValue('0.85');
@@ -226,12 +226,12 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
     await expect(pageA.getByTestId('sync-status-pill')).toHaveText('Synced');
 
     // Verify Device A received Device B's Mandarin edit & review
-    await pageA.getByRole('button', { name: 'Browse' }).first().click();
+    await pageA.getByRole('button', { name: 'Words' }).first().click();
     await pageA.getByLabel('Search notes by text or tag').fill('Offline edit from B');
     await expect(pageA.getByTestId('browse-list')).toContainText('学习');
 
     // Verify Device B received Device A's Japanese edit & review
-    await pageB.getByRole('button', { name: 'Browse' }).first().click();
+    await pageB.getByRole('button', { name: 'Words' }).first().click();
     await pageB.getByLabel('Search notes by text or tag').fill('Offline edit from A');
     await expect(pageB.getByTestId('browse-list')).toContainText('日本');
 

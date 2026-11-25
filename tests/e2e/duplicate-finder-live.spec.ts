@@ -20,18 +20,18 @@ test.describe('Duplicate finder while open', () => {
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // An imported list that repeats the sample deck's 학교.
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByPlaceholder('Deck name (e.g., TOPIK II Verbs)').fill('TOPIK list');
     await page.getByRole('button', { name: 'Create Deck' }).click();
     await expect(page.getByText('Created deck "TOPIK list".')).toBeVisible();
-    await page.getByTestId('bring-my-cards-btn').click();
+    await page.getByTestId('import-export-btn').click();
     await page.getByTestId('bring-link-input').fill('Word,Meaning\n학교 (學校),school\n바다,ocean');
     await page.getByTestId('bring-link-submit').click();
     await page.getByTestId('bring-csv-target').selectOption({ label: 'TOPIK list' });
     await page.getByTestId('bring-csv-import-btn').click();
     await expect(page.getByTestId('bring-csv-status')).toContainText('Imported 2 note(s)');
 
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await expect(page.getByTestId('browse-list')).toBeVisible();
     await page.getByTestId('open-duplicate-finder').click();
     const finder = page.getByTestId('duplicate-finder');

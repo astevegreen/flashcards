@@ -864,7 +864,12 @@ function RouteBody({ route, onBusyChange }: Readonly<RouteBodyProps>) {
  * and handed to the existing importer: the Anki panel, the CSV/TSV importer, the `.flashpkg`
  * importer, or the linked Google Sheets source. Lazily loaded; every message is plain text.
  */
-export function BringMyCardsPanel() {
+export interface BringMyCardsPanelProps {
+  /** Drop the panel's own border and fixed height when nested inside ImportExportPanel. */
+  embedded?: boolean;
+}
+
+export function BringMyCardsPanel({ embedded = false }: Readonly<BringMyCardsPanelProps> = {}) {
   const ctx = useImportContext();
   const { platform } = ctx;
   const [route, setRoute] = useState<Route>(INITIAL_ROUTE);
@@ -941,12 +946,11 @@ export function BringMyCardsPanel() {
     setRouteBusy(false);
     setRoute(INITIAL_ROUTE);
   };
+  const frame = embedded
+    ? 'flex h-full min-h-0 flex-col gap-3'
+    : `flex flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 ${BRING_MY_CARDS_PANEL_HEIGHT}`;
   return (
-    <section
-      data-testid="bring-my-cards-panel"
-      aria-label="Bring my cards"
-      className={`flex flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 ${BRING_MY_CARDS_PANEL_HEIGHT}`}
-    >
+    <section data-testid="bring-my-cards-panel" aria-label="Bring my cards" className={frame}>
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1 basis-48">
           <h2 className="text-sm font-semibold">Bring my cards</h2>

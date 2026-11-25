@@ -7,8 +7,13 @@ const fixture = (name: string) =>
 const ANKI_DECK = 'Japanese::Vocab';
 
 async function openLibrary(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Library' }).first().click();
-  await expect(page.locator('h1', { hasText: 'Library' })).toBeVisible();
+  await page.getByRole('button', { name: 'Decks' }).first().click();
+  await expect(page.locator('h1', { hasText: 'Decks' })).toBeVisible();
+}
+
+async function openAnkiImport(page: Page): Promise<void> {
+  await page.getByTestId('import-export-btn').click();
+  await page.getByTestId('import-mode-anki').click();
 }
 
 async function chooseApkg(page: Page, name: string): Promise<void> {
@@ -42,7 +47,7 @@ test.describe('Phase 12 Anki .apkg import', () => {
     // The SQLite WASM is not fetched until someone actually imports.
     expect(requested.some((url) => url.includes('sql-wasm'))).toBe(false);
 
-    await page.getByTestId('import-anki-btn').click();
+    await openAnkiImport(page);
     const panel = page.getByTestId('anki-import-panel');
     await expect(panel).toBeVisible();
     await expect(page.getByTestId('anki-include-history')).not.toBeChecked();
@@ -61,7 +66,7 @@ test.describe('Phase 12 Anki .apkg import', () => {
 
     // Library lists the deck; Browse shows both notes as plain text (no <b> markup).
     await expect(page.locator('[data-testid^="deck-row-"]', { hasText: ANKI_DECK })).toBeVisible();
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     const list = page.getByTestId('browse-list');
     await expect(list).toBeVisible();
     await expect(list).toContainText('犬');
@@ -86,7 +91,7 @@ test.describe('Phase 12 Anki .apkg import', () => {
     await page.goto('/?device=p12ankiagain');
     await expect(page.getByTestId('study-card')).toBeVisible();
     await openLibrary(page);
-    await page.getByTestId('import-anki-btn').click();
+    await openAnkiImport(page);
 
     const status = page.getByTestId('anki-import-status');
     await pickApkg(page, 'basic-reversed.apkg');
@@ -110,7 +115,7 @@ test.describe('Phase 12 Anki .apkg import', () => {
     await page.goto('/?device=p12anki21b');
     await expect(page.getByTestId('study-card')).toBeVisible();
     await openLibrary(page);
-    await page.getByTestId('import-anki-btn').click();
+    await openAnkiImport(page);
     const status = page.getByTestId('anki-import-status');
 
     await pickApkg(page, 'anki21b.apkg');
@@ -134,7 +139,7 @@ test.describe('Phase 14 Anki follow-ups', () => {
     await page.goto('/?device=p14ankilang');
     await expect(page.getByTestId('study-card')).toBeVisible();
     await openLibrary(page);
-    await page.getByTestId('import-anki-btn').click();
+    await openAnkiImport(page);
     await pickApkg(page, 'basic-reversed.apkg');
     await expect(page.getByTestId('anki-import-status')).toHaveAttribute('data-phase', 'done', {
       timeout: 30_000,
@@ -171,13 +176,13 @@ test.describe('Phase 14 Anki follow-ups', () => {
     await page.goto('/?device=p14ankisusp');
     await expect(page.getByTestId('study-card')).toBeVisible();
     await openLibrary(page);
-    await page.getByTestId('import-anki-btn').click();
+    await openAnkiImport(page);
     await pickApkg(page, 'suspended.apkg');
     const status = page.getByTestId('anki-import-status');
     await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
     await expect(status).toContainText('Suspended 2 cards, as in Anki.');
 
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     const row = (text: string) => page.locator('[data-testid^="browse-row-"]', { hasText: text });
     await expect(row('사과').getByTestId('browse-suspended-badge')).toHaveText('1 suspended');
     await expect(row('포도').getByTestId('browse-suspended-badge')).toHaveText('1 suspended');
@@ -194,7 +199,7 @@ test.describe('Phase 14 Anki follow-ups', () => {
     await page.goto('/?device=p14ankimedia');
     await expect(page.getByTestId('study-card')).toBeVisible();
     await openLibrary(page);
-    await page.getByTestId('import-anki-btn').click();
+    await openAnkiImport(page);
     const status = page.getByTestId('anki-import-status');
 
     await pickApkg(page, 'multi-media.apkg');
@@ -207,12 +212,12 @@ test.describe('Phase 14 Anki follow-ups', () => {
     await expect(card.locator('img')).toHaveCount(2);
 
     await openLibrary(page);
-    await page.getByTestId('import-anki-btn').click();
+    await openAnkiImport(page);
     await pickApkg(page, 'kana.apkg');
     await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
     // Wide enough for the Browse detail pane, which lists every field of the note.
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     const row = page.locator('[data-testid^="browse-row-"]', { hasText: '日本語' });
     await row.locator('[data-testid^="browse-show-"]').click();
     const detail = page.getByTestId('browse-detail');
@@ -246,8 +251,8 @@ test.describe('Phase 12 Anki import panel layout stability', () => {
       });
 
       await openLibrary(page);
-      await page.getByTestId('import-anki-btn').click();
-      const region = page.locator('#anki-import-region');
+      await openAnkiImport(page);
+      const region = page.locator('#import-export-region');
       const size = async () => {
         const box = await region.boundingBox();
         return box && { width: box.width, height: box.height };
@@ -284,7 +289,7 @@ test.describe('Anki .apkg export', () => {
     await page.goto('/?device=apkgexport');
     await expect(page.getByTestId('study-card')).toBeVisible();
     await openLibrary(page);
-    await page.getByTestId('import-anki-btn').click();
+    await openAnkiImport(page);
     await pickApkg(page, 'basic-reversed.apkg');
     await expect(page.getByTestId('anki-import-status')).toHaveAttribute('data-phase', 'done', {
       timeout: 30_000,
@@ -292,9 +297,14 @@ test.describe('Anki .apkg export', () => {
 
     const row = page.locator('[data-testid^="deck-row-"]', { hasText: ANKI_DECK });
     await row.getByRole('button', { name: 'Options' }).click();
+    await row.locator('[data-testid^="export-deck-shortcut-"]').click();
+    await expect(page.getByTestId('import-export-tab-export')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.locator('[data-testid^="export-deck-anki-btn-"]').click(),
+      page.getByTestId('export-deck-anki-btn').click(),
     ]);
     expect(download.suggestedFilename()).toBe('japanese-vocab.apkg');
     await expect(page.getByTestId('library-status')).toContainText(
@@ -307,7 +317,7 @@ test.describe('Anki .apkg export', () => {
     await page.goto('/?device=apkgexportback');
     await expect(page.getByTestId('study-card')).toBeVisible();
     await openLibrary(page);
-    await page.getByTestId('import-anki-btn').click();
+    await openAnkiImport(page);
     const [chooser] = await Promise.all([
       page.waitForEvent('filechooser'),
       page.getByTestId('anki-pick-file-btn').click(),
@@ -318,7 +328,7 @@ test.describe('Anki .apkg export', () => {
     await page.getByTestId('anki-import-btn').click();
     await expect(status).toHaveAttribute('data-phase', 'done', { timeout: 30_000 });
     await expect(status).toContainText('Imported 2 notes into 1 deck');
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await expect(page.getByTestId('browse-list')).toContainText('犬');
     await expect(page.getByTestId('browse-list')).toContainText('猫');
   });

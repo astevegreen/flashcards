@@ -232,7 +232,7 @@ test.describe('Phase 3 Sources — Google Sheets/Docs & Family Library Package S
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // Go to Library -> create & link mocked Google Sheet from template
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await expect(page.getByTestId('sources-panel')).toBeVisible();
 
     // Verify Google Doc imported on open/refresh with raw HTML stripped
@@ -278,12 +278,12 @@ test.describe('Phase 3 Sources — Google Sheets/Docs & Family Library Package S
     sheetValues = [headerRow, ['강아지', '', 'puppy / doggie', '', '', 'animals', puppyCardId]];
     sheetModifiedTime = '2026-11-20T12:00:00Z';
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('refresh-sources-btn').click();
     await expect(page.getByTestId('library-status')).toContainText('Refreshed sources');
 
     // Verify Browse shows edited 강아지 and NOT archived 고양이
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByLabel('Search notes by text or tag').fill('doggie');
     await expect(page.getByTestId('browse-list')).toContainText('강아지');
 
@@ -295,7 +295,7 @@ test.describe('Phase 3 Sources — Google Sheets/Docs & Family Library Package S
     ];
     sheetModifiedTime = '2026-11-20T12:05:00Z';
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('refresh-sources-btn').click();
 
     await page.getByRole('button', { name: 'Study' }).first().click();
@@ -377,7 +377,7 @@ test.describe('Phase 3 Sources — Google Sheets/Docs & Family Library Package S
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // Open Library -> subscribe to Family Library catalog
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('toggle-subscribe-url-btn').click();
     await page.getByTestId('subscribe-url-input').fill('https://family.example.test/index.json');
     await page.getByTestId('subscribe-url-submit').click();
@@ -406,12 +406,12 @@ test.describe('Phase 3 Sources — Google Sheets/Docs & Family Library Package S
       { id: 'fam-3', word: '별', meaning: 'star' },
     ]);
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('refresh-sources-btn').click();
     await expect(page.getByTestId('pkg-sub-row-pkg:family-ko-pack')).toContainText('v2.0.0');
 
     // Confirm updated meaning in Browse
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByLabel('Search notes by text or tag').fill('heavens');
     await expect(page.getByTestId('browse-list')).toContainText('하늘');
 

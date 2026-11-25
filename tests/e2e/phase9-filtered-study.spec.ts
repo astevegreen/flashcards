@@ -32,10 +32,10 @@ async function countStoredEvents(page: Page, dbName: string, type: string): Prom
   );
 }
 
-const browseHeading = (page: Page) => page.locator('h1', { hasText: 'Browse' });
+const browseHeading = (page: Page) => page.locator('h1', { hasText: 'Words' });
 
 async function openBrowse(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Browse' }).first().click();
+  await page.getByRole('button', { name: 'Words' }).first().click();
   await expect(page.getByTestId('browse-list')).toBeVisible();
 }
 
@@ -183,7 +183,7 @@ test.describe('Phase 9 categories, filtered study and suspend', () => {
 
     // Studying another deck from Library drops the Korean-scoped filter instead of intersecting
     // the Japanese deck with it into an empty queue.
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const jaRow = page.locator('[data-testid^="deck-row-"]', {
       hasText: 'Japanese Essentials (JA)',
     });

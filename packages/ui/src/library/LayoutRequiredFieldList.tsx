@@ -29,7 +29,7 @@ export function LayoutRequiredFieldList({
         Make a layout&apos;s card only for notes where a field is filled, for example a Listen card
         only when there is audio. This applies to every deck that uses the{' '}
         {noteType?.name ?? 'same'} note type, not just this one. If the field is emptied later,
-        studied cards are kept and show as Empty in Browse.
+        studied cards are kept and show as Empty in Words.
       </p>
       {layouts.map((l) => {
         const usable = fields.filter(

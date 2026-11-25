@@ -14,6 +14,8 @@ export interface CategoryExportPanelProps {
   collectMediaBlobs: () => Promise<Map<string, Uint8Array>>;
   onStatus: (message: string) => void;
   onError: (message: string) => void;
+  /** Compact styling when rendered inside ImportExportPanel. */
+  embedded?: boolean;
 }
 
 const selectClass =
@@ -55,6 +57,7 @@ export function CategoryExportPanel({
   collectMediaBlobs,
   onStatus,
   onError,
+  embedded = false,
 }: Readonly<CategoryExportPanelProps>) {
   const { platform, state, stateVersion } = useApp();
   const [tag, setTag] = useState('');
@@ -118,21 +121,28 @@ export function CategoryExportPanel({
     }
   };
 
+  const Heading = embedded ? 'h3' : 'h2';
   return (
     <section
       aria-label="Export a tag"
       data-testid="category-export-panel"
-      className="flex flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+      className={
+        embedded
+          ? 'flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3'
+          : 'flex flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4'
+      }
     >
       <div>
-        <h2 className="text-sm font-semibold">Export a tag</h2>
-        <p className="text-xs text-[var(--muted)]">
+        <Heading className={embedded ? 'text-xs font-semibold' : 'text-sm font-semibold'}>
+          Export a tag
+        </Heading>
+        <p className={embedded ? 'text-[11px] text-[var(--muted)]' : 'text-xs text-[var(--muted)]'}>
           Every note in a tag (and its <code>::</code> nested tags) as CSV or .flashpkg, with its
-          tags kept. To export hand-picked notes, select them in Browse.
+          tags kept. To export hand-picked notes, select them in Words.
         </p>
       </div>
       {categories.length === 0 ? (
-        <p className="text-xs text-[var(--muted)]">No tags yet. Add them to notes in Browse.</p>
+        <p className="text-xs text-[var(--muted)]">No tags yet. Add them to notes in Words.</p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
           <select

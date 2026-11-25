@@ -25,7 +25,7 @@ test.describe('Phase 10 Korean dictionary (KRDict starter pack)', () => {
       }
     });
     await context.setOffline(true);
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByTestId('browse-tab-dictionary').click();
     await expect(page.getByTestId('dictionary-panel')).toBeVisible();
     const input = page.getByTestId('dictionary-search-input');

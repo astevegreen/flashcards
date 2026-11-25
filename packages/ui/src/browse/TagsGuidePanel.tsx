@@ -31,7 +31,7 @@ export function TagsGuidePanel({ onDismiss, nested = false }: Readonly<TagsGuide
           When you bring in cards, columns named Category 1, Category 2 and so on, or Tags, become
           tags.
         </li>
-        <li>Pick a tag in Browse to filter the list, or in a Study set to study just those.</li>
+        <li>Pick a tag in Words to filter the list, or in a Study set to study just those.</li>
         <li>In Manage tags you can rename, merge or delete a tag for every note at once.</li>
       </ul>
       <div>

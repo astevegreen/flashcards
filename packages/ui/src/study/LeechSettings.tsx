@@ -14,7 +14,7 @@ export function LeechAutoSuspendSetting() {
         <div className="font-medium">Auto-suspend leeches</div>
         <div className="text-xs text-[var(--muted)]">
           Suspend a card when it reaches {LEECH_LAPSE_THRESHOLD} lapses. Leeches are always tagged
-          “leech”; unsuspend them in Browse.
+          “leech”; unsuspend them in Words.
         </div>
       </div>
       <input

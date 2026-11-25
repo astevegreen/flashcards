@@ -70,8 +70,8 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // Navigate to Library
-    await page.getByRole('button', { name: 'Library' }).first().click();
-    await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
+    await expect(page.getByRole('heading', { name: 'Decks' })).toBeVisible();
 
     // Enable Production layout on Korean Core + Hanja deck
     const koRow = page.locator('[data-testid^="deck-row-"]', { hasText: 'Korean Core + Hanja' });
@@ -82,7 +82,7 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     await expect(prodToggle).toHaveAttribute('aria-pressed', 'true');
 
     // Paste CSV rows into Korean Core + Hanja deck (through Bring my cards)
-    await page.getByTestId('bring-my-cards-btn').click();
+    await page.getByTestId('import-export-btn').click();
     await page
       .getByTestId('bring-link-input')
       .fill('Word,Meaning,Tags\n바다,ocean,nature\n산,mountain,nature');
@@ -96,10 +96,12 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     await koRow.getByRole('button', { name: 'Study' }).click();
     await expect(page.getByTestId('count-new')).toHaveText('6');
 
-    // Return to Library for export
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    // Return to Decks for export
+    await page.getByRole('button', { name: 'Decks' }).first().click();
 
-    // Export full collection .flashpkg and verify zip header ('PK')
+    // Open Import / Export -> Export tab and export full collection .flashpkg
+    await page.getByTestId('import-export-btn').click();
+    await page.getByTestId('import-export-tab-export').click();
     const [download] = await Promise.all([
       page.waitForEvent('download'),
       page.getByTestId('export-collection-btn').click(),
@@ -116,7 +118,7 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     }
 
     // Navigate to Browse and verify virtualized search finds imported CSV note
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByLabel('Search notes by text or tag').fill('바다');
     await expect(page.getByTestId('browse-list')).toContainText('바다');
     await expect(page.getByTestId('browse-list')).toContainText('ocean');
@@ -133,7 +135,7 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // Verify imported note persisted in IndexedDB while offline
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByLabel('Search notes by text or tag').fill('바다');
     await expect(page.getByTestId('browse-list')).toContainText('바다');
 
@@ -206,7 +208,7 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     await expect(page.getByTestId('rate-hard')).toHaveCount(0);
 
     // Library: test Deck Options target_retention keyboard typing (0.85) + export .flashpkg
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const koRow = page.locator('[data-testid^="deck-row-"]', { hasText: 'Korean Core + Hanja' });
     await koRow.getByRole('button', { name: 'Options' }).click();
     const retentionInput = koRow.getByLabel('Target retention');
@@ -214,6 +216,8 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     await retentionInput.blur();
     await expect(retentionInput).toHaveValue('0.85');
 
+    await page.getByTestId('import-export-btn').click();
+    await page.getByTestId('import-export-tab-export').click();
     const [download] = await Promise.all([
       page.waitForEvent('download'),
       page.getByTestId('export-collection-btn').click(),
@@ -224,9 +228,11 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     // Reset local data, then re-import the exported .flashpkg via real file chooser
     await page.getByRole('button', { name: 'Settings' }).first().click();
     await page.getByRole('button', { name: 'Reset Local Device Data' }).click();
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await expect(page.locator('[data-testid^="deck-row-"]')).toHaveCount(0);
 
+    await page.getByTestId('import-export-btn').click();
+    await page.getByTestId('import-mode-flashpkg').click();
     const [fileChooser] = await Promise.all([
       page.waitForEvent('filechooser'),
       page.getByTestId('import-flashpkg-btn').click(),
@@ -273,7 +279,7 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     await expect(page.getByTestId('count-new')).toHaveText(String(initialNew - 1));
 
     // Navigate via mobile bottom tab bar to Browse and search using #topik-1
-    await mobileNav.getByRole('button', { name: 'Browse' }).click();
+    await mobileNav.getByRole('button', { name: 'Words' }).click();
     await page.getByLabel('Search notes by text or tag').fill('#topik-1');
     await expect(page.getByTestId('browse-list')).toContainText('학교');
     await expect(page.getByTestId('browse-list')).not.toContainText('Bite the bullet');

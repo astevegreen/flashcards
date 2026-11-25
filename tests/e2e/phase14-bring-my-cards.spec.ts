@@ -55,9 +55,9 @@ function buildFlashpkg(): Buffer {
 async function openBringMyCards(page: Page, device: string): Promise<void> {
   await page.goto(`/?device=${device}`);
   await expect(page.getByTestId('study-card')).toBeVisible();
-  await page.getByRole('button', { name: 'Library' }).first().click();
-  await expect(page.locator('h1', { hasText: 'Library' })).toBeVisible();
-  await page.getByTestId('bring-my-cards-btn').click();
+  await page.getByRole('button', { name: 'Decks' }).first().click();
+  await expect(page.locator('h1', { hasText: 'Decks' })).toBeVisible();
+  await page.getByTestId('import-export-btn').click();
   await expect(page.getByTestId('bring-my-cards-panel')).toBeVisible();
 }
 
@@ -154,7 +154,7 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
       page.locator('[data-testid^="deck-row-"]', { hasText: 'FD Korean' }),
     ).toBeVisible();
 
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByLabel('Search notes by text or tag').fill('puppy');
     await expect(page.getByTestId('browse-list')).toContainText('강아지');
   });
@@ -300,8 +300,8 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
     }, `flashcards-db-${device}`);
     await page.reload();
     await expect(page.getByTestId('study-card')).toBeVisible();
-    await page.getByRole('button', { name: 'Library' }).first().click();
-    await page.getByTestId('bring-my-cards-btn').click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
+    await page.getByTestId('import-export-btn').click();
 
     await page
       .getByTestId('bring-link-input')
@@ -360,9 +360,9 @@ test.describe('Phase 14 Bring my cards layout stability', () => {
         await r.continue();
       });
 
-      await page.getByRole('button', { name: 'Library' }).first().click();
-      await page.getByTestId('bring-my-cards-btn').click();
-      const region = page.locator('#bring-my-cards-region');
+      await page.getByRole('button', { name: 'Decks' }).first().click();
+      await page.getByTestId('import-export-btn').click();
+      const region = page.locator('#import-export-region');
       const size = async () => {
         const box = await region.boundingBox();
         return box && { width: box.width, height: box.height };
@@ -462,7 +462,7 @@ test.describe('Bring my cards column mapping', () => {
     await expect(status).toContainText('Imported 2 note(s) into "my words"');
     await expect(deckRow(page, 'my words')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     const search = page.getByLabel('Search notes by text or tag');
     await search.fill('#noun');
     await expect(page.getByTestId('browse-list')).toContainText('나무');

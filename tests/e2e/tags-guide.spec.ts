@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 async function openBrowse(page: Page, device: string): Promise<void> {
   await page.goto(`/?device=${device}`);
   await expect(page.getByTestId('study-card')).toBeVisible();
-  await page.getByRole('button', { name: 'Browse' }).first().click();
+  await page.getByRole('button', { name: 'Words' }).first().click();
   await expect(page.getByTestId('browse-list')).toBeVisible();
 }
 
@@ -11,8 +11,8 @@ async function openBrowse(page: Page, device: string): Promise<void> {
 async function dropCsv(page: Page, device: string, csv: string): Promise<void> {
   await page.goto(`/?device=${device}`);
   await expect(page.getByTestId('study-card')).toBeVisible();
-  await page.getByRole('button', { name: 'Library' }).first().click();
-  await page.getByTestId('bring-my-cards-btn').click();
+  await page.getByRole('button', { name: 'Decks' }).first().click();
+  await page.getByTestId('import-export-btn').click();
   await expect(page.getByTestId('bring-my-cards-panel')).toBeVisible();
   await page.getByTestId('bring-drop-zone').evaluate((zone, text) => {
     const data = new DataTransfer();
@@ -63,7 +63,7 @@ test.describe('How tags work', () => {
     // Dismissal is remembered on this device.
     await page.reload();
     await expect(page.getByTestId('study-card')).toBeVisible();
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByTestId('open-tag-manager').click();
     await expect(page.getByTestId('tag-manager')).toBeVisible();
     await expect(page.getByTestId('tags-guide')).toHaveCount(0);

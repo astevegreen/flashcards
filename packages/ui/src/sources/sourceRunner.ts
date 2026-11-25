@@ -1144,7 +1144,7 @@ export async function linkOneDriveFile(
   const archived = state.decks.get(oneDriveDeckId(existing ?? { itemId: file.id }));
   if (archived?.archived) {
     throw new Error(
-      `The deck "${archived.name}" from this file is archived. Restore it in the Library first.`,
+      `The deck "${archived.name}" from this file is archived. Restore it in Decks first.`,
     );
   }
   // Linking again after an unlink is deliberate: stop hiding the file's synced deck.

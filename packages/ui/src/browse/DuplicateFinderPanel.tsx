@@ -102,8 +102,7 @@ export function DuplicateFinderPanel({ onOpen, onClose }: Readonly<DuplicateFind
       <p className="text-xs text-[var(--muted)]">
         Notes with the same key field (such as Word or Hanja), ignoring ruby readings and extra
         spaces, in decks of the same language. Useful when an imported list (HSK, JLPT) overlaps
-        your own decks. Archiving keeps a note&apos;s review history; you can restore it from
-        Browse.
+        your own decks. Archiving keeps a note&apos;s review history; you can restore it from Words.
       </p>
       {message && (
         <div data-testid="duplicate-message" className="text-xs text-[var(--muted)]">

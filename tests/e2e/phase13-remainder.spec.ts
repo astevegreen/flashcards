@@ -200,7 +200,7 @@ test.describe('Phase 13 layout fixes', () => {
     test('a pull inside a scrolled list scrolls instead of syncing', async ({ page }) => {
       await page.goto('/?device=pullrefresh');
       await expect(page.getByTestId('study-card')).toBeVisible();
-      await openTab(page, 'Browse');
+      await openTab(page, 'Words');
       const list = page.getByTestId('browse-list');
       await expect(list.locator('[data-testid^="browse-row-"]').first()).toBeVisible();
 
@@ -230,7 +230,7 @@ test.describe('Phase 13 Browse split view', () => {
   async function openBrowse(page: Page, device: string): Promise<void> {
     await page.goto(`/?device=${device}`);
     await expect(page.getByTestId('study-card')).toBeVisible();
-    await openTab(page, 'Browse');
+    await openTab(page, 'Words');
     await expect(
       page.getByTestId('browse-list').locator('[data-testid^="browse-row-"]').first(),
     ).toBeVisible();

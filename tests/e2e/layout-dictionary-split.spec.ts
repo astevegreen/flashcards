@@ -19,7 +19,7 @@ async function openKoreanDictionary(page: Page): Promise<void> {
   await expect(page.getByTestId('pack-installed-badge-dict-krdict')).toBeVisible({
     timeout: 10_000,
   });
-  await page.getByRole('button', { name: 'Browse' }).first().click();
+  await page.getByRole('button', { name: 'Words' }).first().click();
   await page.getByTestId('browse-tab-dictionary').click();
   await expect(page.getByTestId('dictionary-panel')).toBeVisible();
 }

@@ -22,6 +22,12 @@ const SettingsScreen = lazyWithRetry(() =>
 
 function ScreenRouter() {
   const [activeTab, setActiveTab] = useState<NavTab>('study');
+  const [browseDeckRequest, setBrowseDeckRequest] = useState<
+    { deckId: string; nonce: number } | undefined
+  >(undefined);
+  const [libraryImportExportRequest, setLibraryImportExportRequest] = useState<
+    { tab: 'import' | 'export'; nonce: number } | undefined
+  >(undefined);
   const { setActiveDeckId, flushPendingSync } = useApp();
 
   const handleSelectTab = (nextTab: NavTab) => {
@@ -49,13 +55,38 @@ function ScreenRouter() {
                 setActiveDeckId(deckId);
                 handleSelectTab('study');
               }}
+              onViewWords={(deckId) => {
+                setBrowseDeckRequest((prev) => ({ deckId, nonce: (prev?.nonce ?? 0) + 1 }));
+                handleSelectTab('browse');
+              }}
+              {...(libraryImportExportRequest !== undefined
+                ? { initialImportExport: libraryImportExportRequest }
+                : {})}
             />
           )}
           {activeTab === 'browse' && (
-            <BrowseScreen onOpenSettings={() => handleSelectTab('settings')} />
+            <BrowseScreen
+              onOpenSettings={() => handleSelectTab('settings')}
+              {...(browseDeckRequest !== undefined
+                ? {
+                    initialDeckId: browseDeckRequest.deckId,
+                    initialDeckNonce: browseDeckRequest.nonce,
+                  }
+                : {})}
+            />
           )}
           {activeTab === 'stats' && <StatsScreen />}
-          {activeTab === 'settings' && <SettingsScreen />}
+          {activeTab === 'settings' && (
+            <SettingsScreen
+              onOpenImportExport={() => {
+                setLibraryImportExportRequest((prev) => ({
+                  tab: 'export',
+                  nonce: (prev?.nonce ?? 0) + 1,
+                }));
+                handleSelectTab('library');
+              }}
+            />
+          )}
         </Suspense>
       )}
     </AppShell>

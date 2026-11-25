@@ -120,7 +120,7 @@ test.describe('Automatic backups of a large collection under the production CSP'
     await expect(panel.getByTestId('backup-last-error')).toHaveCount(0);
 
     // A change for the restore to undo.
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByRole('button', { name: 'Options' }).first().click();
     await page.locator('[data-testid^="archive-deck-btn-"]').first().click();
     await page.getByRole('button', { name: 'Settings', exact: true }).first().click();

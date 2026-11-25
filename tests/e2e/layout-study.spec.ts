@@ -99,13 +99,13 @@ test.describe('Phase 13 adaptive study layout', () => {
       // Compact layout: bottom tabs hidden while studying, the slim rail keeps navigation reachable.
       await expect(mobileNav).toBeHidden();
       await expect(page.getByRole('complementary', { name: 'Primary navigation' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Library' }).first()).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Decks' }).first()).toBeVisible();
     }
 
     if (isSmall) {
       // Icon-only tabs that keep their accessible labels.
       await expect(mobileNav).toBeVisible();
-      const libraryTab = mobileNav.getByRole('button', { name: 'Library' });
+      const libraryTab = mobileNav.getByRole('button', { name: 'Decks' });
       await expect(libraryTab).toBeVisible();
       const labelBox = await libraryTab.locator('span').last().boundingBox();
       expect(labelBox?.width ?? 0).toBeLessThanOrEqual(1);

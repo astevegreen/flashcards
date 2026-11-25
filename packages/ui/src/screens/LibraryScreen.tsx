@@ -20,7 +20,7 @@ import {
   type SpeakTiming,
 } from '@flash/core';
 import { canCreateOrImportDeck } from '@flash/core/license';
-import { Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { CoursesPanel } from '../components/CoursesPanel.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
@@ -28,6 +28,8 @@ import { LayoutRequiredFieldList } from '../library/LayoutRequiredFieldList.tsx'
 import { RubyDisplaySelect } from '../library/RubyDisplaySelect.tsx';
 import { DeckDescriptionField, DeckOverview } from '../library/DeckDescription.tsx';
 import { DeckOrganizationPanel } from '../library/DeckOrganizationPanel.tsx';
+import { IMPORT_EXPORT_PANEL_HEIGHT } from '../library/import-export-layout.ts';
+import type { ImportExportTab } from '../library/ImportExportPanel.tsx';
 import { runPresetCatchUp } from '../library/presetCatchUp.ts';
 import { useDeckOrganization } from '../library/useDeckOrganization.ts';
 import { setStudyFilter } from '../study/filterStore.ts';
@@ -35,8 +37,6 @@ import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { isExportCancelled } from '../export/exportCancelled.ts';
 import { useApp } from '../state/AppContext.tsx';
-import { ANKI_IMPORT_PANEL_HEIGHT } from '../import/anki-import-layout.ts';
-import { BRING_MY_CARDS_PANEL_HEIGHT } from '../import/bring-my-cards-layout.ts';
 import { importFlashpkgBytes, type LibraryImportContext } from '../import/libraryImports.ts';
 
 const LazyPageViewer = lazyWithRetry(() => import('../pages/PageViewer.tsx'), {
@@ -45,10 +45,8 @@ const LazyPageViewer = lazyWithRetry(() => import('../pages/PageViewer.tsx'), {
 const LazyPageEditor = lazyWithRetry(() => import('../pages/PageEditor.tsx'), {
   closeWith: 'onCancel',
 });
-const LazyCategoryExportPanel = lazyWithRetry(() => import('../library/CategoryExportPanel.tsx'));
 const LazyFsrsOptimizerPanel = lazyWithRetry(() => import('../fsrs/FsrsOptimizerPanel.tsx'));
-const LazyAnkiImportPanel = lazyWithRetry(() => import('../import/AnkiImportPanel.tsx'));
-const LazyBringMyCardsPanel = lazyWithRetry(() => import('../import/BringMyCardsPanel.tsx'));
+const LazyImportExportPanel = lazyWithRetry(() => import('../library/ImportExportPanel.tsx'));
 
 /** Furigana only exists in Japanese text, so only Japanese decks hide it on the front by default. */
 function isJapaneseLanguage(language: string): boolean {
@@ -60,8 +58,7 @@ function DeckOptionsPanel({
   deck,
   noteType,
   onUpdateSettings,
-  onExportDeck,
-  onExportDeckForAnki,
+  onOpenDeckExport,
   onArchiveDeck,
   onAddLayout,
   onUpdateLayout,
@@ -72,8 +69,7 @@ function DeckOptionsPanel({
     deckId: string,
     patch: { name?: string; archived?: boolean; settings?: Partial<DeckSettings> },
   ) => void;
-  onExportDeck: (deck: Deck) => void;
-  onExportDeckForAnki?: ((deck: Deck) => void) | undefined;
+  onOpenDeckExport: (deck: Deck) => void;
   onArchiveDeck: (deck: Deck) => void;
   onAddLayout: (layout: Layout, deckId: string) => void;
   onUpdateLayout: (layout: Layout) => void;
@@ -743,21 +739,12 @@ function DeckOptionsPanel({
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={() => onExportDeck(deck)}
+          data-testid={`export-deck-shortcut-${deck.id}`}
+          onClick={() => onOpenDeckExport(deck)}
           className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--surface-2)]"
         >
-          Export Deck (.flashpkg)
+          Export…
         </button>
-        {onExportDeckForAnki && (
-          <button
-            type="button"
-            data-testid={`export-deck-anki-btn-${deck.id}`}
-            onClick={() => onExportDeckForAnki(deck)}
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--surface-2)]"
-          >
-            Export for Anki (.apkg)
-          </button>
-        )}
         {deck.source?.kind === 'google_sheets' &&
           deck.source.uri?.startsWith('https://docs.google.com/spreadsheets/') && (
             <a
@@ -785,9 +772,17 @@ function DeckOptionsPanel({
 export interface LibraryScreenProps {
   /** `undefined` = all decks (used by "Study folder", which also sets a Study filter). */
   onStudyDeck: (deckId: string | undefined) => void;
+  /** Switches to the Words tab filtered to this deck. */
+  onViewWords?: (deckId: string) => void;
+  /** Opens the Import / Export panel on a specific tab when navigated here from Settings. */
+  initialImportExport?: { tab: ImportExportTab; nonce: number };
 }
 
-export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
+export function LibraryScreen({
+  onStudyDeck,
+  onViewWords,
+  initialImportExport,
+}: LibraryScreenProps) {
   const {
     platform,
     state,
@@ -822,8 +817,37 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
   const [newDeckLang, setNewDeckLang] = useState('ko');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showAnkiImport, setShowAnkiImport] = useState(false);
-  const [showBringMyCards, setShowBringMyCards] = useState(false);
+  const [importExportPanel, setImportExportPanel] = useState<{
+    open: boolean;
+    tab: ImportExportTab;
+    deckId?: string;
+    nonce: number;
+  }>(() =>
+    initialImportExport
+      ? { open: true, tab: initialImportExport.tab, nonce: initialImportExport.nonce }
+      : { open: false, tab: 'import', nonce: 0 },
+  );
+  const importExportRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (initialImportExport) {
+      setImportExportPanel({
+        open: true,
+        tab: initialImportExport.tab,
+        nonce: initialImportExport.nonce,
+      });
+    }
+  }, [initialImportExport]);
+
+  const openDeckExport = (deck: Deck) => {
+    setImportExportPanel((prev) => ({
+      open: true,
+      tab: 'export',
+      deckId: deck.id,
+      nonce: prev.nonce + 1,
+    }));
+    importExportRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
 
   // Lazy Lesson Page Viewer / Editor modal-like view state
   const [viewingPageId, setViewingPageId] = useState<string | null>(null);
@@ -1140,6 +1164,17 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
               Study
             </button>
 
+            {onViewWords && (
+              <button
+                type="button"
+                data-testid={`view-words-${deck.id}`}
+                onClick={() => onViewWords(deck.id)}
+                className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--accent)] hover:bg-[var(--surface-2)]"
+              >
+                View words
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setExpandedDeckId(isExpanded ? null : deck.id)}
@@ -1168,10 +1203,7 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
             deck={deck}
             noteType={state.noteTypes.get(deck.note_type_id)}
             onUpdateSettings={updateDeckSettings}
-            onExportDeck={(d) => void handleExportDeck(d)}
-            onExportDeckForAnki={
-              platform.getAnkiPackageReader ? (d) => void handleExportDeckForAnki(d) : undefined
-            }
+            onOpenDeckExport={openDeckExport}
             onArchiveDeck={handleArchiveDeck}
             onUpdateLayout={(layout) => upsertLayout(layout)}
             onAddLayout={(layout, dId) => {
@@ -1265,48 +1297,26 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
     <section className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Library</h1>
+          <h1 className="text-xl font-bold tracking-tight">Decks</h1>
           <p className="text-xs text-[var(--muted)]">
-            Manage decks, answer-mode layouts, courses, lesson pages, and offline files.
+            Your decks: create, organize, set options, import and export.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            data-testid="bring-my-cards-btn"
-            aria-expanded={showBringMyCards}
-            aria-controls="bring-my-cards-region"
-            onClick={() => setShowBringMyCards((prev) => !prev)}
+            data-testid="import-export-btn"
+            aria-expanded={importExportPanel.open}
+            aria-controls="import-export-region"
+            onClick={() =>
+              setImportExportPanel((prev) => ({
+                ...prev,
+                open: !prev.open,
+              }))
+            }
             className="rounded-xl bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
           >
-            Bring my cards
-          </button>
-          <button
-            type="button"
-            data-testid="import-flashpkg-btn"
-            onClick={() => void handleImportFlashpkg()}
-            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)]"
-          >
-            Import .flashpkg
-          </button>
-          <button
-            type="button"
-            data-testid="import-anki-btn"
-            aria-expanded={showAnkiImport}
-            aria-controls="anki-import-region"
-            onClick={() => setShowAnkiImport((prev) => !prev)}
-            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)]"
-          >
-            Import Anki (.apkg)
-          </button>
-          <button
-            type="button"
-            data-testid="export-collection-btn"
-            onClick={() => void handleExportAll()}
-            disabled={decks.length === 0}
-            className="rounded-xl bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-40"
-          >
-            Export Backup (.flashpkg)
+            Import / Export
           </button>
         </div>
       </div>
@@ -1329,44 +1339,45 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
         </div>
       )}
 
-      {/* Phase 14 "Bring my cards": opened from the header, below every header control. The panel
-          and this fallback share one fixed height (BRING_MY_CARDS_PANEL_HEIGHT). */}
-      {showBringMyCards && (
-        <div id="bring-my-cards-region">
-          <Suspense
-            fallback={
-              <div
-                data-testid="bring-my-cards-loading"
-                className={`rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-xs text-[var(--muted)] ${BRING_MY_CARDS_PANEL_HEIGHT}`}
-              >
-                Loading Bring my cards…
-              </div>
-            }
-          >
-            <LazyBringMyCardsPanel />
-          </Suspense>
-        </div>
-      )}
-
-      {/* Phase 12 Anki import: opened from the header, below every header control. The panel and
-          this fallback share one fixed height (ANKI_IMPORT_PANEL_HEIGHT), so nothing below moves
-          when the chunk arrives or an import finishes. */}
-      {showAnkiImport && (
-        <div id="anki-import-region">
-          <Suspense
-            fallback={
-              <div
-                data-testid="anki-import-loading"
-                className={`rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-xs text-[var(--muted)] ${ANKI_IMPORT_PANEL_HEIGHT}`}
-              >
-                Loading Anki import…
-              </div>
-            }
-          >
-            <LazyAnkiImportPanel />
-          </Suspense>
-        </div>
-      )}
+      {/* Unified Import / Export panel: fixed height shared with Suspense fallback to prevent layout shift */}
+      <div ref={importExportRef}>
+        {importExportPanel.open && (
+          <div id="import-export-region">
+            <Suspense
+              fallback={
+                <div
+                  data-testid="import-export-loading"
+                  className={`rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-xs text-[var(--muted)] ${IMPORT_EXPORT_PANEL_HEIGHT}`}
+                >
+                  Loading Import / Export…
+                </div>
+              }
+            >
+              <LazyImportExportPanel
+                initialTab={importExportPanel.tab}
+                {...(importExportPanel.deckId !== undefined
+                  ? { initialDeckId: importExportPanel.deckId }
+                  : {})}
+                requestNonce={importExportPanel.nonce}
+                onClose={() => setImportExportPanel((prev) => ({ ...prev, open: false }))}
+                onImportFlashpkg={handleImportFlashpkg}
+                onExportAll={handleExportAll}
+                onExportDeck={handleExportDeck}
+                onExportDeckForAnki={
+                  platform.getAnkiPackageReader ? handleExportDeckForAnki : undefined
+                }
+                onExportScoped={handleExportScoped}
+                collectMediaBlobs={collectMediaBlobs}
+                onStatus={(msg) => {
+                  setStatusMessage(msg);
+                  setErrorMessage(null);
+                }}
+                onError={(msg) => setErrorMessage(msg)}
+              />
+            </Suspense>
+          </div>
+        )}
+      </div>
 
       {/* Phase 3 Sources & Subscriptions */}
       <SourcesPanel
@@ -1427,18 +1438,6 @@ export function LibraryScreen({ onStudyDeck }: LibraryScreenProps) {
           </div>
         )}
       </div>
-
-      {/* Phase 9: export one category (CSV / .flashpkg); Browse keeps the selection export. */}
-      <Suspense fallback={null}>
-        <LazyCategoryExportPanel
-          collectMediaBlobs={collectMediaBlobs}
-          onStatus={(msg) => {
-            setStatusMessage(msg);
-            setErrorMessage(null);
-          }}
-          onError={(msg) => setErrorMessage(msg)}
-        />
-      </Suspense>
 
       {/* Phase 4 Courses (§2.3) */}
       <CoursesPanel

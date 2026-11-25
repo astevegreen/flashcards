@@ -124,7 +124,7 @@ test.describe('Phase 13 first-run onboarding', () => {
     await page.getByTestId('empty-sync-my-devices-btn').click();
     await expect(page.getByTestId('sync-my-devices')).toHaveCount(0);
     await page.getByTestId('empty-bring-my-cards-btn').click();
-    await expect(page.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Decks', level: 1 })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Ready to Study Offline' })).toHaveCount(0);
   });
 
