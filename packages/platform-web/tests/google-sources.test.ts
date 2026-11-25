@@ -1,3 +1,4 @@
+import { isSyncTransportError } from '@flash/core';
 import type { Auth, AuthSession } from '@flash/platform';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -300,5 +301,33 @@ describe('WebGoogleSourcesClient', () => {
     expect(doc.title).toBe('Korean Particles');
     expect(doc.markdown).toContain('# Korean Particles');
     expect(doc.modifiedTime).toBe('2026-11-20T13:00:00Z');
+  });
+  it('retries a Drive 403 rate limit and reports it as RATE_LIMITED (C22)', async () => {
+    const throttled = () =>
+      new Response(
+        JSON.stringify({ error: { code: 403, errors: [{ reason: 'rateLimitExceeded' }] } }),
+        { status: 403 },
+      );
+    const sleeps: number[] = [];
+    const client = new WebGoogleSourcesClient({
+      auth: makeMockAuth(),
+      fetchImpl: vi.fn(async () => throttled()),
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+    await expect(client.getFileMetadata('sheet-42')).rejects.toSatisfy(
+      (err) => isSyncTransportError(err) && err.code === 'RATE_LIMITED',
+    );
+    expect(sleeps.length).toBeGreaterThan(0);
+
+    const readOnly = new WebGoogleSourcesClient({
+      auth: makeMockAuth(),
+      fetchImpl: vi.fn(async () => new Response('Forbidden', { status: 403 })),
+      sleep: async () => {},
+    });
+    await expect(readOnly.getFileMetadata('sheet-42')).rejects.toSatisfy(
+      (err) => isSyncTransportError(err) && err.code === 'PERMISSION_DENIED',
+    );
   });
 });

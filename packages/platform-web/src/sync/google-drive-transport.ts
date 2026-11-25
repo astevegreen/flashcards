@@ -1,5 +1,6 @@
 import { SyncTransportError } from '@flash/core';
 import type { Auth, SyncFileInfo, SyncTransport } from '@flash/platform';
+import { isGoogleRateLimited } from './google-errors.ts';
 
 const DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3/files';
@@ -117,8 +118,9 @@ export class GoogleDriveAppDataTransport implements SyncTransport {
         );
       }
 
+      const rateLimited = await isGoogleRateLimited(res);
       if (
-        (res.status === 429 || (res.status >= 500 && res.status <= 504)) &&
+        (rateLimited || (res.status >= 500 && res.status <= 504)) &&
         transientAttempts + 1 < MAX_RETRY_ATTEMPTS
       ) {
         const delayMs = BASE_RETRY_DELAY_MS * Math.pow(3, transientAttempts);
@@ -127,8 +129,12 @@ export class GoogleDriveAppDataTransport implements SyncTransport {
         continue;
       }
 
-      if (res.status === 429) {
-        throw new SyncTransportError('RATE_LIMITED', 'Google Drive rate limit exceeded.', 429);
+      if (rateLimited) {
+        throw new SyncTransportError(
+          'RATE_LIMITED',
+          'Google Drive rate limit exceeded.',
+          res.status,
+        );
       }
       if (res.status === 403) {
         throw new SyncTransportError(

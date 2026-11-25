@@ -9,6 +9,7 @@ import type {
   PickedFile,
 } from '@flash/platform';
 import { downloadDriveFileBytes, fetchDriveFileInfo } from './google-drive-files.ts';
+import { isGoogleRateLimited } from '../sync/google-errors.ts';
 
 const DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -116,8 +117,9 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
         );
       }
 
+      const rateLimited = await isGoogleRateLimited(res);
       if (
-        (res.status === 429 || (res.status >= 500 && res.status <= 504)) &&
+        (rateLimited || (res.status >= 500 && res.status <= 504)) &&
         attempts + 1 < MAX_RETRY_ATTEMPTS
       ) {
         await this.sleep(BASE_RETRY_DELAY_MS * Math.pow(3, attempts));
@@ -125,8 +127,8 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
         continue;
       }
 
-      if (res.status === 429) {
-        throw new SyncTransportError('RATE_LIMITED', 'Google API rate limit exceeded.', 429);
+      if (rateLimited) {
+        throw new SyncTransportError('RATE_LIMITED', 'Google API rate limit exceeded.', res.status);
       }
       if (res.status === 404) {
         throw new SyncTransportError('NOT_FOUND', 'Google Drive file was not found.', 404);
