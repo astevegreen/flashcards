@@ -89,12 +89,14 @@ test.describe('Phase 13 keyboard and D-pad navigation', () => {
     await page.keyboard.press('2');
     await expect(page.getByTestId('count-new')).toHaveText(String(before - 2));
 
-    // With nothing focused, the §5.1 arrow shortcuts still rate (→ = Good).
+    // With nothing focused, the §5.1 arrow shortcuts still rate (← = Good) and undo (→ = Back).
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.keyboard.press('Space');
     await expect(page.getByTestId('card-back')).toBeVisible();
-    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowLeft');
     await expect(page.getByTestId('count-new')).toHaveText(String(before - 3));
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('count-new')).toHaveText(String(before - 2));
   });
 
   test('mouse users keep Space-to-reveal: no focus is moved onto rating buttons', async ({

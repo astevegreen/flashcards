@@ -255,15 +255,15 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
     await expect(card).toBeVisible();
     const initialNew = Number(await page.getByTestId('count-new').textContent());
 
-    // Tap to reveal via Show Answer button, then swipe right on card (Pointer Events -> Good)
+    // Tap to reveal via Show Answer button, then swipe left on card (Pointer Events -> Good)
     await page.getByTestId('reveal-button').click();
     await expect(page.getByTestId('card-back')).toBeVisible();
 
     const box = await card.boundingBox();
     expect(box).toBeTruthy();
     if (box) {
-      const startX = box.x + box.width * 0.25;
-      const endX = box.x + box.width * 0.85;
+      const startX = box.x + box.width * 0.85;
+      const endX = box.x + box.width * 0.25;
       const midY = box.y + box.height * 0.5;
       await page.mouse.move(startX, midY);
       await page.mouse.down();
