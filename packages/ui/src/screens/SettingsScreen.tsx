@@ -5,14 +5,12 @@ import {
   type DrawingMode,
   type RatingButtonMode,
 } from '@flash/core';
-import { canCreateOrImportDeck, canUseCloudSync } from '@flash/core/license';
+import { canUseCloudSync } from '@flash/core/license';
 import type { InstalledPackInfo, TtsProviderKind } from '@flash/platform';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
-import { describeImportError } from '../components/describeImportError.ts';
 import { LanguagesCard } from '../components/LanguagesCard.tsx';
 import { StudyRemindersSetting } from '../reminders/StudyRemindersSetting.tsx';
-import { isExportCancelled } from '../export/exportCancelled.ts';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
@@ -92,7 +90,12 @@ const DRAWING_LANGUAGES = [
   { key: 'ko', label: 'Korean / Hanja (ko)', defaultMode: 'lookup' as DrawingMode },
 ] as const;
 
-export function SettingsScreen() {
+export interface SettingsScreenProps {
+  /** Navigates to Decks › Import / Export (Export tab). */
+  onOpenImportExport?: () => void;
+}
+
+export function SettingsScreen({ onOpenImportExport }: SettingsScreenProps = {}) {
   const {
     platform,
     state,
@@ -108,11 +111,8 @@ export function SettingsScreen() {
     reconnectLocalFolder,
     connectICloud,
     disconnectSync,
-    emitEvents,
-    getEventFactory,
     updatePreferences,
     loadSampleDecks,
-    markBackupCompleted,
     resetLocalData,
   } = useApp();
   // Language-specific options show only for languages in use (UX #2); saved values are kept.
@@ -379,63 +379,6 @@ export function SettingsScreen() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSyncBusy(false);
-    }
-  };
-
-  const handleExportBackup = async () => {
-    try {
-      // A `.flashpkg` any build can import, plus the review history a restore needs.
-      const { saveFullBackupFile } = await import('../backups/backupRunner.ts');
-      const dateStamp = new Date().toISOString().slice(0, 10);
-      await saveFullBackupFile(platform, state, {
-        deviceId: meta?.deviceId ?? platform.deviceId,
-        ...(meta?.collectionId !== undefined ? { collectionId: meta.collectionId } : {}),
-        fileName: `flashcards-backup-${dateStamp}.flashpkg`,
-      });
-      await markBackupCompleted();
-      setStatus('Backup exported successfully.');
-      setError(null);
-    } catch (err) {
-      if (isExportCancelled(err)) {
-        setStatus('Export cancelled.');
-        setError(null);
-        return;
-      }
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const handleRestoreBackup = async () => {
-    try {
-      const picked = await platform.files.pickFile({ accept: '.flashpkg,.zip' });
-      if (!picked) return;
-      const { importFlashpkg } = await import('@flash/core/flashpkg');
-      const result = importFlashpkg(picked.bytes, state, getEventFactory());
-      const activeDeckCount = [...state.decks.values()].filter((d) => !d.archived).length;
-      const netNewDecks = Math.max(0, result.decksImported - result.upgradedDecks);
-      if (netNewDecks > 0) {
-        const deckGate = canCreateOrImportDeck(activeDeckCount + netNewDecks - 1, entitlement);
-        if (!deckGate.allowed) {
-          setError(deckGate.reason ?? 'Free tier deck limit reached.');
-          return;
-        }
-      }
-      for (const media of result.extractedMedia) {
-        await platform.storage.putMedia({
-          hash: media.hash,
-          mime: media.mime,
-          bytes: media.bytes,
-        });
-      }
-      if (result.events.length > 0) {
-        emitEvents(result.events);
-      }
-      setStatus(
-        `Restored "${result.manifest.name}" (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.pagesImported} page(s)).`,
-      );
-      setError(null);
-    } catch (err) {
-      setError(describeImportError(err));
     }
   };
 
@@ -1048,25 +991,20 @@ export function SettingsScreen() {
             <h2 className="text-sm font-semibold">Local Backup (.flashpkg)</h2>
             <p className="text-xs text-[var(--muted)]">
               Last backup:{' '}
-              {meta?.lastBackupAt ? new Date(meta.lastBackupAt).toLocaleString() : 'Never'}
+              {meta?.lastBackupAt ? new Date(meta.lastBackupAt).toLocaleString() : 'Never'} · Export
+              or restore .flashpkg backups from Decks › Import / Export.
             </p>
           </div>
-          <div className="flex gap-2">
+          {onOpenImportExport && (
             <button
               type="button"
-              onClick={() => void handleExportBackup()}
-              className="rounded-xl bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white"
-            >
-              Export Backup
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleRestoreBackup()}
+              data-testid="settings-open-import-export-btn"
+              onClick={onOpenImportExport}
               className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface-2)]"
             >
-              Restore .flashpkg
+              Open Decks › Import / Export
             </button>
-          </div>
+          )}
         </div>
       </div>
 
