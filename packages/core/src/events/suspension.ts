@@ -62,3 +62,22 @@ export function isCardSuspendedIn(fieldHlcs: ReadonlyMap<string, string>, cardId
   const unsuspendedAt = fieldHlcs.get(unsuspendRegisterKey(cardId));
   return unsuspendedAt === undefined || compareHlc(suspendedAt, unsuspendedAt) > 0;
 }
+
+const REGISTER_PREFIX = 'card:';
+const SUSPEND_SUFFIX = ':suspend';
+
+/**
+ * Every suspended card id, in one pass over the registers. Cheaper than {@link isCardSuspendedIn}
+ * per card when a whole collection is checked: that builds and hashes two fresh keys per card,
+ * which was most of a 20k-card study queue build (P2).
+ */
+export function listSuspendedCardIds(fieldHlcs: ReadonlyMap<string, string>): Set<string> {
+  const out = new Set<string>();
+  for (const [key, suspendedAt] of fieldHlcs) {
+    if (!key.endsWith(SUSPEND_SUFFIX) || !key.startsWith(REGISTER_PREFIX)) continue;
+    const cardId = key.slice(REGISTER_PREFIX.length, -SUSPEND_SUFFIX.length);
+    const unsuspendedAt = fieldHlcs.get(unsuspendRegisterKey(cardId));
+    if (unsuspendedAt === undefined || compareHlc(suspendedAt, unsuspendedAt) > 0) out.add(cardId);
+  }
+  return out;
+}

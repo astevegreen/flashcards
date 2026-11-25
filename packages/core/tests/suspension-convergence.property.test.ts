@@ -8,6 +8,7 @@ import {
   type CollectionState,
 } from '../src/events/replay.ts';
 import { deserializeCollectionState, serializeCollectionState } from '../src/events/snapshot.ts';
+import { listSuspendedCardIds } from '../src/events/suspension.ts';
 import type { FlashEvent } from '../src/events/types.ts';
 import { createHlcState } from '../src/hlc.ts';
 import { deriveCardId, deriveNoteId } from '../src/ids.ts';
@@ -45,8 +46,15 @@ function replayChunked(list: readonly FlashEvent[], chunk: number): CollectionSt
 
 function observe(st: CollectionState, nowMs: number) {
   const ctx = { nowMs, tzOffsetMinutes: 540 };
+  const suspended = NOTE_KEYS.map((_, i) => isCardSuspended(st, cardIdFor(i)));
+  // The one-pass register scan the study queue uses (P2) agrees with the per-card check.
+  expect([...listSuspendedCardIds(st.fieldHlcs)].sort()).toEqual(
+    NOTE_KEYS.map((_, i) => cardIdFor(i))
+      .filter((_, i) => suspended[i])
+      .sort(),
+  );
   return {
-    suspended: NOTE_KEYS.map((_, i) => isCardSuspended(st, cardIdFor(i))),
+    suspended,
     queue: buildStudyQueue(st, { ...ctx, deckId: DECK }).queue.map((c) => c.id),
     suspendedFilter: filterCards(st, { states: ['suspended'] }, ctx).map((c) => c.id),
     trouble: filterCards(
