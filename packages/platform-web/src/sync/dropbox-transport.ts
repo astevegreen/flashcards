@@ -61,6 +61,15 @@ interface DropboxListResponse {
  * `SyncTransportError('NOT_FOUND')` (Dropbox sends 409 `path/not_found`), and a write-once
  * conflict is `ALREADY_EXISTS`. A 401 refreshes the token once; 429 / 5xx retry with backoff.
  */
+
+/** Strips leading (and, for `both`, trailing) slashes without a backtracking regex. */
+function trimSlashes(path: string, ends: 'start' | 'both'): string {
+  let start = 0;
+  let end = path.length;
+  while (start < end && path[start] === '/') start += 1;
+  if (ends === 'both') while (end > start && path[end - 1] === '/') end -= 1;
+  return path.slice(start, end);
+}
 export class DropboxAppFolderTransport implements SyncTransport {
   private readonly client: AuthorizedHttpClient;
   private readonly rootPrefix: string;
@@ -90,11 +99,13 @@ export class DropboxAppFolderTransport implements SyncTransport {
   async list(prefix: string): Promise<SyncFileInfo[]> {
     // `list_folder` takes a folder, so list the prefix's parent folder recursively and keep the
     // paths that start with the full prefix (`sync/v1/devices/` and `…/seg-` both work).
-    const cleanPrefix = prefix.replace(/\\/g, '/').replace(/^\/+/, '');
+    const cleanPrefix = trimSlashes(prefix.replaceAll('\\', '/'), 'start');
     const slash = cleanPrefix.lastIndexOf('/');
     const folder = slash === -1 ? '' : cleanPrefix.slice(0, slash);
-    const base = this.rootPrefix.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-    const folderPath = folder ? normalizeSyncPath(folder, this.rootPrefix) : base ? `/${base}` : '';
+    const base = trimSlashes(this.rootPrefix.replaceAll('\\', '/'), 'both');
+    let folderPath = '';
+    if (folder) folderPath = normalizeSyncPath(folder, this.rootPrefix);
+    else if (base) folderPath = `/${base}`;
     const results: SyncFileInfo[] = [];
 
     const res = await this.postJson(`${DROPBOX_API_BASE}/files/list_folder`, {

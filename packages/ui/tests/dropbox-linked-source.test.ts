@@ -104,14 +104,14 @@ describe('linked Dropbox App Folder sources', () => {
     const callsBefore = fetchSpy.mock.calls.length;
     const refresh = refreshAllSources(ctx);
     try {
-      await vi.waitFor(() => expect(fetchSpy.mock.calls.length).toBe(callsBefore + 1));
+      await vi.waitFor(() => expect(fetchSpy.mock.calls).toHaveLength(callsBefore + 1));
       const link = linkDropboxFile({ id: second.id, name: 'more.csv' }, ctx, {
         noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
         language: 'ko',
       });
       await new Promise((r) => setTimeout(r, 20));
       // The link waits for the refresh instead of running beside it.
-      expect(fetchSpy.mock.calls.length).toBe(callsBefore + 1);
+      expect(fetchSpy.mock.calls).toHaveLength(callsBefore + 1);
       release();
       await Promise.all([refresh, link]);
     } finally {

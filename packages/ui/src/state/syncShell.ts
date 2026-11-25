@@ -34,7 +34,7 @@ export function buildWatermarks(
   ownSeq: number,
   cursor?: SyncCursorState,
 ): Record<string, number> {
-  const wm: Record<string, number> = { ...(cursor?.remoteWatermarks ?? {}) };
+  const wm: Record<string, number> = { ...cursor?.remoteWatermarks };
   if (ownSeq > 0) {
     wm[deviceId] = Math.max(wm[deviceId] ?? 0, ownSeq);
   }
@@ -50,15 +50,11 @@ export function initialSyncUiState(
   oauthError?: string,
 ): SyncUiState {
   const online = isNavigatorOnline();
-  const status: SyncUiStatus = oauthError
-    ? 'error'
-    : provider === 'none'
-      ? 'disconnected'
-      : !online && isNetworkSyncProvider(provider)
-        ? 'offline'
-        : cursor?.lastSyncedAt
-          ? 'synced'
-          : 'idle';
+  let status: SyncUiStatus = 'idle';
+  if (oauthError) status = 'error';
+  else if (provider === 'none') status = 'disconnected';
+  else if (!online && isNetworkSyncProvider(provider)) status = 'offline';
+  else if (cursor?.lastSyncedAt) status = 'synced';
   return {
     provider,
     status,

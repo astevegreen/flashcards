@@ -34,9 +34,8 @@ const DEFAULT_TOKEN_HELPER_URL = 'https://flashcards-token-helper.yodc.workers.d
  */
 function testOverrides(): URLSearchParams {
   const query = (window as unknown as { __FLASH_TEST_QUERY__?: unknown }).__FLASH_TEST_QUERY__;
-  return new URLSearchParams(
-    import.meta.env.DEV ? window.location.search : typeof query === 'string' ? query : '',
-  );
+  if (import.meta.env.DEV) return new URLSearchParams(window.location.search);
+  return new URLSearchParams(typeof query === 'string' ? query : '');
 }
 
 type NativeRuntime = 'capacitor' | 'tauri' | null;
