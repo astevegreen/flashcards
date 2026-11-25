@@ -365,6 +365,7 @@ export function AppProvider({
     lastLocalSnapEventsRef.current = getTotalAppliedEventCount(nextState);
     setMeta(nextMeta);
     setUndoStack([]);
+    setRedoStack([]);
     setStateVersion((v) => v + 1);
   }, []);
 
@@ -519,6 +520,8 @@ export function AppProvider({
           const hasAny =
             Boolean(saved?.googleSources?.length) ||
             Boolean(saved?.oneDriveSources?.length) ||
+            Boolean(saved?.dropboxSources?.length) ||
+            Boolean(saved?.googleDriveFiles?.length) ||
             Boolean(saved?.localFolders?.length) ||
             Boolean(saved?.packageSubscriptions?.length) ||
             Boolean(saved?.catalogs?.length);
@@ -1039,6 +1042,7 @@ export function AppProvider({
     audio.resetLocalState();
     setMeta(freshMeta);
     setUndoStack([]);
+    setRedoStack([]);
     setActiveDeckId(undefined);
     setStateVersion((v) => v + 1);
     await enqueuePersist(async () => {
