@@ -21,6 +21,8 @@ const LEVEL_TITLE: Record<DictionaryLevel, string> = {
 /** Home sections in this order; packs not listed keep catalog order after them. */
 const PACK_ORDER: readonly DictionaryPackId[] = [
   'dict-krdict',
+  'dict-kaikki-ko',
+  'dict-urimalsam',
   'dict-hanja-unihan',
   'dict-kanjidic2',
   'dict-jmdict',
@@ -29,6 +31,8 @@ const PACK_ORDER: readonly DictionaryPackId[] = [
 
 const SECTION_TITLE: Record<DictionaryPackId, string> = {
   'dict-krdict': 'Korean words',
+  'dict-kaikki-ko': 'Korean (Wiktionary)',
+  'dict-urimalsam': 'Korean (우리말샘)',
   'dict-hanja-unihan': 'Hanja',
   'dict-kanjidic2': 'Kanji',
   'dict-jmdict': 'Japanese words',
@@ -38,6 +42,8 @@ const SECTION_TITLE: Record<DictionaryPackId, string> = {
 /** Label of the whole-pack list: 가나다 order for Korean, code-point order otherwise. */
 const ALL_LABEL: Record<DictionaryPackId, string> = {
   'dict-krdict': 'All words · 가나다',
+  'dict-kaikki-ko': 'All words · 가나다',
+  'dict-urimalsam': 'All words · 가나다',
   'dict-hanja-unihan': 'All Hanja',
   'dict-kanjidic2': 'All Kanji',
   'dict-jmdict': 'All words',
@@ -336,7 +342,10 @@ export function DictionaryBrowseHeader({
   onChange: (selection: DictionaryBrowseSelection) => void;
   onBack: () => void;
 }>) {
-  const hangul = selection.packId === 'dict-krdict';
+  const hangul =
+    selection.packId === 'dict-krdict' ||
+    selection.packId === 'dict-urimalsam' ||
+    selection.packId === 'dict-kaikki-ko';
   const pill = (active: boolean) =>
     `min-h-9 min-w-9 rounded-full px-2.5 py-1 text-xs font-medium ${
       active

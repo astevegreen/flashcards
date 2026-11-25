@@ -11,7 +11,7 @@ import { useApp } from '../state/AppContext.tsx';
 import { linkedOneDriveDeck } from './oneDriveLinkedDeck.ts';
 import { importPickedOneDriveFile } from './oneDriveImport.ts';
 
-const LazyOneDriveLinkMapping = lazyWithRetry(() => import('./OneDriveLinkMapping.tsx'), {
+const LazyLinkedFileMapping = lazyWithRetry(() => import('./LinkedFileMapping.tsx'), {
   closeWith: 'onCancel',
 });
 const LINKABLE = /\.(csv|tsv|xlsx)$/i;
@@ -309,11 +309,13 @@ export default function OneDrivePickerPanel({
 
         {access === 'ready' && linking && (
           <Suspense fallback={null}>
-            <LazyOneDriveLinkMapping
-              itemId={linking.item.id}
+            <LazyLinkedFileMapping
+              key={linking.item.id}
               fileName={linking.item.name}
               grid={linking.grid}
+              existingDeck={linkedOneDriveDeck(state, linking.item.id)}
               busy={linking.busy}
+              testIdPrefix="onedrive"
               onLink={(c) => void handleConfirmLink(c)}
               onCancel={() => setLinking(null)}
             />

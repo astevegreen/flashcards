@@ -20,6 +20,45 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
+/** Subfolder inside `Directory.Cache` that holds temporary export files handed to the share sheet. */
+export const EXPORT_CACHE_DIR = 'flashcards-exports';
+
+/** Builds a cache-relative path inside `EXPORT_CACHE_DIR` for a temporary export file. */
+export function exportCachePath(filename: string): string {
+  const safeName = filename.replace(/[/\\]/g, '_');
+  return `${EXPORT_CACHE_DIR}/${safeName}`;
+}
+
+export interface ExportCacheSweepDeps {
+  readdir(opts: { path: string }): Promise<{ files: ReadonlyArray<{ name: string }> }>;
+  deleteFile(opts: { path: string }): Promise<void>;
+}
+
+/**
+ * Deletes leftover export files from previous app sessions in `EXPORT_CACHE_DIR`.
+ * Called once at launch so files handed to the OS share sheet are never deleted while a share
+ * target is still reading them, yet temp exports do not accumulate indefinitely.
+ */
+export async function sweepExportCache(deps: ExportCacheSweepDeps): Promise<number> {
+  let entries: ReadonlyArray<{ name: string }>;
+  try {
+    entries = (await deps.readdir({ path: EXPORT_CACHE_DIR })).files;
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.name) continue;
+    try {
+      await deps.deleteFile({ path: `${EXPORT_CACHE_DIR}/${entry.name}` });
+      removed += 1;
+    } catch {
+      // Best-effort cleanup; ignore individual file errors.
+    }
+  }
+  return removed;
+}
+
 /**
  * Writes an export to a cache file in chunks (`appendFile`), then hands it to the share sheet on
  * `close`. `abort` deletes the partial file.

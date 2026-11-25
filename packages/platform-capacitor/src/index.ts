@@ -36,6 +36,7 @@ import {
 import { ICloudDriveSyncTransport, type ICloudDocumentPlugin } from './sync/icloud-transport.ts';
 
 export { CapacitorGoogleAuth, type NativeGoogleSignInPlugin } from './auth/native-google-auth.ts';
+export { CapacitorDeviceSpeechPlayer, type NativeTtsPlugin } from './audio/native-device-speech.ts';
 export {
   CapacitorMlKitInkRecognizer,
   type MlKitDigitalInkPlugin,

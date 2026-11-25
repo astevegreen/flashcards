@@ -1068,6 +1068,33 @@ const PACK_META = {
       '한국어기초사전 (Korean Basic Dictionary) © National Institute of Korean Language (국립국어원).',
     source_url: 'https://krdict.korean.go.kr/',
   },
+  'dict-urimalsam': {
+    filename: 'dict-urimalsam.json.gz',
+    kind: 'dictionary',
+    name: 'Urimalsaem (우리말샘, Korean–Korean — Optional)',
+    language: 'ko',
+    description:
+      'Broad Korean–Korean open dictionary covering neologisms, technical terms, Hanja origins and definitions (NIKL 우리말샘).',
+    license_name: 'CC BY-SA 2.0 KR',
+    license_url: 'https://creativecommons.org/licenses/by-sa/2.0/kr/',
+    attribution:
+      '우리말샘 (Urimalsaem) © National Institute of Korean Language (국립국어원) and contributors.',
+    source_url: 'https://opendict.korean.go.kr/',
+    optional: true,
+  },
+  'dict-kaikki-ko': {
+    filename: 'dict-kaikki-ko.json.gz',
+    kind: 'dictionary',
+    name: 'Kaikki Wiktionary Korean–English (Optional)',
+    language: 'ko',
+    description:
+      'Extra Korean–English glosses, Hanja forms, pronunciations, slang and examples extracted from English Wiktionary via Kaikki.org.',
+    ...CC_BY_SA_4,
+    attribution:
+      'Derived from English Wiktionary contributors via Kaikki.org (Tatu Ylonen / wiktextract).',
+    source_url: 'https://kaikki.org/dictionary/Korean/',
+    optional: true,
+  },
   'strokes-ja-kanjivg': {
     filename: 'strokes-ja-kanjivg.json.gz',
     kind: 'strokes',
@@ -1598,6 +1625,52 @@ async function buildFullPacks({
     console.warn(
       `Skipping dict-krdict: no KRDict XML in ${join(inputDir, 'krdict')}. Download it manually (see scripts/fetch-upstream-packs.mjs).`,
     );
+  }
+
+  const listDirFiles = (sub, re) => {
+    const dir = join(inputDir, sub);
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir, { recursive: true })
+      .map(String)
+      .filter((f) => re.test(f))
+      .sort()
+      .map((f) => join(dir, f));
+  };
+
+  const urimalsamFiles = listDirFiles('urimalsam', /\.(json|xml)(\.gz)?$/i);
+  if (urimalsamFiles.length > 0) {
+    console.log(`Parsing Urimalsaem (${urimalsamFiles.length} file(s)) …`);
+    const urimalsam = urimalsamFiles.flatMap((f) =>
+      /\.xml(\.gz)?$/i.test(f)
+        ? parsers.parseUrimalsamXml(readMaybeGz(f))
+        : parsers.parseUrimalsamJson(readMaybeGz(f)),
+    );
+    add(
+      'dict-urimalsam',
+      `urimalsam-${sources.urimalsam?.version ?? 'manual'}`,
+      { entries: urimalsam },
+      urimalsam.length,
+      'urimalsam',
+    );
+  } else {
+    console.warn(
+      `Skipping dict-urimalsam (optional): no JSON/XML in ${join(inputDir, 'urimalsam')}.`,
+    );
+  }
+
+  const kaikkiFiles = listDirFiles('kaikki-ko', /\.jsonl(\.gz)?$/i);
+  if (kaikkiFiles.length > 0) {
+    console.log(`Parsing Kaikki Wiktionary Korean (${kaikkiFiles.length} file(s)) …`);
+    const kaikki = kaikkiFiles.flatMap((f) => parsers.parseKaikkiKoJsonl(readMaybeGz(f)));
+    add(
+      'dict-kaikki-ko',
+      `kaikki-ko-${sources.kaikki_ko?.version ?? 'manual'}`,
+      { entries: kaikki },
+      kaikki.length,
+      'kaikki_ko',
+    );
+  } else {
+    console.warn(`Skipping dict-kaikki-ko (optional): no JSONL in ${join(inputDir, 'kaikki-ko')}.`);
   }
 
   console.log('Converting KanjiVG strokes …');

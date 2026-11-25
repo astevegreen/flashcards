@@ -450,10 +450,15 @@ export function useAudioController({
         };
       }
 
+      const speechWarning =
+        speechRes.status === 'unavailable' || speechRes.status === 'error'
+          ? speechRes.message
+          : undefined;
+      const warning = cloudWarning ?? speechWarning;
       return {
         source: 'none',
         played: false,
-        ...(cloudWarning ? { warning: cloudWarning } : {}),
+        ...(warning ? { warning } : {}),
       };
     },
     [addMedia, platform, resolveCachedTtsHash, stateRef],

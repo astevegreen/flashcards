@@ -3,6 +3,8 @@ import type { DictionarySenseSource } from '@flash/core/dictionary';
 /** Per-sense source badge (Phase 10: every sense shows where it came from). */
 export const SENSE_SOURCE_LABEL: Readonly<Record<DictionarySenseSource, string>> = {
   krdict: 'KRDict',
+  urimalsam: '우리말샘',
+  kaikki: 'Wiktionary',
   app: 'App',
 };
 
@@ -10,11 +12,16 @@ export const SENSE_SOURCE_LABEL: Readonly<Record<DictionarySenseSource, string>>
 export const SENSE_SOURCE_ATTRIBUTION: Readonly<Record<DictionarySenseSource, string>> = {
   krdict:
     'From 한국어기초사전 (Korean Basic Dictionary) © National Institute of Korean Language (국립국어원), CC BY-SA 2.0 KR.',
+  urimalsam:
+    'From 우리말샘 (Urimalsaem) © National Institute of Korean Language (국립국어원) and contributors, CC BY-SA 2.0 KR.',
+  kaikki: 'From English Wiktionary contributors via Kaikki.org (wiktextract), CC BY-SA 4.0.',
   app: 'Written for this app in its own words; not taken from KRDict or any other dictionary.',
 };
 
 /** Badge colours: the app's own wording stands apart from dictionary text. */
 export const SENSE_SOURCE_CLASS: Readonly<Record<DictionarySenseSource, string>> = {
   krdict: 'bg-[var(--surface-2)] text-[var(--muted)]',
+  urimalsam: 'bg-[var(--surface-2)] text-[var(--muted)]',
+  kaikki: 'bg-[var(--surface-2)] text-[var(--muted)]',
   app: 'bg-[var(--accent-soft)] text-[var(--accent)]',
 };

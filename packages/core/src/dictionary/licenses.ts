@@ -74,6 +74,34 @@ export const OPEN_DATA_ATTRIBUTIONS: readonly DataLicenseAttribution[] = [
       'Text licensed under Creative Commons Attribution-ShareAlike 2.0 Korea (CC BY-SA 2.0 KR). Converted to the offline pack JSON format; share-alike applies to the dictionary data pack only, not to the Flashcards application code. Multimedia (pronunciation audio, images) is not included. The bundled dev/CI starter pack is a small hand-authored sample in the same format.',
   },
   {
+    id: 'dict-urimalsam',
+    packId: 'dict-urimalsam',
+    name: 'Urimalsaem (우리말샘, NIKL Open Korean Dictionary — Optional)',
+    scope:
+      'Broad Korean–Korean headword coverage (neologisms, technical terms, Hanja origins, standard pronunciations and definitions)',
+    licenseName: 'CC BY-SA 2.0 KR',
+    licenseUrl: 'https://creativecommons.org/licenses/by-sa/2.0/kr/',
+    sourceUrl: 'https://opendict.korean.go.kr/',
+    attribution:
+      '우리말샘 (Urimalsaem) © National Institute of Korean Language (국립국어원) and contributors.',
+    noticeText:
+      'Licensed under Creative Commons Attribution-ShareAlike 2.0 Korea (CC BY-SA 2.0 KR). Distributed as an optional standalone downloadable data pack; share-alike applies to the dictionary data pack only, not to the Flashcards application code.',
+  },
+  {
+    id: 'dict-kaikki-ko',
+    packId: 'dict-kaikki-ko',
+    name: 'Kaikki Wiktionary Korean–English (Optional)',
+    scope:
+      'Extra English glosses, Hanja forms, pronunciations, slang, idioms and usage examples extracted from English Wiktionary via Kaikki.org',
+    licenseName: 'CC BY-SA 4.0',
+    licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
+    sourceUrl: 'https://kaikki.org/dictionary/Korean/',
+    attribution:
+      'Derived from English Wiktionary contributors via Kaikki.org (Tatu Ylonen / wiktextract).',
+    noticeText:
+      'Licensed under Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0). Distributed as an optional standalone downloadable data pack; share-alike applies to the dictionary data pack only, not to the Flashcards application code.',
+  },
+  {
     id: 'strokes-ja-kanjivg',
     packId: 'strokes-ja-kanjivg',
     name: 'KanjiVG (Japanese Stroke Order Data)',

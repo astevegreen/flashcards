@@ -83,6 +83,7 @@ function clampRate(rate: number): number {
 export class WebDeviceSpeechPlayer implements DeviceSpeechPlayer {
   private cachedVoices: SpeechSynthesisVoice[] = [];
   private subscribed = false;
+  private readonly voiceListeners = new Set<() => void>();
 
   private ensureSubscribed(): void {
     if (this.subscribed || !this.isAvailable()) return;
@@ -94,6 +95,7 @@ export class WebDeviceSpeechPlayer implements DeviceSpeechPlayer {
       } catch {
         this.cachedVoices = [];
       }
+      for (const listener of this.voiceListeners) listener();
     };
     refresh();
     try {
@@ -105,6 +107,14 @@ export class WebDeviceSpeechPlayer implements DeviceSpeechPlayer {
     } catch {
       // Ignore restricted environments
     }
+  }
+
+  onVoicesChanged(listener: () => void): () => void {
+    this.ensureSubscribed();
+    this.voiceListeners.add(listener);
+    return () => {
+      this.voiceListeners.delete(listener);
+    };
   }
 
   private getRawVoices(): SpeechSynthesisVoice[] {

@@ -165,15 +165,18 @@ export function SettingsScreen({ onOpenImportExport }: SettingsScreenProps = {})
   }, [syncedVoicesKey]);
 
   useEffect(() => {
+    const bump = () => setVoiceListTick((t) => t + 1);
+    if (platform.deviceSpeech?.onVoicesChanged) {
+      return platform.deviceSpeech.onVoicesChanged(bump);
+    }
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
     const synth = window.speechSynthesis;
-    const bump = () => setVoiceListTick((t) => t + 1);
     if (typeof synth.addEventListener === 'function') {
       synth.addEventListener('voiceschanged', bump);
       return () => synth.removeEventListener('voiceschanged', bump);
     }
     return undefined;
-  }, []);
+  }, [platform.deviceSpeech]);
 
   const audioClipCount = useMemo(() => {
     let count = 0;

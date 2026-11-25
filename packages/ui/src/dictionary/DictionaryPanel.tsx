@@ -61,7 +61,13 @@ const PACK_SHORT_LABEL: Record<DictionaryPackId, string> = {
   'dict-cc-cedict': 'Chinese',
   'dict-jmdict': 'Japanese',
   'dict-krdict': 'Korean',
+  'dict-urimalsam': '우리말샘',
+  'dict-kaikki-ko': 'Wiktionary',
 };
+
+function isKoreanWordPack(packId: DictionaryPackId): boolean {
+  return packId === 'dict-krdict' || packId === 'dict-urimalsam' || packId === 'dict-kaikki-ko';
+}
 
 const LEVEL_LABEL: Record<DictionaryLevel, string> = {
   beginner: 'Beginner · 초급',
@@ -89,6 +95,8 @@ const PACK_LANG: Record<DictionaryPackId, string> = {
   'dict-cc-cedict': 'zh-Hans',
   'dict-jmdict': 'ja',
   'dict-krdict': 'ko',
+  'dict-urimalsam': 'ko',
+  'dict-kaikki-ko': 'ko',
 };
 
 /** `Radical: 水 · Strokes: 4 · grade` notes for character entries. */
@@ -178,7 +186,7 @@ function mapEntryToNoteFields(
   noteType: NoteType | undefined,
 ): Record<string, string> {
   const keys = new Set((noteType?.fields ?? []).map((f) => f.key));
-  if (entry.packId === 'dict-krdict' && keys.has('word') && keys.has('hanja')) {
+  if (isKoreanWordPack(entry.packId) && keys.has('word') && keys.has('hanja')) {
     return koreanWordNoteFields(entry, keys);
   }
 
@@ -216,6 +224,8 @@ function defaultDeckSpecForPack(packId: DictionaryPackId): {
         language: 'zh-Hans',
       };
     case 'dict-krdict':
+    case 'dict-urimalsam':
+    case 'dict-kaikki-ko':
       return {
         name: 'Korean Vocabulary',
         noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
@@ -326,7 +336,7 @@ function HanjaLinks({
 
 /** The reading line's text: KRDict pronunciation, tone-coloured pinyin, or plain readings. */
 function EntryReadingText({ entry, lang, pinyinToneColors }: EntryLangProps) {
-  if (entry.packId === 'dict-krdict') {
+  if (isKoreanWordPack(entry.packId)) {
     return (
       <span
         lang="ko"
@@ -382,11 +392,11 @@ function EntryHeadline(props: EntryLangProps & { onLookup: (text: string) => voi
         <span
           lang={lang}
           data-testid={`dict-alt-${entry.headword}`}
-          title={entry.packId === 'dict-krdict' ? 'Hanja (원어)' : undefined}
+          title={isKoreanWordPack(entry.packId) ? 'Hanja (원어)' : undefined}
           className="text-xs text-[var(--muted)]"
         >
           (
-          {entry.packId === 'dict-krdict' ? (
+          {isKoreanWordPack(entry.packId) ? (
             <HanjaLinks text={entry.altForms.join(', ')} onLookup={onLookup} testIds />
           ) : (
             entry.altForms.join(', ')
@@ -583,6 +593,8 @@ function EntryMetaRow({
 const DEFAULT_NOTE_TYPE_FOR_PACK: Partial<Record<DictionaryPackId, string>> = {
   'dict-hanja-unihan': BUILTIN_NOTE_TYPE_IDS.HANJA,
   'dict-krdict': BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+  'dict-urimalsam': BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+  'dict-kaikki-ko': BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
 };
 
 /** The deck a dictionary entry goes to by default: remembered, then by note type, then language. */
@@ -1480,8 +1492,9 @@ function DetailReading({ entry, lang, pinyinToneColors }: EntryLangProps) {
       </span>
     );
   }
-  const text =
-    entry.packId === 'dict-krdict' ? `[${entry.readings.join(', ')}]` : entry.readings.join(' · ');
+  const text = isKoreanWordPack(entry.packId)
+    ? `[${entry.readings.join(', ')}]`
+    : entry.readings.join(' · ');
   return (
     <span lang={lang} className="text-lg font-medium text-[var(--accent)]">
       {text}
@@ -1584,7 +1597,7 @@ function DictionaryEntryDetail({
         {entry.altForms && entry.altForms.length > 0 && (
           <span lang={lang} className="text-lg text-[var(--muted)]">
             (
-            {entry.packId === 'dict-krdict' ? (
+            {isKoreanWordPack(entry.packId) ? (
               <HanjaLinks text={entry.altForms.join(', ')} onLookup={onLookup} testIds={false} />
             ) : (
               entry.altForms.join(', ')

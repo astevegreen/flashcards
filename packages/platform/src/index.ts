@@ -810,6 +810,8 @@ export interface DeviceSpeechResult {
 export interface DeviceSpeechPlayer {
   isAvailable(): boolean;
   listVoices(langFilter?: string): DeviceVoiceInfo[];
+  /** Optional: notifies listeners when the OS voice list finishes loading or changes. */
+  onVoicesChanged?(listener: () => void): () => void;
   speak(
     text: string,
     lang: string,
@@ -1088,6 +1090,12 @@ export interface PlatformServices {
    * Returns an unsubscribe function. The handler must treat the URL as untrusted text.
    */
   onAddDeviceUrl?: (handler: (url: string) => void) => () => void;
+  /**
+   * Native shells only (Android): subscribes to the hardware/gesture Back button. The handler
+   * returns `true` if it handled the press (e.g. closed a dialog or navigated back to Study), or
+   * `false` to let the OS minimize/background the app.
+   */
+  onBackButton?: (handler: () => boolean) => () => void;
   onDevSyncNotification?: (listener: (path: string) => void) => () => void;
   createReplayWorker?: () => Promise<ReplayWorkerClient | null>;
   processImage?: (

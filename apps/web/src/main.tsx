@@ -140,6 +140,21 @@ async function boot(): Promise<void> {
 
   // Native shells (Capacitor / Tauri) run this identical bundle; swap in native services lazily (§10.1).
   const nativeRuntime = detectNativeRuntime();
+  if ('serviceWorker' in navigator) {
+    if (nativeRuntime !== null) {
+      // Unregister any leftover SW from older native builds so WebView updates take effect cleanly.
+      void navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+        .catch(() => undefined);
+    } else if (!import.meta.env.DEV) {
+      const registerSw = () => {
+        void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => undefined);
+      };
+      if (document.readyState === 'complete') registerSw();
+      else window.addEventListener('load', registerSw, { once: true });
+    }
+  }
   const platform: PlatformServices = nativeRuntime
     ? await (
         await import('./native-boot.ts')

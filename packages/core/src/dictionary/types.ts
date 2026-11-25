@@ -18,7 +18,13 @@ export type DictionaryShardDescriptor = DictionaryShardDescriptorDef;
 export type DictionaryShardingInfo = DictionaryShardingDef;
 
 export type DictionaryPackId =
-  'dict-hanja-unihan' | 'dict-kanjidic2' | 'dict-cc-cedict' | 'dict-jmdict' | 'dict-krdict';
+  | 'dict-hanja-unihan'
+  | 'dict-kanjidic2'
+  | 'dict-cc-cedict'
+  | 'dict-jmdict'
+  | 'dict-krdict'
+  | 'dict-urimalsam'
+  | 'dict-kaikki-ko';
 
 export type StrokePackId = 'strokes-ja-kanjivg' | 'strokes-zh-mmah';
 
@@ -29,7 +35,7 @@ export type DictionaryLevel = 'beginner' | 'intermediate' | 'advanced';
  * Short source id shown as a per-sense badge (Phase 10: every sense shows where it came from).
  * `app` marks a sense written for this app (its own wording), not taken from the pack's dictionary.
  */
-export type DictionarySenseSource = 'krdict' | 'app';
+export type DictionarySenseSource = 'krdict' | 'urimalsam' | 'kaikki' | 'app';
 
 export interface DictionaryExample {
   /** Example in the target language, e.g. `밥을 먹어요.` */

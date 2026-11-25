@@ -29,7 +29,9 @@ export default defineConfig({
     productionCspPlugin(),
     VitePWA({
       registerType: 'autoUpdate',
-      injectRegister: 'script',
+      // Registered conditionally in `src/main.tsx` so native Capacitor/Tauri shells never precache
+      // stale WebView assets across app updates (follow-ups.md).
+      injectRegister: null,
       includeAssets: ['icon.svg'],
       manifest: {
         name: 'Flashcards',

@@ -16,6 +16,7 @@ import {
 } from '@flash/core';
 import { parseDelimitedText } from '@flash/core/csv';
 import { importFlashpkg } from '@flash/core/flashpkg';
+import type { EntitlementState } from '@flash/core/license';
 import {
   applyCardIdsToGridAndSerialize,
   assertSafeHttpsUrl,
@@ -74,6 +75,8 @@ export interface SourceRunContext {
   getState: () => CollectionState;
   getEventFactory: () => EventFactory;
   emitEvents: (events: readonly KnownEvent[]) => void;
+  /** Optional: checked when a multi-deck package (`.flashpkg`) adds new decks under free tier. */
+  entitlement?: EntitlementState;
 }
 
 export interface SourceRefreshSummary {

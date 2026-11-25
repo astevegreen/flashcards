@@ -75,9 +75,9 @@ function Mapping({
 }
 
 /**
- * Column-mapping step for linking a cloud spreadsheet file (the same step as linking a Google
- * Sheet in Bring my cards, and as `OneDriveLinkMapping`): pick the note type and language for a
- * new deck, map each column, then link. `existingDeck` is the deck the file already fills.
+ * Column-mapping step for linking a cloud spreadsheet file (shared by Google Drive, OneDrive,
+ * and Dropbox): pick the note type and language for a new deck, map each column, then link.
+ * `existingDeck` is the deck the file already fills.
  */
 export default function LinkedFileMapping({
   fileName,

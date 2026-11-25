@@ -23,6 +23,9 @@ import {
   type MobilePlatform,
 } from '../secure/secure-store.ts';
 import {
+  createAddDeviceUrlSource,
+  createAndroidDeviceSpeech,
+  createBackButtonSource,
   createFileBridge,
   createGoogleSignInPlugin,
   createICloudDocumentPlugin,
@@ -30,9 +33,9 @@ import {
   createMlKitInkPlugin,
   createNativeSecureStorage,
   createStoreBillingPlugin,
-  createAddDeviceUrlSource,
   createSystemBrowserLauncher,
   openCapacitorSqliteDriver,
+  sweepCapacitorExportCache,
 } from './plugins.ts';
 
 export interface CapacitorBootConfig {
@@ -117,6 +120,7 @@ export async function bootCapacitorPlatform(
     deviceLabel: platformName === 'ios' ? 'iPhone / iPad' : 'Android Device',
     storage: secureKv.storage,
     fileBridge: createFileBridge(),
+    ...(platformName === 'android' ? { deviceSpeech: createAndroidDeviceSpeech() } : {}),
     ...(googleSignInPlugin ? { googleSignInPlugin } : {}),
     ...(config.googleClientId ? { googleClientId: config.googleClientId } : {}),
     pickerLauncher: createSystemBrowserLauncher(),
@@ -147,9 +151,13 @@ export async function bootCapacitorPlatform(
     console.warn('Could not clear sign-in plugin token copies at launch:', err);
   });
 
+  // Sweep leftover temporary export files from previous sessions in the background.
+  void sweepCapacitorExportCache().catch(() => undefined);
+
   return {
     ...composeNativePlatform(native, base),
     onAddDeviceUrl: createAddDeviceUrlSource(),
+    ...(platformName === 'android' ? { onBackButton: createBackButtonSource() } : {}),
     ...(loadOneDrive ? lazyOneDriveFields(loadOneDrive) : {}),
     ...(loadDropbox ? lazyDropboxFields(loadDropbox) : {}),
     // Phase 13 study reminders: OS local notifications (the PWA only shows an in-app badge).

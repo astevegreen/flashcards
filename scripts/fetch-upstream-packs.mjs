@@ -52,6 +52,8 @@ function parseArgs(argv) {
     else if (a === '--force') out.force = true;
     else if (a === '--skip-jmdict') out.jmdict = false;
     else if (a === '--krdict-version') out.krdictVersion = argv[++i];
+    else if (a === '--urimalsam-version') out.urimalsamVersion = argv[++i];
+    else if (a === '--kaikki-version') out.kaikkiVersion = argv[++i];
   }
   return out;
 }
@@ -134,6 +136,62 @@ function prepareManualKrdict(opts, sources) {
     fetched_at: new Date().toISOString(),
   };
   console.log(`✓ KRDict: ${xmls.length} XML file(s), ${(bytes / 1024 / 1024).toFixed(1)} MB`);
+}
+
+/**
+ * Prepares an optional manually downloaded Korean share-alike source (Urimalsaem / Kaikki).
+ * Unzips any `.zip` archives in place and records provenance in `sources.json`, or logs concise
+ * instructions when the folder is empty.
+ */
+function prepareManualExtraKoreanPack(opts, sources, cfg) {
+  const dir = join(opts.dir, cfg.dirName);
+  mkdirSync(dir, { recursive: true });
+  const list = () => readdirSync(dir, { recursive: true }).map(String);
+  const zips = list().filter((f) => /\.zip$/i.test(f));
+  if (zips.length > 0) {
+    const require = createRequire(join(REPO_ROOT, 'packages', 'core', 'package.json'));
+    const { unzipSync } = require('fflate');
+    for (const zip of zips) {
+      const files = unzipSync(readFileSync(join(dir, zip)), {
+        filter: (f) => cfg.fileRe.test(f.name) && !f.name.includes('..'),
+      });
+      for (const [name, data] of Object.entries(files)) {
+        writeFileSync(join(dir, name.split('/').pop()), data);
+      }
+      console.log(`✓ extracted ${Object.keys(files).length} ${cfg.label} file(s) from ${zip}`);
+    }
+  }
+  const matched = list()
+    .filter((f) => cfg.fileRe.test(f))
+    .sort();
+  if (matched.length === 0) {
+    console.warn(
+      [
+        `! ${cfg.label} (${cfg.packId}, optional) not found — manual download:`,
+        ...cfg.instructions,
+        `     ${dir}`,
+        '  3. Re-run this script, then build-packs.mjs --full.',
+      ].join('\n'),
+    );
+    return;
+  }
+  const hash = createHash('sha256');
+  let bytes = 0;
+  for (const f of matched) {
+    const buf = readFileSync(join(dir, f));
+    hash.update(buf);
+    bytes += buf.byteLength;
+  }
+  sources[cfg.key] = {
+    file: `${cfg.dirName}/`,
+    files: matched,
+    url: cfg.url,
+    version: cfg.version ?? sources[cfg.key]?.version ?? new Date().toISOString().slice(0, 10),
+    bytes,
+    sha256: hash.digest('hex'),
+    fetched_at: new Date().toISOString(),
+  };
+  console.log(`✓ ${cfg.label}: ${matched.length} file(s), ${(bytes / 1024 / 1024).toFixed(1)} MB`);
 }
 
 async function main() {
@@ -229,6 +287,32 @@ async function main() {
   }
 
   prepareManualKrdict(opts, sources);
+  prepareManualExtraKoreanPack(opts, sources, {
+    key: 'urimalsam',
+    dirName: 'urimalsam',
+    packId: 'dict-urimalsam',
+    label: 'Urimalsaem (우리말샘)',
+    url: 'https://opendict.korean.go.kr/ (manual download)',
+    version: opts.urimalsamVersion,
+    fileRe: /\.(xml|json)(\.gz)?$/i,
+    instructions: [
+      '  1. Open https://opendict.korean.go.kr/ → "내려받기" (open data download, CC BY-SA 2.0 KR).',
+      '  2. Save the JSON or XML .zip/.json/.xml files to:',
+    ],
+  });
+  prepareManualExtraKoreanPack(opts, sources, {
+    key: 'kaikki_ko',
+    dirName: 'kaikki-ko',
+    packId: 'dict-kaikki-ko',
+    label: 'Kaikki Wiktionary Korean',
+    url: 'https://kaikki.org/dictionary/Korean/ (manual download)',
+    version: opts.kaikkiVersion,
+    fileRe: /\.jsonl(\.gz)?$/i,
+    instructions: [
+      '  1. Download kaikki.org-dictionary-Korean.jsonl (or .jsonl.gz) from https://kaikki.org/dictionary/Korean/ (CC BY-SA 4.0).',
+      '  2. Save the file to:',
+    ],
+  });
 
   writeFileSync(sourcesPath, JSON.stringify(sources, null, 2) + '\n', 'utf8');
   console.log(`Upstream open data ready in ${opts.dir}`);

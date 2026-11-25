@@ -20,11 +20,19 @@ import { SocialLogin } from '@capgo/capacitor-social-login';
 import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
 import { FlashSecureStorage } from '@flash/capacitor-secure-storage';
 import type { PickedFile } from '@flash/platform';
+import {
+  CapacitorDeviceSpeechPlayer,
+  type NativeTtsPlugin,
+} from '../audio/native-device-speech.ts';
 import { createGoogleSignIn, type GoogleSignInOptions } from '../auth/google-social-login.ts';
 import type { NativeGoogleSignInPlugin } from '../auth/native-google-auth.ts';
 import type { MlKitDigitalInkPlugin } from '../drawing/mlkit-ink-recognizer.ts';
 import type { CapacitorFileBridge } from '../files/capacitor-files.ts';
-import { createCapacitorSaveStream } from '../files/capacitor-stream.ts';
+import {
+  createCapacitorSaveStream,
+  exportCachePath,
+  sweepExportCache,
+} from '../files/capacitor-stream.ts';
 import type { StoreBillingPlugin } from '../purchase/store-purchase.ts';
 import type { LocalNotificationsBridge } from '../reminders/local-notification-reminders.ts';
 import type { SystemBrowserLauncher } from '../sources/native-picker-bridge.ts';
@@ -264,9 +272,10 @@ export function createFileBridge(): CapacitorFileBridge {
     },
     saveAndShareFile: async ({ filename, data }) => {
       const written = await Filesystem.writeFile({
-        path: filename,
+        path: exportCachePath(filename),
         data: bytesToBase64(data),
         directory: Directory.Cache,
+        recursive: true,
       });
       await Share.share({ title: filename, files: [written.uri] });
     },
@@ -274,15 +283,33 @@ export function createFileBridge(): CapacitorFileBridge {
       createCapacitorSaveStream(
         {
           writeFile: ({ path, data }) =>
-            Filesystem.writeFile({ path, data, directory: Directory.Cache }),
+            Filesystem.writeFile({
+              path: exportCachePath(path),
+              data,
+              directory: Directory.Cache,
+              recursive: true,
+            }),
           appendFile: ({ path, data }) =>
-            Filesystem.appendFile({ path, data, directory: Directory.Cache }),
-          deleteFile: ({ path }) => Filesystem.deleteFile({ path, directory: Directory.Cache }),
+            Filesystem.appendFile({
+              path: exportCachePath(path),
+              data,
+              directory: Directory.Cache,
+            }),
+          deleteFile: ({ path }) =>
+            Filesystem.deleteFile({ path: exportCachePath(path), directory: Directory.Cache }),
           share: ({ title, uri }) => Share.share({ title, files: [uri] }).then(() => undefined),
         },
         filename,
       ),
   };
+}
+
+/** Removes leftover export files from previous sessions in `Directory.Cache`. */
+export function sweepCapacitorExportCache(): Promise<number> {
+  return sweepExportCache({
+    readdir: ({ path }) => Filesystem.readdir({ path, directory: Directory.Cache }),
+    deleteFile: ({ path }) => Filesystem.deleteFile({ path, directory: Directory.Cache }),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -404,4 +431,40 @@ export function createNativeSecureStorage(
   onSecretsLost?: () => void | Promise<void>,
 ): NativeSecureStorage {
   return adaptSecureStoragePlugin(FlashSecureStorage, onSecretsLost);
+}
+
+// ---------------------------------------------------------------------------
+// Android native TextToSpeech (`AndroidTtsPlugin.java`)
+// ---------------------------------------------------------------------------
+
+/** Adapts the Android-only `AndroidTts` Capacitor plugin to `DeviceSpeechPlayer`. */
+export function createAndroidDeviceSpeech(): CapacitorDeviceSpeechPlayer {
+  const native = registerPlugin<NativeTtsPlugin>('AndroidTts');
+  return new CapacitorDeviceSpeechPlayer(native);
+}
+
+// ---------------------------------------------------------------------------
+// Android hardware/gesture Back button (@capacitor/app)
+// ---------------------------------------------------------------------------
+
+/**
+ * Subscribes to Android's hardware/gesture Back button. When `handler()` returns `false`
+ * (nothing left to dismiss or pop), minimizes the app instead of killing the process.
+ */
+export function createBackButtonSource(
+  app: Pick<typeof App, 'addListener' | 'minimizeApp'> = App,
+): (handler: () => boolean) => () => void {
+  return (handler) => {
+    let live = true;
+    const handle = app.addListener('backButton', () => {
+      if (!live) return;
+      if (!handler()) {
+        void app.minimizeApp().catch(() => undefined);
+      }
+    });
+    return () => {
+      live = false;
+      void handle.then((h) => h.remove()).catch(() => undefined);
+    };
+  };
 }

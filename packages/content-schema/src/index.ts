@@ -259,6 +259,8 @@ export const PackIdSchema = z.enum([
   'dict-cc-cedict',
   'dict-jmdict',
   'dict-krdict',
+  'dict-urimalsam',
+  'dict-kaikki-ko',
   'strokes-ja-kanjivg',
   'strokes-zh-mmah',
 ]);

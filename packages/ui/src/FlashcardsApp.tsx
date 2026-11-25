@@ -1,6 +1,6 @@
 import type { CollectionState, FlashEvent, SyncCursorState } from '@flash/core';
 import type { DeviceMeta, PlatformServices, SyncConfig } from '@flash/platform';
-import { Suspense, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { lazyWithRetry } from './lazy/lazyWithRetry.tsx';
 import { AppShell, type NavTab } from './layout/AppShell.tsx';
 import { StudyScreen } from './screens/StudyScreen.tsx';
@@ -28,14 +28,41 @@ function ScreenRouter() {
   const [libraryImportExportRequest, setLibraryImportExportRequest] = useState<
     { tab: 'import' | 'export'; nonce: number } | undefined
   >(undefined);
-  const { setActiveDeckId, flushPendingSync } = useApp();
+  const { platform, setActiveDeckId, flushPendingSync } = useApp();
 
-  const handleSelectTab = (nextTab: NavTab) => {
-    if (activeTab === 'study' && nextTab !== 'study') {
-      flushPendingSync();
-    }
-    setActiveTab(nextTab);
-  };
+  const handleSelectTab = useCallback(
+    (nextTab: NavTab) => {
+      if (activeTab === 'study' && nextTab !== 'study') {
+        flushPendingSync();
+      }
+      setActiveTab(nextTab);
+    },
+    [activeTab, flushPendingSync],
+  );
+
+  // Android hardware/gesture Back button: close the topmost modal dialog, else return to Study,
+  // else return false so the native shell minimizes the app.
+  useEffect(() => {
+    if (!platform.onBackButton) return;
+    return platform.onBackButton(() => {
+      const openDialogs = document.querySelectorAll<HTMLDialogElement>('dialog[open]');
+      const topDialog = openDialogs[openDialogs.length - 1];
+      if (topDialog) {
+        topDialog.close();
+        return true;
+      }
+      const ariaModal = document.querySelector('[role="dialog"], [aria-modal="true"]');
+      if (ariaModal) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        return true;
+      }
+      if (activeTab !== 'study') {
+        handleSelectTab('study');
+        return true;
+      }
+      return false;
+    });
+  }, [activeTab, handleSelectTab, platform]);
 
   return (
     <AppShell activeTab={activeTab} onSelectTab={handleSelectTab}>

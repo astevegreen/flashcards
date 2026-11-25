@@ -102,7 +102,7 @@ export default function GoogleDriveFileLinkPanel({
     try {
       const res = await linkGoogleDriveFile(
         file,
-        { platform, getState: () => state, getEventFactory, emitEvents },
+        { platform, getState: () => state, getEventFactory, emitEvents, entitlement },
         choice,
       );
       onRegistry(res.registry);

@@ -622,3 +622,297 @@ export function parseKrdictXml(xml) {
   }
   return entries;
 }
+
+/* ------------------------------------------------------------------------------------------ */
+/* Urimalsaem (NIKL 우리말샘) Open Korean Dictionary → dict-urimalsam                          */
+/* ------------------------------------------------------------------------------------------ */
+
+const URIMALSAM_MAX_EXAMPLES = 2;
+const URIMALSAM_REL_TYPE = {
+  유의어: 'synonym',
+  비슷한말: 'synonym',
+  반의어: 'antonym',
+  반대말: 'antonym',
+};
+
+function stripUrimalsamMarks(word) {
+  return (word ?? '').replace(/[-^]/g, '').normalize('NFC').trim();
+}
+
+function extractHanjaRun(origin) {
+  if (!origin) return undefined;
+  const cleaned = cleanKrdictOrigin(origin);
+  return cleaned?.match(HAN_RUN)?.[0];
+}
+
+function asArray(val) {
+  if (!val) return [];
+  return Array.isArray(val) ? val : [val];
+}
+
+/**
+ * Parses one NIKL 우리말샘 JSON export (`channel.item[]` from opendict.korean.go.kr).
+ * Korean–Korean coverage pack: `definitionNative` holds the Korean definition and `source` is
+ * `'urimalsam'`. Share-alike (CC BY-SA 2.0 KR) applies only to the standalone pack.
+ */
+export function parseUrimalsamJson(jsonText) {
+  const parsed = typeof jsonText === 'string' ? JSON.parse(jsonText) : jsonText;
+  const items = asArray(parsed?.channel?.item ?? parsed?.items ?? parsed);
+  const byKey = new Map();
+
+  for (const item of items) {
+    const wi = item?.wordinfo ?? item?.word_info ?? item;
+    const rawWord = typeof wi?.word === 'string' ? wi.word : '';
+    const headword = stripUrimalsamMarks(rawWord);
+    if (!headword) continue;
+
+    const si = item?.senseinfo ?? item?.sense_info ?? item;
+    const defNative =
+      typeof si?.definition === 'string' ? si.definition.normalize('NFC').trim() : '';
+    if (!defNative) continue;
+
+    const posRaw = typeof si?.pos === 'string' ? si.pos.trim() : '';
+    const pos = KRDICT_POS[posRaw];
+    const homonymNum = Number(item?.target_code ? wi?.homonym_number : item?.homonym_number);
+    const homonym = Number.isFinite(homonymNum) && homonymNum > 0 ? homonymNum : undefined;
+
+    const origins = asArray(wi?.original_language_info)
+      .map((o) => (typeof o?.original_language === 'string' ? o.original_language : ''))
+      .filter(Boolean);
+    const origin = cleanKrdictOrigin(origins[0] ?? wi?.origin);
+    const hanja = extractHanjaRun(origin);
+
+    const readings = uniq(
+      asArray(wi?.pronunciation_info)
+        .map((p) =>
+          typeof p?.pronunciation === 'string' ? p.pronunciation.normalize('NFC').trim() : '',
+        )
+        .filter(Boolean),
+    );
+
+    const examples = [];
+    for (const ex of asArray(si?.example_info)) {
+      if (examples.length >= URIMALSAM_MAX_EXAMPLES) break;
+      const text = typeof ex?.example === 'string' ? ex.example.normalize('NFC').trim() : '';
+      if (text) examples.push({ text });
+    }
+
+    const relations = [];
+    for (const rel of asArray(si?.relation_info)) {
+      const word = stripUrimalsamMarks(typeof rel?.word === 'string' ? rel.word : '');
+      if (!word) continue;
+      const type = URIMALSAM_REL_TYPE[rel?.type] ?? 'related';
+      relations.push({ type, word });
+    }
+
+    const topics = uniq(
+      asArray(si?.cat_info)
+        .map((c) => (typeof c?.cat === 'string' ? c.cat.normalize('NFC').trim() : ''))
+        .filter(Boolean),
+    ).slice(0, KRDICT_MAX_TOPICS);
+
+    const sense = {
+      equivalents: [],
+      definitionNative: defNative,
+      ...(examples.length > 0 ? { examples } : {}),
+      ...(relations.length > 0 ? { relations } : {}),
+      source: 'urimalsam',
+    };
+
+    const groupKey = `${headword}\u0000${homonym ?? 0}\u0000${pos ?? ''}`;
+    const existing = byKey.get(groupKey);
+    if (existing) {
+      existing.senses.push(sense);
+      existing.meanings.push(defNative);
+      if (readings.length > 0) existing.readings = uniq([...existing.readings, ...readings]);
+      if (topics.length > 0)
+        existing.topics = uniq([...(existing.topics ?? []), ...topics]).slice(0, KRDICT_MAX_TOPICS);
+    } else {
+      byKey.set(groupKey, {
+        headword,
+        ...(hanja ? { altForms: [hanja] } : {}),
+        readings,
+        meanings: [defNative],
+        ...(pos ? { pos: [pos] } : {}),
+        ...(origin ? { origin } : {}),
+        ...(homonym !== undefined ? { homonym } : {}),
+        ...(topics.length > 0 ? { topics } : {}),
+        senses: [sense],
+      });
+    }
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Parses one NIKL 우리말샘 XML export (`<item>` elements with `<word>`, `<definition>`, `<pos>`,
+ * `<pronunciation>`, `<original_language>`, `<example>`, `<cat>`).
+ */
+export function parseUrimalsamXml(xml) {
+  const tagText = (block, tag) => {
+    const m = block.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`));
+    return m
+      ? decodeXmlText(m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'))
+          .normalize('NFC')
+          .trim()
+      : '';
+  };
+  const tagTexts = (block, tag) =>
+    elements(block, tag)
+      .map((s) =>
+        decodeXmlText(s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'))
+          .normalize('NFC')
+          .trim(),
+      )
+      .filter(Boolean);
+
+  const items = [];
+  for (const block of elements(xml, 'item')) {
+    const word = tagText(block, 'word');
+    const definition = tagText(block, 'definition');
+    if (!word || !definition) continue;
+    const pos = tagText(block, 'pos');
+    const origin = tagText(block, 'original_language') || tagText(block, 'origin');
+    const pron = tagTexts(block, 'pronunciation');
+    const exs = tagTexts(block, 'example');
+    const cats = tagTexts(block, 'cat');
+    items.push({
+      wordinfo: {
+        word,
+        ...(origin ? { origin } : {}),
+        ...(pron.length > 0 ? { pronunciation_info: pron.map((p) => ({ pronunciation: p })) } : {}),
+      },
+      senseinfo: {
+        definition,
+        ...(pos ? { pos } : {}),
+        ...(exs.length > 0 ? { example_info: exs.map((e) => ({ example: e })) } : {}),
+        ...(cats.length > 0 ? { cat_info: cats.map((c) => ({ cat: c })) } : {}),
+      },
+    });
+  }
+  return parseUrimalsamJson(items);
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Kaikki Wiktionary Korean JSONL → dict-kaikki-ko                                             */
+/* ------------------------------------------------------------------------------------------ */
+
+const KAIKKI_POS_MAP = {
+  noun: 'noun',
+  name: 'noun',
+  pron: 'pronoun',
+  num: 'numeral',
+  particle: 'particle',
+  postp: 'particle',
+  verb: 'verb',
+  adj: 'adjective',
+  det: 'determiner',
+  adv: 'adverb',
+  intj: 'interjection',
+  affix: 'affix',
+  prefix: 'affix',
+  suffix: 'affix',
+  proverb: 'phrase',
+  phrase: 'phrase',
+};
+const KAIKKI_MAX_EXAMPLES = 2;
+const HANGUL_CHAR_RE = /[\uac00-\ud7a3\u3131-\u318e]/;
+
+/**
+ * Parses a Kaikki.org Korean Wiktionary JSONL file (`kaikki.org-dictionary-Korean.jsonl`).
+ * Keeps Korean headwords with English glosses, Hanja forms, Hangul phonetic readings, examples,
+ * and synonym/antonym/related links, tagged with `source: 'kaikki'` (CC BY-SA 4.0).
+ */
+export function parseKaikkiKoJsonl(jsonlText) {
+  const entries = [];
+  for (const rawLine of jsonlText.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line[0] !== '{') continue;
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (obj.lang_code && obj.lang_code !== 'ko') continue;
+    const headword = typeof obj.word === 'string' ? obj.word.normalize('NFC').trim() : '';
+    if (!headword || !HANGUL_CHAR_RE.test(headword)) continue;
+
+    const senses = [];
+    for (const rawSense of asArray(obj.senses)) {
+      const glosses = asArray(rawSense?.glosses)
+        .map((g) => (typeof g === 'string' ? g.normalize('NFC').trim() : ''))
+        .filter(Boolean);
+      if (glosses.length === 0) continue;
+
+      const equivalents = uniq(glosses.flatMap((g) => splitDefinition(g))).slice(0, 8);
+      const definition = glosses[0];
+
+      const examples = [];
+      for (const ex of asArray(rawSense?.examples)) {
+        if (examples.length >= KAIKKI_MAX_EXAMPLES) break;
+        const text = typeof ex?.text === 'string' ? ex.text.normalize('NFC').trim() : '';
+        if (!text) continue;
+        const translation =
+          typeof ex?.english === 'string' && ex.english.trim()
+            ? ex.english.normalize('NFC').trim()
+            : typeof ex?.translation === 'string' && ex.translation.trim()
+              ? ex.translation.normalize('NFC').trim()
+              : undefined;
+        examples.push({ text, ...(translation ? { translation } : {}) });
+      }
+
+      const relations = [];
+      const pushRels = (list, type) => {
+        for (const r of asArray(list)) {
+          const w = typeof r?.word === 'string' ? r.word.normalize('NFC').trim() : '';
+          if (w && w !== headword) relations.push({ type, word: w });
+        }
+      };
+      pushRels(rawSense?.synonyms, 'synonym');
+      pushRels(rawSense?.antonyms, 'antonym');
+      pushRels(rawSense?.related, 'related');
+
+      senses.push({
+        equivalents: equivalents.length > 0 ? equivalents : [definition],
+        ...(definition && equivalents.join('; ') !== definition ? { definition } : {}),
+        ...(examples.length > 0 ? { examples } : {}),
+        ...(relations.length > 0 ? { relations } : {}),
+        source: 'kaikki',
+      });
+    }
+    if (senses.length === 0) continue;
+
+    const readings = uniq(
+      asArray(obj.sounds)
+        .map((s) =>
+          typeof s?.hangeul === 'string'
+            ? s.hangeul
+            : typeof s?.phonetic_hangeul === 'string'
+              ? s.phonetic_hangeul
+              : '',
+        )
+        .map((r) => r.replace(/[[\]]/g, '').normalize('NFC').trim())
+        .filter(Boolean),
+    );
+
+    const hanjaForms = uniq(
+      asArray(obj.forms)
+        .filter((f) => asArray(f?.tags).some((t) => typeof t === 'string' && /hanja/i.test(t)))
+        .map((f) => (typeof f?.form === 'string' ? extractHanjaRun(f.form) : undefined))
+        .filter(Boolean),
+    );
+
+    const pos = typeof obj.pos === 'string' ? KAIKKI_POS_MAP[obj.pos.toLowerCase()] : undefined;
+
+    entries.push({
+      headword,
+      ...(hanjaForms.length > 0 ? { altForms: hanjaForms } : {}),
+      readings,
+      meanings: senses.map((s) => s.equivalents.join('; ')),
+      ...(pos ? { pos: [pos] } : {}),
+      senses,
+    });
+  }
+  return entries;
+}

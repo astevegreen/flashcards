@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { CapacitorFiles } from '../src/files/capacitor-files.ts';
 import {
   createCapacitorSaveStream,
+  EXPORT_CACHE_DIR,
+  exportCachePath,
+  sweepExportCache,
   type CapacitorStreamDeps,
 } from '../src/files/capacitor-stream.ts';
 
@@ -91,5 +94,21 @@ describe('Capacitor streamed save', () => {
       openSaveStream: (name: string) => createCapacitorSaveStream(fs.deps, name),
     });
     expect(withStream.saveStream).toBeTypeOf('function');
+  });
+
+  it('scopes export paths to EXPORT_CACHE_DIR and sweeps leftover files', async () => {
+    expect(exportCachePath('a/b\\deck.apkg')).toBe(`${EXPORT_CACHE_DIR}/a_b_deck.apkg`);
+    const deleted: string[] = [];
+    const removed = await sweepExportCache({
+      readdir: async ({ path }) => {
+        expect(path).toBe(EXPORT_CACHE_DIR);
+        return { files: [{ name: 'old1.apkg' }, { name: 'old2.flashpkg' }] };
+      },
+      deleteFile: async ({ path }) => {
+        deleted.push(path);
+      },
+    });
+    expect(removed).toBe(2);
+    expect(deleted).toEqual([`${EXPORT_CACHE_DIR}/old1.apkg`, `${EXPORT_CACHE_DIR}/old2.flashpkg`]);
   });
 });
