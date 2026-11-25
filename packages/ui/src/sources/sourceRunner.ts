@@ -1739,7 +1739,8 @@ export async function scanSingleLocalFolder(
         if (overDeckLimit(state, newDeckIds(state, pkgRes.events, scanDecks), file.relativePath)) {
           continue;
         }
-        await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia);
+        // Files one at a time: each package checks the deck limit against the state so far.
+        await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia); // NOSONAR (S9382)
         if (pkgRes.events.length > 0) {
           ctx.emitEvents(pkgRes.events);
         }
@@ -1800,7 +1801,8 @@ export async function scanSingleLocalFolder(
         if (overDeckLimit(state, newDeckIds(state, pkgRes.events, scanDecks), file.relativePath)) {
           continue;
         }
-        await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia);
+        // Files one at a time: each package checks the deck limit against the state so far.
+        await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia); // NOSONAR (S9382)
         if (pkgRes.events.length > 0) {
           ctx.emitEvents(pkgRes.events);
         }
