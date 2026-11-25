@@ -1,6 +1,6 @@
 import type { CollectionState, FlashEvent, SyncCursorState } from '@flash/core';
 import type { DeviceMeta, PlatformServices, SyncConfig } from '@flash/platform';
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { LazyErrorBoundary, lazyWithRetry } from './lazy/lazyWithRetry.tsx';
 import { AppShell, type NavTab } from './layout/AppShell.tsx';
 import { StudyScreen } from './screens/StudyScreen.tsx';
@@ -40,29 +40,29 @@ function ScreenRouter() {
     [activeTab, flushPendingSync],
   );
 
-  // Android hardware/gesture Back button: close the topmost modal dialog, else return to Study,
-  // else return false so the native shell minimizes the app.
+  // Android hardware/gesture Back button (backButton.ts, lazy: only phones have one).
+  const backTabRef = useRef({ activeTab, handleSelectTab });
+  backTabRef.current = { activeTab, handleSelectTab };
   useEffect(() => {
-    if (!platform.onBackButton) return;
-    return platform.onBackButton(() => {
-      const openDialogs = document.querySelectorAll<HTMLDialogElement>('dialog[open]');
-      const topDialog = openDialogs[openDialogs.length - 1];
-      if (topDialog) {
-        topDialog.close();
-        return true;
-      }
-      const ariaModal = document.querySelector('[role="dialog"], [aria-modal="true"]');
-      if (ariaModal) {
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        return true;
-      }
-      if (activeTab !== 'study') {
-        handleSelectTab('study');
-        return true;
-      }
-      return false;
+    const onBackButton = platform.onBackButton;
+    if (!onBackButton) return;
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+    void import('./layout/backButton.ts').then(({ createBackButtonHandler, domBackButtonDeps }) => {
+      if (cancelled) return;
+      const handle = createBackButtonHandler(
+        domBackButtonDeps(
+          () => backTabRef.current.activeTab === 'study',
+          () => backTabRef.current.handleSelectTab('study'),
+        ),
+      );
+      unsubscribe = onBackButton(handle);
     });
-  }, [activeTab, handleSelectTab, platform]);
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [platform]);
 
   return (
     <AppShell activeTab={activeTab} onSelectTab={handleSelectTab}>
