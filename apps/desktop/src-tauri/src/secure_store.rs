@@ -7,7 +7,13 @@
 use keyring::{Entry, Error};
 
 const SERVICE: &str = "app.flashcards.localfirst";
-const ALLOWED_ACCOUNTS: &[&str] = &["google-refresh-token", "microsoft-refresh-token"];
+// Keep in sync with the `account:` names in packages/platform-tauri/src/native/boot.ts
+// (checked by packages/platform-tauri/tests/secure-store-accounts.test.ts).
+const ALLOWED_ACCOUNTS: &[&str] = &[
+    "google-refresh-token",
+    "microsoft-refresh-token",
+    "dropbox-refresh-token",
+];
 const PROBE_ACCOUNT: &str = "secure-store-probe";
 
 fn entry(account: &str) -> Result<Entry, String> {
