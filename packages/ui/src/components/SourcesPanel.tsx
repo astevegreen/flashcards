@@ -2,6 +2,7 @@ import { compareCodeUnits } from '@flash/core';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import type {
   CatalogPackageInfo,
+  LinkedGoogleDriveFileSource,
   LinkedGoogleSource,
   LinkedLocalFolder,
   LinkedOneDriveSource,
@@ -13,12 +14,20 @@ import type {
 } from '@flash/platform';
 import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
+import type { PickedDriveFile } from '../sources/googleDriveFileSource.ts';
+import { GoogleDriveFileRows } from '../sources/GoogleDriveFileRows.tsx';
 import type * as SourceRunner from '../sources/sourceRunner.ts';
+import { emptyLinkedSourcesHint, linkedSourcesDescription } from '../sources/sourceProviders.ts';
+import { UnconfiguredSourceHints } from '../sources/UnconfiguredSourceHints.tsx';
 import { useApp } from '../state/AppContext.tsx';
 
 const LazyOneDrivePickerPanel = lazyWithRetry(() => import('../sources/OneDrivePickerPanel.tsx'), {
   closeWith: 'onClose',
 });
+const LazyGoogleDriveFileLinkPanel = lazyWithRetry(
+  () => import('../sources/GoogleDriveFileLinkPanel.tsx'),
+  { closeWith: 'onClose' },
+);
 
 function formatStatusLabel(status?: SourceSyncStatus): string {
   switch (status) {
@@ -136,6 +145,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   const [registry, setRegistry] = useState<SourcesRegistry>({
     googleSources: [],
     oneDriveSources: [],
+    googleDriveFiles: [],
     localFolders: [],
     packageSubscriptions: [],
     catalogs: [],
@@ -149,6 +159,8 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
 
   const [showSubscribeForm, setShowSubscribeForm] = useState(false);
   const [showOneDrivePicker, setShowOneDrivePicker] = useState(false);
+  /** Plain Drive files picked with Link from Google Drive, waiting for their link step. */
+  const [driveFileQueue, setDriveFileQueue] = useState<PickedDriveFile[] | null>(null);
   const [subscribeUrl, setSubscribeUrl] = useState('');
   const [subscribeKind, setSubscribeKind] = useState<'auto' | 'package' | 'catalog'>('auto');
 
@@ -281,6 +293,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   const totalSources =
     registry.googleSources.length +
     (registry.oneDriveSources?.length ?? 0) +
+    (registry.googleDriveFiles?.length ?? 0) +
     registry.localFolders.length +
     registry.packageSubscriptions.length +
     registry.catalogs.length;
@@ -305,19 +318,35 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     onErrorMessage(null);
     try {
       const picker = await platform.getGooglePicker();
-      const picked = await picker.pickSheetsAndDocs();
+      // Sheets, Docs, and plain .csv/.tsv/.xlsx/.flashpkg files (all drive.file).
+      const picked = picker.pickDriveFiles
+        ? await picker.pickDriveFiles()
+        : await picker.pickSheetsAndDocs();
       if (picked.length === 0) return;
 
-      const { linkPickedGoogleFiles } = await import('../sources/sourceRunner.ts');
-      const summary = await linkPickedGoogleFiles(picked, makeRunnerCtx());
+      const [{ linkPickedGoogleFiles }, { rejectedDriveFilesMessage, splitPickedGoogleFiles }] =
+        await Promise.all([
+          import('../sources/sourceRunner.ts'),
+          import('../sources/googleDriveFileSource.ts'),
+        ]);
+      const { workspace, files, rejected } = splitPickedGoogleFiles(picked);
+      // Plain files get their own link step (column mapping / package) below the action row.
+      if (files.length > 0) setDriveFileQueue(files);
+      const problems = rejected.length > 0 ? [rejectedDriveFilesMessage(rejected)] : [];
+      if (workspace.length === 0) {
+        if (problems.length > 0) onErrorMessage(problems.join(' | '));
+        return;
+      }
+      const summary = await linkPickedGoogleFiles(workspace, makeRunnerCtx());
       setRegistry(summary.registry);
-      if (summary.errors.length > 0) {
-        onErrorMessage(summary.errors.join(' | '));
+      problems.push(...summary.errors);
+      if (problems.length > 0) {
+        onErrorMessage(problems.join(' | '));
       } else {
         const warnSuffix =
           summary.warningsCount > 0 ? ` (${summary.warningsCount} warning(s))` : '';
         onStatusMessage(
-          `Linked ${picked.length} Google file(s): ${summary.importedNotes} note(s), ${summary.importedPages} page(s)${warnSuffix}.`,
+          `Linked ${workspace.length} Google file(s): ${summary.importedNotes} note(s), ${summary.importedPages} page(s)${warnSuffix}.`,
         );
       }
     } catch (err) {
@@ -573,6 +602,36 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
+  const handleRefreshDriveFileOne = async (src: LinkedGoogleDriveFileSource) => {
+    setBusy(true);
+    onErrorMessage(null);
+    try {
+      const { refreshGoogleDriveFileRow } = await import('../sources/googleDriveFileSource.ts');
+      const res = await refreshGoogleDriveFileRow(src.id, makeRunnerCtx());
+      if (!res) return;
+      setRegistry(res.registry);
+      const { outcome } = res;
+      if (outcome.kind === 'pending') {
+        const held = outcome.pending;
+        setPendingReconciliations((prev) => [
+          ...prev.filter(
+            (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
+          ),
+          held,
+        ]);
+        onStatusMessage(outcome.message);
+      } else if (outcome.kind === 'error') {
+        onErrorMessage(outcome.message);
+      } else {
+        onStatusMessage(outcome.message);
+      }
+    } catch (err) {
+      onErrorMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleRefreshFolderOne = async (folder: LinkedLocalFolder) => {
     setBusy(true);
     onErrorMessage(null);
@@ -711,6 +770,20 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         await applyOneDriveReconciliation(rec, renameMap, runner);
         return;
       }
+      const drive = await import('../sources/googleDriveFileSource.ts');
+      if (rec.folderId.startsWith(drive.GDRIVE_RECONCILE_PREFIX)) {
+        const res = await drive.applyGoogleDriveReconciliation(rec, renameMap, makeRunnerCtx());
+        if (!res) return;
+        setRegistry(res.registry);
+        if (!res.applied) {
+          // Nothing was applied (offline, no access, archived deck): keep the prompt for later.
+          onErrorMessage(res.message);
+          return;
+        }
+        dropPendingReconciliation(rec);
+        onStatusMessage(res.message);
+        return;
+      }
       const archivedDeck = state.decks.get(rec.deckId);
       if (archivedDeck?.archived) {
         // Nothing would be applied to an archived deck: keep the prompt for after a restore.
@@ -747,10 +820,8 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">Linked Sources & Subscriptions</h2>
-          <p className="text-xs text-[var(--muted)]">
-            Pull updates from Google Sheets/Docs, OneDrive spreadsheets, PC local folders (including{' '}
-            <code>Inbox/</code>), or subscribed <code>.flashpkg</code> URLs. Everything stays cached
-            offline.
+          <p data-testid="sources-description" className="text-xs text-[var(--muted)]">
+            {linkedSourcesDescription(platform)}
           </p>
         </div>
 
@@ -861,7 +932,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
             onClick={() => void handleSignInGoogleForSources()}
             className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-40"
           >
-            Connect Google for Sheets/Docs
+            Connect Google Drive
           </button>
         ) : (
           <>
@@ -871,13 +942,13 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
               disabled={busy || !platform.googlePickerConfigured}
               title={
                 platform.googlePickerConfigured
-                  ? 'Select Google Sheets or Docs with Google Picker (drive.file)'
+                  ? 'Pick Google Sheets, Docs, or .csv/.tsv/.xlsx/.flashpkg files with Google Picker (drive.file: only the files you pick)'
                   : 'Configure VITE_GOOGLE_API_KEY to enable Google Picker'
               }
               onClick={() => void handleLinkGooglePicker()}
               className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-40"
             >
-              Link Google Sheet / Doc
+              Link from Google Drive
             </button>
 
             <button
@@ -928,6 +999,34 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
           Subscribe to URL / Catalog
         </button>
       </div>
+
+      {/* Dev builds only: providers hidden for a missing env var, so it can't go unnoticed. */}
+      <UnconfiguredSourceHints platform={platform} />
+
+      {/* Plain Drive files picked with Link from Google Drive: their link step (lazy). */}
+      {driveFileQueue && driveFileQueue.length > 0 && (
+        <Suspense
+          fallback={
+            <div className="min-h-[12rem] rounded-xl border border-[var(--border)] bg-[var(--bg)]" />
+          }
+        >
+          <LazyGoogleDriveFileLinkPanel
+            files={driveFileQueue}
+            onClose={() => setDriveFileQueue(null)}
+            onStatusMessage={onStatusMessage}
+            onErrorMessage={onErrorMessage}
+            onRegistry={setRegistry}
+            onPendingReconciliation={(held) =>
+              setPendingReconciliations((prev) => [
+                ...prev.filter(
+                  (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
+                ),
+                held,
+              ])
+            }
+          />
+        </Suspense>
+      )}
 
       {/* Optional OneDrive file picker: lazy, below the action row. The fallback reserves the
           panel's fixed height (h-[26rem], ONEDRIVE_PICKER_PANEL_HEIGHT), so nothing below moves. */}
@@ -1097,9 +1196,8 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
 
       {/* Linked Sources List */}
       {totalSources === 0 ? (
-        <p className="text-xs text-[var(--muted)]">
-          No external sources linked yet. Link a Google Sheet/Doc, local PC folder, or subscribe to
-          a Family Library URL above.
+        <p data-testid="sources-empty-hint" className="text-xs text-[var(--muted)]">
+          {emptyLinkedSourcesHint(platform)}
         </p>
       ) : (
         <div className="flex flex-col gap-2">
@@ -1170,6 +1268,16 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
               <WarningsDisclosure warnings={src.warnings} />
             </div>
           ))}
+
+          <GoogleDriveFileRows
+            sources={registry.googleDriveFiles ?? []}
+            busy={busy}
+            onRefresh={(src) => void handleRefreshDriveFileOne(src)}
+            onUnlink={(src) => void handleUnlink('gdrive_file', src.id)}
+            pillLabel={rowPillLabel}
+            pillClass={rowPillClass}
+            renderWarnings={(src) => <WarningsDisclosure warnings={src.warnings} />}
+          />
 
           {(registry.oneDriveSources ?? []).map((src) => (
             <div
