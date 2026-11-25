@@ -99,5 +99,11 @@ test.describe('Phase 10 Korean dictionary (KRDict starter pack)', () => {
     await addBar.getByTestId('dict-add-confirm-btn').click();
     await expect(page.getByTestId('dict-added-banner')).toContainText('Added “먹다”');
     await expect(results.getByTestId('dict-in-deck-먹다').first()).toBeVisible();
+
+    // Adding the same entry again would reset the card's fields and tags (D17).
+    await results.getByTestId('dict-add-btn-먹다').first().click();
+    const again = results.getByTestId('dict-add-bar-먹다').getByTestId('dict-add-confirm-btn');
+    await expect(again).toBeDisabled();
+    await expect(again).toHaveText('Already in deck');
   });
 });
