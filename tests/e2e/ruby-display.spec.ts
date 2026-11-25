@@ -9,7 +9,7 @@ test.describe('Per-layout ruby display flag', () => {
     await page.goto('/?device=rubyflag');
     await expect(page.getByTestId('study-card')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const jaRow = page.locator('[data-testid^="deck-row-"]', {
       hasText: 'Japanese Essentials (JA)',
     });
@@ -40,7 +40,7 @@ test.describe('Per-layout ruby display flag', () => {
     ).toBeDisabled();
 
     // Back in the Library: bases only.
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const optionsBtn = jaRow.getByRole('button', { name: 'Options' });
     if (await optionsBtn.isVisible()) await optionsBtn.click();
     await jaRow.getByLabel('Ruby shows for Recognition').selectOption('bases');

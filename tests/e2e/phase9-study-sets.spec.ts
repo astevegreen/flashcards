@@ -199,7 +199,7 @@ test.describe('Phase 9 Study Sets, custom study and leech auto-suspend', () => {
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // Limit Korean to 1 new card per day.
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const koRow = page.locator('[data-testid^="deck-row-"]', { hasText: KOREAN });
     await koRow.getByRole('button', { name: 'Options' }).click();
     const newPerDay = koRow.getByLabel('New cards / day');
@@ -393,7 +393,7 @@ test.describe('Phase 9 Study Sets, custom study and leech auto-suspend', () => {
     await expect(page.getByTestId('count-due')).toHaveText('0');
 
     // Browse: both are leeches, only the second is suspended.
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByLabel('Filter by deck').selectOption({ label: KOREAN });
     await page.getByTestId('browse-state-filter').selectOption('suspended');
     await expect(page.getByTestId('browse-list')).toContainText(secondWord);
@@ -412,7 +412,7 @@ test.describe('Phase 9 Study Sets, custom study and leech auto-suspend', () => {
     await expect.poll(() => countStoredEvents(page, db, 'CardUnsuspended')).toBe(1);
     await expect(page.getByTestId('study-card')).toContainText(secondWord);
     await expect(page.getByTestId('count-due')).toHaveText('1');
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByTestId('open-tag-manager').click();
     await expect(page.getByTestId('tag-count-leech')).toHaveText('1');
   });

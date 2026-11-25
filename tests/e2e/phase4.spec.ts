@@ -76,7 +76,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // Create & enable a Typed layout on Japanese Essentials (JA) testing Reading field
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const jaRow = page.locator('[data-testid^="deck-row-"]', {
       hasText: 'Japanese Essentials (JA)',
     });
@@ -143,7 +143,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // Create & enable a Choice layout on Korean Core + Hanja (has 4 notes)
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const koRow = page.locator('[data-testid^="deck-row-"]', { hasText: 'Korean Core + Hanja' });
     await koRow.getByRole('button', { name: 'Options' }).click();
 
@@ -286,7 +286,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await page.goto('/?device=p4pages');
     await expect(page.getByTestId('study-card')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const coursesPanel = page.getByTestId('courses-panel');
     await expect(coursesPanel).toBeVisible();
 
@@ -373,7 +373,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // Navigate to Browse and filter by "Needs review"
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     const filterBtn = page.getByTestId('needs-review-filter');
     await expect(filterBtn).toContainText('Needs review (1)');
     await filterBtn.click();
@@ -415,7 +415,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
 
     // Reload and confirm reviewed state persists from IndexedDB
     await page.reload();
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await expect(page.getByTestId('needs-review-filter')).toContainText('Needs review (0)');
   });
 
@@ -459,7 +459,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await expect(page.getByTestId('rate-good')).toHaveAttribute('data-suggested', 'true');
 
     // 2. ListenMode + R/S shortcuts on Japanese Essentials (JA)
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const jaRow = page.locator('[data-testid^="deck-row-"]', {
       hasText: 'Japanese Essentials (JA)',
     });
@@ -539,7 +539,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await dialog.getByRole('button', { name: 'Cancel' }).click();
 
     // 4. Tall scrollable Lesson Page: column-0 inline ::say + scroll-to-bottom automatic PageRead
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('new-page-btn').click();
     await page.getByTestId('page-editor-title').fill('Tall Scroll Lesson');
     await page.getByTestId('page-editor-slug').fill('tall-scroll-lesson');
@@ -572,7 +572,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await page.goto('/?device=p4courses');
     await expect(page.getByTestId('study-card')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const coursesPanel = page.getByTestId('courses-panel');
     await expect(coursesPanel).toBeVisible();
 
@@ -692,7 +692,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     // 4. Reload and confirm edited course order, title, and prerequisite lock persist from IndexedDB
     await page.reload();
     await expect(page.getByTestId('study-card')).toBeVisible();
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
 
     const persistedCard = page
       .getByTestId('courses-panel')
@@ -720,7 +720,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await page.goto('/?device=p4courseedge');
     await expect(page.getByTestId('study-card')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
 
     // 1. Create two extra lesson pages so we can test 2-node prerequisite cycle prevention & submit validation
     for (const [title, slug] of [
@@ -779,6 +779,8 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await expect(coursesPanel.getByTestId('course-editor-form')).toHaveCount(0);
 
     // 2. Import a .flashpkg containing a course with a missing page ref & missing prerequisite page
+    await page.getByTestId('import-export-btn').click();
+    await page.getByTestId('import-mode-flashpkg').click();
     const [fileChooser] = await Promise.all([
       page.waitForEvent('filechooser'),
       page.getByTestId('import-flashpkg-btn').click(),
@@ -836,7 +838,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await expect(pageB.getByTestId('study-card')).toBeVisible();
 
     // Edit sample course on Device A: rename, add Korean deck, reorder to index 1
-    await pageA.getByRole('button', { name: 'Library' }).first().click();
+    await pageA.getByRole('button', { name: 'Decks' }).first().click();
     const cardA = pageA
       .getByTestId('courses-panel')
       .locator('[data-testid^="course-card-"]', { hasText: 'Japanese Particles Mini-Course' });
@@ -862,7 +864,7 @@ test.describe('Phase 4 Richer Content, Answer Modes, Media Sync, Pages & Courses
     await expect(pageB.getByTestId('sync-status-pill')).toHaveText('Synced');
 
     // Verify Device B Library shows the edited course with matching title, order, and lock badge
-    await pageB.getByRole('button', { name: 'Library' }).first().click();
+    await pageB.getByRole('button', { name: 'Decks' }).first().click();
     const cardB = pageB
       .getByTestId('courses-panel')
       .locator('[data-testid^="course-card-"]', { hasText: 'Synced Particles Track' });

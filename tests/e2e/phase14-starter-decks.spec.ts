@@ -70,7 +70,7 @@ test.describe('Phase 14 starter decks in first-run onboarding', () => {
       await expect(page.getByTestId('card-back')).toContainText(c.starter.credit);
 
       // The Library row shows the whole deck as the user's own deck (no linked-source badge).
-      await page.getByRole('button', { name: 'Library' }).first().click();
+      await page.getByRole('button', { name: 'Decks' }).first().click();
       const row = page.locator('[data-testid^="deck-row-"]').filter({ hasText: c.deckName });
       await expect(row).toContainText(`${c.starter.noteCount} notes`);
       await expect(row).not.toContainText('Package');

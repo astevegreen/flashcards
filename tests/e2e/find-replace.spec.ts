@@ -3,10 +3,10 @@ import { expect, test, type Page } from '@playwright/test';
 /** Find and replace across the selected notes, from the Browse bulk edit bar, and its undo. */
 
 async function openKoreanSelection(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Browse' }).first().click();
+  await page.getByRole('button', { name: 'Words' }).first().click();
   await expect(page.getByTestId('browse-list')).toBeVisible();
   await page.getByLabel('Filter by deck').selectOption({ label: 'Korean Core + Hanja' });
-  await expect(page.locator('h1', { hasText: 'Browse' })).toContainText('(4)');
+  await expect(page.locator('h1', { hasText: 'Words' })).toContainText('(4)');
   await page.getByTestId('browse-select-all').check();
   await expect(page.getByTestId('bulk-selected-count')).toHaveText('4 notes selected');
 }

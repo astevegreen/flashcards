@@ -28,8 +28,8 @@ async function openSettings(page: Page): Promise<void> {
 }
 
 async function openLibrary(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Library' }).first().click();
-  await expect(page.locator('h1', { hasText: 'Library' })).toBeVisible();
+  await page.getByRole('button', { name: 'Decks' }).first().click();
+  await expect(page.locator('h1', { hasText: 'Decks' })).toBeVisible();
 }
 
 async function openStudy(page: Page): Promise<void> {
@@ -39,7 +39,7 @@ async function openStudy(page: Page): Promise<void> {
 
 async function openBringMyCards(page: Page): Promise<void> {
   await openLibrary(page);
-  await page.getByTestId('bring-my-cards-btn').click();
+  await page.getByTestId('import-export-btn').click();
   await expect(page.getByTestId('bring-my-cards-panel')).toBeVisible();
 }
 
@@ -219,7 +219,7 @@ test.describe('Language-aware options (UX #2)', () => {
     await expect(page.getByTestId('pack-row-dict-kanjidic2')).toHaveCount(0);
 
     // Dictionary: the Kanji pack tab is hidden until "Show all languages" is on.
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByTestId('browse-tab-dictionary').click();
     await expect(page.getByTestId('dict-filter-dict-hanja-unihan')).toBeVisible();
     await expect(page.getByTestId('dict-filter-dict-kanjidic2')).toHaveCount(0);

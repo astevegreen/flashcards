@@ -1,13 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 
 const RECOGNITION = 'layout:vocab-ko:recognition';
-const browseHeading = (page: Page) => page.locator('h1', { hasText: 'Browse' });
+const browseHeading = (page: Page) => page.locator('h1', { hasText: 'Words' });
 const row = (page: Page, text: string) =>
   page.locator('[data-testid^="browse-row-"]', { hasText: text });
 
 async function setKoreanRecognitionRule(page: Page, value: string): Promise<void> {
-  await page.getByRole('button', { name: 'Library' }).first().click();
-  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  await page.getByRole('button', { name: 'Decks' }).first().click();
+  await expect(page.getByRole('heading', { name: 'Decks' })).toBeVisible();
   const koRow = page.locator('[data-testid^="deck-row-"]', { hasText: 'Korean Core + Hanja' });
   const select = koRow.getByTestId(`layout-required-field-${RECOGNITION}`);
   if (!(await select.isVisible())) {
@@ -18,7 +18,7 @@ async function setKoreanRecognitionRule(page: Page, value: string): Promise<void
 }
 
 async function openKoreanBrowse(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Browse' }).first().click();
+  await page.getByRole('button', { name: 'Words' }).first().click();
   await expect(page.getByTestId('browse-list')).toBeVisible();
   await page.getByLabel('Filter by deck').selectOption({ label: 'Korean Core + Hanja' });
 }

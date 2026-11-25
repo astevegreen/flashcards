@@ -40,7 +40,7 @@ test.describe('Phase 9 completion', () => {
     await page.getByTestId('study-filter-close').click();
 
     // Rename #hanja to #한자 for the whole collection.
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await page.getByTestId('open-tag-manager').click();
     const manager = page.getByTestId('tag-manager');
     await manager.getByTestId('tag-rename-hanja').click();
@@ -114,7 +114,9 @@ test.describe('Phase 9 completion', () => {
   test('Library: export one category as CSV and .flashpkg', async ({ page }) => {
     await page.goto('/?device=p9done-export');
     await expect(page.getByTestId('study-card')).toBeVisible();
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
+    await page.getByTestId('import-export-btn').click();
+    await page.getByTestId('import-export-tab-export').click();
     const panel = page.getByRole('region', { name: 'Export a tag' });
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId('category-export-csv')).toBeDisabled();

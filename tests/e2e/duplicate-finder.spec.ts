@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const browseHeading = (page: Page) => page.locator('h1', { hasText: 'Browse' });
+const browseHeading = (page: Page) => page.locator('h1', { hasText: 'Words' });
 
 test.describe('Duplicate finder', () => {
   test('finds a note repeated in another deck; tag and archive act on it', async ({ page }) => {
@@ -8,11 +8,11 @@ test.describe('Duplicate finder', () => {
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // An "imported list" that repeats 학교 from the sample deck (extra spaces, decomposed Hangul).
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByPlaceholder('Deck name (e.g., TOPIK II Verbs)').fill('TOPIK list');
     await page.getByRole('button', { name: 'Create Deck' }).click();
     await expect(page.getByText('Created deck "TOPIK list".')).toBeVisible();
-    await page.getByTestId('bring-my-cards-btn').click();
+    await page.getByTestId('import-export-btn').click();
     const word = '학교 (學校)'.normalize('NFD');
     await page
       .getByTestId('bring-link-input')
@@ -22,7 +22,7 @@ test.describe('Duplicate finder', () => {
     await page.getByTestId('bring-csv-import-btn').click();
     await expect(page.getByTestId('bring-csv-status')).toContainText('Imported 2 note(s)');
 
-    await page.getByRole('button', { name: 'Browse' }).first().click();
+    await page.getByRole('button', { name: 'Words' }).first().click();
     await expect(page.getByTestId('browse-list')).toBeVisible();
     await page.getByTestId('open-duplicate-finder').click();
     const finder = page.getByTestId('duplicate-finder');

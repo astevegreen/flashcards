@@ -30,12 +30,12 @@ async function countStoredEvents(page: Page, dbName: string, type: string): Prom
   );
 }
 
-const browseHeading = (page: Page) => page.locator('h1', { hasText: 'Browse' });
+const browseHeading = (page: Page) => page.locator('h1', { hasText: 'Words' });
 const row = (page: Page, text: string) =>
   page.locator('[data-testid^="browse-row-"]', { hasText: text });
 
 async function openBrowse(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Browse' }).first().click();
+  await page.getByRole('button', { name: 'Words' }).first().click();
   await expect(page.getByTestId('browse-list')).toBeVisible();
 }
 
@@ -112,7 +112,7 @@ test.describe('Phase 9 organizing: tag manager, bulk edit, Due today, CSV export
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     // A second Korean vocabulary deck to move notes into.
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByPlaceholder('Deck name (e.g., TOPIK II Verbs)').fill('Korean Extra');
     await page.getByRole('button', { name: 'Create Deck' }).click();
     await expect(page.getByText('Created deck "Korean Extra".')).toBeVisible();

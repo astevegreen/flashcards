@@ -333,7 +333,7 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
       .toBe(true);
 
     // Open sample Lesson Page in Library and click ::say[...] normally & with Shift for 0.75x
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const coursesPanel = page.getByTestId('courses-panel');
     await expect(coursesPanel).toBeVisible();
     await coursesPanel.getByTestId('course-open-page-0').click();
@@ -391,7 +391,7 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
     await page.getByTestId('auto-play-audio-toggle').check();
 
     // Switch Korean Core + Hanja to Production layout only (speak_on: 'reveal')
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const koRow = page.locator('[data-testid^="deck-row-"]', { hasText: 'Korean Core + Hanja' });
     await koRow.getByRole('button', { name: 'Production' }).click();
     await koRow.getByRole('button', { name: 'Recognition' }).click();
@@ -505,7 +505,7 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
     await expect(dialog).toHaveCount(0);
 
     // Create a custom Flip layout in Library -> Options
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     const koRow = page.locator('[data-testid^="deck-row-"]', { hasText: 'Korean Core + Hanja' });
     await koRow.getByRole('button', { name: 'Options' }).click();
     await koRow.getByLabel('Answer mode').selectOption('flip');

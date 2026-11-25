@@ -61,7 +61,7 @@ test.describe('Automatic backups', () => {
     await expect(confirm).toContainText('may survive it');
     await confirm.getByRole('button', { name: 'Cancel' }).click();
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByRole('button', { name: 'Options' }).first().click();
     await page.locator('[data-testid^="archive-deck-btn-"]').first().click();
     await expect(page.locator('[data-testid^="deck-row-"]')).toHaveCount(4);
@@ -73,7 +73,7 @@ test.describe('Automatic backups', () => {
     await confirm.getByRole('button', { name: 'Restore on all devices' }).click();
     await expect(panel.getByRole('status')).toContainText('Restored the backup');
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await expect(page.locator('[data-testid^="deck-row-"]')).toHaveCount(5);
   });
 
@@ -86,16 +86,25 @@ test.describe('Automatic backups', () => {
     await expect.poll(() => countBackups(page), { timeout: 30_000 }).toBe(1);
     await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
 
+    // Settings › Local Backup links directly to Decks › Import / Export (Export tab).
+    await page.getByTestId('settings-open-import-export-btn').click();
+    await expect(page.getByTestId('import-export-tab-export')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     const [full] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export Backup' }).click(),
+      page.getByTestId('export-collection-btn').click(),
     ]);
     const exported = await readDownloadedBackup(full);
     // The sample decks hold no media, so the file is packed as a daily (media-less) snapshot.
     expect(exported.manifest.reason).toBe('manual');
     expect(exported.manifest.counts.decks).toBe(5);
-    await expect(page.getByText('Backup exported successfully.')).toBeVisible();
+    await expect(page.getByTestId('library-status')).toContainText(
+      'Exported full collection backup',
+    );
 
+    await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
     const panel = page.getByTestId('backups-panel');
     const [snapshot] = await Promise.all([
       page.waitForEvent('download'),

@@ -148,8 +148,8 @@ async function seedReviewHistory(page: Page, deckId: string): Promise<number> {
  * just many reviews), waits for them to persist, seeds the review history and reloads the app.
  */
 async function seedAndReload(page: Page): Promise<{ deckId: string; eligible: number }> {
-  await page.getByRole('button', { name: 'Library' }).first().click();
-  await page.getByTestId('bring-my-cards-btn').click();
+  await page.getByRole('button', { name: 'Decks' }).first().click();
+  await page.getByTestId('import-export-btn').click();
   const rows = Array.from({ length: PASTED_NOTES }, (_, i) => `단어${i},meaning ${i},optimizer`);
   await page.getByTestId('bring-link-input').fill(['Word,Meaning,Tags', ...rows].join('\n'));
   await page.getByTestId('bring-link-submit').click();
@@ -198,7 +198,7 @@ async function readWeights(page: Page, deckId: string) {
 }
 
 async function openDeckOptions(page: Page) {
-  await page.getByRole('button', { name: 'Library' }).first().click();
+  await page.getByRole('button', { name: 'Decks' }).first().click();
   const row = page.locator('[data-testid^="deck-row-"]', { hasText: DECK_NAME });
   await row.getByRole('button', { name: 'Options' }).click();
   const panel = row.getByRole('region', { name: 'FSRS optimizer' });

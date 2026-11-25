@@ -5,7 +5,7 @@ export const KO_DECK = 'Korean Core + Hanja';
 
 /** Opens the Library screen and waits for it. */
 export async function openLibrary(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Library' }).first().click();
+  await page.getByRole('button', { name: 'Decks' }).first().click();
   await expect(page.getByTestId('deck-organization-panel')).toBeVisible();
 }
 
