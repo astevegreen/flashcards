@@ -106,6 +106,19 @@ export function composeNativePlatform(
   };
 }
 
+/**
+ * Runs `load` once and shares its promise; a rejected load is forgotten so the next call
+ * retries (a failed sign-in plugin init must not stick for the whole session).
+ */
+function loadOnceUntilFailure<T>(load: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | null = null;
+  return () =>
+    (pending ??= load().catch((err: unknown) => {
+      pending = null;
+      throw err;
+    }));
+}
+
 /** The OneDrive members of `PlatformServices`, all backed by one lazily created bundle. */
 export type OneDrivePlatformFields = Pick<
   PlatformServices,
@@ -120,12 +133,7 @@ export type OneDrivePlatformFields = Pick<
 export function lazyOneDriveFields(
   load: () => Promise<{ auth: Auth; transport: SyncTransport; picker: OneDriveFilePicker }>,
 ): OneDrivePlatformFields {
-  let pending: ReturnType<typeof load> | null = null;
-  const get = () =>
-    (pending ??= load().catch((err: unknown) => {
-      pending = null;
-      throw err;
-    }));
+  const get = loadOnceUntilFailure(load);
   return {
     oneDriveConfigured: true,
     getOneDriveAuth: async () => (await get()).auth,
@@ -147,12 +155,7 @@ export type DropboxPlatformFields = Pick<
 export function lazyDropboxFields(
   load: () => Promise<{ auth: Auth; transport: SyncTransport; picker: DropboxFilePicker }>,
 ): DropboxPlatformFields {
-  let pending: ReturnType<typeof load> | null = null;
-  const get = () =>
-    (pending ??= load().catch((err: unknown) => {
-      pending = null;
-      throw err;
-    }));
+  const get = loadOnceUntilFailure(load);
   return {
     dropboxConfigured: true,
     getDropboxAuth: async () => (await get()).auth,
