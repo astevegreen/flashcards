@@ -1,5 +1,6 @@
 import { OPEN_DATA_ATTRIBUTIONS } from '@flash/core/dictionary';
 import type { InstalledPackInfo } from '@flash/platform';
+import { starterSourceCredits } from './starterSourceCredits.ts';
 import { THIRD_PARTY_NOTICES } from './third-party-notices.ts';
 
 export interface AboutLicensesCardProps {
@@ -82,6 +83,52 @@ export function AboutLicensesCard({ installedPacks = [] }: AboutLicensesCardProp
             </details>
           );
         })}
+      </div>
+
+      <div className="flex flex-col gap-2" data-testid="starter-deck-credits">
+        <h3 className="text-xs font-semibold">Starter decks</h3>
+        {starterSourceCredits().map(({ source, decks }) => (
+          <details
+            key={source.name}
+            className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs"
+          >
+            <summary className="cursor-pointer select-none font-medium text-[var(--fg)]">
+              <span>{source.name}</span>{' '}
+              <span className="ml-1 rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+                {source.licence}
+              </span>
+            </summary>
+            <div className="mt-2 flex flex-col gap-1.5 border-t border-[var(--border)] pt-2 text-[11px] text-[var(--muted)]">
+              <div>
+                <strong className="text-[var(--fg)]">Used in:</strong> {decks.join(', ')}
+              </div>
+              <div>
+                <strong className="text-[var(--fg)]">Attribution:</strong> {source.attribution}
+              </div>
+              <p>
+                <strong className="text-[var(--fg)]">Changes:</strong> {source.changes}
+              </p>
+              <div className="flex flex-wrap gap-3 pt-0.5">
+                <a
+                  href={source.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-[var(--accent)] hover:underline"
+                >
+                  Upstream Source ↗
+                </a>
+                <a
+                  href={source.licenceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-[var(--accent)] hover:underline"
+                >
+                  License Text ↗
+                </a>
+              </div>
+            </div>
+          </details>
+        ))}
       </div>
 
       <div className="flex flex-col gap-2" data-testid="third-party-notices">

@@ -11,10 +11,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'thing (some object, fact, etc. that is not specified)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L196 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'dependent-noun'],
+      meaningSource: 'Wikidata L196',
     },
     {
       key: 'nikl:하다01:verb',
@@ -23,10 +23,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to do (something, perform an action)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L226 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L226',
     },
     {
       key: 'nikl:되다01:verb',
@@ -35,10 +35,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to become (have a new status/position)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L43 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L43',
     },
     {
       key: 'nikl:나03:pronoun',
@@ -47,10 +47,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'I; me (casual)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L246 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'pronoun'],
+      meaningSource: 'Wikidata L246',
+      meaningEdited: true,
     },
     {
       key: 'nikl:그01:determiner',
@@ -59,10 +60,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'that (near you / just mentioned)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L254 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'determiner'],
+      meaningSource: 'Wikidata L254',
+      meaningEdited: true,
     },
     {
       key: 'nikl:없다01:adjective',
@@ -71,10 +73,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to not be (there); to not exist; to not have',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1226 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'adjective'],
+      meaningSource: 'Wikidata L1226',
+      meaningEdited: true,
     },
     {
       key: 'nikl:사람:noun',
@@ -83,10 +86,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'person; people',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L130 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L130',
+      meaningEdited: true,
     },
     {
       key: 'nikl:우리03:pronoun',
@@ -95,10 +99,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'we; our',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L765 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'pronoun'],
+      meaningSource: 'Wikidata L765',
+      meaningEdited: true,
     },
     {
       key: 'nikl:이05:determiner',
@@ -107,10 +112,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'this',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L131 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'determiner', 'pronoun'],
+      meaningSource: 'Wikidata L131',
+      meaningEdited: true,
     },
     {
       key: 'nikl:그01:pronoun',
@@ -119,10 +125,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'he; that (person)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L745345 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'pronoun'],
+      meaningSource: 'Wikidata L745345',
+      meaningEdited: true,
     },
     {
       key: 'nikl:아니다:adjective',
@@ -131,10 +138,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to not be; is not (A은/는 B이/가 아니다)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1228 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'adjective'],
+      meaningSource: 'Wikidata L1228',
+      meaningEdited: true,
     },
     {
       key: 'nikl:보다01:verb',
@@ -143,10 +151,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to see; to look at; to watch; to read',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L132 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L132',
+      meaningEdited: true,
     },
     {
       key: 'nikl:가다01:verb',
@@ -155,10 +164,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to go (move from one place to another)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L204 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L204',
     },
     {
       key: 'nikl:년02:dependent-noun',
@@ -167,10 +176,11 @@ const deck: StarterDeckContent = {
         hanja: '年',
         meaning: 'year (as in 2025년)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L267659 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'dependent-noun'],
+      meaningSource: 'Wikidata L267659',
+      meaningEdited: true,
     },
     {
       key: 'nikl:일01:noun',
@@ -179,10 +189,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'work; task; matter',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L744807 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L744807',
+      meaningEdited: true,
     },
     {
       key: 'nikl:알다:verb',
@@ -191,10 +202,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to know (something, through prior experience/education/thought)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L148 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L148',
     },
     {
       key: 'nikl:안02:adverb',
@@ -203,10 +214,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'not (before a verb: 안 가요 "I\'m not going")',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742360 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'adverb'],
+      meaningSource: 'Wikidata L742360',
+      meaningEdited: true,
     },
     {
       key: 'nikl:좋다01:adjective',
@@ -215,10 +227,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'good (excellent/satisfactory in nature/content)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L147 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'adjective'],
+      meaningSource: 'Wikidata L147',
     },
     {
       key: 'nikl:속01:noun',
@@ -227,10 +239,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'inside; within',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1012542 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L1012542',
+      meaningEdited: true,
     },
     {
       key: 'nikl:원01:dependent-noun',
@@ -239,10 +252,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'won (currency unit)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1453651 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'dependent-noun'],
+      meaningSource: 'Wikidata L1453651',
     },
     {
       key: 'nikl:명03:dependent-noun',
@@ -251,10 +264,11 @@ const deck: StarterDeckContent = {
         hanja: '名',
         meaning: 'counter for people (두 명 "two people")',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1327869 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'dependent-noun'],
+      meaningSource: 'Wikidata L1327869',
+      meaningEdited: true,
     },
     {
       key: 'nikl:듣다01:verb',
@@ -263,10 +277,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to hear (a sound); to listen to; to attend (a class)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1572002 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L1572002',
     },
     {
       key: 'nikl:하나:numeral',
@@ -275,10 +289,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'one (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L701012 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L701012',
+      meaningEdited: true,
     },
     {
       key: 'nikl:마음01:noun',
@@ -287,10 +302,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'heart; mind; feelings',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L191 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L191',
+      meaningEdited: true,
     },
     {
       key: 'nikl:물01:noun',
@@ -299,10 +315,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'water',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L8330 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L8330',
+      meaningEdited: true,
     },
     {
       key: 'nikl:길01:noun',
@@ -311,10 +328,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'road; way; path',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1011573 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L1011573',
+      meaningEdited: true,
     },
     {
       key: 'nikl:지금03:noun',
@@ -323,10 +341,10 @@ const deck: StarterDeckContent = {
         hanja: '只今',
         meaning: 'now (the present time)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L197 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L197',
     },
     {
       key: 'nikl:처음:noun',
@@ -335,10 +353,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'first time; beginning; at first',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L195 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L195',
+      meaningEdited: true,
     },
     {
       key: 'nikl:못04:adverb',
@@ -347,10 +366,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'cannot; unable to (못 가요 "can\'t go")',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742362 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'adverb'],
+      meaningSource: 'Wikidata L742362',
+      meaningEdited: true,
     },
     {
       key: 'nikl:죽다01:verb',
@@ -359,10 +379,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to die',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L729546 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L729546',
     },
     {
       key: 'nikl:컴퓨터:noun',
@@ -371,10 +391,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'computer',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L744425 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L744425',
     },
     {
       key: 'nikl:웃다:verb',
@@ -383,10 +403,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to laugh or smile',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L724732 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L724732',
     },
     {
       key: 'nikl:입다01:verb',
@@ -395,10 +415,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to wear (clothes)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1133356 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L1133356',
+      meaningEdited: true,
     },
     {
       key: 'nikl:네03:interjection',
@@ -407,10 +428,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'yes',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L406981 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'interjection'],
+      meaningSource: 'Wikidata L406981',
     },
     {
       key: 'nikl:마시다:verb',
@@ -419,10 +440,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to drink',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L154 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L154',
     },
     {
       key: 'nikl:전화07:noun',
@@ -431,10 +452,10 @@ const deck: StarterDeckContent = {
         hanja: '電話',
         meaning: 'telephone conversation; telephone',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1216498 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L1216498',
     },
     {
       key: 'nikl:저04:determiner',
@@ -443,10 +464,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'that (over there, away from both of us)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L745339 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'determiner'],
+      meaningSource: 'Wikidata L745339',
+      meaningEdited: true,
     },
     {
       key: 'nikl:새06:determiner',
@@ -455,10 +477,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'new (before a noun)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L880764 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'determiner'],
+      meaningSource: 'Wikidata L880764',
+      meaningEdited: true,
     },
     {
       key: 'nikl:둘01:numeral',
@@ -467,10 +490,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'two (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992182 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992182',
+      meaningEdited: true,
     },
     {
       key: 'nikl:울다01:verb',
@@ -479,10 +503,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to cry or weep',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L724739 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L724739',
     },
     {
       key: 'nikl:결혼:noun',
@@ -491,10 +515,11 @@ const deck: StarterDeckContent = {
         hanja: '結婚',
         meaning: 'marriage; wedding',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L729573 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L729573',
+      meaningEdited: true,
     },
     {
       key: 'nikl:경찰04:noun',
@@ -503,10 +528,11 @@ const deck: StarterDeckContent = {
         hanja: '警察',
         meaning: 'police; police officer',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L269905 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L269905',
+      meaningEdited: true,
     },
     {
       key: 'nikl:건물03:noun',
@@ -515,10 +541,11 @@ const deck: StarterDeckContent = {
         hanja: '建物',
         meaning: 'building',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L269902 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L269902',
+      meaningEdited: true,
     },
     {
       key: 'nikl:일하다:verb',
@@ -527,10 +554,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to work',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L744806 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L744806',
+      meaningEdited: true,
     },
     {
       key: 'nikl:태어나다:verb',
@@ -539,10 +567,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to be born',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L729559 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L729559',
     },
     {
       key: 'nikl:대화06:noun',
@@ -551,10 +579,10 @@ const deck: StarterDeckContent = {
         hanja: '對話',
         meaning: 'dialogue',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L642780 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L642780',
     },
     {
       key: 'nikl:버스02:noun',
@@ -563,10 +591,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'bus',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L719248 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L719248',
+      meaningEdited: true,
     },
     {
       key: 'nikl:여름01:noun',
@@ -575,10 +604,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'summer',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L6538 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L6538',
     },
     {
       key: 'nikl:자동차:noun',
@@ -587,10 +616,11 @@ const deck: StarterDeckContent = {
         hanja: '自動車',
         meaning: 'car',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L30571 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L30571',
+      meaningEdited: true,
     },
     {
       key: 'nikl:괜찮다:adjective',
@@ -600,10 +630,10 @@ const deck: StarterDeckContent = {
         meaning:
           'okay (as there is nothing to worry about); all right (with no particular problems)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L6625 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'adjective'],
+      meaningSource: 'Wikidata L6625',
     },
     {
       key: 'nikl:아니01:adverb',
@@ -612,10 +642,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'not (full form of 안)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742361 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'adverb'],
+      meaningSource: 'Wikidata L742361',
+      meaningEdited: true,
     },
     {
       key: 'nikl:있다01:verb',
@@ -624,10 +655,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to be (there); to exist; to have',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L207 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L207',
+      meaningEdited: true,
     },
     {
       key: 'nikl:아무01:pronoun',
@@ -636,10 +668,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'any; (with a negative) no one, nothing',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L741729 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'pronoun'],
+      meaningSource: 'Wikidata L741729',
+      meaningEdited: true,
     },
     {
       key: 'nikl:팔01:noun',
@@ -648,10 +681,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'arm',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L328 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L328',
+      meaningEdited: true,
     },
     {
       key: 'nikl:오월01:noun',
@@ -660,10 +694,10 @@ const deck: StarterDeckContent = {
         hanja: '五月',
         meaning: 'May',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991828 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991828',
     },
     {
       key: 'nikl:사월02:noun',
@@ -672,10 +706,10 @@ const deck: StarterDeckContent = {
         hanja: '四月',
         meaning: 'April',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991827 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991827',
     },
     {
       key: 'nikl:작년:noun',
@@ -684,10 +718,10 @@ const deck: StarterDeckContent = {
         hanja: '昨年',
         meaning: 'last year',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1328531 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L1328531',
     },
     {
       key: 'nikl:고기01:noun',
@@ -696,10 +730,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'meat',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L269903 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L269903',
+      meaningEdited: true,
     },
     {
       key: 'nikl:구월02:noun',
@@ -708,10 +743,10 @@ const deck: StarterDeckContent = {
         hanja: '九月',
         meaning: 'September',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991833 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991833',
     },
     {
       key: 'nikl:돕다:verb',
@@ -720,10 +755,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to help (to do something)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1572004 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L1572004',
     },
     {
       key: 'nikl:삼월:noun',
@@ -732,10 +767,10 @@ const deck: StarterDeckContent = {
         hanja: '三月',
         meaning: 'March',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991826 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991826',
     },
     {
       key: 'nikl:결혼하다:verb',
@@ -744,10 +779,10 @@ const deck: StarterDeckContent = {
         hanja: '結婚',
         meaning: 'to get married',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L729571 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L729571',
     },
     {
       key: 'nikl:마리01:dependent-noun',
@@ -756,10 +791,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'counter for animals',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L404581 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'dependent-noun'],
+      meaningSource: 'Wikidata L404581',
     },
     {
       key: 'nikl:낮:noun',
@@ -768,10 +803,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'daytime',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L743817 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L743817',
     },
     {
       key: 'nikl:밝다:adjective',
@@ -780,10 +815,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to be bright',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1372716 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'adjective'],
+      meaningSource: 'Wikidata L1372716',
+      meaningEdited: true,
     },
     {
       key: 'nikl:칠월:noun',
@@ -792,10 +828,10 @@ const deck: StarterDeckContent = {
         hanja: '七月',
         meaning: 'July',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991830 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991830',
     },
     {
       key: 'nikl:십이월:noun',
@@ -804,10 +840,10 @@ const deck: StarterDeckContent = {
         hanja: '十二月',
         meaning: 'December',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991837 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991837',
     },
     {
       key: 'nikl:시월01:noun',
@@ -816,10 +852,10 @@ const deck: StarterDeckContent = {
         hanja: '十月',
         meaning: 'October',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991834 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991834',
     },
     {
       key: 'nikl:팔월:noun',
@@ -828,10 +864,10 @@ const deck: StarterDeckContent = {
         hanja: '八月',
         meaning: 'August',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991832 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991832',
     },
     {
       key: 'nikl:가방01:noun',
@@ -840,10 +876,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'bag',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L269895 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L269895',
     },
     {
       key: 'nikl:해01:dependent-noun',
@@ -852,10 +888,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'year (counter, 한 해)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L880766 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'dependent-noun'],
+      meaningSource: 'Wikidata L880766',
+      meaningEdited: true,
     },
     {
       key: 'nikl:개03:noun',
@@ -864,10 +901,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'dog',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L269897 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L269897',
+      meaningEdited: true,
     },
     {
       key: 'nikl:시계01:noun',
@@ -876,10 +914,11 @@ const deck: StarterDeckContent = {
         hanja: '時計',
         meaning: 'clock; watch',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L331 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L331',
+      meaningEdited: true,
     },
     {
       key: 'nikl:일월01:noun',
@@ -888,10 +927,10 @@ const deck: StarterDeckContent = {
         hanja: '一月',
         meaning: 'January',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L43550 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L43550',
     },
     {
       key: 'nikl:첫째:numeral',
@@ -900,10 +939,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'first; eldest child',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992181 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992181',
+      meaningEdited: true,
     },
     {
       key: 'nikl:이월01:noun',
@@ -912,10 +952,10 @@ const deck: StarterDeckContent = {
         hanja: '二月',
         meaning: 'February',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991825 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991825',
     },
     {
       key: 'nikl:일요일:noun',
@@ -924,10 +964,10 @@ const deck: StarterDeckContent = {
         hanja: '日曜日',
         meaning: 'Sunday',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991840 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991840',
     },
     {
       key: 'nikl:않다:verb',
@@ -936,10 +976,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: '(auxiliary) to not; -지 않다 "do not"',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1227 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L1227',
+      meaningEdited: true,
     },
     {
       key: 'nikl:안녕하다:adjective',
@@ -948,10 +989,11 @@ const deck: StarterDeckContent = {
         hanja: '安寧',
         meaning: 'to be well (안녕하세요 "hello")',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L747235 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'adjective'],
+      meaningSource: 'Wikidata L747235',
+      meaningEdited: true,
     },
     {
       key: 'nikl:고양이:noun',
@@ -960,10 +1002,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'cat',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L404580 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L404580',
     },
     {
       key: 'nikl:가수11:noun',
@@ -972,10 +1014,10 @@ const deck: StarterDeckContent = {
         hanja: '歌手',
         meaning: 'singer',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L269896 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L269896',
     },
     {
       key: 'nikl:우유02:noun',
@@ -984,10 +1026,11 @@ const deck: StarterDeckContent = {
         hanja: '牛乳',
         meaning: 'milk',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L630824 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L630824',
+      meaningEdited: true,
     },
     {
       key: 'nikl:십일월:noun',
@@ -996,10 +1039,10 @@ const deck: StarterDeckContent = {
         hanja: '十一月',
         meaning: 'November',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991836 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991836',
     },
     {
       key: 'nikl:졸업하다:verb',
@@ -1008,10 +1051,10 @@ const deck: StarterDeckContent = {
         hanja: '卒業',
         meaning: 'to graduate from (a school)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L729527 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L729527',
     },
     {
       key: 'nikl:단어:noun',
@@ -1020,10 +1063,10 @@ const deck: StarterDeckContent = {
         hanja: '單語',
         meaning: 'word',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L159 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L159',
     },
     {
       key: 'nikl:날다01:verb',
@@ -1032,10 +1075,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'to fly',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L741212 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L741212',
     },
     {
       key: 'nikl:카메라:noun',
@@ -1044,10 +1087,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'camera',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1521076 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L1521076',
     },
     {
       key: 'nikl:토요일:noun',
@@ -1056,10 +1099,10 @@ const deck: StarterDeckContent = {
         hanja: '土曜日',
         meaning: 'Saturday',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991853 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991853',
     },
     {
       key: 'nikl:공항02:noun',
@@ -1068,10 +1111,11 @@ const deck: StarterDeckContent = {
         hanja: '空港',
         meaning: 'airport',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L269907 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L269907',
+      meaningEdited: true,
     },
     {
       key: 'nikl:아니요:interjection',
@@ -1080,10 +1124,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'no',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L406980 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'interjection'],
+      meaningSource: 'Wikidata L406980',
     },
     {
       key: 'nikl:한국어:noun',
@@ -1092,10 +1136,10 @@ const deck: StarterDeckContent = {
         hanja: '韓國語',
         meaning: 'Korean language',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L140 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L140',
     },
     {
       key: 'nikl:안경03:noun',
@@ -1104,10 +1148,11 @@ const deck: StarterDeckContent = {
         hanja: '眼鏡',
         meaning: 'glasses',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1036065 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L1036065',
+      meaningEdited: true,
     },
     {
       key: 'nikl:셋:numeral',
@@ -1116,10 +1161,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'three (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992183 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992183',
+      meaningEdited: true,
     },
     {
       key: 'nikl:졸업:noun',
@@ -1128,10 +1174,10 @@ const deck: StarterDeckContent = {
         hanja: '卒業',
         meaning: 'graduation (from a school)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L729529 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L729529',
     },
     {
       key: 'nikl:대학교:noun',
@@ -1140,10 +1186,11 @@ const deck: StarterDeckContent = {
         hanja: '大學校',
         meaning: 'university',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L301202 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L301202',
+      meaningEdited: true,
     },
     {
       key: 'nikl:안녕히:adverb',
@@ -1152,10 +1199,11 @@ const deck: StarterDeckContent = {
         hanja: '安寧',
         meaning: 'well; in peace (안녕히 가세요 "goodbye")',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L747236 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'adverb'],
+      meaningSource: 'Wikidata L747236',
+      meaningEdited: true,
     },
     {
       key: 'nikl:전화하다02:verb',
@@ -1164,10 +1212,10 @@ const deck: StarterDeckContent = {
         hanja: '電話',
         meaning: 'to telephone (someone)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1216499 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L1216499',
     },
     {
       key: 'nikl:월요일:noun',
@@ -1176,10 +1224,10 @@ const deck: StarterDeckContent = {
         hanja: '月曜日',
         meaning: 'Monday',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991844 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991844',
     },
     {
       key: 'nikl:감사하다05:verb',
@@ -1188,10 +1236,10 @@ const deck: StarterDeckContent = {
         hanja: '感謝',
         meaning: 'to give thanks',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L722047 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L722047',
     },
     {
       key: 'nikl:발음01:noun',
@@ -1200,10 +1248,10 @@ const deck: StarterDeckContent = {
         hanja: '發音',
         meaning: 'pronunciation',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L30566 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L30566',
     },
     {
       key: 'nikl:삼06:numeral',
@@ -1212,10 +1260,11 @@ const deck: StarterDeckContent = {
         hanja: '三',
         meaning: 'three (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742586 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L742586',
+      meaningEdited: true,
     },
     {
       key: 'nikl:감사08:noun',
@@ -1224,10 +1273,10 @@ const deck: StarterDeckContent = {
         hanja: '感謝',
         meaning: 'gratitude or thanks',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L722045 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L722045',
     },
     {
       key: 'nikl:월02:dependent-noun',
@@ -1236,10 +1285,10 @@ const deck: StarterDeckContent = {
         hanja: '月',
         meaning: 'month',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991822 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'dependent-noun'],
+      meaningSource: 'Wikidata L991822',
     },
     {
       key: 'nikl:잡수시다:verb',
@@ -1248,10 +1297,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: '(honorific) to eat',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1158843 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'verb'],
+      meaningSource: 'Wikidata L1158843',
     },
     {
       key: 'nikl:넷01:numeral',
@@ -1260,10 +1309,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'four (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992184 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992184',
+      meaningEdited: true,
     },
     {
       key: 'nikl:안녕:interjection',
@@ -1272,10 +1322,11 @@ const deck: StarterDeckContent = {
         hanja: '安寧',
         meaning: 'hi; bye (casual greeting)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L747234 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'interjection'],
+      meaningSource: 'Wikidata L747234',
+      meaningEdited: true,
     },
     {
       key: 'nikl:다섯:numeral',
@@ -1284,10 +1335,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'five (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992185 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992185',
+      meaningEdited: true,
     },
     {
       key: 'nikl:요일:noun',
@@ -1296,10 +1348,10 @@ const deck: StarterDeckContent = {
         hanja: '曜日',
         meaning: 'day of the week',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1003504 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L1003504',
     },
     {
       key: 'nikl:일05:numeral',
@@ -1308,10 +1360,11 @@ const deck: StarterDeckContent = {
         hanja: '一',
         meaning: 'one (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742574 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L742574',
+      meaningEdited: true,
     },
     {
       key: 'nikl:바나나:noun',
@@ -1320,10 +1373,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'banana',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1474548 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L1474548',
+      meaningEdited: true,
     },
     {
       key: 'nikl:수요일:noun',
@@ -1332,10 +1386,10 @@ const deck: StarterDeckContent = {
         hanja: '水曜日',
         meaning: 'Wednesday',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991850 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991850',
     },
     {
       key: 'nikl:만06:numeral',
@@ -1344,10 +1398,11 @@ const deck: StarterDeckContent = {
         hanja: '萬',
         meaning: 'ten thousand (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742649 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L742649',
+      meaningEdited: true,
     },
     {
       key: 'nikl:샤워:noun',
@@ -1356,10 +1411,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'shower (washing)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1218652 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L1218652',
+      meaningEdited: true,
     },
     {
       key: 'nikl:쇼핑:noun',
@@ -1368,10 +1424,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'shopping',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1011470 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L1011470',
     },
     {
       key: 'nikl:열03:numeral',
@@ -1380,10 +1436,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'ten (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992191 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992191',
+      meaningEdited: true,
     },
     {
       key: 'nikl:마흔:numeral',
@@ -1392,10 +1449,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'forty (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992199 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992199',
+      meaningEdited: true,
     },
     {
       key: 'nikl:볼펜02:noun',
@@ -1404,10 +1462,10 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'ballpoint pen',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L1474571 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L1474571',
     },
     {
       key: 'nikl:이09:numeral',
@@ -1416,10 +1474,11 @@ const deck: StarterDeckContent = {
         hanja: '二',
         meaning: 'two (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742583 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L742583',
+      meaningEdited: true,
     },
     {
       key: 'nikl:스물:numeral',
@@ -1428,10 +1487,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'twenty (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992192 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992192',
+      meaningEdited: true,
     },
     {
       key: 'nikl:구01:numeral',
@@ -1440,10 +1500,11 @@ const deck: StarterDeckContent = {
         hanja: '九',
         meaning: 'nine (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742645 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L742645',
+      meaningEdited: true,
     },
     {
       key: 'nikl:목요일:noun',
@@ -1452,10 +1513,10 @@ const deck: StarterDeckContent = {
         hanja: '木曜日',
         meaning: 'Thursday',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991851 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991851',
     },
     {
       key: 'nikl:사11:numeral',
@@ -1464,10 +1525,11 @@ const deck: StarterDeckContent = {
         hanja: '四',
         meaning: 'four (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742587 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L742587',
+      meaningEdited: true,
     },
     {
       key: 'nikl:서른:numeral',
@@ -1476,10 +1538,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'thirty (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992193 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992193',
+      meaningEdited: true,
     },
     {
       key: 'nikl:아홉:numeral',
@@ -1488,10 +1551,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'nine (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992189 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992189',
+      meaningEdited: true,
     },
     {
       key: 'nikl:여든:numeral',
@@ -1500,10 +1564,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'eighty (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992198 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992198',
+      meaningEdited: true,
     },
     {
       key: 'nikl:일흔:numeral',
@@ -1512,10 +1577,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'seventy (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992197 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992197',
+      meaningEdited: true,
     },
     {
       key: 'nikl:화요일:noun',
@@ -1524,10 +1590,10 @@ const deck: StarterDeckContent = {
         hanja: '火曜日',
         meaning: 'Tuesday',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L991847 (CC0).',
+        notes: '',
       },
       tags: ['nikl-a', 'noun'],
+      meaningSource: 'Wikidata L991847',
     },
     {
       key: 'nikl:칠01:numeral',
@@ -1536,10 +1602,11 @@ const deck: StarterDeckContent = {
         hanja: '七',
         meaning: 'seven (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742643 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L742643',
+      meaningEdited: true,
     },
     {
       key: 'nikl:백05:numeral',
@@ -1548,10 +1615,11 @@ const deck: StarterDeckContent = {
         hanja: '百',
         meaning: 'one hundred (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L221414 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L221414',
+      meaningEdited: true,
     },
     {
       key: 'nikl:사십:numeral',
@@ -1560,10 +1628,11 @@ const deck: StarterDeckContent = {
         hanja: '四十',
         meaning: 'forty (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992177 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992177',
+      meaningEdited: true,
     },
     {
       key: 'nikl:팔03:numeral',
@@ -1572,10 +1641,11 @@ const deck: StarterDeckContent = {
         hanja: '八',
         meaning: 'eight (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742644 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L742644',
+      meaningEdited: true,
     },
     {
       key: 'nikl:여섯:numeral',
@@ -1584,10 +1654,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'six (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992186 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992186',
+      meaningEdited: true,
     },
     {
       key: 'nikl:일곱:numeral',
@@ -1596,10 +1667,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'seven (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992187 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992187',
+      meaningEdited: true,
     },
     {
       key: 'nikl:삼십:numeral',
@@ -1608,10 +1680,11 @@ const deck: StarterDeckContent = {
         hanja: '三十',
         meaning: 'thirty (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992178 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992178',
+      meaningEdited: true,
     },
     {
       key: 'nikl:오십:numeral',
@@ -1620,10 +1693,11 @@ const deck: StarterDeckContent = {
         hanja: '五十',
         meaning: 'fifty (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992179 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992179',
+      meaningEdited: true,
     },
     {
       key: 'nikl:칠십:numeral',
@@ -1632,10 +1706,11 @@ const deck: StarterDeckContent = {
         hanja: '七十',
         meaning: 'seventy (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992203 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992203',
+      meaningEdited: true,
     },
     {
       key: 'nikl:예순:numeral',
@@ -1644,10 +1719,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'sixty (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992196 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992196',
+      meaningEdited: true,
     },
     {
       key: 'nikl:오04:numeral',
@@ -1656,10 +1732,11 @@ const deck: StarterDeckContent = {
         hanja: '五',
         meaning: 'five (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742639 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L742639',
+      meaningEdited: true,
     },
     {
       key: 'nikl:십:numeral',
@@ -1668,10 +1745,11 @@ const deck: StarterDeckContent = {
         hanja: '十',
         meaning: 'ten (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742647 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L742647',
+      meaningEdited: true,
     },
     {
       key: 'nikl:천03:numeral',
@@ -1680,10 +1758,11 @@ const deck: StarterDeckContent = {
         hanja: '千',
         meaning: 'one thousand (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L742648 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L742648',
+      meaningEdited: true,
     },
     {
       key: 'nikl:쉰:numeral',
@@ -1692,10 +1771,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'fifty (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992195 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992195',
+      meaningEdited: true,
     },
     {
       key: 'nikl:팔십:numeral',
@@ -1704,10 +1784,11 @@ const deck: StarterDeckContent = {
         hanja: '八十',
         meaning: 'eighty (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992180 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992180',
+      meaningEdited: true,
     },
     {
       key: 'nikl:여덟:numeral',
@@ -1716,10 +1797,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'eight (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992188 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992188',
+      meaningEdited: true,
     },
     {
       key: 'nikl:아흔:numeral',
@@ -1728,10 +1810,11 @@ const deck: StarterDeckContent = {
         hanja: '',
         meaning: 'ninety (native Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992190 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992190',
+      meaningEdited: true,
     },
     {
       key: 'nikl:이십:numeral',
@@ -1740,10 +1823,11 @@ const deck: StarterDeckContent = {
         hanja: '二十',
         meaning: 'twenty (Sino-Korean number)',
         example: '',
-        notes:
-          'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L992202 (CC0), edited by this app.',
+        notes: '',
       },
       tags: ['nikl-a', 'numeral'],
+      meaningSource: 'Wikidata L992202',
+      meaningEdited: true,
     },
   ],
 };

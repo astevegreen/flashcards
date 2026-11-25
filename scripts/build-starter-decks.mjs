@@ -71,7 +71,7 @@ const WIKIDATA_SOURCE = {
   sourceUrl: 'https://www.wikidata.org/wiki/Wikidata:Lexicographical_data',
   attribution: 'English meanings from Wikidata lexemes (CC0 1.0), one pinned revision each.',
   changes:
-    'Up to three English glosses per word, matched by spelling, part of speech and Hanja. Glosses that read as definitions, grammar labels or the wrong sense are replaced with the app’s own wording; those cards say “edited by this app”.',
+    'Up to three English glosses per word, matched by spelling, part of speech and Hanja. Glosses that read as definitions, grammar labels or the wrong sense are replaced with the app’s own wording.',
 };
 
 const UNIHAN_SOURCE = {
@@ -81,8 +81,18 @@ const UNIHAN_SOURCE = {
   sourceUrl: 'https://www.unicode.org/charts/unihan.html',
   attribution: `Copyright © 1991-2026 Unicode, Inc. Unihan ${UNIHAN.version} (kHanyuPinlu, kMandarin, kDefinition, kSimplifiedVariant), used under the Unicode License v3.`,
   changes:
-    'The most frequent simplified characters by their own kHanyuPinlu counts, with kMandarin pinyin (a toned reading before a neutral-tone particle one) and kDefinition without Cantonese-only senses. Definitions that lead with a classical or rare sense are replaced with the app’s own wording; those cards say “meaning edited by this app”.',
+    'The most frequent simplified characters by their own kHanyuPinlu counts, with kMandarin pinyin (a toned reading before a neutral-tone particle one) and kDefinition without Cantonese-only senses. Definitions that lead with a classical or rare sense are replaced with the app’s own wording.',
 };
+
+/**
+ * Deck descriptions end with a short credit line. The licences are satisfied at deck level (here,
+ * in the catalog `sources`, in About & Open Data Licenses and in THIRD-PARTY-NOTICES.txt), so no
+ * card carries a credit in a field it reveals.
+ */
+const KO_DESCRIPTION =
+  'Beginner (level A) Korean words from the NIKL learning vocabulary list, most frequent first, with Hanja for Sino-Korean words and English meanings from Wikidata. Credits: word list by the National Institute of Korean Language (국립국어원), 한국어 학습용 어휘 목록 (2003), KOGL Type 1; English meanings from Wikidata lexemes (CC0), some reworded by this app.';
+
+const ZH_DESCRIPTION = `The most frequent characters of modern Mandarin, with pinyin and English definitions from the Unicode Unihan database. Credits: Unicode Unihan ${UNIHAN.version}, © Unicode, Inc., Unicode License v3; some meanings reworded by this app.`;
 
 function readCached(dir, rel, sha256) {
   const path = join(dir, rel);
@@ -153,8 +163,7 @@ export function buildStarterDecks({
         noteCount: koNotes.length,
         version: STARTER_DECKS_VERSION,
         contentHash: contentHash(koNotes),
-        description:
-          'Beginner (level A) Korean words from the NIKL learning vocabulary list, most frequent first, with Hanja for Sino-Korean words and English meanings from Wikidata.',
+        description: KO_DESCRIPTION,
         sources: [NIKL_SOURCE, WIKIDATA_SOURCE],
       },
       notes: koNotes,
@@ -169,8 +178,7 @@ export function buildStarterDecks({
         noteCount: zhNotes.length,
         version: STARTER_DECKS_VERSION,
         contentHash: contentHash(zhNotes),
-        description:
-          'The most frequent characters of modern Mandarin, with pinyin and English definitions from the Unicode Unihan database.',
+        description: ZH_DESCRIPTION,
         sources: [UNIHAN_SOURCE],
       },
       notes: zhNotes,

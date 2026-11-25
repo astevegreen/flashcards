@@ -35,8 +35,16 @@ export interface StarterDeckInfo {
 export interface StarterNote {
   /** Stable source key (`nikl:가다01:verb`, `unihan:U+7684`): the note id derives from it. */
   key: string;
+  /** Learner content only: no field a card reveals carries a source credit (they are deck-level). */
   fields: Record<string, string>;
   tags: string[];
+  /**
+   * Provenance of the meaning: the upstream record it came from (`Wikidata L196`,
+   * `Unihan 17.0.0 kDefinition`). Metadata only: never shown on a card and not copied into events.
+   */
+  meaningSource: string;
+  /** Set when the meaning is the app's own wording (content/starters/gloss-overrides.json). */
+  meaningEdited?: true;
 }
 
 /** The lazily loaded content of one starter deck. */
