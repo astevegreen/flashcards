@@ -4,6 +4,7 @@ import {
   generatorParameters,
   Rating,
   type Card as FsrsCard,
+  type FSRS,
   type FSRSParameters,
   type Grade,
 } from 'ts-fsrs';
@@ -37,6 +38,32 @@ function buildFsrsParams(config?: Partial<FSRSParamsConfig>): FSRSParameters {
     partial.w = config.w;
   }
   return generatorParameters(partial);
+}
+
+/** Schedulers by effective params. Bounded: an optimizer run may try many weight sets. */
+const schedulers = new Map<string, FSRS>();
+const MAX_SCHEDULERS = 32;
+
+/**
+ * One ts-fsrs scheduler per distinct params (P4): replay used to build one for every review. The
+ * key is the params themselves, so a params change (new version, optimized weights) gets a new
+ * scheduler and a cached one can never go stale. A scheduler keeps no per-review state.
+ */
+function schedulerFor(config?: Partial<FSRSParamsConfig>): FSRS {
+  const key = [
+    config?.request_retention ?? DEFAULT_FSRS_CONFIG.request_retention,
+    config?.enable_fuzz ?? false,
+    config?.enable_short_term ?? true,
+    config?.maximum_interval,
+    config?.w,
+  ].join('|');
+  let scheduler = schedulers.get(key);
+  if (!scheduler) {
+    if (schedulers.size >= MAX_SCHEDULERS) schedulers.clear();
+    scheduler = fsrs(buildFsrsParams(config));
+    schedulers.set(key, scheduler);
+  }
+  return scheduler;
 }
 
 function toFsrsCard(schedule: CardScheduleState): FsrsCard {
@@ -96,7 +123,7 @@ export function applyReviewToSchedule(
   reviewedAtMs: number,
   config?: Partial<FSRSParamsConfig>,
 ): { next: CardScheduleState; resulting_due_at: number } {
-  const scheduler = fsrs(buildFsrsParams(config));
+  const scheduler = schedulerFor(config);
   const fsrsCard = toFsrsCard(schedule);
   const result = scheduler.next(fsrsCard, new Date(reviewedAtMs), toGrade(rating));
   const next = fromFsrsCard(result.card);
@@ -142,7 +169,7 @@ export function previewIntervals(
   nowMs: number,
   config?: Partial<FSRSParamsConfig>,
 ): Record<ReviewRating, IntervalPreview> {
-  const scheduler = fsrs(buildFsrsParams(config));
+  const scheduler = schedulerFor(config);
   const fsrsCard = toFsrsCard(schedule);
   const outcomes = scheduler.repeat(fsrsCard, new Date(nowMs));
 
