@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { PRODUCTION_CSP } from './csp.ts';
+import { NAVIGATE_FALLBACK_DENYLIST } from './sw-navigation.ts';
 
 function productionCspPlugin(): Plugin {
   return {
@@ -54,6 +55,7 @@ export default defineConfig({
         // `wasm`: the lazy FSRS optimizer (Phase 11) must work offline like everything else.
         globPatterns: ['**/*.{js,css,html,svg,png,ico,wasm}'],
         globIgnores: ['packs/**', 'picker.html', 'picker.js'],
+        navigateFallbackDenylist: NAVIGATE_FALLBACK_DENYLIST,
         ignoreURLParametersMatching: [
           /^device$/,
           /^starterCatalog$/,
