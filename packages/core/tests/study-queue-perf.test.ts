@@ -81,7 +81,8 @@ function buildLargeCollection(dueToday: number): {
     reviews.set(cardId, list);
     const card = state.cards.get(cardId);
     if (!card) throw new Error(`missing card ${cardId}`);
-    const lastReviewedAt = list.at(-1)?.reviewed_at;
+    // As replay sets it: the latest active review.
+    const lastReviewedAt = Math.max(...list.map((r) => r.reviewed_at));
     state.cards.set(cardId, {
       ...card,
       schedule: { ...card.schedule, state: 2, due: dueAt(i, dueToday) },
