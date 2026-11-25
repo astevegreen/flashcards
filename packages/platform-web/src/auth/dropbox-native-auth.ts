@@ -1,6 +1,11 @@
 import { SyncTransportError } from '@flash/core';
 import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
 import { DROPBOX_NATIVE_SESSION_KV_KEY } from './dropbox-native-session-key.ts';
+import {
+  isNativeTokenFresh,
+  refreshNativeSession,
+  requireNativeSession,
+} from './native-token-session.ts';
 
 /** Tokens returned by a native Dropbox public-client sign-in or refresh. */
 export interface DropboxTokenSet {
@@ -40,7 +45,6 @@ function isRefreshRejected(err: unknown): boolean {
 }
 
 const SESSION_KV_KEY = DROPBOX_NATIVE_SESSION_KV_KEY;
-const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
 /**
  * `Auth` for Dropbox App Folder on native shells (PKCE public client with offline refresh tokens).
@@ -118,15 +122,8 @@ export class NativeDropboxAuth implements Auth {
   }
 
   async getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
-    const session = await this.readSession();
-    if (!session) throw new SyncTransportError('AUTH_REQUIRED', 'Dropbox is not connected.');
-    if (session.reconnectRequired) {
-      throw new SyncTransportError(
-        'AUTH_REQUIRED',
-        'Dropbox session expired. Please reconnect in Settings.',
-      );
-    }
-    if (!opts?.forceRefresh && session.expiresAt - this.nowMs() > REFRESH_MARGIN_MS) {
+    const session = requireNativeSession(await this.readSession(), 'Dropbox');
+    if (!opts?.forceRefresh && isNativeTokenFresh(session, this.nowMs())) {
       return session.accessToken;
     }
     this.inFlightRefresh ??= this.refresh(session).finally(() => {
@@ -135,26 +132,17 @@ export class NativeDropboxAuth implements Auth {
     return this.inFlightRefresh;
   }
 
-  private async refresh(session: NativeDropboxSession): Promise<string> {
+  private refresh(session: NativeDropboxSession): Promise<string> {
     const bridge = this.requireBridge();
-    let tokens: DropboxTokenSet;
-    try {
-      tokens = await bridge.refresh();
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      if (!isRefreshRejected(err)) {
-        throw new SyncTransportError('NETWORK', `Dropbox refresh failed: ${detail}`);
-      }
-      await this.storage.setKv(SESSION_KV_KEY, { ...session, reconnectRequired: true });
-      throw new SyncTransportError('AUTH_REQUIRED', `Dropbox session expired: ${detail}`);
-    }
-    await this.storage.setKv(SESSION_KV_KEY, {
-      ...session,
-      accessToken: tokens.accessToken,
-      expiresAt: this.nowMs() + tokens.expiresInSeconds * 1000,
-      reconnectRequired: false,
-    } satisfies NativeDropboxSession);
-    return tokens.accessToken;
+    return refreshNativeSession({
+      label: 'Dropbox',
+      session,
+      storage: this.storage,
+      kvKey: SESSION_KV_KEY,
+      nowMs: this.nowMs,
+      refresh: () => bridge.refresh(),
+      isRejected: isRefreshRejected,
+    });
   }
 
   async signOut(): Promise<void> {
