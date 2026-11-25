@@ -12,6 +12,7 @@ import {
   type MicrosoftTokenPost,
 } from '../src/auth/microsoft-secure-bridge.ts';
 import {
+  CapacitorGoogleAuth,
   CapacitorSqliteStorage,
   createCapacitorPlatform,
   InMemorySqliteDriver,
@@ -803,6 +804,51 @@ describe('native Google sign-in clears the plugin’s Android token copy', () =>
       'did not return an access token',
     );
     expect(afterLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it('a silent refresh after a cold start asks for the scopes the caller passes (N4)', async () => {
+    const asked: string[][] = [];
+    const { port } = fakeGooglePort();
+    const login = port.login;
+    port.login = async (options) => {
+      asked.push(options.scopes);
+      return login(options);
+    };
+    // A relaunch builds a new plugin: no signIn has run in this process.
+    const plugin = createGoogleSignIn(port);
+    await plugin.refreshToken({ scopes: ['drive.appdata', 'drive.file'] });
+    expect(asked).toEqual([['drive.appdata', 'drive.file']]);
+  });
+
+  it('CapacitorGoogleAuth refreshes with the scopes of the stored session (N4)', async () => {
+    const storage = new CapacitorSqliteStorage();
+    const refreshScopes: Array<string[] | undefined> = [];
+    const auth = new CapacitorGoogleAuth({
+      storage,
+      scopes: ['default-a', 'default-b'],
+      plugin: {
+        signIn: async () => ({ accessToken: 't1', expiresInSeconds: 3600 }),
+        refreshToken: async (opts) => {
+          refreshScopes.push(opts?.scopes);
+          return { accessToken: 't2', expiresInSeconds: 3600 };
+        },
+        signOut: async () => undefined,
+      },
+    });
+    // No session saved yet: the adapter's own scopes.
+    await auth.getValidAccessToken({ forceRefresh: true });
+    // A session saved by an earlier launch, with the scopes Google granted then.
+    await storage.setKv(CAPACITOR_GOOGLE_SESSION_KV_KEY, {
+      provider: 'google-native',
+      accessToken: 'old',
+      expiresAt: 0,
+      scope: 'granted-a granted-b',
+    });
+    await auth.getValidAccessToken();
+    expect(refreshScopes).toEqual([
+      ['default-a', 'default-b'],
+      ['granted-a', 'granted-b'],
+    ]);
   });
 
   it('boot wiring: Android deletes the GoogleProvider copy after sign-in; iOS needs no hook', async () => {

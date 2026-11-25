@@ -49,6 +49,8 @@ test.describe('Automatic backups', () => {
     await expect(row).toContainText('Daily');
     await expect(row).toContainText('5 decks');
 
+    // Reset asks for confirmation first (C6).
+    page.once('dialog', (dialog) => void dialog.accept());
     await page.getByRole('button', { name: 'Reset Local Device Data' }).click();
     await expect(page.getByText('Local device storage cleared.')).toBeVisible();
     expect(await countBackups(page)).toBe(1);

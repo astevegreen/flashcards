@@ -17,13 +17,22 @@ import {
   type ReviewRating,
   type StudyOrder,
 } from '@flash/core';
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { LazyErrorBoundary, lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
 import type * as DeferredSyncPromptModuleType from '../onboarding/DeferredSyncPromptSlot.tsx';
 import { useApp, type AppContextValue } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
+import { msUntilNextLocalHour, studyDayKey } from '../study/queueClock.ts';
 import { showRubyToggle } from '../study/rubyToggle.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
 import {
@@ -368,6 +377,31 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     return () => window.clearTimeout(timer);
   }, [queueResult.queue.length, nextLearningDueAt, clockTick]);
 
+  // A queue left open across a study-day rollover never refreshed (C5). Check at each local hour
+  // and when the app comes back to the foreground; rebuild only when some deck's study day has
+  // changed, so a revealed card isn't swapped out for nothing.
+  useEffect(() => {
+    const builtFor = studyDayKey(state, Date.now());
+    let timer = 0;
+    const check = () => {
+      if (studyDayKey(state, Date.now()) !== builtFor) setClockTick((t) => t + 1);
+      else arm();
+    };
+    const arm = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(check, msUntilNextLocalHour(Date.now()));
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') check();
+    };
+    arm();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [state, stateVersion, clockTick]);
+
   const currentCard = queueResult.queue[0];
   const {
     note: currentNote,
@@ -478,8 +512,10 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   const isRevealed = revealStep > 0;
   const isFullyRevealed = revealStep >= totalRevealSteps;
 
-  // Reset local card reveal state and trigger front auto-play whenever the active card changes
-  useEffect(() => {
+  // Reset local card reveal state and trigger front auto-play whenever the active card changes.
+  // A layout effect, so a card that changes without a rating (a sync merge, a clock tick) is never
+  // painted with the previous card's reveal step: its answer used to flash for a frame (C4).
+  useLayoutEffect(() => {
     setRevealStep(0);
     setFuriganaOverride(null);
     setEvaluation(null);

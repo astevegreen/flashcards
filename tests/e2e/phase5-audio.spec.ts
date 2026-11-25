@@ -475,6 +475,8 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
     // 3. Save settings, then Reset Local Device Data -> in-memory TTS config clears immediately without reload
     await page.getByTestId('tts-save-btn').click();
     await expect(page.getByTestId('tts-provider-select')).toHaveValue('google');
+    // Reset asks for confirmation first (C6).
+    page.once('dialog', (dialog) => void dialog.accept());
     await page.getByRole('button', { name: 'Reset Local Device Data' }).click();
     await expect(page.getByTestId('tts-provider-select')).toHaveValue('none');
   });

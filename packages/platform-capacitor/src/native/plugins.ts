@@ -33,7 +33,11 @@ import {
   exportCachePath,
   sweepExportCache,
 } from '../files/capacitor-stream.ts';
-import type { StoreBillingPlugin } from '../purchase/store-purchase.ts';
+import {
+  isCompletedStorePurchase,
+  unacknowledgedPlayTokens,
+  type StoreBillingPlugin,
+} from '../purchase/store-purchase.ts';
 import type { LocalNotificationsBridge } from '../reminders/local-notification-reminders.ts';
 import type { SystemBrowserLauncher } from '../sources/native-picker-bridge.ts';
 import type { SqliteDriver } from '../storage/sqlite-storage.ts';
@@ -361,16 +365,23 @@ export function createStoreBillingPlugin(): StoreBillingPlugin {
         isConsumable: false,
         autoAcknowledgePurchases: true,
       });
-      return { purchased: Boolean(tx.transactionId), transactionId: tx.transactionId };
+      // A Play purchase can come back PENDING (payment not made yet): that is no unlock (S8).
+      return { purchased: isCompletedStorePurchase(tx), transactionId: tx.transactionId };
     },
     queryEntitlements: async () => {
       const { purchases } = await NativePurchases.getPurchases({
         productType: PURCHASE_TYPE.INAPP,
         onlyCurrentEntitlements: true,
       });
-      return purchases
-        .filter((p) => !p.revocationDate && p.isActive !== false)
-        .map((p) => p.productIdentifier);
+      // A purchase that was pending at checkout clears later; unacknowledged, Play refunds it.
+      await Promise.all(
+        unacknowledgedPlayTokens(purchases).map((purchaseToken) =>
+          NativePurchases.acknowledgePurchase({ purchaseToken }).catch((err: unknown) => {
+            console.warn('Could not acknowledge a Play purchase:', err);
+          }),
+        ),
+      );
+      return purchases.filter(isCompletedStorePurchase).map((p) => p.productIdentifier);
     },
   };
 }

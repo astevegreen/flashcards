@@ -38,6 +38,8 @@ export interface InboxProcessResult {
   events: KnownEvent[];
   state: CollectionState;
   outPackagePath?: string;
+  /** True when the processed files were moved to `Inbox/imported/` (only after a written package). */
+  archived: boolean;
 }
 
 function uniqueImportedDest(importedDir: string, fileName: string): string {
@@ -50,8 +52,10 @@ function uniqueImportedDest(importedDir: string, fileName: string): string {
 
 /**
  * Processes an `Inbox/` directory (§10.3 route 2):
- * validates and imports `.flashpkg`, `.csv`, `.tsv`, and `.md` files into a collection state
- * (and optional consolidated `.flashpkg`), then archives processed inputs to `Inbox/imported/`.
+ * validates and imports `.flashpkg`, `.csv`, `.tsv`, and `.md` files into a collection state.
+ * With `outPackagePath`, it writes the consolidated `.flashpkg` and only then archives the
+ * processed inputs to `Inbox/imported/`. Without one, the files stay where they are: the import
+ * exists only in the returned state (C27).
  */
 export function processInboxFolder(
   inboxDir: string,
@@ -67,7 +71,6 @@ export function processInboxFolder(
   const mediaBlobs = new Map<string, Uint8Array>();
 
   const importedDir = join(inboxDir, 'imported');
-  mkdirSync(importedDir, { recursive: true });
 
   const processed: string[] = [];
   const failed: Array<{ file: string; error: string }> = [];
@@ -160,7 +163,6 @@ export function processInboxFolder(
         continue;
       }
 
-      renameSync(filePath, uniqueImportedDest(importedDir, entry.name));
       processed.push(entry.name);
     } catch (err) {
       failed.push({
@@ -170,6 +172,8 @@ export function processInboxFolder(
     }
   }
 
+  // Created before the write, so `-o Inbox/imported/<name>.flashpkg` keeps working.
+  if (options.outPackagePath) mkdirSync(importedDir, { recursive: true });
   if (options.outPackagePath && allEvents.length > 0) {
     const pkgBytes = exportFlashpkg(state, {
       packageId: 'pkg:inbox-collection',
@@ -177,7 +181,15 @@ export function processInboxFolder(
       version: '1.0.0',
       ...(mediaBlobs.size > 0 ? { mediaBlobs } : {}),
     });
+    // A failed write throws here, before any input has moved.
     writeFileSync(options.outPackagePath, pkgBytes);
+  }
+
+  const archived = Boolean(options.outPackagePath) && processed.length > 0;
+  if (archived) {
+    for (const name of processed) {
+      renameSync(join(inboxDir, name), uniqueImportedDest(importedDir, name));
+    }
   }
 
   return {
@@ -186,5 +198,6 @@ export function processInboxFolder(
     events: allEvents,
     state,
     ...(options.outPackagePath ? { outPackagePath: options.outPackagePath } : {}),
+    archived,
   };
 }

@@ -837,6 +837,11 @@ export interface Purchase {
   getEntitlement(): Promise<EntitlementState>;
   purchaseUnlock(): Promise<EntitlementState>;
   restorePurchases(): Promise<EntitlementState>;
+  /**
+   * App Store / Play builds only, run at launch: asks the store again so a refunded unlock locks.
+   * A check that fails keeps the cached entitlement.
+   */
+  recheckStore?(): Promise<EntitlementState>;
   activateLicenseKey(
     rawKey: string,
   ): Promise<LicenseVerifyResult & { entitlement: EntitlementState }>;

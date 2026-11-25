@@ -116,14 +116,110 @@ describe('@flash/token-helper stateless Cloudflare Worker', () => {
     });
   });
 
-  it('rejects oversized or malformed JSON payloads', async () => {
+  it('rejects malformed JSON payloads', async () => {
     const req = new Request('https://worker.example/auth/exchange', {
       method: 'POST',
       headers: { Origin: 'http://localhost:5173', 'Content-Type': 'application/json' },
-      body: 'x'.repeat(20_000),
+      body: '{"code": ',
     });
     const res = await worker.fetch(req, TEST_ENV);
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'invalid_json_body' });
+  });
+
+  it('rejects a token request with no Origin header, before calling Google (S2)', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const req = new Request('https://worker.example/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: 'rt' }),
+    });
+    const res = await worker.fetch(req, TEST_ENV);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'origin_not_allowed' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('still answers /health without an Origin header', async () => {
+    const res = await worker.fetch(new Request('https://worker.example/health'), TEST_ENV);
+    expect(res.status).toBe(200);
+  });
+
+  it('refuses a declared Content-Length over the cap without reading the body (S2)', async () => {
+    const req = new Request('https://worker.example/auth/exchange', {
+      method: 'POST',
+      headers: {
+        Origin: 'http://localhost:5173',
+        'Content-Type': 'application/json',
+        'Content-Length': '1000000',
+      },
+      body: '{}',
+    });
+    const res = await worker.fetch(req, TEST_ENV);
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: 'body_too_large' });
+    expect(req.bodyUsed).toBe(false);
+  });
+
+  it('stops reading a streamed body once it passes the cap (S2)', async () => {
+    let pulled = 0;
+    const chunk = new TextEncoder().encode('x'.repeat(4096));
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        if (pulled > 100) controller.close();
+        else controller.enqueue(chunk);
+      },
+    });
+    const req = new Request('https://worker.example/auth/exchange', {
+      method: 'POST',
+      headers: { Origin: 'http://localhost:5173', 'Content-Type': 'application/json' },
+      body,
+      duplex: 'half',
+    } as RequestInit);
+    const res = await worker.fetch(req, TEST_ENV);
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: 'body_too_large' });
+    // 16 KiB is five 4 KiB chunks; the stream may queue one more ahead of the reader.
+    expect(pulled).toBeLessThan(10);
+  });
+
+  it('answers 429 once the per-IP rate limit is spent, before calling Google (S2)', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const limit = vi.fn(async () => ({ success: false }));
+    const env: Env = { ...TEST_ENV, TOKEN_RATE_LIMITER: { limit } };
+    const req = new Request('https://worker.example/auth/refresh', {
+      method: 'POST',
+      headers: {
+        Origin: 'http://localhost:5173',
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': '203.0.113.7',
+      },
+      body: JSON.stringify({ refresh_token: 'rt' }),
+    });
+    const res = await worker.fetch(req, env);
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('60');
+    // The browser must be able to read the 429, so it keeps its CORS header.
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
+    expect(await res.json()).toEqual({ error: 'rate_limited' });
+    expect(limit).toHaveBeenCalledWith({ key: '203.0.113.7 /auth/refresh' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('forwards the request while the rate limit allows it', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ access_token: 'a', expires_in: 3599 }), { status: 200 }),
+    );
+    const env: Env = {
+      ...TEST_ENV,
+      TOKEN_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    };
+    const req = new Request('https://worker.example/auth/refresh', {
+      method: 'POST',
+      headers: { Origin: 'http://localhost:5173', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: 'rt' }),
+    });
+    expect((await worker.fetch(req, env)).status).toBe(200);
   });
 });

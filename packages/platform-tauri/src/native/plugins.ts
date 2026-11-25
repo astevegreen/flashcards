@@ -35,6 +35,12 @@ import type { SecureSecretBackend } from '../auth/refresh-token-store.ts';
 import type { TauriLoopbackOAuthPlugin } from '../auth/tauri-google-auth.ts';
 import type { DesktopNotificationBridge } from '../reminders/desktop-reminders.ts';
 import { createAddDeviceUrlSourceFrom } from './add-device-url.ts';
+import {
+  awaitBrowserCallback,
+  createLatestAttempt,
+  OAUTH_CALLBACK_TIMEOUT_MS,
+  PICKER_CALLBACK_TIMEOUT_MS,
+} from './browser-callback.ts';
 import { openTauriSaveStream } from '../files/tauri-stream.ts';
 import type { TauriFsBridge, TauriFsDirEntry } from '../sources/tauri-fs-watcher.ts';
 import type { TauriSqlPluginDatabase } from '../storage/tauri-sqlite-storage.ts';
@@ -240,25 +246,21 @@ export function createDesktopFiles(fsBridge: TauriFsBridge): Files {
 // ---------------------------------------------------------------------------
 
 export function createSystemBrowserLauncher(): SystemBrowserLauncher {
+  // Opening the picker again while an earlier one is still waiting replaces the earlier one (N6).
+  const latestAttempt = createLatestAttempt();
   return {
-    openAndAwaitDeepLink: async ({ url, callbackScheme }) => {
-      const prefix = `${callbackScheme}://picker-callback`;
-      let unlisten: (() => void) | null = null;
-      const result = new Promise<string>((resolve) => {
-        void onOpenUrl((urls) => {
-          const hit = urls.find((u) => u.startsWith(prefix));
-          if (hit) resolve(hit);
-        }).then((fn) => {
-          unlisten = fn;
+    openAndAwaitDeepLink: ({ url, callbackScheme }) =>
+      latestAttempt((signal) => {
+        const prefix = `${callbackScheme}://picker-callback`;
+        return awaitBrowserCallback({
+          subscribe: (cb) => onOpenUrl((urls) => urls.forEach(cb)),
+          open: () => openUrl(url),
+          accept: (u) => u.startsWith(prefix),
+          timeoutMs: PICKER_CALLBACK_TIMEOUT_MS,
+          signal,
+          label: 'Choosing files in Google Drive',
         });
-      });
-      try {
-        await openUrl(url);
-        return await result;
-      } finally {
-        (unlisten as (() => void) | null)?.();
-      }
-    },
+      }),
   };
 }
 
@@ -336,61 +338,64 @@ export function createLoopbackOAuthPlugin(config: LoopbackOAuthConfig): TauriLoo
     return (await res.json()) as GoogleTokenResponse;
   };
 
+  // A second sign-in while the first browser tab is still open replaces the first attempt (N6).
+  const latestAttempt = createLatestAttempt();
+
   return {
-    authorizeWithSystemBrowser: async ({ scopes }) => {
-      const { verifier, challenge } = await createPkcePair();
-      const state = base64Url(crypto.getRandomValues(new Uint8Array(16)));
-      const port = await startOAuthServer({ response: SUCCESS_HTML });
-      const redirectUri = `http://127.0.0.1:${port}`;
-      let unlisten: (() => void) | null = null;
-      try {
-        const callback = new Promise<string>((resolve) => {
-          void onUrl(resolve).then((fn) => {
-            unlisten = fn;
+    authorizeWithSystemBrowser: ({ scopes }) =>
+      latestAttempt(async (signal) => {
+        const { verifier, challenge } = await createPkcePair();
+        const state = base64Url(crypto.getRandomValues(new Uint8Array(16)));
+        const port = await startOAuthServer({ response: SUCCESS_HTML });
+        const redirectUri = `http://127.0.0.1:${port}`;
+        try {
+          const authUrl = new URL(GOOGLE_AUTH_URL);
+          authUrl.search = new URLSearchParams({
+            client_id: config.clientId,
+            redirect_uri: redirectUri,
+            response_type: 'code',
+            scope: scopes.join(' '),
+            code_challenge: challenge,
+            code_challenge_method: 'S256',
+            state,
+            access_type: 'offline',
+            prompt: 'consent',
+          }).toString();
+          const returned = new URL(
+            await awaitBrowserCallback({
+              subscribe: (cb) => onUrl(cb),
+              open: () => openUrl(authUrl.toString()),
+              timeoutMs: OAUTH_CALLBACK_TIMEOUT_MS,
+              signal,
+              label: 'Google sign-in',
+            }),
+          );
+          if (returned.searchParams.get('state') !== state) {
+            throw new Error('OAuth state mismatch.');
+          }
+          const err = returned.searchParams.get('error');
+          if (err) throw new Error(`Google sign-in failed: ${err}`);
+          const code = returned.searchParams.get('code');
+          if (!code) throw new Error('Google sign-in returned no authorization code.');
+
+          const tokens = await tokenRequest({
+            grant_type: 'authorization_code',
+            code,
+            code_verifier: verifier,
+            redirect_uri: redirectUri,
           });
-        });
-        const authUrl = new URL(GOOGLE_AUTH_URL);
-        authUrl.search = new URLSearchParams({
-          client_id: config.clientId,
-          redirect_uri: redirectUri,
-          response_type: 'code',
-          scope: scopes.join(' '),
-          code_challenge: challenge,
-          code_challenge_method: 'S256',
-          state,
-          access_type: 'offline',
-          prompt: 'consent',
-        }).toString();
-        await openUrl(authUrl.toString());
-
-        const returned = new URL(await callback);
-        if (returned.searchParams.get('state') !== state) {
-          throw new Error('OAuth state mismatch.');
+          // Never keep an older refresh token (possibly another account) past a new sign-in.
+          if (tokens.refresh_token) await config.tokenStore.set(tokens.refresh_token);
+          else await config.tokenStore.delete();
+          return {
+            accessToken: tokens.access_token,
+            expiresInSeconds: tokens.expires_in,
+            ...(tokens.scope ? { scope: tokens.scope } : {}),
+          };
+        } finally {
+          await cancelOAuthServer(port).catch(() => undefined);
         }
-        const err = returned.searchParams.get('error');
-        if (err) throw new Error(`Google sign-in failed: ${err}`);
-        const code = returned.searchParams.get('code');
-        if (!code) throw new Error('Google sign-in returned no authorization code.');
-
-        const tokens = await tokenRequest({
-          grant_type: 'authorization_code',
-          code,
-          code_verifier: verifier,
-          redirect_uri: redirectUri,
-        });
-        // Never keep an older refresh token (possibly another account) past a new sign-in.
-        if (tokens.refresh_token) await config.tokenStore.set(tokens.refresh_token);
-        else await config.tokenStore.delete();
-        return {
-          accessToken: tokens.access_token,
-          expiresInSeconds: tokens.expires_in,
-          ...(tokens.scope ? { scope: tokens.scope } : {}),
-        };
-      } finally {
-        (unlisten as (() => void) | null)?.();
-        await cancelOAuthServer(port).catch(() => undefined);
-      }
-    },
+      }),
     refreshAccessToken: async () => {
       const refreshToken = await config.tokenStore.get();
       if (!refreshToken) throw new Error('Not signed in to Google.');

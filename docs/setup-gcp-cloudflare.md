@@ -95,6 +95,8 @@ curl https://flashcards-token-helper.<subdomain>.workers.dev/health
 # Expected: {"ok":true,"stateless":true}
 ```
 
+The token routes accept only requests whose `Origin` is in `ALLOWED_ORIGINS`, refuse bodies over 16 KiB, and allow 20 requests a minute per IP and route. The limit is the `[[ratelimits]]` block in `apps/token-helper/wrangler.toml`; a client over it gets `429` with `Retry-After: 60`.
+
 The same Worker also serves the OneDrive storage connector's `/ms/exchange` and `/ms/refresh` routes. To turn OneDrive on, register a Microsoft Entra app and set `MS_CLIENT_ID` / `MS_CLIENT_SECRET` as described in [`setup-microsoft.md`](./setup-microsoft.md).
 
 ---

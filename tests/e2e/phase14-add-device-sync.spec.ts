@@ -310,6 +310,8 @@ test.describe('Phase 14 Sync my devices', () => {
     await expect(
       page.getByTestId('cloud-sync-card').getByTestId('sync-my-devices-link-note'),
     ).toContainText('Google Drive');
+    // Reset asks for confirmation first (C6).
+    page.once('dialog', (dialog) => void dialog.accept());
     await page.getByRole('button', { name: 'Reset Local Device Data' }).click();
     await expect(page.getByText('Local device storage cleared.')).toBeVisible();
     // No link survives the reset: Settings offers the default provider again.

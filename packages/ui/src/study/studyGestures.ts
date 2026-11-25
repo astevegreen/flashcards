@@ -122,6 +122,23 @@ function isButtonOrLink(target: EventTarget | null): boolean {
   return false;
 }
 
+const CONTROL_SELECTOR =
+  'button,a[href],[role=button],[role=menuitem],[role=option],[role=tab],[role=switch],[role=checkbox],[role=radio]';
+
+/**
+ * A control that has keyboard (D-pad / Tab) focus owns the arrow keys, so they move focus instead
+ * of rating (C3). A clicked button keeps focus without `:focus-visible` and leaves them to Study.
+ */
+function controlHasKeyboardFocus(target: EventTarget | null): boolean {
+  const el = target as { matches?: (selector: string) => boolean } | null;
+  if (typeof el?.matches !== 'function' || !el.matches(CONTROL_SELECTOR)) return false;
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return true; // A WebView without `:focus-visible`: keep D-pad navigation working.
+  }
+}
+
 /** Space / Enter cycle reveal steps, unless focus is on a button/link or interactive front. */
 function confirmKeyAction(
   target: EventTarget | null,
@@ -173,6 +190,7 @@ export function resolveStudyKeyAction(
   if (letter !== undefined) return letter;
 
   // Arrow keys mirror swipe directions (and work on flip-style fronts too).
+  if (key.startsWith('Arrow') && controlHasKeyboardFocus(e.target)) return undefined;
   if (key === 'ArrowRight') return 'undo';
   if (isRevealed || !capturesFront) {
     if (key === 'ArrowLeft') return { type: 'rate', rating: 3, allowUnrevealed: true };

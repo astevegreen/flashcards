@@ -135,6 +135,45 @@ describe('resolveStudyKeyAction', () => {
     });
   });
 
+  it('leaves arrow keys to a control that has keyboard focus, so D-pad navigation works (C3)', () => {
+    // Stands in for a DOM element: `matches` answers the control selector and `:focus-visible`.
+    const element = (control: boolean, focusVisible: boolean) => ({
+      matches: (selector: string) => (selector === ':focus-visible' ? focusVisible : control),
+    });
+    const at = (key: string, target: unknown) =>
+      resolveStudyKeyAction(keyEvent(key, { target: target as EventTarget }), true, false, '4');
+    const filterButtonViaDpad = element(true, true);
+    for (const key of ['ArrowLeft', 'ArrowDown', 'ArrowUp', 'ArrowRight']) {
+      expect(at(key, filterButtonViaDpad)).toBeUndefined();
+    }
+    // Number keys still rate from anywhere.
+    expect(at('2', filterButtonViaDpad)).toEqual({
+      type: 'rate',
+      rating: 3,
+      allowUnrevealed: false,
+    });
+    // A button that was clicked keeps focus without :focus-visible; arrows still rate there.
+    expect(at('ArrowLeft', element(true, false))).toEqual({
+      type: 'rate',
+      rating: 3,
+      allowUnrevealed: true,
+    });
+    // Focus on the card body (not a control) rates as before.
+    expect(at('ArrowDown', element(false, true))).toEqual({
+      type: 'rate',
+      rating: 1,
+      allowUnrevealed: true,
+    });
+    // A WebView without :focus-visible support: a focused control keeps its arrows.
+    const oldWebView = {
+      matches: (selector: string) => {
+        if (selector === ':focus-visible') throw new SyntaxError('unsupported');
+        return true;
+      },
+    };
+    expect(at('ArrowLeft', oldWebView)).toBeUndefined();
+  });
+
   it('maps arrow keys with swipe parity (left=Good, down=Again, up=Easy/Good, right=Undo)', () => {
     expect(resolveStudyKeyAction(keyEvent('ArrowLeft'), true, false, '3')).toEqual({
       type: 'rate',

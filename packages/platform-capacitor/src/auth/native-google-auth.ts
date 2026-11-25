@@ -7,7 +7,13 @@ export interface NativeGoogleSignInPlugin {
     scope?: string;
     email?: string;
   }>;
-  refreshToken(): Promise<{ accessToken: string; expiresInSeconds?: number }>;
+  /**
+   * Silent sign-in for a fresh access token. `scopes` is what to ask for: after a relaunch the
+   * plugin no longer knows what the first sign-in asked for (N4).
+   */
+  refreshToken(opts?: {
+    scopes?: string[];
+  }): Promise<{ accessToken: string; expiresInSeconds?: number }>;
   signOut(): Promise<void>;
 }
 
@@ -64,7 +70,12 @@ export class CapacitorGoogleAuth implements Auth {
     if (!this.plugin) {
       throw new Error('Native Google Sign-In plugin is unavailable.');
     }
-    const refreshed = await this.plugin.refreshToken();
+    // The session holds the scopes Google granted, possibly more than `this.scopes` (an added
+    // Picker scope); without one, ask for the defaults rather than for nothing.
+    const sessionScopes = session?.scope?.split(' ').filter((s) => s.length > 0) ?? [];
+    const refreshed = await this.plugin.refreshToken({
+      scopes: sessionScopes.length > 0 ? sessionScopes : this.scopes,
+    });
     const next: AuthSession = {
       provider: 'google-native',
       accessToken: refreshed.accessToken,

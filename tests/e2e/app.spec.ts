@@ -227,6 +227,8 @@ test.describe('Phase 1 Lean Offline Flashcards PWA', () => {
 
     // Reset local data, then re-import the exported .flashpkg via real file chooser
     await page.getByRole('button', { name: 'Settings' }).first().click();
+    // Reset asks for confirmation first (C6).
+    page.once('dialog', (dialog) => void dialog.accept());
     await page.getByRole('button', { name: 'Reset Local Device Data' }).click();
     await page.getByRole('button', { name: 'Decks' }).first().click();
     await expect(page.locator('[data-testid^="deck-row-"]')).toHaveCount(0);

@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import * as process from 'node:process';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   applyEvents,
   buildSampleDeckEvents,
@@ -37,6 +38,7 @@ import {
   handleMcpRequest,
   loadCollectionFromMirror,
   processInboxFolder,
+  runCli,
   validateArtifactBytes,
   validateFile,
 } from '../src/index.ts';
@@ -218,6 +220,52 @@ describe('Phase 7 tools/cli & Local MCP Server (§7.1, §10.3)', () => {
     expect(res.state.notes.size).toBe(2);
     expect(res.state.pages.size).toBe(1);
     expect(existsSync(outConsolidated)).toBe(true);
+  });
+
+  it('inbox without an output package leaves every file in the inbox (C27)', () => {
+    const inboxDir = makeTempDir('flash-inbox-noout-');
+    writeFileSync(join(inboxDir, 'extra-ko.csv'), 'Word,Meaning\n우산,umbrella\n');
+    const res = processInboxFolder(inboxDir, { language: 'ko', nowMs: 5000 });
+    expect(res.processed).toEqual(['extra-ko.csv']);
+    expect(res.archived).toBe(false);
+    expect(existsSync(join(inboxDir, 'extra-ko.csv'))).toBe(true);
+    expect(existsSync(join(inboxDir, 'imported', 'extra-ko.csv'))).toBe(false);
+  });
+
+  it('inbox moves nothing when writing the output package fails (C27)', () => {
+    const inboxDir = makeTempDir('flash-inbox-badout-');
+    writeFileSync(join(inboxDir, 'extra-ko.csv'), 'Word,Meaning\n우산,umbrella\n');
+    const unwritable = join(inboxDir, 'no-such-dir', 'out.flashpkg');
+    expect(() =>
+      processInboxFolder(inboxDir, { outPackagePath: unwritable, language: 'ko', nowMs: 5000 }),
+    ).toThrow();
+    expect(existsSync(join(inboxDir, 'extra-ko.csv'))).toBe(true);
+    expect(existsSync(join(inboxDir, 'imported', 'extra-ko.csv'))).toBe(false);
+  });
+
+  it('flash-cli inbox without -o warns and leaves the files in place (C27)', async () => {
+    const inboxDir = makeTempDir('flash-inbox-cli-');
+    writeFileSync(join(inboxDir, 'extra-ko.csv'), 'Word,Meaning\n우산,umbrella\n');
+    const stderr: string[] = [];
+    const stdout: string[] = [];
+    const errSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => stderr.push(String(chunk)) > 0);
+    const outSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => stdout.push(String(chunk)) > 0);
+    try {
+      expect(await runCli(['inbox', inboxDir, '--lang', 'ko'])).toBe(0);
+    } finally {
+      errSpy.mockRestore();
+      outSpy.mockRestore();
+    }
+    expect(stderr.join('')).toContain('-o');
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      processed: ['extra-ko.csv'],
+      archived: false,
+    });
+    expect(existsSync(join(inboxDir, 'extra-ko.csv'))).toBe(true);
   });
 
   it('mcp: get_stats legacy totals agree with the core stats after a note is archived', () => {

@@ -177,6 +177,11 @@ export async function runCli(argv: readonly string[]): Promise<number> {
       ...(language ? { language } : {}),
       aiProvenance: Boolean(flags['ai']),
     });
+    if (!outPackagePath && res.processed.length > 0) {
+      process.stderr.write(
+        'Nothing was written and the files stay in the inbox. Pass -o <out.flashpkg> to save the import (the files then move to imported/).\n',
+      );
+    }
     process.stdout.write(
       JSON.stringify(
         {
@@ -184,6 +189,7 @@ export async function runCli(argv: readonly string[]): Promise<number> {
           failed: res.failed,
           eventsEmitted: res.events.length,
           ...(res.outPackagePath ? { outPackagePath: res.outPackagePath } : {}),
+          archived: res.archived,
         },
         null,
         2,

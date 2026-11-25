@@ -109,7 +109,23 @@ test.describe('Phase 14 onboarding decisions (approved 2026-11-22)', () => {
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     await page.getByRole('button', { name: 'Settings' }).first().click();
-    await page.getByRole('button', { name: 'Reset Local Device Data' }).click();
+    const reset = page.getByRole('button', { name: 'Reset Local Device Data' });
+    const eventsStored = page.getByTestId('device-id-value').locator('..').locator('strong');
+    const eventsBefore = await eventsStored.textContent();
+
+    // Reset asks for confirmation first (C6); Cancel keeps everything.
+    let question = '';
+    page.once('dialog', (dialog) => {
+      question = dialog.message();
+      void dialog.dismiss();
+    });
+    await reset.click();
+    await expect.poll(() => question).toContain('Erase all cards, reviews and settings');
+    await expect(page.getByText('Local device storage cleared.')).toHaveCount(0);
+    await expect(eventsStored).toHaveText(eventsBefore ?? '');
+
+    page.once('dialog', (dialog) => void dialog.accept());
+    await reset.click();
     await expect(page.getByText('Local device storage cleared.')).toBeVisible();
     await page.getByRole('button', { name: 'Study', exact: true }).first().click();
     await expect(page.getByTestId('onboarding')).toBeVisible();
