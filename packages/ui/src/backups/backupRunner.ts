@@ -555,7 +555,7 @@ export async function applyRestore(
     if (await storage.getMedia(hash)) continue;
     const file = read.media.get(hash);
     if (file && verifyBackupMedia(file)) {
-      await putMediaTracked(storage, { hash: file.hash, mime: file.mime, bytes: file.bytes });
+      await putMediaTracked(storage, { hash: file.hash, mime: file.mime, bytes: file.bytes }); // NOSONAR (S9382)
     } else {
       // A synced device can still pull it from the sync folder's media store.
       result.mediaMissing += 1;

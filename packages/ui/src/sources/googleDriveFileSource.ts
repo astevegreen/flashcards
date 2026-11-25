@@ -39,7 +39,7 @@ import {
   withSourcesLock,
 } from './sourceRunner.ts';
 import { deckLimitReason, newDeckIds } from './deckLimit.ts';
-import { putMediaTracked } from '../state/recentMedia.ts';
+import { putMediaListTracked } from '../state/recentMedia.ts';
 
 /**
  * Linked Google Drive FILES (§3.1): plain `.csv` / `.tsv` / `.xlsx` / `.flashpkg` files the user
@@ -632,13 +632,7 @@ async function pullDrivePackage(
   });
   const overLimit = deckLimitReason(ctx.entitlement, state, newDeckIds(state, pkgRes.events));
   if (overLimit) throw new Error(overLimit);
-  for (const media of pkgRes.extractedMedia) {
-    await putMediaTracked(ctx.platform.storage, {
-      hash: media.hash,
-      mime: media.mime,
-      bytes: media.bytes,
-    });
-  }
+  await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia);
   if (pkgRes.events.length > 0) ctx.emitEvents(pkgRes.events);
 
   const deckId = firstImportedDeckId(pkgRes.events);

@@ -54,7 +54,7 @@ import {
   mergeSyncedGoogleDriveFiles,
   refreshLinkedGoogleDriveFiles,
 } from './googleDriveFileSource.ts';
-import { putMediaTracked } from '../state/recentMedia.ts';
+import { putMediaListTracked, putMediaTracked } from '../state/recentMedia.ts';
 
 export {
   DROPBOX_RECONCILE_PREFIX,
@@ -504,11 +504,9 @@ async function preLocalizeHttpsImageUrls(
 
     try {
       const processed = await fetcher(url);
-      await putMediaTracked(ctx.platform.storage, {
-        hash: processed.hash,
-        mime: processed.mime,
-        bytes: processed.bytes,
-      });
+      const blob = { hash: processed.hash, mime: processed.mime, bytes: processed.bytes };
+      // One file at a time, right after it is fetched or read.
+      await putMediaTracked(ctx.platform.storage, blob); // NOSONAR (S9382)
       if (!emittedHashes.has(processed.hash)) {
         emittedHashes.add(processed.hash);
         mediaEvents.push(
@@ -619,11 +617,9 @@ async function preLocalizeHttpsAudioUrls(
 
     try {
       const processed = await fetcher(url);
-      await putMediaTracked(ctx.platform.storage, {
-        hash: processed.hash,
-        mime: processed.mime,
-        bytes: processed.bytes,
-      });
+      const blob = { hash: processed.hash, mime: processed.mime, bytes: processed.bytes };
+      // One file at a time, right after it is fetched or read.
+      await putMediaTracked(ctx.platform.storage, blob); // NOSONAR (S9382)
       if (!emittedHashes.has(processed.hash)) {
         emittedHashes.add(processed.hash);
         mediaEvents.push(
@@ -1743,13 +1739,7 @@ export async function scanSingleLocalFolder(
         if (overDeckLimit(state, newDeckIds(state, pkgRes.events, scanDecks), file.relativePath)) {
           continue;
         }
-        for (const media of pkgRes.extractedMedia) {
-          await putMediaTracked(ctx.platform.storage, {
-            hash: media.hash,
-            mime: media.mime,
-            bytes: media.bytes,
-          });
-        }
+        await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia);
         if (pkgRes.events.length > 0) {
           ctx.emitEvents(pkgRes.events);
         }
@@ -1810,13 +1800,7 @@ export async function scanSingleLocalFolder(
         if (overDeckLimit(state, newDeckIds(state, pkgRes.events, scanDecks), file.relativePath)) {
           continue;
         }
-        for (const media of pkgRes.extractedMedia) {
-          await putMediaTracked(ctx.platform.storage, {
-            hash: media.hash,
-            mime: media.mime,
-            bytes: media.bytes,
-          });
-        }
+        await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia);
         if (pkgRes.events.length > 0) {
           ctx.emitEvents(pkgRes.events);
         }
@@ -1862,11 +1846,9 @@ export async function scanSingleLocalFolder(
           const loaded = await adapter.readRelativeMedia(folder.id, file.relativePath, relMedia);
           if (!loaded) continue;
           const mHash = sha256Hex(loaded.bytes);
-          await putMediaTracked(ctx.platform.storage, {
-            hash: mHash,
-            mime: loaded.mime,
-            bytes: loaded.bytes,
-          });
+          const blob = { hash: mHash, mime: loaded.mime, bytes: loaded.bytes };
+          // One file at a time, right after it is fetched or read.
+          await putMediaTracked(ctx.platform.storage, blob); // NOSONAR (S9382)
           mediaPathMap[relMedia] = `media:${mHash}`;
           if (!state.media.has(mHash)) {
             mediaEvents.push(
@@ -1996,11 +1978,9 @@ export async function scanSingleLocalFolder(
           const loaded = await adapter.readRelativeMedia(folder.id, file.relativePath, relMedia);
           if (!loaded) continue;
           const mHash = sha256Hex(loaded.bytes);
-          await putMediaTracked(ctx.platform.storage, {
-            hash: mHash,
-            mime: loaded.mime,
-            bytes: loaded.bytes,
-          });
+          const blob = { hash: mHash, mime: loaded.mime, bytes: loaded.bytes };
+          // One file at a time, right after it is fetched or read.
+          await putMediaTracked(ctx.platform.storage, blob); // NOSONAR (S9382)
           mediaPathMap[relMedia] = `media:${mHash}`;
           if (!state.media.has(mHash)) {
             mediaEvents.push(
@@ -2247,13 +2227,7 @@ export async function refreshSinglePackageSubscription(
   const overLimit = deckLimitReason(ctx.entitlement, state, newDeckIds(state, pkgRes.events));
   if (overLimit) throw new Error(overLimit);
 
-  for (const media of pkgRes.extractedMedia) {
-    await putMediaTracked(ctx.platform.storage, {
-      hash: media.hash,
-      mime: media.mime,
-      bytes: media.bytes,
-    });
-  }
+  await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia);
   if (pkgRes.events.length > 0) {
     ctx.emitEvents(pkgRes.events);
   }

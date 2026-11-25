@@ -198,7 +198,7 @@ function canUndo(session: StudySession | undefined, reviewUndoable: boolean): bo
 }
 
 function lastInScope(stack: readonly UndoEntry[], activeDeckId: string | undefined): boolean {
-  const last = stack[stack.length - 1];
+  const last = stack.at(-1);
   return last !== undefined && inStudyScope(last, activeDeckId);
 }
 

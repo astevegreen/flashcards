@@ -33,3 +33,16 @@ export function recentlyStoredMedia(nowMs: number = Date.now()): Set<string> {
 export function resetRecentMediaForTests(): void {
   storedAt.clear();
 }
+
+/**
+ * Stores files one at a time, tracked like `putMediaTracked`. Sequential on purpose: media can be
+ * large, and one write in flight keeps memory and the native storage bridge in check.
+ */
+export async function putMediaListTracked(
+  storage: Storage,
+  media: Iterable<MediaBlob>,
+): Promise<void> {
+  for (const { hash, mime, bytes } of media) {
+    await putMediaTracked(storage, { hash, mime, bytes }); // NOSONAR (S9382)
+  }
+}

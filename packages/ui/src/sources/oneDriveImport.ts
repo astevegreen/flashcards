@@ -8,7 +8,7 @@ import {
 } from '@flash/core';
 import { canCreateOrImportDeck, type EntitlementState } from '@flash/core/license';
 import type { PickedFile, PlatformServices } from '@flash/platform';
-import { putMediaTracked } from '../state/recentMedia.ts';
+import { putMediaListTracked } from '../state/recentMedia.ts';
 
 /**
  * One-shot import of a file picked from OneDrive or Dropbox (§15 Phase 12): `.csv` / `.tsv` / `.xlsx` become a
@@ -103,13 +103,7 @@ async function importPackage(
     );
     if (!gate.allowed) throw new Error(gate.reason ?? 'Free tier deck limit reached.');
   }
-  for (const media of result.extractedMedia) {
-    await putMediaTracked(ctx.platform.storage, {
-      hash: media.hash,
-      mime: media.mime,
-      bytes: media.bytes,
-    });
-  }
+  await putMediaListTracked(ctx.platform.storage, result.extractedMedia);
   if (result.events.length > 0) ctx.emitEvents(result.events);
   return `Imported "${result.manifest.name}" from ${provider} (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.pagesImported} page(s)).`;
 }
