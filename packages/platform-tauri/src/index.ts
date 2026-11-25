@@ -184,9 +184,8 @@ export function createTauriPlatform(options: CreateTauriPlatformOptions): Platfo
       }
       throw new Error('Provide createDriveTransport for Google Drive sync.');
     },
-    getGooglePicker: async (): Promise<GooglePickerAdapter> => ({
-      isConfigured: () => Boolean(options.pickerPageUrl && options.googleApiKey),
-      pickSheetsAndDocs: async () => {
+    getGooglePicker: async (): Promise<GooglePickerAdapter> => {
+      const open = async (mode: 'sheets_docs' | 'drive_files') => {
         if (!options.pickerPageUrl || !options.googleApiKey) {
           throw new Error('Google Picker page URL and API key are required.');
         }
@@ -196,9 +195,15 @@ export function createTauriPlatform(options: CreateTauriPlatformOptions): Platfo
           accessToken: token,
           appId: options.googleClientId?.split('-')[0] ?? '',
           apiKey: options.googleApiKey,
+          mode,
         });
-      },
-    }),
+      };
+      return {
+        isConfigured: () => Boolean(options.pickerPageUrl && options.googleApiKey),
+        pickSheetsAndDocs: () => open('sheets_docs'),
+        pickDriveFiles: () => open('drive_files'),
+      };
+    },
     getGoogleSourcesClient: async (): Promise<GoogleSourcesClient> => {
       if (options.googleSourcesClient) return options.googleSourcesClient;
       throw new Error('Inject WebGoogleSourcesClient for Google Sheets/Docs pulls.');

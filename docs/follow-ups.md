@@ -418,6 +418,15 @@ Defaults picked while building the checks. Each stays shipped until the owner de
 - [ ] Real Microsoft Graph is unverified.
 - [x] `.xlsx` links on phone and Tauri shells show a "Can't read here" pill and are listed under "Not refreshed". No error banner.
 
+### Linked Google Drive files (Android testing follow-up, 2026-11-25)
+
+- [x] **"Link from Google Drive"** (was "Link Google Sheet / Doc") picks Sheets, Docs, and `.csv` / `.tsv` / `.xlsx` / `.flashpkg` files with the same Picker and `drive.file` scope (web, Capacitor and Tauri through `picker.html?mode=drive_files`). Table files get the column-mapping step and refresh like linked OneDrive files (read-only, first-field matching, rename reconciliation, `md5Checksum` change check, 50 MB cap); a `.flashpkg` re-imports when it changes. Code: `packages/ui/src/sources/googleDriveFileSource.ts`, `packages/platform-web/src/sources/google-drive-files.ts`.
+- [x] **Platform-aware Sources copy:** the description and the empty-list hint list only the providers available in this build (`sourceProviders.ts`). Dev builds (`isDevMode`) show missing providers (Google, OneDrive, Dropbox, the Picker key) as disabled buttons naming the env var; production builds hide them.
+- [ ] Real Google Drive is unverified for plain files: the Picker MIME filter (especially how `.flashpkg` and Windows `.csv` uploads are typed), `alt=media` CORS from the Capacitor WebView, and `drive.file` access on a second device. Redeploy the web app first so the hosted `picker.html` knows `mode=drive_files`.
+- [ ] `LinkedFileMapping.tsx` duplicates `OneDriveLinkMapping.tsx` (kept separate so the parallel Dropbox slice could not collide); merge them once both land.
+- [ ] Linking a `.flashpkg` from Drive checks the free-tier deck limit for one new deck only (like the URL subscription), not for every deck the package adds.
+- [ ] Sign-in is checked per refresh; "Refresh all" skips Drive files (like Sheets) while Google is disconnected, without a row message.
+
 ### #20 Sync and devices
 
 - [x] The AppContext comment says Keystore/Keychain, but the notice is Android-only. Fixed in PR #27.

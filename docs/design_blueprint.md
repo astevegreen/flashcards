@@ -114,6 +114,8 @@ Every source is **imported into the local collection**. After that, its content 
 - **Google Docs → Page:** Drive export as `text/markdown` (verify in Phase 0), parsed into a Page and cached offline.
 - **Shared Sheets:** A recipient with view access links the Sheet read-only. The owner must sync once so `Card ID`s exist.
 - **On PC:** `.gsheet` / `.gdoc` files in a Google Drive folder are cloud-only pointers; they work through the Sheets/Docs API path above and are cached offline after the first pull.
+- **Plain Drive files (`.csv` / `.tsv` / `.xlsx` / `.flashpkg`):** "Link from Google Drive" opens the same Picker (one Drive view filtered to Sheets, Docs and these file types; native shells pass `mode=drive_files` to `picker.html`) with the same `drive.file` scope, so the app only ever reaches the files the user picks. A table file is downloaded with `files.get?alt=media` (50 MB cap, checked from metadata and while streaming), goes through the column-mapping step, and refreshes into one deck (`SourceRef.kind = 'google_drive_file'`). It works like a linked OneDrive file: read-only (no `Card ID` write-back), rows matched by their first field, likely renames held for the reconciliation prompt, and the download skipped while the Drive `md5Checksum` (else `version`, else `modifiedTime`) is unchanged. A `.flashpkg` is re-imported like a subscribed package when it changes (§3.4 zip limits apply). Lost sign-in or lost file access shows "Permission needed" on the row; a deleted file is an error that asks the user to pick it again. Phones can't read `.xlsx` yet (same rule as OneDrive).
+- **Which providers the Sources panel offers** depends on the build: Google needs its OAuth client (and `VITE_GOOGLE_API_KEY` / `VITE_PICKER_PAGE_URL` for the Picker), OneDrive `VITE_MS_CLIENT_ID`, local folders a platform with folder access. The panel copy lists only what is available; dev builds show the missing ones as disabled buttons naming the env var.
 
 ### 3.2 Linked Local Folders (PC — R7)
 
@@ -478,7 +480,7 @@ If development ever stops:
 
 ## 13. Security & Privacy
 - **Untrusted shared content:** Raw HTML disabled in Markdown, strict URL scheme allow-list (`https:`, `media:`), strict CSP (no inline scripts), external links open outside the app—preventing malicious shared pages from reading stored tokens.
-- **Least privilege:** `drive.appdata` (sync) + `drive.file` (user-picked Sheets/Docs only); Picker API key referrer-restricted.
+- **Least privilege:** `drive.appdata` (sync) + `drive.file` (user-picked Sheets, Docs and Drive files only); Picker API key referrer-restricted.
 - **Safe imports:** File size caps + zip path-traversal and zip-bomb checks in `fflate` extraction.
 - **Zero tracking:** No analytics; opt-in crash reporting only if ever added.
 

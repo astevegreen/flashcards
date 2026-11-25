@@ -336,6 +336,42 @@ export interface LinkedOneDriveSource {
   warnings?: SourceWarning[];
 }
 
+/**
+ * A plain file in the user's Google Drive, picked with Google Picker (`drive.file` scope only) and
+ * linked like a OneDrive file: a `.csv` / `.tsv` / `.xlsx` refreshes into one deck (read-only,
+ * rows matched by their first field); a `.flashpkg` is re-imported like a subscribed package when
+ * it changes. The app never writes to the file.
+ */
+export interface LinkedGoogleDriveFileSource {
+  id: string;
+  /** Drive file id. */
+  fileId: string;
+  name: string;
+  /** `table` = `.csv` / `.tsv` / `.xlsx` into one deck; `flashpkg` = a package. */
+  format: 'table' | 'flashpkg';
+  /** The file's Drive web address (display and "Open" link only). */
+  uri?: string;
+  /** The deck it fills (`table`), or one deck it imported (`flashpkg`). */
+  deckId?: string;
+  noteTypeId?: string;
+  language?: string;
+  /** The mapping chosen when linked; the deck's synced `source.column_map` wins once it exists. */
+  columnMap?: SourceColumnMapping[];
+  /** `columnMap` was chosen here but has not reached the deck yet (a held rename review). */
+  columnMapUnsaved?: true;
+  /** Content tag at the last pull (`md5Checksum`, else `version`, else `modifiedTime`). */
+  contentTag?: string;
+  /** `flashpkg` only: the package's id and version at the last import. */
+  packageId?: string;
+  version?: string;
+  /** Why the last refresh left the file alone (same meanings as {@link LinkedOneDriveSource}). */
+  skipReason?: 'archived' | 'unreadable';
+  lastSyncedAt?: number;
+  lastStatus?: SourceSyncStatus;
+  lastError?: string;
+  warnings?: SourceWarning[];
+}
+
 export interface CachedLocalFileEntry {
   relativePath: string;
   kind: 'csv' | 'tsv' | 'xlsx' | 'md' | 'flashpkg';
@@ -428,6 +464,8 @@ export interface SourcesRegistry {
    * so this is only read (and cleared when the file is linked again), never added to.
    */
   unlinkedOneDriveIds?: string[];
+  /** Linked Google Drive files; absent in registries saved before they existed. */
+  googleDriveFiles?: LinkedGoogleDriveFileSource[];
   localFolders: LinkedLocalFolder[];
   packageSubscriptions: PackageSubscription[];
   catalogs: FamilyCatalogSubscription[];
@@ -443,6 +481,11 @@ export interface GooglePickedFile {
 export interface GooglePickerAdapter {
   isConfigured(): boolean;
   pickSheetsAndDocs(): Promise<GooglePickedFile[]>;
+  /**
+   * Picks Sheets, Docs, and plain Drive files (`.csv` / `.tsv` / `.xlsx` / `.flashpkg`) with the
+   * same `drive.file` scope. Optional: adapters without it only offer Sheets and Docs.
+   */
+  pickDriveFiles?(): Promise<GooglePickedFile[]>;
 }
 
 /** One entry in a OneDrive folder listing (Microsoft Graph `driveItem`, §15 Phase 12). */
@@ -522,6 +565,25 @@ export interface GoogleSourcesClient {
   exportDocAsMarkdown(
     fileId: string,
   ): Promise<{ fileId: string; title: string; markdown: string; modifiedTime?: string }>;
+  /** Plain Drive file metadata (a linked file's cheap "did it change?" check). */
+  getDriveFileInfo?(fileId: string): Promise<GoogleDriveFileInfo>;
+  /** Downloads a plain Drive file (`files.get?alt=media`), size-capped. */
+  downloadDriveFile?(fileId: string): Promise<PickedFile>;
+}
+
+/** Metadata of one plain (non-Google-Workspace) Drive file. */
+export interface GoogleDriveFileInfo {
+  id: string;
+  name: string;
+  mimeType: string;
+  size?: number;
+  modifiedTime?: string;
+  md5Checksum?: string;
+  version?: string;
+  webViewLink?: string;
+  trashed?: boolean;
+  /** Changes when the bytes change: `md5Checksum`, else `version`, else `modifiedTime`. */
+  contentTag?: string;
 }
 
 export interface ScannedLocalFileDescriptor {
@@ -692,6 +754,8 @@ export interface NativePickerBridge {
     appId: string;
     apiKey: string;
     callbackScheme?: string;
+    /** `drive_files` also lists `.csv` / `.tsv` / `.xlsx` / `.flashpkg` files (default Sheets/Docs). */
+    mode?: 'sheets_docs' | 'drive_files';
   }): Promise<GooglePickedFile[]>;
   parseDeepLinkCallback(callbackUrl: string): GooglePickedFile[];
 }

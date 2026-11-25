@@ -2,10 +2,13 @@ import { SyncTransportError } from '@flash/core';
 import { columnIndexToA1 } from '@flash/core/sources';
 import type {
   Auth,
+  GoogleDriveFileInfo,
   GoogleDriveFileMeta,
   GoogleSheetGrid,
   GoogleSourcesClient,
+  PickedFile,
 } from '@flash/platform';
+import { downloadDriveFileBytes, fetchDriveFileInfo } from './google-drive-files.ts';
 
 const DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -426,5 +429,15 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
       markdown,
       ...(meta.modifiedTime !== undefined ? { modifiedTime: meta.modifiedTime } : {}),
     };
+  }
+
+  /** Plain Drive file metadata, for linked `.csv` / `.tsv` / `.xlsx` / `.flashpkg` files. */
+  async getDriveFileInfo(fileId: string): Promise<GoogleDriveFileInfo> {
+    return fetchDriveFileInfo((url, init) => this.authorizedFetch(url, init), fileId);
+  }
+
+  /** Downloads a plain Drive file (`alt=media`, 50 MB cap). */
+  async downloadDriveFile(fileId: string): Promise<PickedFile> {
+    return downloadDriveFileBytes((url, init) => this.authorizedFetch(url, init), fileId);
   }
 }

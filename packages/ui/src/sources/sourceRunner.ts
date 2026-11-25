@@ -47,6 +47,12 @@ import type {
   SourcesRegistry,
   SourceWarning,
 } from '@flash/platform';
+import {
+  dropGoogleDriveFilesUnlinkedElsewhere,
+  googleDriveFileMatcher,
+  mergeSyncedGoogleDriveFiles,
+  refreshLinkedGoogleDriveFiles,
+} from './googleDriveFileSource.ts';
 
 export const LINKED_SOURCES_KV_KEY = 'linked_sources_v1';
 
@@ -112,6 +118,14 @@ export async function loadSourcesRegistry(
           ...(o.columnMap ? { columnMap: [...o.columnMap] } : {}),
         }))
       : [],
+    ...(saved?.googleDriveFiles
+      ? {
+          googleDriveFiles: saved.googleDriveFiles.map((g) => ({
+            ...g,
+            ...(g.columnMap ? { columnMap: [...g.columnMap] } : {}),
+          })),
+        }
+      : {}),
     localFolders: saved?.localFolders
       ? saved.localFolders.map((f) => ({
           ...f,
@@ -129,6 +143,8 @@ export async function loadSourcesRegistry(
 
   if (state) {
     dropSourcesUnlinkedElsewhere(registry, state);
+    dropGoogleDriveFilesUnlinkedElsewhere(registry, state);
+    mergeSyncedGoogleDriveFiles(registry, state);
     // Merge synced Google Sheet & package_url decks not yet in local registry
     const knownGoogleIds = new Set(registry.googleSources.map((s) => s.fileId));
     const knownPkgUrls = new Set(registry.packageSubscriptions.map((p) => p.url));
@@ -259,7 +275,8 @@ function dropSourcesUnlinkedElsewhere(registry: SourcesRegistry, state: Collecti
 }
 
 /** A linked-source row that Unlink removes. */
-export type UnlinkSourceKind = 'google' | 'onedrive' | 'folder' | 'package' | 'catalog';
+export type UnlinkSourceKind =
+  'google' | 'onedrive' | 'gdrive_file' | 'folder' | 'package' | 'catalog';
 
 /** Which synced deck/page sources a registry row stands for (none for folders and catalogs). */
 function syncedSourceMatcher(
@@ -275,6 +292,7 @@ function syncedSourceMatcher(
     const row = registry.oneDriveSources?.find((s) => s.id === id);
     return row ? (src) => carriesSource(src, 'onedrive_file', row.itemId) : null;
   }
+  if (kind === 'gdrive_file') return googleDriveFileMatcher(registry, id);
   if (kind === 'package') {
     const row = registry.packageSubscriptions.find((p) => p.id === id);
     return row ? (src) => src.kind === 'package_url' && src.uri === row.url : null;
@@ -330,6 +348,8 @@ export async function unlinkSource(
     registry.googleSources = registry.googleSources.filter((s) => s.id !== id);
   } else if (kind === 'onedrive') {
     registry.oneDriveSources = (registry.oneDriveSources ?? []).filter((s) => s.id !== id);
+  } else if (kind === 'gdrive_file') {
+    registry.googleDriveFiles = (registry.googleDriveFiles ?? []).filter((s) => s.id !== id);
   } else if (kind === 'folder') {
     registry.localFolders = registry.localFolders.filter((f) => f.id !== id);
     const adapter = await ctx.platform.getLocalFolderSources();
@@ -350,7 +370,7 @@ export async function saveSourcesRegistry(
   await platform.storage.setKv(LINKED_SOURCES_KV_KEY, registry);
 }
 
-function isOnline(): boolean {
+export function isOnline(): boolean {
   return typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean'
     ? true
     : navigator.onLine;
@@ -604,7 +624,7 @@ function extractHttpsImageUrlsFromMarkdown(rawMarkdown: string): string[] {
   return [...urls];
 }
 
-function resolveNoteType(state: CollectionState, noteTypeId?: string): NoteType {
+export function resolveNoteType(state: CollectionState, noteTypeId?: string): NoteType {
   if (noteTypeId) {
     const found = state.noteTypes.get(noteTypeId);
     if (found) return found;
@@ -1173,12 +1193,12 @@ export async function linkOneDriveFile(
   }
 }
 
-function excelUnreadableMessage(name: string): string {
+export function excelUnreadableMessage(name: string): string {
   return `Excel files can't be read on this device. Save "${name}" as CSV in Excel and link that instead.`;
 }
 
 /** True when this device can read `.xlsx` (the web and PC shells; not the phone shells yet). */
-async function canReadExcel(platform: PlatformServices): Promise<boolean> {
+export async function canReadExcel(platform: PlatformServices): Promise<boolean> {
   try {
     const adapter = await platform.getLocalFolderSources();
     return adapter.canParseXlsx ? adapter.canParseXlsx() : true;
@@ -1231,7 +1251,7 @@ interface OneDriveRefreshResult {
   unreadable?: true;
 }
 
-function archivedDeckRefreshMessage(deckName: string): string {
+export function archivedDeckRefreshMessage(deckName: string): string {
   return `The deck "${deckName}" is archived. Restore it to refresh this source.`;
 }
 
@@ -2286,8 +2306,9 @@ export async function refreshAllSources(
     if (res.error) errors.push(`${folder.name}: ${res.error}`);
   }
 
-  // 2. Google Sheets & Docs (online + connected)
-  if (isOnline() && registry.googleSources.length > 0) {
+  // 2. Google Sheets & Docs, and linked Google Drive files (online + connected)
+  const driveFiles = registry.googleDriveFiles ?? [];
+  if (isOnline() && (registry.googleSources.length > 0 || driveFiles.length > 0)) {
     let googleConnected: boolean;
     try {
       const auth = await ctx.platform.getGoogleAuth();
@@ -2313,6 +2334,15 @@ export async function refreshAllSources(
           src.lastError = msg;
           errors.push(`${src.name}: ${msg}`);
         }
+      }
+      if (driveFiles.length > 0) {
+        const gd = await refreshLinkedGoogleDriveFiles(driveFiles, ctx, opts?.force);
+        updatedSources += gd.updatedSources;
+        importedNotes += gd.importedNotes;
+        warningsCount += gd.warningsCount;
+        pendingReconciliations.push(...gd.pendingReconciliations);
+        errors.push(...gd.errors);
+        skipped.push(...gd.skipped);
       }
     }
   }

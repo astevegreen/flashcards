@@ -23,6 +23,7 @@ export class CapacitorNativePickerBridge implements NativePickerBridge {
     appId: string;
     apiKey: string;
     callbackScheme?: string;
+    mode?: 'sheets_docs' | 'drive_files';
   }): Promise<GooglePickedFile[]> {
     if (!this.launcher) {
       throw new Error('Native system browser launcher is unavailable.');
@@ -35,6 +36,8 @@ export class CapacitorNativePickerBridge implements NativePickerBridge {
       app_id: opts.appId,
       api_key: opts.apiKey,
       callback: `${callbackScheme}://picker-callback`,
+      // `picker.html` lists plain .csv/.tsv/.xlsx/.flashpkg files too; an older page ignores it.
+      ...(opts.mode === 'drive_files' ? { mode: 'drive_files' } : {}),
     });
     url.hash = frag.toString();
 
