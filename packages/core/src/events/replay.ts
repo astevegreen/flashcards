@@ -832,35 +832,16 @@ function buildMergedDeckSettings(pendingSettings: Partial<DeckSettings> | undefi
   return mergedSettings;
 }
 
-/** DeckCreated's own fields for a deck it just created (includes the `archived` reset). */
-function applyNewDeckCreatedFields(
-  ctx: ApplyEventContext,
-  deck: Deck,
-  p: EventPayloadMap['DeckCreated'],
-  initialRet: number,
-): void {
-  const { state, hlc, collector } = ctx;
-  // Apply DeckCreated's own fields strictly via LWW so newer out-of-order patches win
-  if (shouldApplyLww(state, `deck:${p.deck_id}:name`, hlc, collector)) deck.name = p.name;
-  if (shouldApplyLww(state, `deck:${p.deck_id}:note_type_id`, hlc, collector)) {
-    deck.note_type_id = p.note_type_id;
-  }
-  if (shouldApplyLww(state, `deck:${p.deck_id}:language`, hlc, collector)) {
-    deck.language = p.language;
-  }
-  if (shouldApplyLww(state, `deck:${p.deck_id}:archived`, hlc, collector)) {
-    deck.archived = false;
-  }
-  if (shouldApplyLww(state, `deck:${p.deck_id}:initial_retention`, hlc, collector)) {
-    deck.initial_retention = initialRet;
-  }
-  if (p.source !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc, collector)) {
-    deck.source = { ...p.source };
-  }
-}
-
-/** DeckCreated's own fields for a deck that already exists (no `archived` reset). */
-function applyExistingDeckCreatedFields(
+/**
+ * DeckCreated's own fields, the same whether the deck is new or already exists.
+ *
+ * Starter and `.flashpkg` deck ids are deterministic, so two devices can both
+ * emit `DeckCreated` for one deck. Every field is LWW or order-independent so
+ * the result does not depend on delivery order (D10). `archived` is owned only
+ * by `DeckSettingsChanged`: a create never unarchives a deck another device
+ * archived. `created_at` keeps the earliest known value.
+ */
+function applyDeckCreatedFields(
   ctx: ApplyEventContext,
   deck: Deck,
   p: EventPayloadMap['DeckCreated'],
@@ -879,6 +860,10 @@ function applyExistingDeckCreatedFields(
   }
   if (p.source !== undefined && shouldApplyLww(state, `deck:${p.deck_id}:source`, hlc, collector)) {
     deck.source = { ...p.source };
+  }
+  const createdAt = p.created_at ?? 0;
+  if (createdAt > 0 && (deck.created_at <= 0 || createdAt < deck.created_at)) {
+    deck.created_at = createdAt;
   }
 }
 
@@ -904,14 +889,14 @@ function createDeckFromPending(
     settings: mergedSettings,
     initial_retention: initialRet,
     archived: pending?.archived ?? false,
-    created_at: p.created_at ?? 0,
+    created_at: 0,
   };
   if (pending?.source !== undefined) {
     deck.source = { ...pending.source };
   }
   state.decks.set(p.deck_id, deck);
 
-  applyNewDeckCreatedFields(ctx, deck, p, initialRet);
+  applyDeckCreatedFields(ctx, deck, p, initialRet);
   return deck;
 }
 
@@ -922,7 +907,7 @@ function applyDeckCreated(ctx: ApplyEventContext, p: EventPayloadMap['DeckCreate
   if (!deck) {
     deck = createDeckFromPending(ctx, p, initialRet);
   } else {
-    applyExistingDeckCreatedFields(ctx, deck, p, initialRet);
+    applyDeckCreatedFields(ctx, deck, p, initialRet);
   }
   if (p.settings) {
     applyDeckSettingsPatchTarget(state, p.deck_id, deck.settings, p.settings, hlc, collector);

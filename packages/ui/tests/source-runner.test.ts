@@ -594,3 +594,82 @@ describe('sourceRunner — Google Sheets column mapping (Bring my cards)', () =>
     expect(updated?.fields['meaning']).toBe('big tree');
   });
 });
+
+describe('sourceRunner — Google Sheets Card ID write-back (D9)', () => {
+  it('does not let its own write-back hide a Sheet edit made during the refresh', async () => {
+    const state = createEmptyState();
+    const factory = createEventFactory('dev-wb', 0, createHlcState('dev-wb', 9000));
+    let modifiedTime = '2026-11-25T10:00:00Z';
+    let values = [
+      ['Word', 'Meaning', 'Card ID'],
+      ['나무', 'tree', ''],
+    ];
+    let writes = 0;
+    const platform = {
+      storage: makeInMemoryStorage(),
+      getGoogleSourcesClient: async () => ({
+        getFileMetadata: async () => ({
+          id: 'sheet-wb-1',
+          name: 'Write-back Sheet',
+          mimeType: 'application/vnd.google-apps.spreadsheet',
+          modifiedTime,
+          canEdit: true,
+        }),
+        readSheet: async () => ({
+          spreadsheetId: 'sheet-wb-1',
+          title: 'Write-back Sheet',
+          sheetTitle: 'Sheet1',
+          modifiedTime,
+          readOnly: false,
+          embeddedImageRows: [],
+          values: values.map((row) => [...row]),
+        }),
+        writeSheetCells: async (
+          _id: string,
+          _tab: string,
+          updates: { a1: string; value: string }[],
+        ) => {
+          writes += 1;
+          const cardId = updates.find((u) => u.a1.endsWith('2'))?.value ?? '';
+          // Our Card ID lands, and the owner edits the meaning while the refresh runs.
+          values = [
+            ['Word', 'Meaning', 'Card ID'],
+            ['나무', 'tree (edited)', cardId],
+          ];
+          modifiedTime = '2026-11-25T10:05:00Z';
+        },
+        createSheetFromTemplate: async () => {
+          throw new Error('unused');
+        },
+        exportDocAsMarkdown: async () => {
+          throw new Error('unused');
+        },
+      }),
+    } as unknown as PlatformServices;
+    const ctx = {
+      platform,
+      getState: () => state,
+      getEventFactory: () => factory,
+      emitEvents: (events: readonly KnownEvent[]) => {
+        applyEvents(state, events);
+      },
+    };
+    const source = {
+      id: 'gsheet:sheet-wb-1',
+      kind: 'google_sheets' as const,
+      fileId: 'sheet-wb-1',
+      name: 'Write-back Sheet',
+      uri: 'https://docs.google.com/spreadsheets/d/sheet-wb-1/edit',
+    };
+
+    await refreshSingleGoogleSource(source, ctx, { force: true });
+    expect(writes).toBe(1);
+    const meaning = () =>
+      [...state.notes.values()].find((n) => n.fields['word'] === '나무')?.fields['meaning'];
+    expect(meaning()).toBe('tree');
+
+    // A normal (unforced) refresh must not short-circuit on the post-write modifiedTime.
+    await refreshSingleGoogleSource(source, ctx);
+    expect(meaning()).toBe('tree (edited)');
+  });
+});

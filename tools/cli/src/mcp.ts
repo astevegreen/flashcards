@@ -48,16 +48,19 @@ export interface McpServerContext {
   nowMs?: () => number;
 }
 
+/** A JSON-RPC 2.0 request id. */
+export type JsonRpcId = string | number | null;
+
 export interface JsonRpcRequest {
   jsonrpc: '2.0';
-  id?: string | number | null;
+  id?: JsonRpcId;
   method: string;
   params?: Record<string, unknown>;
 }
 
 export interface JsonRpcResponse {
   jsonrpc: '2.0';
-  id: string | number | null;
+  id: JsonRpcId;
   result?: unknown;
   error?: { code: number; message: string; data?: unknown };
 }
@@ -757,14 +760,57 @@ export function handleMcpRequest(
   };
 }
 
+function isJsonRpcId(value: unknown): value is JsonRpcId {
+  return value === null || typeof value === 'string' || typeof value === 'number';
+}
+
+function invalidRequest(id: JsonRpcId, message: string): JsonRpcResponse {
+  return { jsonrpc: '2.0', id, error: { code: -32600, message: `Invalid Request: ${message}` } };
+}
+
+/**
+ * Handles one parsed JSON-RPC message of any shape (C26). Anything that is not a request
+ * object (`null`, a string, a batch array, an object without a string `method`) gets a
+ * -32600 reply instead of crashing the server. A client's reply to a server request (an
+ * object with `result` or `error` and no `method`) is ignored.
+ */
+export function handleMcpMessage(raw: unknown, ctx: McpServerContext): JsonRpcResponse | null {
+  if (Array.isArray(raw)) return invalidRequest(null, 'batch requests are not supported');
+  if (raw === null || typeof raw !== 'object') {
+    return invalidRequest(null, 'expected a JSON object');
+  }
+  const msg = raw as Record<string, unknown>;
+  const id = isJsonRpcId(msg['id']) ? msg['id'] : null;
+  if (msg['id'] !== undefined && !isJsonRpcId(msg['id'])) {
+    return invalidRequest(null, '"id" must be a string, number or null');
+  }
+  if (typeof msg['method'] !== 'string') {
+    if (msg['method'] === undefined && ('result' in msg || 'error' in msg)) return null;
+    return invalidRequest(id, '"method" must be a string');
+  }
+  const params = msg['params'];
+  if (
+    params !== undefined &&
+    (params === null || typeof params !== 'object' || Array.isArray(params))
+  ) {
+    if (msg['id'] === undefined) return null;
+    return {
+      jsonrpc: '2.0',
+      id,
+      error: { code: -32602, message: 'Invalid params: expected an object' },
+    };
+  }
+  return handleMcpRequest(msg as unknown as JsonRpcRequest, ctx);
+}
+
 export async function runMcpStdioServer(ctx: McpServerContext): Promise<void> {
   const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
   for await (const line of rl) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    let req: JsonRpcRequest;
+    let raw: unknown;
     try {
-      req = JSON.parse(trimmed) as JsonRpcRequest;
+      raw = JSON.parse(trimmed) as unknown;
     } catch {
       const errResp: JsonRpcResponse = {
         jsonrpc: '2.0',
@@ -774,7 +820,13 @@ export async function runMcpStdioServer(ctx: McpServerContext): Promise<void> {
       process.stdout.write(JSON.stringify(errResp) + '\n');
       continue;
     }
-    const resp = handleMcpRequest(req, ctx);
+    let resp: JsonRpcResponse | null;
+    try {
+      resp = handleMcpMessage(raw, ctx);
+    } catch (err) {
+      // Never let one message take the server down.
+      resp = { jsonrpc: '2.0', id: null, error: { code: -32603, message: errorMessage(err) } };
+    }
     if (resp) {
       process.stdout.write(JSON.stringify(resp) + '\n');
     }

@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { PRODUCTION_CSP } from '../csp.ts';
+import { PRODUCTION_CSP, PRODUCTION_HEADER_CSP } from '../csp.ts';
 
 /**
  * Guards the committed Cloudflare Pages `_headers` file (docs/setup-gcp-cloudflare.md §6): its CSP
- * must be exactly `PRODUCTION_CSP` (the policy Workers run under), `.wasm` must be served as
+ * must be exactly `PRODUCTION_HEADER_CSP` (`PRODUCTION_CSP` plus `frame-ancestors 'none'`), `.wasm` must be served as
  * `application/wasm`, and the file must match the documented block and reach `dist/`.
  */
 
@@ -35,10 +35,16 @@ function parseHeaders(text: string): Map<string, Map<string, string[]>> {
 describe('Cloudflare Pages _headers', () => {
   const rules = parseHeaders(HEADERS_FILE);
 
-  it('sends exactly PRODUCTION_CSP, once, on every response, with nosniff', () => {
+  it('sends exactly PRODUCTION_HEADER_CSP, once, on every response, with nosniff', () => {
     const all = rules.get('/*');
-    expect(all?.get('content-security-policy')).toEqual([PRODUCTION_CSP]);
+    expect(all?.get('content-security-policy')).toEqual([PRODUCTION_HEADER_CSP]);
     expect(all?.get('x-content-type-options')).toEqual(['nosniff']);
+  });
+
+  it('forbids framing (S3)', () => {
+    const all = rules.get('/*');
+    expect(PRODUCTION_HEADER_CSP).toBe(`${PRODUCTION_CSP} frame-ancestors 'none';`);
+    expect(all?.get('x-frame-options')).toEqual(['DENY']);
   });
 
   it('serves WebAssembly as application/wasm', () => {
@@ -60,7 +66,12 @@ describe('Cloudflare Pages _headers', () => {
     expect(start).toBeGreaterThan(-1);
     const fence = guide.indexOf('```text\n', start) + '```text\n'.length;
     const block = guide.slice(fence, guide.indexOf('```', fence));
-    expect(HEADERS_FILE).toBe(block.replace('<the policy above, on one line>', PRODUCTION_CSP));
+    expect(HEADERS_FILE).toBe(
+      block.replace(
+        "<the policy above, on one line> frame-ancestors 'none';",
+        PRODUCTION_HEADER_CSP,
+      ),
+    );
   });
 
   it('is copied to dist/ by the build', () => {
