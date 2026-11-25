@@ -207,13 +207,7 @@ function replaceMarkdownLinks(
     targetEndRe.lastIndex = targetStart;
     const targetEnd = targetEndRe.exec(text)?.index ?? text.length;
     if (targetEnd === targetStart) continue;
-    let end = -1;
-    if (text[targetEnd] === ')') {
-      end = targetEnd + 1;
-    } else if (targetEnd < text.length) {
-      titleRe.lastIndex = targetEnd;
-      if (titleRe.test(text)) end = titleRe.lastIndex;
-    }
+    const end = markdownLinkEnd(text, targetEnd, titleRe);
     if (end < 0) {
       failedTargetEnd = targetEnd;
       continue;
@@ -230,6 +224,14 @@ function replaceMarkdownLinks(
     pos = end;
   }
   return out + text.slice(copied);
+}
+
+/** Where a link whose target ends at `targetEnd` closes: after `)` or an optional title, or -1. */
+function markdownLinkEnd(text: string, targetEnd: number, titleRe: RegExp): number {
+  if (text[targetEnd] === ')') return targetEnd + 1;
+  if (targetEnd >= text.length) return -1;
+  titleRe.lastIndex = targetEnd;
+  return titleRe.test(text) ? titleRe.lastIndex : -1;
 }
 
 /** Index of the last entry of ascending `sorted` that is below `limit`, or -1. */
@@ -252,21 +254,8 @@ function replaceImageDirectiveSrcs(
   text: string,
   rewrite: (pre: string, src: string) => string,
 ): string {
-  // A `src=` has a value unless whitespace, `}` or the end of the text follows it.
-  const srcStarts: number[] = [];
-  for (const m of text.matchAll(/\bsrc=/g)) {
-    const next = text[m.index + 4];
-    if (next !== undefined && next !== '}' && !/\s/.test(next)) srcStarts.push(m.index);
-  }
-  // Each scan below only moves forward, so a result found earlier stays valid until passed.
-  const nextFrom = new Map<string, number>();
-  const nextIndexOf = (char: string, from: number): number => {
-    const known = nextFrom.get(char);
-    if (known === -1 || (known !== undefined && known >= from)) return known;
-    const found = text.indexOf(char, from);
-    nextFrom.set(char, found);
-    return found;
-  };
+  const srcStarts = valuedSrcStarts(text);
+  const nextIndexOf = forwardIndexOf(text);
   const bareEndRe = /[\s}]/g;
   let out = '';
   let copied = 0;
@@ -284,23 +273,54 @@ function replaceImageDirectiveSrcs(
     const src = srcStarts[lastIndexBelow(srcStarts, braceEnd - 4)];
     if (src === undefined || src < braceStart) continue;
     const valueStart = src + 4;
-    const quote = text[valueStart] ?? '';
-    const quoteEnd = quote === '"' || quote === "'" ? nextIndexOf(quote, valueStart + 1) : -1;
-    let value: string;
-    let end: number;
-    if (quoteEnd > valueStart + 1) {
-      value = text.slice(valueStart + 1, quoteEnd);
-      end = quoteEnd + 1;
-    } else {
-      bareEndRe.lastIndex = valueStart;
-      end = bareEndRe.exec(text)?.index ?? text.length;
-      value = text.slice(valueStart, end);
-    }
+    const { value, end } = readSrcValue(text, valueStart, nextIndexOf, bareEndRe);
     out += text.slice(copied, start) + rewrite(text.slice(start, valueStart), value);
     copied = end;
     pos = end;
   }
   return out + text.slice(copied);
+}
+
+/** Starts of the `src=` that have a value: not followed by whitespace, `}` or the end of text. */
+function valuedSrcStarts(text: string): number[] {
+  const starts: number[] = [];
+  for (const m of text.matchAll(/\bsrc=/g)) {
+    const next = text[m.index + 4];
+    if (next !== undefined && next !== '}' && !/\s/.test(next)) starts.push(m.index);
+  }
+  return starts;
+}
+
+/**
+ * `text.indexOf(char, from)` for callers whose `from` only moves forward: a result found earlier
+ * stays valid until it is passed, so the text is scanned once per character.
+ */
+function forwardIndexOf(text: string): (char: string, from: number) => number {
+  const nextFrom = new Map<string, number>();
+  return (char, from) => {
+    const known = nextFrom.get(char);
+    if (known === -1 || (known !== undefined && known >= from)) return known;
+    const found = text.indexOf(char, from);
+    nextFrom.set(char, found);
+    return found;
+  };
+}
+
+/** The directive `src` value at `valueStart`, quoted or bare, and where it ends. */
+function readSrcValue(
+  text: string,
+  valueStart: number,
+  nextIndexOf: (char: string, from: number) => number,
+  bareEndRe: RegExp,
+): { value: string; end: number } {
+  const quote = text[valueStart] ?? '';
+  const quoteEnd = quote === '"' || quote === "'" ? nextIndexOf(quote, valueStart + 1) : -1;
+  if (quoteEnd > valueStart + 1) {
+    return { value: text.slice(valueStart + 1, quoteEnd), end: quoteEnd + 1 };
+  }
+  bareEndRe.lastIndex = valueStart;
+  const end = bareEndRe.exec(text)?.index ?? text.length;
+  return { value: text.slice(valueStart, end), end };
 }
 
 function sanitizeTextSegment(
@@ -498,7 +518,7 @@ function slugify(raw: string): string {
  */
 function extractFirstHeading(markdown: string): string | undefined {
   for (const line of markdown.split(/[\n\r\u2028\u2029]/)) {
-    if (line[0] !== '#') continue;
+    if (!line.startsWith('#')) continue;
     let bodyStart = 1;
     while (line[bodyStart] === ' ' || line[bodyStart] === '\t') bodyStart++;
     if (bodyStart === 1 || line.length < 3) continue;

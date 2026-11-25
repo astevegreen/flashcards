@@ -1059,9 +1059,10 @@ export function DictionaryPanel({
       }
       await searchLatest(async () => {
         const svc = await getService();
+        const scope = packIds ? { packIds } : undefined;
         return isSingleIdeograph(trimmed)
-          ? svc.lookupCharacter(trimmed, packIds ? { packIds } : undefined)
-          : svc.search(trimmed, { ...(packIds ? { packIds } : {}), limit: 60, direction });
+          ? svc.lookupCharacter(trimmed, scope)
+          : svc.search(trimmed, { ...scope, limit: 60, direction });
       });
     },
     [platform, direction, allPackIdsKey, searchLatest],

@@ -42,11 +42,12 @@ function uuidToBytes(uuid: string): Uint8Array {
  */
 export function encodeUtf8(str: string): Uint8Array {
   let size = 0;
+  // `codePointAt` returns a lone surrogate's own code unit, so it takes the 3-byte branch.
   for (let i = 0; i < str.length; i++) {
-    const c = str.charCodeAt(i);
+    const c = str.codePointAt(i) ?? 0;
     if (c < 0x80) size += 1;
     else if (c < 0x800) size += 2;
-    else if (c >= 0xd800 && c <= 0xdbff && isLowSurrogate(str.charCodeAt(i + 1))) {
+    else if (c > 0xffff) {
       size += 4;
       i++;
     } else size += 3;
@@ -54,14 +55,14 @@ export function encodeUtf8(str: string): Uint8Array {
   const out = new Uint8Array(size);
   let at = 0;
   for (let i = 0; i < str.length; i++) {
-    let c = str.charCodeAt(i);
+    const c = str.codePointAt(i) ?? 0;
     if (c < 0x80) {
       out[at++] = c;
     } else if (c < 0x800) {
       out[at++] = 0xc0 | (c >> 6);
       out[at++] = 0x80 | (c & 0x3f);
-    } else if (c >= 0xd800 && c <= 0xdbff && isLowSurrogate(str.charCodeAt(i + 1))) {
-      c = ((c - 0xd800) << 10) + (str.charCodeAt(++i) - 0xdc00) + 0x10000;
+    } else if (c > 0xffff) {
+      i++;
       out[at++] = 0xf0 | (c >> 18);
       out[at++] = 0x80 | ((c >> 12) & 0x3f);
       out[at++] = 0x80 | ((c >> 6) & 0x3f);
@@ -74,8 +75,6 @@ export function encodeUtf8(str: string): Uint8Array {
   }
   return out;
 }
-
-const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff;
 
 function rotl(n: number, bits: number): number {
   return (n << bits) | (n >>> (32 - bits));
