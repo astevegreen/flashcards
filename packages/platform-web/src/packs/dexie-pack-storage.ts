@@ -278,6 +278,10 @@ export class DexiePackStorage {
     return this.db.strokes.where('script').equals(script).toArray();
   }
 
+  countStrokesByScript(script: StrokeScript): Promise<number> {
+    return this.db.strokes.where('script').equals(script).count();
+  }
+
   async getStrokeIndex(script: StrokeScript): Promise<StrokeLookupIndex | undefined> {
     const row = await this.db.stroke_index.get(script);
     return row?.index;

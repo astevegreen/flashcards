@@ -7,8 +7,11 @@ import {
   type InkStroke,
   type StrokeLookupIndex,
 } from '@flash/core/drawing';
-import type { HandwritingRecognizer } from '@flash/platform';
+import type { HandwritingRecognizer, InstalledPackInfo } from '@flash/platform';
 import type { DexiePackStorage } from '../packs/dexie-pack-storage.ts';
+
+/** The pack `listInstalledHanjaCharacters` reads. */
+const HANJA_PACK_ID = 'dict-hanja-unihan';
 
 /**
  * Web handwriting recognizer backed by our custom MIT stroke-matching algorithm (§6.4)
@@ -29,11 +32,38 @@ export class WebStrokeRecognizer implements HandwritingRecognizer {
     { resolve: (c: HandwritingCandidate[]) => void; reject: (e: Error) => void }
   >();
 
+  /**
+   * Loaded stroke indexes and the Hanja set, each kept until its source changes (P6): loading them
+   * read whole packs from IndexedDB on every call. A pack's version is its `installedAt`.
+   */
+  private readonly loaded = new Map<string, { version: string; value: Promise<unknown> }>();
+
   constructor(packStorage: DexiePackStorage) {
     this.packStorage = packStorage;
   }
 
-  private async loadRelevantIndexes(lang?: string): Promise<StrokeLookupIndex[]> {
+  private loadOnce<T>(name: string, version: string, load: () => Promise<T>): Promise<T> {
+    const hit = this.loaded.get(name);
+    if (hit?.version === version) return hit.value as Promise<T>;
+    const value = load();
+    this.loaded.set(name, { version, value });
+    // A failed load is retried on the next call.
+    value.catch(() => {
+      if (this.loaded.get(name)?.value === value) this.loaded.delete(name);
+    });
+    return value;
+  }
+
+  /** Installed packs by id (one small read of the packs table): their `installedAt` versions. */
+  private async installedPacks(): Promise<Map<string, InstalledPackInfo>> {
+    const packs = await this.packStorage.listInstalledPacks();
+    return new Map(packs.map((p) => [p.id, p]));
+  }
+
+  private async loadRelevantIndexes(
+    lang: string | undefined,
+    packs: ReadonlyMap<string, InstalledPackInfo>,
+  ): Promise<StrokeLookupIndex[]> {
     const norm = normalizeDrawingLang(lang);
     const indexes: StrokeLookupIndex[] = [];
 
@@ -42,17 +72,33 @@ export class WebStrokeRecognizer implements HandwritingRecognizer {
       norm === 'zh-Hans' || norm === 'zh-Hant' || norm === 'ko' || !lang || lang === 'any';
 
     if (wantZh) {
-      const idx = await this.loadScriptIndex('zh-Hans');
+      const idx = await this.loadScriptIndex('zh-Hans', packs);
       if (idx) indexes.push(idx);
     }
     if (wantJa) {
-      const idx = await this.loadScriptIndex('ja');
+      const idx = await this.loadScriptIndex('ja', packs);
       if (idx) indexes.push(idx);
     }
     return indexes;
   }
 
-  private async loadScriptIndex(script: 'ja' | 'zh-Hans'): Promise<StrokeLookupIndex | null> {
+  private async loadScriptIndex(
+    script: 'ja' | 'zh-Hans',
+    packs: ReadonlyMap<string, InstalledPackInfo>,
+  ): Promise<StrokeLookupIndex | null> {
+    const installs = [...packs.values()]
+      .filter((p) => p.kind === 'strokes' && p.script === script)
+      .map((p) => `${p.id}@${p.installedAt}`);
+    // With no stroke pack, the index is built from deck strokes cached one by one: their count
+    // changes when one is added.
+    const version =
+      installs.length > 0
+        ? installs.join(',')
+        : `deck:${await this.packStorage.countStrokesByScript(script)}`;
+    return this.loadOnce(`strokes:${script}`, version, () => this.readScriptIndex(script));
+  }
+
+  private async readScriptIndex(script: 'ja' | 'zh-Hans'): Promise<StrokeLookupIndex | null> {
     const stored = await this.packStorage.getStrokeIndex(script);
     if (stored && stored.entries.length > 0) {
       return stored;
@@ -67,7 +113,7 @@ export class WebStrokeRecognizer implements HandwritingRecognizer {
   }
 
   async isReady(lang?: string): Promise<boolean> {
-    const indexes = await this.loadRelevantIndexes(lang);
+    const indexes = await this.loadRelevantIndexes(lang, await this.installedPacks());
     return indexes.some((idx) => idx.entries.length > 0);
   }
 
@@ -121,12 +167,16 @@ export class WebStrokeRecognizer implements HandwritingRecognizer {
     strokes: readonly InkStroke[],
     options: HandwritingRecognizeOptions = {},
   ): Promise<HandwritingCandidate[]> {
-    const indexes = await this.loadRelevantIndexes(options.lang);
+    const packs = await this.installedPacks();
+    const indexes = await this.loadRelevantIndexes(options.lang, packs);
     if (indexes.length === 0) return [];
 
     let preferredChars = options.preferredChars;
     if (!preferredChars && normalizeDrawingLang(options.lang) === 'ko') {
-      const hanjaChars = await this.packStorage.listInstalledHanjaCharacters();
+      const hanjaVersion = String(packs.get(HANJA_PACK_ID)?.installedAt);
+      const hanjaChars = await this.loadOnce('hanja', hanjaVersion, () =>
+        this.packStorage.listInstalledHanjaCharacters(),
+      );
       if (hanjaChars.size > 0) {
         preferredChars = hanjaChars;
       }
