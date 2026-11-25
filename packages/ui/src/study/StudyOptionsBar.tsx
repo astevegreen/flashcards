@@ -37,7 +37,7 @@ export interface StudyOptionsBarProps {
  * the app restarts; Settings › Study Preferences holds the defaults (the default method applies
  * until the user picks one this session). Only the chip is on the critical path (§8).
  */
-export function StudyOptionsBar({ deckId, studyFilter }: StudyOptionsBarProps) {
+export function StudyOptionsBar({ deckId, studyFilter }: Readonly<StudyOptionsBarProps>) {
   const { state, getEventFactory, emitEvents } = useApp();
   const options = useSessionStudyOptions(deckId);
   const panelId = useId();

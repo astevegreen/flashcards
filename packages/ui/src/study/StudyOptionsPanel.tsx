@@ -13,14 +13,14 @@ function Choice({
   label,
   checked,
   onChoose,
-}: {
+}: Readonly<{
   group: string;
   name: string;
   value: string;
   label: string;
   checked: boolean;
   onChoose: () => void;
-}) {
+}>) {
   return (
     <label className="flex items-center gap-2 py-0.5">
       <input
@@ -44,7 +44,12 @@ export interface StudyOptionsPanelProps {
 }
 
 /** The Study options popover body (lazy chunk, §8): method and order radios for this session. */
-export function StudyOptionsPanel({ ctx, method, order, onDone }: StudyOptionsPanelProps) {
+export function StudyOptionsPanel({
+  ctx,
+  method,
+  order,
+  onDone,
+}: Readonly<StudyOptionsPanelProps>) {
   const name = useId();
   const orders = method === 'practice' ? PRACTICE_ORDERS : SCHEDULE_ORDERS;
   return (

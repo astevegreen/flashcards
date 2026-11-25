@@ -782,7 +782,7 @@ export function LibraryScreen({
   onStudyDeck,
   onViewWords,
   initialImportExport,
-}: LibraryScreenProps) {
+}: Readonly<LibraryScreenProps>) {
   const {
     platform,
     state,
