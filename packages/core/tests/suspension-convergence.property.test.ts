@@ -157,7 +157,7 @@ describe('CardSuspended / CardUnsuspended convergence (fast-check)', () => {
                   clock,
                 ),
               );
-            } else {
+            } else if (act.kind === 'edit') {
               const key = NOTE_KEYS[act.card] ?? '';
               events.push(
                 f.create(

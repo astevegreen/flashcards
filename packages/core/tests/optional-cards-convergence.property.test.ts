@@ -127,7 +127,7 @@ const actionArb = fc.oneof(
 
 function buildEvents(
   factories: readonly [EventFactory, EventFactory],
-  actions: readonly fc.TypeOf<typeof actionArb>[],
+  actions: readonly (typeof actionArb extends fc.Arbitrary<infer A> ? A : never)[],
 ): FlashEvent[] {
   const [f0] = factories;
   const events: FlashEvent[] = [

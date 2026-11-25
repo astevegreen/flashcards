@@ -30,8 +30,9 @@ const JA_NOTE_TYPE = BUILTIN_NOTE_TYPES.find((nt) => nt.id === BUILTIN_NOTE_TYPE
 if (!KO_NOTE_TYPE || !JA_NOTE_TYPE) {
   throw new Error('Built-in KO/JA note types missing');
 }
+const KO_NOTE_TYPE_ID = KO_NOTE_TYPE.id;
 
-function makeDeckState(deckId = 'deck-sheet-1', noteTypeId: string = KO_NOTE_TYPE.id) {
+function makeDeckState(deckId = 'deck-sheet-1', noteTypeId: string = KO_NOTE_TYPE_ID) {
   const state = createEmptyState();
   const factory = createEventFactory('dev-1', 0, createHlcState('dev-1', 1000));
   applyEvents(state, [

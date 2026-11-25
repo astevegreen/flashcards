@@ -247,7 +247,9 @@ async function streamZip(plan: AnkiCsvExportPlan, media: Map<string, Uint8Array>
       reads.push(hash);
       return media.get(hash);
     },
-    (chunk) => chunks.push(chunk.slice()),
+    (chunk) => {
+      chunks.push(chunk.slice());
+    },
   );
   const zip = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
   let offset = 0;

@@ -9,6 +9,7 @@ import {
   createFreeTierEntitlement,
   createPersonalEntitlement,
   encodeLicenseKey,
+  type EntitlementState,
   FREE_TIER_MAX_DECKS,
   parseLicenseKey,
   UNLOCK_PRODUCT_ID,
@@ -52,7 +53,7 @@ describe('Phase 8 License, Free-Tier Policy & Offline Ed25519 Verification (§12
     const pair = (await webcrypto.subtle.generateKey('Ed25519', true, [
       'sign',
       'verify',
-    ])) as CryptoKeyPair;
+    ])) as webcrypto.CryptoKeyPair;
     const publicKeyRaw = new Uint8Array(await webcrypto.subtle.exportKey('raw', pair.publicKey));
     const publicKeyHex = bytesToHex(publicKeyRaw);
 
@@ -104,9 +105,9 @@ describe('Phase 8 License, Free-Tier Policy & Offline Ed25519 Verification (§12
     expect(canCreateOrImportDeck(FREE_TIER_MAX_DECKS, free).allowed).toBe(false);
     expect(canUseCloudSync(free).allowed).toBe(false);
 
-    const unlocked = {
+    const unlocked: EntitlementState = {
       unlocked: true,
-      source: 'store_iap' as const,
+      source: 'store_iap',
       personalBuild: false,
       productId: UNLOCK_PRODUCT_ID,
     };

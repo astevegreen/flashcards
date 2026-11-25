@@ -25,7 +25,12 @@ describe('streaming zip writer', () => {
   it('writes stored and deflated files that unzip back, with sizes in the local headers', () => {
     const chunks: Uint8Array[] = [];
     const media = new Uint8Array(5000).map((_, i) => (i * 7) & 0xff);
-    const zip = new AnkiZipWriter((c) => chunks.push(c.slice()), Date.UTC(2026, 10, 23, 12, 30));
+    const zip = new AnkiZipWriter(
+      (c) => {
+        chunks.push(c.slice());
+      },
+      Date.UTC(2026, 10, 23, 12, 30),
+    );
     zip.add('notes.csv', encodeUtf8('a,b\r\n'.repeat(200)), true);
     zip.add('collection.media/日本.png', media);
     zip.add('empty.txt', new Uint8Array());

@@ -66,7 +66,7 @@ function plan(options: { includeReviewHistory?: boolean } = {}) {
 }
 
 /** Cards in export order: cloze-1 (c1, c2), note-1 (flip, typed), note-2 (flip, typed), note-3 ×2. */
-function cardsOf(p: AnkiApkgPlan) {
+function cardsOf(p: AnkiApkgPlan): Record<string, unknown>[] {
   const notes = table(p, 'notes');
   const guid = new Map(notes.map((n) => [n['id'], n['guid']]));
   return table(p, 'cards').map((c) => ({ ...c, guid: guid.get(c['nid']) }));
