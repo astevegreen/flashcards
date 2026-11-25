@@ -125,14 +125,22 @@ export class DexiePackStorage {
     await this.db.packs.put(info);
   }
 
+  /**
+   * Swaps in a pack's new rows. The `packs` row goes in the same transaction as the old rows, and
+   * the caller writes the new one only after the last chunk (D15): an interrupted reinstall leaves
+   * the pack not installed, never "installed" over a partial set of entries.
+   */
   async replaceDictionaryPackEntries(
     packId: DictionaryPackId,
     entries: readonly DictionaryEntry[],
     onChunk?: (done: number, total: number) => void,
   ): Promise<void> {
-    await this.db.dict_entries.where('packId').equals(packId).delete();
-    await this.db.kv.delete(BROWSE_SUMMARY_KEY_PREFIX + packId);
-    await this.db.kv.delete(SHARD_STATE_KEY_PREFIX + packId);
+    await this.db.transaction('rw', [this.db.packs, this.db.dict_entries, this.db.kv], async () => {
+      await this.db.packs.delete(packId);
+      await this.db.dict_entries.where('packId').equals(packId).delete();
+      await this.db.kv.delete(BROWSE_SUMMARY_KEY_PREFIX + packId);
+      await this.db.kv.delete(SHARD_STATE_KEY_PREFIX + packId);
+    });
     const CHUNK = 2000;
     for (let i = 0; i < entries.length; i += CHUNK) {
       const slice = entries.slice(i, i + CHUNK);
@@ -209,7 +217,11 @@ export class DexiePackStorage {
   ): Promise<void> {
     const entries = Object.entries(characters);
     const now = Date.now();
-    await this.db.strokes.where('packId').equals(packId).delete();
+    // As for dictionaries: not installed until the caller writes the new `packs` row (D15).
+    await this.db.transaction('rw', [this.db.packs, this.db.strokes], async () => {
+      await this.db.packs.delete(packId);
+      await this.db.strokes.where('packId').equals(packId).delete();
+    });
     const CHUNK = 1000;
     for (let i = 0; i < entries.length; i += CHUNK) {
       const slice = entries.slice(i, i + CHUNK).map(([char, data]) => ({

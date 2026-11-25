@@ -3,6 +3,7 @@ import { WebDeviceSpeechPlayer } from './audio/device-speech.ts';
 import { WebAudioPlayer } from './audio/web-audio-player.ts';
 import { WebFiles } from './files/web-files.ts';
 import type { LazyWebServices } from './lazy-services.ts';
+import { loadOnceUntilFailure } from './load-once.ts';
 import { DexieStorage } from './storage/dexie-storage.ts';
 
 export { DexieStorage } from './storage/dexie-storage.ts';
@@ -54,8 +55,7 @@ export function resolveDeviceFromUrl(search: string = window.location.search): R
 
 /** A `SyncTransport` whose implementation is created on first use (keeps it out of the boot chunk). */
 function lazySyncTransport(load: () => Promise<SyncTransport>): SyncTransport {
-  let pending: Promise<SyncTransport> | undefined;
-  const get = () => (pending ??= load());
+  const get = loadOnceUntilFailure(load);
   return {
     list: async (prefix) => (await get()).list(prefix),
     read: async (path) => (await get()).read(path),
@@ -100,31 +100,24 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
 
   // Every other service loads `lazy-services.ts` on first use, which then loads that service's own
   // chunk: one boot-chunk entry instead of one per service (§8).
-  let lazyServices: Promise<LazyWebServices> | undefined;
-  const lazy = () =>
-    (lazyServices ??= import('./lazy-services.ts')
-      .then((m) =>
-        m.createLazyWebServices({
-          slug: resolved.slug,
-          isDevMode,
-          storage,
-          googleClientId,
-          tokenHelperUrl,
-          googleApiKey,
-          dropboxAppKey,
-          microsoftClientId,
-          microsoftTenant,
-          packCatalogUrl,
-          isPersonalBuild: options?.isPersonalBuild ?? true,
-          licensePublicKeyHex: options?.licensePublicKeyHex,
-        }),
-      )
-      .catch((err: unknown) => {
-        // A failed chunk fetch (offline before precache, a replaced deploy) must not stick: the
-        // next call tries again, as each service's own import() did before.
-        lazyServices = undefined;
-        throw err;
-      }));
+  const lazy = loadOnceUntilFailure(() =>
+    import('./lazy-services.ts').then((m) =>
+      m.createLazyWebServices({
+        slug: resolved.slug,
+        isDevMode,
+        storage,
+        googleClientId,
+        tokenHelperUrl,
+        googleApiKey,
+        dropboxAppKey,
+        microsoftClientId,
+        microsoftTenant,
+        packCatalogUrl,
+        isPersonalBuild: options?.isPersonalBuild ?? true,
+        licensePublicKeyHex: options?.licensePublicKeyHex,
+      }),
+    ),
+  );
   /** A platform method that forwards to the lazily loaded service of the same name. */
   const defer = <K extends keyof LazyWebServices>(key: K): LazyWebServices[K] =>
     (async (...args: unknown[]) =>

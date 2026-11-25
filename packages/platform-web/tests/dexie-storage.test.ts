@@ -9,6 +9,7 @@ import {
   type FlashEvent,
   type UnknownEvent,
 } from '@flash/core';
+import { advanceClockPastOwnEvents } from '@flash/core/sync';
 import type { MaterializedCardRow } from '@flash/platform';
 import Dexie from 'dexie';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -190,5 +191,26 @@ describe('DexieStorage v2 unit tests (fake-indexeddb)', () => {
     expect(await storage.getSyncConfig()).toBeUndefined();
 
     storage.close();
+  });
+});
+
+describe('device meta behind stored events (D11)', () => {
+  it('finds the events a killed session stored after its last meta write', async () => {
+    const storage = createTestStorage('d11');
+    const hlc = createHlcState('dev-a', 1_750_000_000_000);
+    await storage.setDeviceMeta({ deviceId: 'dev-a', seq: 1, hlc });
+    const f = createEventFactory('dev-a', 0, hlc);
+    const events = [1, 2, 3].map(() =>
+      f.create('PreferencesChanged', { preferences: {} }, 1_750_000_000_100),
+    );
+    await storage.appendEvents(events); // ...and the tab closed before setDeviceMeta ran
+
+    const meta = await storage.getDeviceMeta();
+    if (!meta) throw new Error('meta missing');
+    const tail = await storage.getDeviceEventsAfterSeq(meta.deviceId, meta.seq);
+    expect(tail.map((e) => e.seq)).toEqual([2, 3]);
+    const repaired = { ...meta, ...advanceClockPastOwnEvents(meta, tail) };
+    expect(repaired.seq).toBe(3);
+    expect(repaired.hlc.wallMs).toBe(1_750_000_000_100);
   });
 });

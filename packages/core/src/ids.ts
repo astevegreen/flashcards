@@ -35,38 +35,45 @@ function uuidToBytes(uuid: string): Uint8Array {
   return bytes;
 }
 
-/** Pure-TS UTF-8 encoder (no TextEncoder DOM dependency). */
+/**
+ * Pure-TS UTF-8 encoder (no TextEncoder DOM dependency). Writes into one exactly sized buffer: a
+ * snapshot is tens of MB, and a JS number array of that many bytes can exhaust a phone's memory
+ * (D12). Lone surrogates encode as their own 3-byte sequence, as before.
+ */
 export function encodeUtf8(str: string): Uint8Array {
-  const out: number[] = [];
+  let size = 0;
+  // `codePointAt` returns a lone surrogate's own code unit, so it takes the 3-byte branch.
   for (let i = 0; i < str.length; i++) {
-    let codePoint = str.charCodeAt(i);
-    if (codePoint >= 0xd800 && codePoint <= 0xdbff && i + 1 < str.length) {
-      const low = str.charCodeAt(i + 1);
-      if (low >= 0xdc00 && low <= 0xdfff) {
-        codePoint = ((codePoint - 0xd800) << 10) + (low - 0xdc00) + 0x10000;
-        i++;
-      }
-    }
-    if (codePoint < 0x80) {
-      out.push(codePoint);
-    } else if (codePoint < 0x800) {
-      out.push(0xc0 | (codePoint >> 6), 0x80 | (codePoint & 0x3f));
-    } else if (codePoint < 0x10000) {
-      out.push(
-        0xe0 | (codePoint >> 12),
-        0x80 | ((codePoint >> 6) & 0x3f),
-        0x80 | (codePoint & 0x3f),
-      );
+    const c = str.codePointAt(i) ?? 0;
+    if (c < 0x80) size += 1;
+    else if (c < 0x800) size += 2;
+    else if (c > 0xffff) {
+      size += 4;
+      i++;
+    } else size += 3;
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.codePointAt(i) ?? 0;
+    if (c < 0x80) {
+      out[at++] = c;
+    } else if (c < 0x800) {
+      out[at++] = 0xc0 | (c >> 6);
+      out[at++] = 0x80 | (c & 0x3f);
+    } else if (c > 0xffff) {
+      i++;
+      out[at++] = 0xf0 | (c >> 18);
+      out[at++] = 0x80 | ((c >> 12) & 0x3f);
+      out[at++] = 0x80 | ((c >> 6) & 0x3f);
+      out[at++] = 0x80 | (c & 0x3f);
     } else {
-      out.push(
-        0xf0 | (codePoint >> 18),
-        0x80 | ((codePoint >> 12) & 0x3f),
-        0x80 | ((codePoint >> 6) & 0x3f),
-        0x80 | (codePoint & 0x3f),
-      );
+      out[at++] = 0xe0 | (c >> 12);
+      out[at++] = 0x80 | ((c >> 6) & 0x3f);
+      out[at++] = 0x80 | (c & 0x3f);
     }
   }
-  return new Uint8Array(out);
+  return out;
 }
 
 function rotl(n: number, bits: number): number {

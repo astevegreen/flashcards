@@ -485,6 +485,76 @@ describe('@flash/core/sources — Markdown Page normalizer & §13 raw HTML prote
       sanitizePageMarkdown('Hello <img src=x onerror=alert(1)>', { mode: 'reject' }),
     ).toThrow(PageSecurityError);
   });
+
+  it('keeps image mapping, titles and the last directive src (S5 rewrite)', () => {
+    const png = `media:${'c'.repeat(64)}`;
+    const { markdown, warnings } = sanitizePageMarkdown(
+      [
+        '![cat](https://ex.com/a.png "Cat") [cat](https://ex.com/a.png)',
+        '[x](javascript:alert(1)) <SCRIPT a>no</script > <!-- c --> <i\tclass="x">i</i>',
+        `::image[a]{width=2 src=https://ex.com/a.png src='img/b.png'}`,
+      ].join('\n'),
+      { mediaPathMap: { 'https://ex.com/a.png': png } },
+    );
+    expect(markdown).toBe(
+      [
+        `![cat](${png} "Cat") [cat](https://ex.com/a.png)`,
+        '[x](#blocked))   i',
+        `::image[a]{width=2 src=https://ex.com/a.png src=""}`,
+      ].join('\n'),
+    );
+    expect(warnings.map((w) => w.code)).toEqual(['raw_html_stripped', 'unsafe_url_stripped']);
+  });
+
+  it('sanitizes adversarial page text in linear time (S5)', () => {
+    const big = 300_000;
+    const inputs = [
+      `<a${' '.repeat(big)}`,
+      '<script>'.repeat(big / 8),
+      '<script x'.repeat(big / 9),
+      '<!--'.repeat(big / 4),
+      '['.repeat(big),
+      '[x]('.repeat(big / 4),
+      '[x](a "'.repeat(big / 7),
+      '::image['.repeat(big / 8),
+      '::image[]{'.repeat(big / 10),
+      '::image[]{src="a '.repeat(big / 17),
+      `# a${' '.repeat(big)}x`,
+    ];
+    const { state, factory } = makeDeckState();
+    for (const input of inputs) {
+      const started = performance.now();
+      normalizeMarkdownPage({
+        sourceKey: 'gdoc:redos',
+        fallbackTitle: 'Fallback',
+        rawMarkdown: input,
+        source: { kind: 'google_docs', external_id: 'redos' },
+        state,
+        eventFactory: factory,
+        nowMs: 1000,
+      });
+      // The quadratic regexes took seconds on each of these; the scanners take milliseconds.
+      expect(performance.now() - started, input.slice(0, 12)).toBeLessThan(500);
+    }
+  });
+
+  it('takes the title from the first heading line', () => {
+    const { state, factory } = makeDeckState();
+    const titleOf = (rawMarkdown: string) =>
+      normalizeMarkdownPage({
+        sourceKey: 'gdoc:title',
+        fallbackTitle: 'Fallback',
+        rawMarkdown,
+        source: { kind: 'google_docs', external_id: 'title' },
+        state,
+        eventFactory: factory,
+        nowMs: 1000,
+      }).title;
+    expect(titleOf('intro\n#  Particles  ##\n# Second')).toBe('Particles');
+    expect(titleOf('#no-space\n#\tTab ## heading #')).toBe('Tab ## heading');
+    expect(titleOf('# ##')).toBe('#');
+    expect(titleOf('#nothing')).toBe('Fallback');
+  });
 });
 
 describe('@flash/core/sources — Family Library catalog & .flashpkg upgrade with pages/media', () => {

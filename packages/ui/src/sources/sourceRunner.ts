@@ -64,6 +64,7 @@ export {
   type DropboxRefreshResult,
 } from './dropboxSourceRunner.ts';
 import { refreshLinkedDropboxFiles } from './dropboxSourceRunner.ts';
+import { deckLimitReason, newDeckIds } from './deckLimit.ts';
 
 export const LINKED_SOURCES_KV_KEY = 'linked_sources_v1';
 
@@ -91,7 +92,10 @@ export interface SourceRunContext {
   getState: () => CollectionState;
   getEventFactory: () => EventFactory;
   emitEvents: (events: readonly KnownEvent[]) => void;
-  /** Optional: checked when a multi-deck package (`.flashpkg`) adds new decks under free tier. */
+  /**
+   * Free tier: checked whenever a run would add decks (folder files, Inbox and folder packages,
+   * package refreshes); a run that would pass the limit skips that file or package (C14).
+   */
   entitlement?: EntitlementState;
 }
 
@@ -1701,6 +1705,14 @@ export async function scanSingleLocalFolder(
     );
 
     const files = await adapter.listFolderFiles(folder.id);
+    // Decks this scan created; `ctx.getState()` may not show them yet (C14).
+    const scanDecks = new Set<string>();
+    const overDeckLimit = (state: CollectionState, ids: readonly string[], file: string) => {
+      const reason = deckLimitReason(ctx.entitlement, state, ids, scanDecks);
+      if (reason) warnings.push({ code: 'deck_limit', message: reason, file });
+      else for (const id of ids) scanDecks.add(id);
+      return reason !== undefined;
+    };
     let notesTouched = 0;
     let pagesTouched = 0;
     let inboxImported = 0;
@@ -1726,6 +1738,10 @@ export async function scanSingleLocalFolder(
             external_id: `${folder.id}:${file.relativePath}`,
           },
         });
+        // Left in Inbox (and not recorded) so it imports once there's room.
+        if (overDeckLimit(state, newDeckIds(state, pkgRes.events, scanDecks), file.relativePath)) {
+          continue;
+        }
         for (const media of pkgRes.extractedMedia) {
           await ctx.platform.storage.putMedia({
             hash: media.hash,
@@ -1789,6 +1805,10 @@ export async function scanSingleLocalFolder(
           },
           archiveRemovedOnUpgrade: true,
         });
+        // Not cached, so the next scan tries again.
+        if (overDeckLimit(state, newDeckIds(state, pkgRes.events, scanDecks), file.relativePath)) {
+          continue;
+        }
         for (const media of pkgRes.extractedMedia) {
           await ctx.platform.storage.putMedia({
             hash: media.hash,
@@ -1938,6 +1958,10 @@ export async function scanSingleLocalFolder(
       const deckId =
         cached?.deckId ?? uuidv5(FLASH_NAMESPACE_UUID, `local:${folder.id}:${file.relativePath}`);
       const existingDeck = state.decks.get(deckId);
+      // A new file's deck: checked before any Card ID write-back touches the file.
+      if (!existingDeck && !scanDecks.has(deckId)) {
+        if (overDeckLimit(state, [deckId], file.relativePath)) continue;
+      }
       const inferred = inferPresetNoteTypeId(
         grid[0] ?? [],
         cached?.noteTypeId ?? BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
@@ -2210,7 +2234,8 @@ export async function refreshSinglePackageSubscription(
     }
   }
 
-  const pkgRes = importFlashpkg(fetched.bytes, ctx.getState(), ctx.getEventFactory(), {
+  const state = ctx.getState();
+  const pkgRes = importFlashpkg(fetched.bytes, state, ctx.getEventFactory(), {
     nowMs,
     sourceOverride: {
       kind: 'package_url',
@@ -2218,6 +2243,8 @@ export async function refreshSinglePackageSubscription(
     },
     archiveRemovedOnUpgrade: true,
   });
+  const overLimit = deckLimitReason(ctx.entitlement, state, newDeckIds(state, pkgRes.events));
+  if (overLimit) throw new Error(overLimit);
 
   for (const media of pkgRes.extractedMedia) {
     await ctx.platform.storage.putMedia({

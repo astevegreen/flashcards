@@ -35,6 +35,7 @@ import { ShowAllLanguagesSwitch } from '../packs/ShowAllLanguagesSwitch.tsx';
 import { homeSummariesFor, searchPackIds, useVisiblePacks } from './useVisiblePacks.ts';
 import { DictionaryBrowseHeader, DictionaryHome } from './DictionaryHome.tsx';
 import {
+  createLatestSearch,
   directionTargetName,
   pushRecentLookup,
   readLookupDirection,
@@ -655,6 +656,8 @@ interface AddToDeckBarProps {
   entry: DictionaryEntry;
   decks: readonly Deck[];
   selectedDeckId: string;
+  /** The entry's own card is already in the selected deck (adding it again would reset it). */
+  alreadyAdded?: boolean;
   onChooseDeck: (deckId: string) => void;
   onAdd: (deckId: string) => void;
   onCreateDeckAndAdd: () => void;
@@ -665,6 +668,7 @@ function AddToDeckBar({
   entry,
   decks,
   selectedDeckId,
+  alreadyAdded = false,
   onChooseDeck,
   onAdd,
   onCreateDeckAndAdd,
@@ -695,12 +699,13 @@ function AddToDeckBar({
           <button
             type="button"
             data-testid="dict-add-confirm-btn"
+            disabled={alreadyAdded}
             onClick={() => {
               if (selectedDeckId) onAdd(selectedDeckId);
             }}
-            className="rounded-lg bg-[var(--accent)] px-3 py-1 font-semibold text-white hover:opacity-90"
+            className="rounded-lg bg-[var(--accent)] px-3 py-1 font-semibold text-white hover:opacity-90 disabled:cursor-default disabled:opacity-50"
           >
-            Add Card
+            {alreadyAdded ? 'Already in deck' : 'Add Card'}
           </button>
         </>
       )}
@@ -799,7 +804,13 @@ function DictionaryResultRow({
         </button>
       </div>
 
-      {isAdding && <AddToDeckBar entry={entry} {...addBar} />}
+      {isAdding && (
+        <AddToDeckBar
+          entry={entry}
+          {...addBar}
+          alreadyAdded={presence?.sourceKeys.has(`dict:${entry.id}`) ?? false}
+        />
+      )}
     </article>
   );
 }
@@ -1035,26 +1046,26 @@ export function DictionaryPanel({
     rememberLookup(text);
   };
 
+  // Only the newest search shows its results: an earlier, slower one can finish last (C15).
+  const searchLatest = useMemo(() => createLatestSearch(setResults, setSearching), []);
   const runSearch = useCallback(
     async (rawQuery: string, filter: DictionaryPackId | 'all') => {
       const trimmed = rawQuery.trim();
       const packIds = searchPackIds(filter, allPackIdsKey);
-      if (!trimmed || !platform.getDictionaryService || packIds?.length === 0) {
-        setResults([]);
+      const getService = platform.getDictionaryService;
+      if (!trimmed || !getService || packIds?.length === 0) {
+        await searchLatest(null);
         return;
       }
-      setSearching(true);
-      try {
-        const svc = await platform.getDictionaryService();
-        const found = isSingleIdeograph(trimmed)
-          ? await svc.lookupCharacter(trimmed, packIds ? { packIds } : undefined)
-          : await svc.search(trimmed, { ...(packIds ? { packIds } : {}), limit: 60, direction });
-        setResults(found);
-      } finally {
-        setSearching(false);
-      }
+      await searchLatest(async () => {
+        const svc = await getService();
+        const scope = packIds ? { packIds } : undefined;
+        return isSingleIdeograph(trimmed)
+          ? svc.lookupCharacter(trimmed, scope)
+          : svc.search(trimmed, { ...scope, limit: 60, direction });
+      });
     },
-    [platform, direction, allPackIdsKey],
+    [platform, direction, allPackIdsKey, searchLatest],
   );
 
   useEffect(() => {
@@ -1096,6 +1107,13 @@ export function DictionaryPanel({
     const fields = mapEntryToNoteFields(entry, noteType);
     const sourceKey = `dict:${entry.id}`;
     const noteId = deriveNoteId(targetDeck.id, sourceKey);
+    // The note id is derived from the entry, so adding it again would overwrite the user's edits
+    // to that card's fields and tags (D17).
+    if (state.notes.get(noteId)?.archived === false) {
+      setAddingEntryId(null);
+      setAddedBanner(`“${entry.headword}” is already in ${targetDeck.name}.`);
+      return;
+    }
     const factory = getEventFactory();
     const nowMs = Date.now();
 

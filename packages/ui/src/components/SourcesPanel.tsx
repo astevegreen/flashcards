@@ -271,8 +271,9 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       getState: () => state,
       getEventFactory,
       emitEvents,
+      entitlement,
     }),
-    [emitEvents, getEventFactory, platform, state],
+    [emitEvents, getEventFactory, platform, state, entitlement],
   );
 
   // Load persisted source registry & check Google auth state on mount

@@ -1,3 +1,4 @@
+import { noteField } from './note-fields.ts';
 import type { Layout, Note, NoteType } from './types.ts';
 
 /**
@@ -52,7 +53,7 @@ export function effectiveRequiredField(
 /** True when `layout` has no usable rule, or the note's required field is filled. */
 export function layoutRuleMet(note: Note, layout: Layout, noteType: NoteType | undefined): boolean {
   const field = effectiveRequiredField(layout, noteType);
-  return field === undefined || isFieldFilled(note.fields[field]);
+  return field === undefined || isFieldFilled(noteField(note, field));
 }
 
 /** True when at least one layout in `layouts` carries a `required_field` (usable or not). */

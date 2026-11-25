@@ -533,6 +533,7 @@ export function AppProvider({
               getState: () => stateRef.current,
               getEventFactory,
               emitEvents,
+              entitlement: await refreshEntitlement(),
             },
             { requestFolderPermission: false },
           );

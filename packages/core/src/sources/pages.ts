@@ -122,6 +122,207 @@ export interface SanitizeMarkdownResult {
   referencedRelativeMediaPaths: string[];
 }
 
+type TextRange = readonly [start: number, end: number];
+
+/** Removes sorted, non-overlapping ranges from `text`. */
+function cutRanges(text: string, ranges: readonly TextRange[]): string {
+  let out = '';
+  let copied = 0;
+  for (const [start, end] of ranges) {
+    out += text.slice(copied, start);
+    copied = end;
+  }
+  return out + text.slice(copied);
+}
+
+const DANGEROUS_BLOCK_NAMES = ['script', 'style', 'iframe', 'object', 'embed', 'svg'] as const;
+const DANGEROUS_CLOSE_RES = new Map<string, RegExp>(
+  DANGEROUS_BLOCK_NAMES.map((name) => [name, new RegExp(String.raw`<\s*\/\s*${name}\s*>`, 'gi')]),
+);
+
+/**
+ * Finds the matches of `/<\s*(script|…)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi` in linear time. Once a
+ * tag name has no closing tag after some point, no later opening tag of that name has one either.
+ */
+function findDangerousBlocks(text: string): TextRange[] {
+  const openRe = new RegExp(String.raw`<\s*(${DANGEROUS_BLOCK_NAMES.join('|')})\b`, 'gi');
+  const ranges: TextRange[] = [];
+  const unclosed = new Set<string>();
+  let nextGt = -2;
+  for (let open = openRe.exec(text); open !== null; open = openRe.exec(text)) {
+    const name = (open[1] ?? '').toLowerCase();
+    const closeRe = DANGEROUS_CLOSE_RES.get(name);
+    if (closeRe === undefined || unclosed.has(name)) continue;
+    if (nextGt !== -1 && nextGt < openRe.lastIndex) nextGt = text.indexOf('>', openRe.lastIndex);
+    if (nextGt === -1) break;
+    closeRe.lastIndex = nextGt + 1;
+    if (closeRe.exec(text) === null) {
+      unclosed.add(name);
+      continue;
+    }
+    ranges.push([open.index, closeRe.lastIndex]);
+    openRe.lastIndex = closeRe.lastIndex;
+  }
+  return ranges;
+}
+
+/** Finds the matches of `/<!--[\s\S]*?-->/g` in linear time. */
+function findHtmlComments(text: string): TextRange[] {
+  const ranges: TextRange[] = [];
+  let pos = 0;
+  for (;;) {
+    const start = text.indexOf('<!--', pos);
+    if (start < 0) break;
+    const end = text.indexOf('-->', start + 4);
+    if (end < 0) break;
+    ranges.push([start, end + 3]);
+    pos = end + 3;
+  }
+  return ranges;
+}
+
+/**
+ * Replaces the matches of `/(!?\[[^\]]*\]\()([^)\s]+)((?:\s+"[^"]*")?\))/g` in linear time.
+ * Every `[` before the same `]` gives the same result, and so does every target that ends at the
+ * same place, so a failed attempt is never rescanned.
+ */
+function replaceMarkdownLinks(
+  text: string,
+  rewrite: (pre: string, target: string, post: string) => string,
+): string {
+  const targetEndRe = /[)\s]/g;
+  const titleRe = /\s+"[^"]*"\)/y;
+  let out = '';
+  let copied = 0;
+  let pos = 0;
+  let failedTargetEnd = -1;
+  for (;;) {
+    const open = text.indexOf('[', pos);
+    if (open < 0) break;
+    const close = text.indexOf(']', open + 1);
+    if (close < 0) break;
+    pos = close + 1;
+    const targetStart = close + 2;
+    if (text[close + 1] !== '(' || targetStart <= failedTargetEnd) continue;
+    targetEndRe.lastIndex = targetStart;
+    const targetEnd = targetEndRe.exec(text)?.index ?? text.length;
+    if (targetEnd === targetStart) continue;
+    const end = markdownLinkEnd(text, targetEnd, titleRe);
+    if (end < 0) {
+      failedTargetEnd = targetEnd;
+      continue;
+    }
+    const start = open > copied && text[open - 1] === '!' ? open - 1 : open;
+    out +=
+      text.slice(copied, start) +
+      rewrite(
+        text.slice(start, targetStart),
+        text.slice(targetStart, targetEnd),
+        text.slice(targetEnd, end),
+      );
+    copied = end;
+    pos = end;
+  }
+  return out + text.slice(copied);
+}
+
+/** Where a link whose target ends at `targetEnd` closes: after `)` or an optional title, or -1. */
+function markdownLinkEnd(text: string, targetEnd: number, titleRe: RegExp): number {
+  if (text[targetEnd] === ')') return targetEnd + 1;
+  if (targetEnd >= text.length) return -1;
+  titleRe.lastIndex = targetEnd;
+  return titleRe.test(text) ? titleRe.lastIndex : -1;
+}
+
+/** Index of the last entry of ascending `sorted` that is below `limit`, or -1. */
+function lastIndexBelow(sorted: readonly number[], limit: number): number {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if ((sorted[mid] ?? limit) < limit) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo - 1;
+}
+
+/**
+ * Replaces the matches of `/(::image\[[^\]]*\]\{[^}]*\bsrc=)(?:"([^"]+)"|'([^']+)'|([^\s}]+))/g`
+ * in linear time. Like the regex, it takes the last `src=` before the `}` that has a value.
+ */
+function replaceImageDirectiveSrcs(
+  text: string,
+  rewrite: (pre: string, src: string) => string,
+): string {
+  const srcStarts = valuedSrcStarts(text);
+  const nextIndexOf = forwardIndexOf(text);
+  const bareEndRe = /[\s}]/g;
+  let out = '';
+  let copied = 0;
+  let pos = 0;
+  for (;;) {
+    const start = text.indexOf('::image[', pos);
+    if (start < 0) break;
+    const close = nextIndexOf(']', start + 8);
+    if (close < 0) break;
+    pos = close + 1;
+    if (text[close + 1] !== '{') continue;
+    const braceStart = close + 2;
+    const brace = nextIndexOf('}', braceStart);
+    const braceEnd = brace < 0 ? text.length : brace;
+    const src = srcStarts[lastIndexBelow(srcStarts, braceEnd - 4)];
+    if (src === undefined || src < braceStart) continue;
+    const valueStart = src + 4;
+    const { value, end } = readSrcValue(text, valueStart, nextIndexOf, bareEndRe);
+    out += text.slice(copied, start) + rewrite(text.slice(start, valueStart), value);
+    copied = end;
+    pos = end;
+  }
+  return out + text.slice(copied);
+}
+
+/** Starts of the `src=` that have a value: not followed by whitespace, `}` or the end of text. */
+function valuedSrcStarts(text: string): number[] {
+  const starts: number[] = [];
+  for (const m of text.matchAll(/\bsrc=/g)) {
+    const next = text[m.index + 4];
+    if (next !== undefined && next !== '}' && !/\s/.test(next)) starts.push(m.index);
+  }
+  return starts;
+}
+
+/**
+ * `text.indexOf(char, from)` for callers whose `from` only moves forward: a result found earlier
+ * stays valid until it is passed, so the text is scanned once per character.
+ */
+function forwardIndexOf(text: string): (char: string, from: number) => number {
+  const nextFrom = new Map<string, number>();
+  return (char, from) => {
+    const known = nextFrom.get(char);
+    if (known === -1 || (known !== undefined && known >= from)) return known;
+    const found = text.indexOf(char, from);
+    nextFrom.set(char, found);
+    return found;
+  };
+}
+
+/** The directive `src` value at `valueStart`, quoted or bare, and where it ends. */
+function readSrcValue(
+  text: string,
+  valueStart: number,
+  nextIndexOf: (char: string, from: number) => number,
+  bareEndRe: RegExp,
+): { value: string; end: number } {
+  const quote = text[valueStart] ?? '';
+  const quoteEnd = quote === '"' || quote === "'" ? nextIndexOf(quote, valueStart + 1) : -1;
+  if (quoteEnd > valueStart + 1) {
+    return { value: text.slice(valueStart + 1, quoteEnd), end: quoteEnd + 1 };
+  }
+  bareEndRe.lastIndex = valueStart;
+  const end = bareEndRe.exec(text)?.index ?? text.length;
+  return { value: text.slice(valueStart, end), end };
+}
+
 function sanitizeTextSegment(
   segment: string,
   options: SanitizeMarkdownOptions,
@@ -133,29 +334,33 @@ function sanitizeTextSegment(
   let strippedHtml = false;
   let strippedUrl = false;
 
+  // Page text comes from `.flashpkg` files and Google Docs, so every pass below must stay linear in
+  // the input length (S5). Each regex or scan is written so that a failed match never rescans the
+  // text a previous attempt already covered.
+
   // 1. Strip/reject dangerous HTML blocks including inner content (<script>, <style>, <iframe>, <object>, <embed>)
-  const dangerousBlockRe =
-    /<\s*(script|style|iframe|object|embed|svg)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi;
-  if (dangerousBlockRe.test(text)) {
+  const blocks = findDangerousBlocks(text);
+  if (blocks.length > 0) {
     if (mode === 'reject') {
       throw new PageSecurityError('Raw HTML block element rejected in Markdown page (§13).');
     }
     strippedHtml = true;
-    text = text.replace(dangerousBlockRe, '');
+    text = cutRanges(text, blocks);
   }
 
   // 2. HTML comments <!-- ... -->
-  const commentRe = /<!--[\s\S]*?-->/g;
-  if (commentRe.test(text)) {
+  const comments = findHtmlComments(text);
+  if (comments.length > 0) {
     if (mode === 'reject') {
       throw new PageSecurityError('HTML comment rejected in Markdown page (§13).');
     }
     strippedHtml = true;
-    text = text.replace(commentRe, '');
+    text = cutRanges(text, comments);
   }
 
   // 3. Any remaining raw HTML opening/closing/self-closing tags (e.g. <div>, <img onerror=...>, <br/>)
-  const rawTagRe = /<\/?[a-zA-Z][a-zA-Z0-9-]*(?:\s+[^<>]*)?\/?>/g;
+  // `\s[^<>]*`, not `\s+[^<>]*`: both parts match spaces, so the `+` form backtracks quadratically.
+  const rawTagRe = /<\/?[a-zA-Z][a-zA-Z0-9-]*(?:\s[^<>]*)?\/?>/g;
   if (rawTagRe.test(text)) {
     if (mode === 'reject') {
       throw new PageSecurityError('Raw HTML tag rejected in Markdown page (§13).');
@@ -165,8 +370,8 @@ function sanitizeTextSegment(
   }
 
   // 4. Validate Markdown links & images: ![alt](target) and [label](target)
-  text = text.replace(/(!?\[[^\]]*\]\()([^)\s]+)((?:\s+"[^"]*")?\))/g, (_m, pre, urlRaw, post) => {
-    const target = String(urlRaw).trim();
+  text = replaceMarkdownLinks(text, (pre, urlRaw, post) => {
+    const target = urlRaw.trim();
     if (/^media:[0-9a-f]{64}$/i.test(target)) {
       return `${pre}${target.toLowerCase()}${post}`;
     }
@@ -193,30 +398,27 @@ function sanitizeTextSegment(
   });
 
   // 5. Validate directive image src: ::image[alt]{src=...}
-  text = text.replace(
-    /(::image\[[^\]]*\]\{[^}]*\bsrc=)(?:"([^"]+)"|'([^']+)'|([^\s}]+))/g,
-    (_m, pre, dq, sq, bare) => {
-      const target = String(dq ?? sq ?? bare ?? '').trim();
-      if (/^media:[0-9a-f]{64}$/i.test(target)) {
-        return `${pre}"${target.toLowerCase()}"`;
-      }
-      if (isStrictHttpsUrl(target)) {
-        const normalized = `https://${target.slice(8)}`;
-        const mapped = options.mediaPathMap?.[normalized] ?? options.mediaPathMap?.[target];
-        return `${pre}"${mapped ?? normalized}"`;
-      }
-      if (options.allowRelativeMediaPaths && isSafeRelativeMediaPath(target)) {
-        referencedMedia.add(target);
-        const mapped = options.mediaPathMap?.[target] ?? target;
-        return `${pre}"${mapped}"`;
-      }
-      if (mode === 'reject') {
-        throw new PageSecurityError(`Unsafe ::image src rejected: "${target}"`);
-      }
-      strippedUrl = true;
-      return `${pre}""`;
-    },
-  );
+  text = replaceImageDirectiveSrcs(text, (pre, rawSrc) => {
+    const target = rawSrc.trim();
+    if (/^media:[0-9a-f]{64}$/i.test(target)) {
+      return `${pre}"${target.toLowerCase()}"`;
+    }
+    if (isStrictHttpsUrl(target)) {
+      const normalized = `https://${target.slice(8)}`;
+      const mapped = options.mediaPathMap?.[normalized] ?? options.mediaPathMap?.[target];
+      return `${pre}"${mapped ?? normalized}"`;
+    }
+    if (options.allowRelativeMediaPaths && isSafeRelativeMediaPath(target)) {
+      referencedMedia.add(target);
+      const mapped = options.mediaPathMap?.[target] ?? target;
+      return `${pre}"${mapped}"`;
+    }
+    if (mode === 'reject') {
+      throw new PageSecurityError(`Unsafe ::image src rejected: "${target}"`);
+    }
+    strippedUrl = true;
+    return `${pre}""`;
+  });
 
   if (strippedHtml) {
     warnings.push({
@@ -310,9 +512,24 @@ function slugify(raw: string): string {
   return s || 'page';
 }
 
+/**
+ * Returns what `/^#[ \t]+(.+?)[ \t]*#*$/m` captures, trimmed. That regex retries its lazy group at
+ * every character of a long heading line, so the line is parsed by hand instead (S5).
+ */
 function extractFirstHeading(markdown: string): string | undefined {
-  const match = /^#[ \t]+(.+?)[ \t]*#*$/m.exec(markdown);
-  return match?.[1]?.trim();
+  for (const line of markdown.split(/[\n\r\u2028\u2029]/)) {
+    if (!line.startsWith('#')) continue;
+    let bodyStart = 1;
+    while (line[bodyStart] === ' ' || line[bodyStart] === '\t') bodyStart++;
+    if (bodyStart === 1 || line.length < 3) continue;
+    // `[ \t]+` gives back one character when nothing else is left for the heading text.
+    if (bodyStart === line.length) bodyStart--;
+    let end = line.length;
+    while (end > bodyStart && line[end - 1] === '#') end--;
+    while (end > bodyStart && (line[end - 1] === ' ' || line[end - 1] === '\t')) end--;
+    return line.slice(bodyStart, Math.max(end, bodyStart + 1)).trim();
+  }
+  return undefined;
 }
 
 export interface NormalizePageOptions {

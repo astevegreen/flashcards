@@ -6,6 +6,7 @@ import {
 import { compareHlc, tickHlc, type HlcState } from '../hlc.ts';
 import { deriveCardId, uuidv7 } from '../ids.ts';
 import { normalizeLanguage } from '../languages/normalize.ts';
+import { noteField } from '../model/note-fields.ts';
 import { hasOptionalCardRules, layoutRuleMet } from '../model/optional-cards.ts';
 import { BUILTIN_LAYOUTS, BUILTIN_NOTE_TYPES } from '../model/presets.ts';
 import { extractClozeNumbers } from '../parsers/cloze.ts';
@@ -473,7 +474,7 @@ export function getVariantsForNoteLayout(note: Note, layout: Layout): number[] {
   }
   const found = new Set<number>();
   for (const fieldKey of layout.front_fields) {
-    const val = note.fields[fieldKey];
+    const val = noteField(note, fieldKey);
     if (!val) continue;
     for (const num of extractClozeNumbers(val)) {
       found.add(num);

@@ -3,8 +3,21 @@ import { z } from 'zod';
 export const FieldKindSchema = z.enum(['text', 'reading', 'rich', 'image', 'audio']);
 export type FieldKind = z.infer<typeof FieldKindSchema>;
 
+/**
+ * A note type field key, or a layout's reference to one. It must not name an `Object.prototype`
+ * member (`constructor`, `__proto__`, `toString`…): `note.fields[key]` would return that
+ * member on every note that leaves the field empty (S4).
+ */
+export const FieldKeySchema = z
+  .string()
+  .min(1)
+  .regex(
+    /^(?!(?:constructor|__proto__|__defineGetter__|__defineSetter__|__lookupGetter__|__lookupSetter__|hasOwnProperty|isPrototypeOf|propertyIsEnumerable|toLocaleString|toString|valueOf)$)/,
+    'Reserved field key',
+  );
+
 export const NoteTypeFieldSchema = z.object({
-  key: z.string().min(1),
+  key: FieldKeySchema,
   label: z.string().min(1).optional(),
   kind: FieldKindSchema,
   lang: z.string().min(1),
@@ -33,17 +46,17 @@ export const LayoutDefSchema = z.object({
   id: z.string().min(1),
   note_type_id: z.string().min(1),
   name: z.string().min(1),
-  front_fields: z.array(z.string().min(1)).min(1),
-  reveal_steps: z.array(z.array(z.string().min(1)).min(1)).min(1),
+  front_fields: z.array(FieldKeySchema).min(1),
+  reveal_steps: z.array(z.array(FieldKeySchema).min(1)).min(1),
   answer_mode: AnswerModeSchema.default('flip'),
-  speak_field: z.string().min(1).optional(),
+  speak_field: FieldKeySchema.optional(),
   speak_on: SpeakTimingSchema.optional(),
   hide_furigana_on_front: z.boolean().default(false),
   ruby_display: RubyDisplaySchema.optional(),
   enabled: z.boolean().default(true),
   cloze_typed: z.boolean().optional(),
-  answer_field: z.string().min(1).optional(),
-  required_field: z.string().min(1).optional(),
+  answer_field: FieldKeySchema.optional(),
+  required_field: FieldKeySchema.optional(),
 });
 export type LayoutDef = z.infer<typeof LayoutDefSchema>;
 

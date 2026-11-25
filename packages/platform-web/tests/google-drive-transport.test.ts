@@ -261,6 +261,59 @@ describe('GoogleDriveAppDataTransport unit tests (mocked fetch)', () => {
     );
   });
 
+  it('treats a 403 rateLimitExceeded as throttling, not a permission problem (C22)', async () => {
+    const throttled = () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 403,
+            errors: [{ domain: 'usageLimits', reason: 'userRateLimitExceeded' }],
+          },
+        }),
+        { status: 403 },
+      );
+    const sleepCalls: number[] = [];
+    let calls = 0;
+    const recovering = new GoogleDriveAppDataTransport({
+      auth: createMockAuth(),
+      fetchImpl: vi.fn(async () => {
+        calls += 1;
+        return calls === 1 ? throttled() : new Response(JSON.stringify({ files: [] }));
+      }),
+      sleep: async (ms) => {
+        sleepCalls.push(ms);
+      },
+    });
+    await expect(recovering.list('sync/v1/')).resolves.toEqual([]);
+    expect(sleepCalls).toHaveLength(1);
+
+    const stillThrottled = new GoogleDriveAppDataTransport({
+      auth: createMockAuth(),
+      fetchImpl: vi.fn(async () => throttled()),
+      sleep: async () => {},
+    });
+    await expect(stillThrottled.list('sync/v1/')).rejects.toSatisfy(
+      (err) => isSyncTransportError(err) && err.code === 'RATE_LIMITED',
+    );
+
+    const denied = new GoogleDriveAppDataTransport({
+      auth: createMockAuth(),
+      fetchImpl: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: { code: 403, errors: [{ reason: 'insufficientPermissions' }] },
+            }),
+            { status: 403 },
+          ),
+      ),
+      sleep: async () => {},
+    });
+    await expect(denied.list('sync/v1/')).rejects.toSatisfy(
+      (err) => isSyncTransportError(err) && err.code === 'PERMISSION_DENIED',
+    );
+  });
+
   it('re-resolves stale cached fileId on HTTP 404 during read()', async () => {
     const auth = createMockAuth();
     let currentId = 'old-file-id';

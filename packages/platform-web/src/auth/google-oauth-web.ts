@@ -100,8 +100,12 @@ function loadGis(): Promise<GisGlobal> {
     script.async = true;
     script.onload = () => {
       const g = (globalThis as { google?: GisGlobal }).google;
-      if (g?.accounts?.oauth2) resolve(g);
-      else reject(new SyncTransportError('UNKNOWN', 'Google Identity Services failed to load.'));
+      if (g?.accounts?.oauth2) {
+        resolve(g);
+        return;
+      }
+      gisScriptPromise = null;
+      reject(new SyncTransportError('UNKNOWN', 'Google Identity Services failed to load.'));
     };
     script.onerror = () => {
       gisScriptPromise = null;

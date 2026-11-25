@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createLatestSearch,
   directionTargetName,
   MAX_RECENT_LOOKUPS,
   partOfSpeechLabel,
@@ -31,5 +32,35 @@ describe('dictionary home model', () => {
     expect(directionTargetName(['ja', 'ko'])).toBe('한국어');
     expect(directionTargetName(['zh-Hans'])).toBe('中文');
     expect(directionTargetName([])).toBe('Target');
+  });
+
+  it('applies only the newest search, whatever order they finish in (C15)', async () => {
+    const applied: string[][] = [];
+    const busy: boolean[] = [];
+    const run = createLatestSearch<string>(
+      (r) => applied.push(r),
+      (b) => busy.push(b),
+    );
+    let finishSlow: (r: string[]) => void = () => {};
+    const slow = run(() => new Promise<string[]>((resolve) => (finishSlow = resolve)));
+    const fast = run(async () => ['학교']);
+    await fast;
+    finishSlow(['stale']);
+    await slow;
+    expect(applied).toEqual([['학교']]);
+    expect(busy.at(-1)).toBe(false);
+
+    // A failed search shows nothing instead of rejecting; clearing the query ends Searching….
+    await run(async () => {
+      throw new Error('pack read failed');
+    });
+    expect(applied.at(-1)).toEqual([]);
+    let finishPending: (r: string[]) => void = () => {};
+    const pending = run(() => new Promise<string[]>((resolve) => (finishPending = resolve)));
+    await run(null);
+    finishPending(['late']);
+    await pending;
+    expect(applied.at(-1)).toEqual([]);
+    expect(busy.at(-1)).toBe(false);
   });
 });

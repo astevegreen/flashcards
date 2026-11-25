@@ -169,3 +169,33 @@ export function directionTargetName(languages: readonly string[]): string {
   const lang = languages.includes('ko') ? 'ko' : languages[0];
   return (lang && LANGUAGE_NAME[lang]) ?? 'Target';
 }
+
+/**
+ * Runs dictionary searches so that only the newest one applies its results (C15). A slow search
+ * for an earlier query that finishes after a later one is dropped, a failed search shows no
+ * results instead of an unhandled rejection, and `setBusy` ends with the newest search.
+ */
+export function createLatestSearch<T>(
+  apply: (results: T[]) => void,
+  setBusy: (busy: boolean) => void,
+): (search: (() => Promise<T[]>) | null) => Promise<void> {
+  let latest = 0;
+  return async (search) => {
+    latest += 1;
+    const id = latest;
+    if (!search) {
+      apply([]);
+      setBusy(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      const results = await search();
+      if (id === latest) apply(results);
+    } catch {
+      if (id === latest) apply([]);
+    } finally {
+      if (id === latest) setBusy(false);
+    }
+  };
+}
