@@ -74,7 +74,11 @@ export function createGoogleSignIn(
       lastScopes = scopes;
       return login(scopes, false);
     },
-    refreshToken: async () => login(lastScopes, true),
+    // `lastScopes` is empty after a relaunch, so the caller's scopes win when it passes any (N4).
+    refreshToken: async (opts) => {
+      if (opts?.scopes && opts.scopes.length > 0) lastScopes = opts.scopes;
+      return login(lastScopes, true);
+    },
     signOut: () => port.logout(),
   };
 }
