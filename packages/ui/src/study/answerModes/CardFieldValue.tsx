@@ -93,7 +93,7 @@ export function RevealedBackSteps({
   const visibleSteps = populatedRevealSteps.slice(0, revealStep);
   const hasExtrasPanel = populatedRevealSteps.length > 1 && isFullyRevealed;
   const mainSteps = hasExtrasPanel ? visibleSteps.slice(0, -1) : visibleSteps;
-  const extrasStep = hasExtrasPanel ? visibleSteps[visibleSteps.length - 1] : undefined;
+  const extrasStep = hasExtrasPanel ? visibleSteps.at(-1) : undefined;
 
   return (
     <div
