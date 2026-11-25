@@ -459,6 +459,7 @@ Defaults picked while building the checks. Each stays shipped until the owner de
 - [ ] On-device QR scans and deep links.
 - [ ] Real iCloud sync and signed Mac builds.
 - [ ] Real Graph/OneDrive.
+- [ ] Real Dropbox App Folder OAuth + Linked Sources on web, Capacitor (`flashcards://oauth/dropbox`), and Tauri (`http://127.0.0.1:53682`). Only faked endpoints have been tested (`docs/setup-dropbox.md`).
 - [ ] The Capacitor and Tauri shells were not run for #23.
 
 ## Cross-platform gaps found on device & code review (2026-11-23)

@@ -49,13 +49,15 @@ Android-specific wiring that is checked in:
 - `android/app/src/main/AndroidManifest.xml` has a `VIEW` intent-filter for
   `flashcards://picker-callback`. `launchMode="singleTask"` delivers the callback to
   `App.addListener('appUrlOpen')`.
-- A second `VIEW` intent-filter catches `flashcards://oauth` (the OneDrive redirect
-  `flashcards://oauth/microsoft`). OneDrive sign-in runs in Chrome Custom Tabs, and
-  `@capgo/capacitor-social-login` takes the redirect in `handleOnNewIntent`, checks `state` and
-  redeems the code with its PKCE verifier. The picker's `appUrlOpen` listener matches scheme and
-  host exactly, so it ignores this redirect. Both checks (`src/native/deep-links.ts`) are plain
-  string comparisons, not `new URL(...)`: Android System WebViews older than Chromium 130 parse
-  custom-scheme URLs differently (empty `host`).
+- A second `VIEW` intent-filter catches `flashcards://oauth` (both the OneDrive redirect
+  `flashcards://oauth/microsoft` and the Dropbox redirect `flashcards://oauth/dropbox`). Sign-in
+  runs in Chrome Custom Tabs, and `@capgo/capacitor-social-login` takes the redirect in
+  `handleOnNewIntent`, checks `state` and redeems the code with its PKCE verifier. The picker's
+  `appUrlOpen` listener matches scheme and host exactly, so it ignores this redirect. Both checks
+  (`src/native/deep-links.ts`) are plain string comparisons, not `new URL(...)`: Android System
+  WebViews older than Chromium 130 parse custom-scheme URLs differently (empty `host`).
+  See [`setup-dropbox.md`](./setup-dropbox.md) for Dropbox App Folder scopes and redirect URIs
+  (including Tauri's fixed loopback `http://127.0.0.1:53682`).
 - `launchCustomTabs` hands the sign-in page to whichever browser handles it (Custom Tabs when the
   browser supports them, a normal browser tab otherwise). Only when the phone has no browser at all
   (`ActivityNotFoundException`) does the plugin fall back to its own in-app WebView

@@ -24,6 +24,7 @@ const SourceRefSchema = z.looseObject({
     'google_docs',
     'onedrive_file',
     'google_drive_file',
+    'dropbox_file',
     'local_file',
     'package',
     'package_url',

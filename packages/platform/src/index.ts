@@ -372,6 +372,43 @@ export interface LinkedGoogleDriveFileSource {
   warnings?: SourceWarning[];
 }
 
+/**
+ * A `.csv` / `.tsv` / `.xlsx` file in the app's Dropbox App Folder (`Dropbox/Apps/<app name>/`),
+ * linked like a OneDrive spreadsheet: it refreshes into one deck. Read-only: the app never writes
+ * back to the user's spreadsheets.
+ */
+export interface LinkedDropboxSource {
+  id: string;
+  /** Dropbox immutable file id (`id:...`). */
+  fileId: string;
+  /** Display name (extension stripped for deck title). */
+  name: string;
+  /** Display path inside the App Folder (e.g. `/Decks/vocab.csv`), for UI context. */
+  pathDisplay?: string;
+  deckId?: string;
+  noteTypeId?: string;
+  language?: string;
+  /** The mapping chosen when linked; the deck's synced `source.column_map` wins once it exists. */
+  columnMap?: SourceColumnMapping[];
+  /**
+   * `columnMap` was chosen on this device but has not reached the deck yet (the pull was held
+   * for a rename review). While set, it wins over the deck's older mapping.
+   */
+  columnMapUnsaved?: true;
+  /** Dropbox `content_hash` (falling back to `rev`) at the last pull; unchanged skips download. */
+  contentTag?: string;
+  /**
+   * Why the last refresh left the file alone on this device (`lastError` says it in words):
+   * `archived` = its deck is archived; `unreadable` = an `.xlsx` this device cannot read (phone
+   * and Tauri shells). Cleared by the next pull that lands.
+   */
+  skipReason?: 'archived' | 'unreadable';
+  lastSyncedAt?: number;
+  lastStatus?: SourceSyncStatus;
+  lastError?: string;
+  warnings?: SourceWarning[];
+}
+
 export interface CachedLocalFileEntry {
   relativePath: string;
   kind: 'csv' | 'tsv' | 'xlsx' | 'md' | 'flashpkg';
@@ -458,6 +495,8 @@ export interface SourcesRegistry {
   googleSources: LinkedGoogleSource[];
   /** Absent in registries saved before linked OneDrive sources existed. */
   oneDriveSources?: LinkedOneDriveSource[];
+  /** Absent in registries saved before linked Dropbox sources existed. */
+  dropboxSources?: LinkedDropboxSource[];
   /**
    * Legacy (PR #19 builds): OneDrive item ids unlinked on this device only; their synced decks
    * are not re-listed as sources. Unlink now emits `SourceUnlinked`, which reaches every device,
@@ -529,6 +568,55 @@ export interface OneDriveFilePicker {
   getFileInfo(itemId: string): Promise<OneDriveFileInfo>;
   /** Downloads one file by item id (size-capped), for refreshing a linked source. */
   downloadById(itemId: string): Promise<PickedFile>;
+}
+
+/** One entry in a Dropbox App Folder listing (`/2/files/list_folder`). */
+export interface DropboxBrowseItem {
+  /** Dropbox file/folder id (`id:...`). */
+  id: string;
+  name: string;
+  /** Path inside the App Folder (e.g. `/Decks` or `/Decks/vocab.csv`). */
+  pathDisplay: string;
+  pathLower: string;
+  kind: 'folder' | 'file';
+  size: number;
+  lastModifiedAt?: number;
+}
+
+/** Metadata of one Dropbox App Folder file: enough to tell cheaply whether its content changed. */
+export interface DropboxFileInfo {
+  /** Dropbox immutable file id (`id:...`). */
+  id: string;
+  name: string;
+  pathDisplay: string;
+  size: number;
+  /** Dropbox `rev` identifier. */
+  rev?: string;
+  /** Dropbox SHA-256 block content hash (`content_hash`). */
+  contentHash?: string;
+  /** Best change detector (`content_hash` when present, else `rev`). */
+  contentTag?: string;
+  lastModifiedAt?: number;
+}
+
+/**
+ * Dropbox App Folder file picker: browses files inside `Dropbox/Apps/<app name>/` (excluding
+ * the app's own sync data folders) using the same App Folder OAuth sign-in as Dropbox Sync.
+ */
+export interface DropboxFilePicker {
+  isConfigured(): boolean;
+  /** True when Dropbox is signed in on this device (shared with Dropbox Sync). */
+  isConnected(): Promise<boolean>;
+  /** Starts Dropbox sign-in (`intent: 'sources'`); redirects on web, resolves true on native. */
+  connect(): Promise<boolean>;
+  /** Lists a folder inside the App Folder (`""` or omitted = root); folders first, then files. */
+  listFolder(folderPath?: string): Promise<DropboxBrowseItem[]>;
+  /** Downloads a file picked from `listFolder` (size-capped). */
+  downloadFile(item: DropboxBrowseItem): Promise<PickedFile>;
+  /** Reads one file's metadata by Dropbox file id or path (cheap "did it change?" check). */
+  getFileInfo(fileIdOrPath: string): Promise<DropboxFileInfo>;
+  /** Downloads one file by Dropbox file id or path (size-capped), for refreshing a linked source. */
+  downloadById(fileIdOrPath: string, knownSize?: number): Promise<PickedFile>;
 }
 
 export interface GoogleDriveFileMeta {
@@ -953,6 +1041,8 @@ export interface PlatformServices {
   readonly dropboxConfigured?: boolean;
   getDropboxAuth?(): Promise<Auth>;
   createDropboxTransport?(): Promise<SyncTransport>;
+  /** Optional Dropbox App Folder file picker for `.csv` / `.tsv` / `.xlsx` / `.flashpkg` (lazy). */
+  getDropboxPicker?(): Promise<DropboxFilePicker>;
   /**
    * True when a Microsoft Entra client ID is configured for OneDrive app-folder sync
    * (`VITE_MS_CLIENT_ID` on web; native shells set it from their own config).

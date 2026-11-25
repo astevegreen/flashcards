@@ -1,6 +1,7 @@
 import type {
   Auth,
   DictionaryService,
+  DropboxFilePicker,
   AnkiPackageReader,
   FsrsOptimizer,
   GooglePickerAdapter,
@@ -16,6 +17,7 @@ import type {
   StrokeDataProvider,
   SyncTransport,
 } from '@flash/platform';
+import type { DropboxServices } from './dropbox-services.ts';
 import type { OneDriveServices } from './onedrive-services.ts';
 import type { DexiePackStorage } from './packs/dexie-pack-storage.ts';
 import type { DexieStorage } from './storage/dexie-storage.ts';
@@ -57,8 +59,6 @@ export function createLazyWebServices(ctx: LazyWebServicesContext) {
 
   let cachedGoogleAuth: Auth | null = null;
   let cachedDriveTransport: SyncTransport | null = null;
-  let cachedDropboxAuth: Auth | null = null;
-  let cachedDropboxTransport: SyncTransport | null = null;
   let cachedGooglePicker: GooglePickerAdapter | null = null;
   let cachedGoogleSources: GoogleSourcesClient | null = null;
   let cachedLocalFolderSources: LocalFolderSourcesAdapter | null = null;
@@ -91,26 +91,11 @@ export function createLazyWebServices(ctx: LazyWebServicesContext) {
     return cachedGoogleAuth;
   };
 
-  const getDropboxAuth = async (): Promise<Auth> => {
-    if (!cachedDropboxAuth) {
-      const { DropboxOAuthWebAuth } = await import('./auth/dropbox-oauth-web.ts');
-      cachedDropboxAuth = new DropboxOAuthWebAuth({ appKey: dropboxAppKey, storage });
-    }
-    return cachedDropboxAuth;
-  };
-
-  const createDropboxTransport = async (): Promise<SyncTransport> => {
-    if (!cachedDropboxTransport) {
-      const [auth, { DropboxAppFolderTransport }] = await Promise.all([
-        getDropboxAuth(),
-        import('./sync/dropbox-transport.ts'),
-      ]);
-      cachedDropboxTransport = new DropboxAppFolderTransport({
-        getAccessToken: () => auth.getValidAccessToken(),
-      });
-    }
-    return cachedDropboxTransport;
-  };
+  let dropboxServices: Promise<DropboxServices> | null = null;
+  const loadDropbox = () =>
+    (dropboxServices ??= import('./dropbox-services.ts').then((m) =>
+      m.createDropboxWebServices({ appKey: dropboxAppKey, storage }),
+    ));
 
   let oneDriveServices: Promise<OneDriveServices> | null = null;
   const loadOneDrive = () =>
@@ -312,8 +297,9 @@ export function createLazyWebServices(ctx: LazyWebServicesContext) {
   return {
     getGoogleAuth,
     createGoogleDriveTransport,
-    getDropboxAuth,
-    createDropboxTransport,
+    getDropboxAuth: async (): Promise<Auth> => (await loadDropbox()).auth,
+    createDropboxTransport: async (): Promise<SyncTransport> => (await loadDropbox()).transport,
+    getDropboxPicker: async (): Promise<DropboxFilePicker> => (await loadDropbox()).picker,
     getOneDriveAuth: async (): Promise<Auth> => (await loadOneDrive()).auth,
     createOneDriveTransport: async (): Promise<SyncTransport> => (await loadOneDrive()).transport,
     getOneDrivePicker: async (): Promise<OneDriveFilePicker> => (await loadOneDrive()).picker,

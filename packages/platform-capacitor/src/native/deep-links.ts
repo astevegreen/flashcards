@@ -7,6 +7,8 @@
  * - `flashcards://oauth/microsoft` — OneDrive sign-in redirect (Custom Tabs on Android,
  *   ASWebAuthenticationSession on iOS). The sign-in plugin consumes it natively and checks `state`
  *   and the PKCE verifier itself.
+ * - `flashcards://oauth/dropbox` — Dropbox App Folder sign-in redirect (same Custom Tabs /
+ *   ASWebAuthenticationSession flow, caught by the same `flashcards://oauth` intent filter).
  *
  * - `flashcards://add-device?sync=...&col=...` — a scanned QR code or tapped link from another
  *   device's "Add a device" panel. The web app validates the query against its own allow-list.

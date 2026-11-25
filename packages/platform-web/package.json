@@ -13,6 +13,10 @@
       "types": "./src/onedrive-services.ts",
       "default": "./src/onedrive-services.ts"
     },
+    "./dropbox": {
+      "types": "./src/dropbox-services.ts",
+      "default": "./src/dropbox-services.ts"
+    },
     "./sync-drive": {
       "types": "./src/sync/google-drive-transport.ts",
       "default": "./src/sync/google-drive-transport.ts"

@@ -618,6 +618,7 @@ describe('launch clean-up of the sign-in plugin’s plaintext copies', () => {
         key: 'GOOGLE_LOGIN_GOOGLE_DATA_9158025e-947d-4211-ba51-40451630cc47',
       },
       { androidPreferencesName: 'CapgoOAuth2ProviderPrefs', key: 'OAuth2Tokens_microsoft' },
+      { androidPreferencesName: 'CapgoOAuth2ProviderPrefs', key: 'OAuth2Tokens_dropbox' },
     ]);
   });
 
@@ -632,17 +633,20 @@ describe('launch clean-up of the sign-in plugin’s plaintext copies', () => {
       loadOneDrive,
     });
     expect(loadOneDrive).toHaveBeenCalledTimes(1);
-    expect(secure.legacyRemoved).toEqual([]);
+    expect(secure.legacyRemoved).toEqual([{ key: 'CapgoOAuth2ProviderTokens_dropbox' }]);
   });
 
-  it('iOS, no Microsoft client in this build: deletes the UserDefaults copy', async () => {
+  it('iOS, no Microsoft or Dropbox client in this build: deletes both UserDefaults copies', async () => {
     const { secure, routing } = setup();
     await clearPluginTokenCopiesAtLaunch({
       platform: 'ios',
       secureStorage: secure,
       storage: routing.storage,
     });
-    expect(secure.legacyRemoved).toEqual([{ key: 'CapgoOAuth2ProviderTokens_microsoft' }]);
+    expect(secure.legacyRemoved).toEqual([
+      { key: 'CapgoOAuth2ProviderTokens_microsoft' },
+      { key: 'CapgoOAuth2ProviderTokens_dropbox' },
+    ]);
   });
 });
 

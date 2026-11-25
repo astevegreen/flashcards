@@ -54,6 +54,16 @@ import {
   refreshLinkedGoogleDriveFiles,
 } from './googleDriveFileSource.ts';
 
+export {
+  DROPBOX_RECONCILE_PREFIX,
+  linkDropboxFile,
+  refreshSingleDropboxSource,
+  type DropboxLinkOptions,
+  type DropboxRefreshOptions,
+  type DropboxRefreshResult,
+} from './dropboxSourceRunner.ts';
+import { refreshLinkedDropboxFiles } from './dropboxSourceRunner.ts';
+
 export const LINKED_SOURCES_KV_KEY = 'linked_sources_v1';
 
 const GOOGLE_SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
@@ -86,6 +96,7 @@ export function createEmptySourcesRegistry(): SourcesRegistry {
   return {
     googleSources: [],
     oneDriveSources: [],
+    dropboxSources: [],
     localFolders: [],
     packageSubscriptions: [],
     catalogs: [],
@@ -126,6 +137,12 @@ export async function loadSourcesRegistry(
           })),
         }
       : {}),
+    dropboxSources: saved?.dropboxSources
+      ? saved.dropboxSources.map((d) => ({
+          ...d,
+          ...(d.columnMap ? { columnMap: [...d.columnMap] } : {}),
+        }))
+      : [],
     localFolders: saved?.localFolders
       ? saved.localFolders.map((f) => ({
           ...f,
@@ -154,6 +171,7 @@ export async function loadSourcesRegistry(
       ...(registry.oneDriveSources ?? []).map((o) => o.itemId),
       ...(registry.unlinkedOneDriveIds ?? []),
     ]);
+    const knownDropboxIds = new Set((registry.dropboxSources ?? []).map((d) => d.fileId));
 
     for (const deck of state.decks.values()) {
       if (deck.archived || !deck.source) continue;
@@ -188,6 +206,24 @@ export async function loadSourcesRegistry(
             itemId: deck.source.external_id,
             name: deck.name,
             ...(deck.source.uri !== undefined ? { uri: deck.source.uri } : {}),
+            deckId: deck.id,
+            noteTypeId: deck.note_type_id,
+            language: deck.language,
+            ...(deck.source.last_synced_at !== undefined
+              ? { lastSyncedAt: deck.source.last_synced_at }
+              : {}),
+            lastStatus: 'idle',
+          });
+        }
+      } else if (deck.source.kind === 'dropbox_file' && deck.source.external_id) {
+        if (!knownDropboxIds.has(deck.source.external_id)) {
+          knownDropboxIds.add(deck.source.external_id);
+          registry.dropboxSources ??= [];
+          registry.dropboxSources.push({
+            id: `dropbox:${deck.source.external_id}`,
+            fileId: deck.source.external_id,
+            name: deck.name,
+            ...(deck.source.uri !== undefined ? { pathDisplay: deck.source.uri } : {}),
             deckId: deck.id,
             noteTypeId: deck.note_type_id,
             language: deck.language,
@@ -272,11 +308,23 @@ function dropSourcesUnlinkedElsewhere(registry: SourcesRegistry, state: Collecti
       return !deck || carriesSource(deck.source, 'onedrive_file', s.itemId);
     });
   }
+  if (registry.dropboxSources) {
+    registry.dropboxSources = registry.dropboxSources.filter((s) => {
+      const deck = s.deckId ? state.decks.get(s.deckId) : undefined;
+      return !deck || carriesSource(deck.source, 'dropbox_file', s.fileId);
+    });
+  }
 }
 
 /** A linked-source row that Unlink removes. */
 export type UnlinkSourceKind =
-  'google' | 'onedrive' | 'gdrive_file' | 'folder' | 'package' | 'catalog';
+  | 'google'
+  | 'onedrive'
+  | 'gdrive_file'
+  | 'dropbox'
+  | 'folder'
+  | 'package'
+  | 'catalog';
 
 /** Which synced deck/page sources a registry row stands for (none for folders and catalogs). */
 function syncedSourceMatcher(
@@ -293,6 +341,10 @@ function syncedSourceMatcher(
     return row ? (src) => carriesSource(src, 'onedrive_file', row.itemId) : null;
   }
   if (kind === 'gdrive_file') return googleDriveFileMatcher(registry, id);
+  if (kind === 'dropbox') {
+    const row = registry.dropboxSources?.find((s) => s.id === id);
+    return row ? (src) => carriesSource(src, 'dropbox_file', row.fileId) : null;
+  }
   if (kind === 'package') {
     const row = registry.packageSubscriptions.find((p) => p.id === id);
     return row ? (src) => src.kind === 'package_url' && src.uri === row.url : null;
@@ -350,6 +402,8 @@ export async function unlinkSource(
     registry.oneDriveSources = (registry.oneDriveSources ?? []).filter((s) => s.id !== id);
   } else if (kind === 'gdrive_file') {
     registry.googleDriveFiles = (registry.googleDriveFiles ?? []).filter((s) => s.id !== id);
+  } else if (kind === 'dropbox') {
+    registry.dropboxSources = (registry.dropboxSources ?? []).filter((s) => s.id !== id);
   } else if (kind === 'folder') {
     registry.localFolders = registry.localFolders.filter((f) => f.id !== id);
     const adapter = await ctx.platform.getLocalFolderSources();
@@ -2356,6 +2410,17 @@ export async function refreshAllSources(
     pendingReconciliations.push(...od.pendingReconciliations);
     errors.push(...od.errors);
     skipped.push(...od.skipped);
+  }
+
+  // 3b. Linked Dropbox App Folder files (online; skipped until Dropbox is connected)
+  if (isOnline() && ctx.platform.dropboxConfigured) {
+    const dbx = await refreshLinkedDropboxFiles(registry.dropboxSources ?? [], ctx, opts?.force);
+    updatedSources += dbx.updatedSources;
+    importedNotes += dbx.importedNotes;
+    warningsCount += dbx.warningsCount;
+    pendingReconciliations.push(...dbx.pendingReconciliations);
+    errors.push(...dbx.errors);
+    skipped.push(...dbx.skipped);
   }
 
   // 4. Family Library Catalogs & Subscribed .flashpkg URLs (online)

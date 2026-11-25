@@ -3,7 +3,10 @@
  * Backed by the workspace plugin `@flash/capacitor-secure-storage` (iOS Keychain, Android Keystore);
  * tests inject an in-memory fake.
  */
-import { ONEDRIVE_NATIVE_SESSION_KV_KEY } from '@flash/platform-web/native-support';
+import {
+  DROPBOX_NATIVE_SESSION_KV_KEY,
+  ONEDRIVE_NATIVE_SESSION_KV_KEY,
+} from '@flash/platform-web/native-support';
 import { CAPACITOR_GOOGLE_SESSION_KV_KEY } from '../auth/native-google-auth.ts';
 
 export interface SecureStore {
@@ -30,8 +33,14 @@ export type MobilePlatform = 'android' | 'ios';
 /** Keychain/Keystore key of the OneDrive (Microsoft) refresh token. */
 export const MICROSOFT_REFRESH_TOKEN_KEY = 'microsoft_refresh_token_v1';
 
+/** Keychain/Keystore key of the Dropbox refresh token. */
+export const DROPBOX_REFRESH_TOKEN_KEY = 'dropbox_refresh_token_v1';
+
 /** The OneDrive session record; present while OneDrive is connected (or needs reconnecting). */
 export const ONEDRIVE_SESSION_KV_KEY = ONEDRIVE_NATIVE_SESSION_KV_KEY;
+
+/** The Dropbox session record; present while Dropbox is connected (or needs reconnecting). */
+export const DROPBOX_SESSION_KV_KEY = DROPBOX_NATIVE_SESSION_KV_KEY;
 
 /**
  * Same value as `TTS_CONFIG_KV_KEY` in `packages/ui/src/state/useAudioController.ts` (this package
@@ -51,11 +60,15 @@ export const TTS_CONFIG_KV_KEY = 'tts_config_v1';
 export const SECURE_KV_KEYS: readonly string[] = [
   CAPACITOR_GOOGLE_SESSION_KV_KEY,
   ONEDRIVE_SESSION_KV_KEY,
+  DROPBOX_SESSION_KV_KEY,
   TTS_CONFIG_KV_KEY,
 ];
 
 /** OAuth2 provider ID of OneDrive inside `@capgo/capacitor-social-login`. */
 export const MICROSOFT_SOCIAL_LOGIN_PROVIDER_ID = 'microsoft';
+
+/** OAuth2 provider ID of Dropbox inside `@capgo/capacitor-social-login`. */
+export const DROPBOX_SOCIAL_LOGIN_PROVIDER_ID = 'dropbox';
 
 /**
  * Where `@capgo/capacitor-social-login` 8.7.x writes plaintext OAuth2 tokens for a provider ID:

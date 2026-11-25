@@ -5,6 +5,8 @@
 import type { Storage } from '@flash/platform';
 import type { SecureKvRouting } from './secure-kv-storage.ts';
 import {
+  DROPBOX_SESSION_KV_KEY,
+  DROPBOX_SOCIAL_LOGIN_PROVIDER_ID,
   MICROSOFT_SOCIAL_LOGIN_PROVIDER_ID,
   ONEDRIVE_SESSION_KV_KEY,
   SOCIAL_LOGIN_GOOGLE_ANDROID_COPY,
@@ -80,23 +82,33 @@ export async function markStoredSecretsAtLaunch(options: {
 export async function clearPluginTokenCopiesAtLaunch(options: {
   platform: MobilePlatform;
   secureStorage: NativeSecureStorage;
-  /** The routed app storage (reads the OneDrive session from the secure store). */
+  /** The routed app storage (reads the OneDrive/Dropbox sessions from the secure store). */
   storage: Storage;
   /** Creates the OneDrive bridge; omitted when this build has no Microsoft client ID. */
   loadOneDrive?: () => Promise<unknown>;
+  /** Creates the Dropbox bridge; omitted when this build has no Dropbox app key. */
+  loadDropbox?: () => Promise<unknown>;
 }): Promise<void> {
   const { platform, secureStorage } = options;
   if (platform === 'android') {
     await secureStorage.removeLegacyPreference(SOCIAL_LOGIN_GOOGLE_ANDROID_COPY);
   }
-  const connected = (await options.storage.getKv(ONEDRIVE_SESSION_KV_KEY)) !== undefined;
-  if (connected && options.loadOneDrive) {
+  const oneDriveConnected = (await options.storage.getKv(ONEDRIVE_SESSION_KV_KEY)) !== undefined;
+  if (oneDriveConnected && options.loadOneDrive) {
     await options.loadOneDrive();
-    return;
+  } else {
+    await secureStorage.removeLegacyPreference(
+      socialLoginOAuth2Copy(platform, MICROSOFT_SOCIAL_LOGIN_PROVIDER_ID),
+    );
   }
-  await secureStorage.removeLegacyPreference(
-    socialLoginOAuth2Copy(platform, MICROSOFT_SOCIAL_LOGIN_PROVIDER_ID),
-  );
+  const dropboxConnected = (await options.storage.getKv(DROPBOX_SESSION_KV_KEY)) !== undefined;
+  if (dropboxConnected && options.loadDropbox) {
+    await options.loadDropbox();
+  } else {
+    await secureStorage.removeLegacyPreference(
+      socialLoginOAuth2Copy(platform, DROPBOX_SOCIAL_LOGIN_PROVIDER_ID),
+    );
+  }
 }
 
 /**

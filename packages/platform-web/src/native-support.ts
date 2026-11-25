@@ -1,5 +1,6 @@
 import type {
   Auth,
+  DropboxFilePicker,
   GoogleSourcesClient,
   OneDriveFilePicker,
   HandwritingCandidate,
@@ -12,6 +13,7 @@ import type {
 } from '@flash/platform';
 
 export { ONEDRIVE_NATIVE_SESSION_KV_KEY } from './auth/microsoft-native-session-key.ts';
+export { DROPBOX_NATIVE_SESSION_KV_KEY } from './auth/dropbox-native-session-key.ts';
 
 /**
  * Helpers shared by the Capacitor and Tauri native shells (§10.1, §15 Phase 8).
@@ -129,6 +131,33 @@ export function lazyOneDriveFields(
     getOneDriveAuth: async () => (await get()).auth,
     createOneDriveTransport: async () => (await get()).transport,
     getOneDrivePicker: async () => (await get()).picker,
+  };
+}
+
+/** The Dropbox members of `PlatformServices`, all backed by one lazily created bundle. */
+export type DropboxPlatformFields = Pick<
+  PlatformServices,
+  'dropboxConfigured' | 'getDropboxAuth' | 'createDropboxTransport' | 'getDropboxPicker'
+>;
+
+/**
+ * Wires the Dropbox App Folder connector into a native shell. `load` runs on first use only
+ * (Settings > Sync or Library > Sources), keeping Dropbox code and sign-in setup out of boot.
+ */
+export function lazyDropboxFields(
+  load: () => Promise<{ auth: Auth; transport: SyncTransport; picker: DropboxFilePicker }>,
+): DropboxPlatformFields {
+  let pending: ReturnType<typeof load> | null = null;
+  const get = () =>
+    (pending ??= load().catch((err: unknown) => {
+      pending = null;
+      throw err;
+    }));
+  return {
+    dropboxConfigured: true,
+    getDropboxAuth: async () => (await get()).auth,
+    createDropboxTransport: async () => (await get()).transport,
+    getDropboxPicker: async () => (await get()).picker,
   };
 }
 

@@ -33,6 +33,13 @@ function testMicrosoftClientId(): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/** The e2e-only Dropbox app key set by a Playwright init script (see `boot`). */
+function testDropboxAppKey(): string {
+  const value = (window as unknown as { __FLASH_TEST_DROPBOX_APP_KEY__?: unknown })
+    .__FLASH_TEST_DROPBOX_APP_KEY__;
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 type NativeRuntime = 'capacitor' | 'tauri' | null;
 
 /** Detects the native shell without importing any native SDK into the initial chunk. */
@@ -86,9 +93,12 @@ async function boot(): Promise<void> {
     (import.meta.env['VITE_TOKEN_HELPER_URL'] as string | undefined)?.trim() ||
     DEFAULT_TOKEN_HELPER_URL;
   const googleApiKey = (import.meta.env['VITE_GOOGLE_API_KEY'] as string | undefined)?.trim() || '';
-  const dropboxAppKey =
-    (import.meta.env['VITE_DROPBOX_APP_KEY'] as string | undefined)?.trim() || '';
   const searchParams = new URLSearchParams(window.location.search);
+  const dropboxAppKey =
+    testDropboxAppKey() ||
+    (import.meta.env.DEV ? searchParams.get('dropboxAppKey')?.trim() : '') ||
+    (import.meta.env['VITE_DROPBOX_APP_KEY'] as string | undefined)?.trim() ||
+    '';
   // OneDrive (Microsoft Entra) client ID, from the build env. Overrides exist for tests only and
   // can never come from a link: `?msClientId=` works in the Vite dev server only, and the e2e
   // suite (a production preview build) sets `window.__FLASH_TEST_MS_CLIENT_ID__` with an init
@@ -140,6 +150,7 @@ async function boot(): Promise<void> {
         licensePublicKeyHex,
         microsoftClientId,
         microsoftTenant,
+        dropboxAppKey,
         packCatalogUrl: envPackCatalogUrl,
         starterCatalogUrl,
       })
@@ -175,6 +186,7 @@ async function boot(): Promise<void> {
         const preserveExistingSync =
           session.intent === 'sources' &&
           (sessionProvider === 'onedrive' ||
+            sessionProvider === 'dropbox' ||
             (syncConfig?.provider !== undefined && syncConfig.provider !== 'none'));
         if (!preserveExistingSync) {
           const switchingProvider = syncConfig?.provider !== sessionProvider;
