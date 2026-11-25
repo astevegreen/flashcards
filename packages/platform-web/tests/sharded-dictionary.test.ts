@@ -107,7 +107,9 @@ function serve(files: Map<string, Uint8Array>) {
     requested.push(url.slice(BASE.length + 1));
     if (offline) return Promise.reject(new TypeError('Failed to fetch'));
     const body = files.get(url);
-    return Promise.resolve(body ? new Response(body) : new Response('missing', { status: 404 }));
+    return Promise.resolve(
+      body ? new Response(new Uint8Array(body)) : new Response('missing', { status: 404 }),
+    );
   }) as typeof fetch;
   return {
     fetchImpl,

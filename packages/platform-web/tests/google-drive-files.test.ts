@@ -37,27 +37,29 @@ interface FakeFile {
 /** Minimal Drive v3 `files.get` (metadata and `alt=media`) over a map of files. */
 function fakeDrive(files: Record<string, FakeFile>) {
   const calls: string[] = [];
-  const fetchImpl = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
-    const url = new URL(String(input));
-    calls.push(url.toString());
-    const id = decodeURIComponent(url.pathname.split('/').pop() ?? '');
-    const file = files[id];
-    if (!file) return new Response('not found', { status: 404 });
-    if (url.searchParams.get('alt') === 'media') {
-      return new Response(file.bytes, { status: 200 });
-    }
-    return Response.json({
-      id,
-      name: file.name,
-      mimeType: file.mimeType,
-      size: String(file.reportedSize ?? file.bytes.byteLength),
-      modifiedTime: '2026-11-20T10:00:00Z',
-      ...(file.md5Checksum ? { md5Checksum: file.md5Checksum } : {}),
-      ...(file.version ? { version: file.version } : {}),
-      webViewLink: `https://drive.google.com/file/d/${id}/view`,
-      ...(file.trashed ? { trashed: true } : {}),
-    });
-  });
+  const fetchImpl = vi.fn(
+    async (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
+      const url = new URL(String(input));
+      calls.push(url.toString());
+      const id = decodeURIComponent(url.pathname.split('/').pop() ?? '');
+      const file = files[id];
+      if (!file) return new Response('not found', { status: 404 });
+      if (url.searchParams.get('alt') === 'media') {
+        return new Response(new Uint8Array(file.bytes), { status: 200 });
+      }
+      return Response.json({
+        id,
+        name: file.name,
+        mimeType: file.mimeType,
+        size: String(file.reportedSize ?? file.bytes.byteLength),
+        modifiedTime: '2026-11-20T10:00:00Z',
+        ...(file.md5Checksum ? { md5Checksum: file.md5Checksum } : {}),
+        ...(file.version ? { version: file.version } : {}),
+        webViewLink: `https://drive.google.com/file/d/${id}/view`,
+        ...(file.trashed ? { trashed: true } : {}),
+      });
+    },
+  );
   return { fetchImpl, calls };
 }
 
@@ -161,7 +163,8 @@ describe('WebGooglePicker.pickDriveFiles', () => {
         return this;
       }
     }
-    let callback: ((data: { action?: string; docs?: unknown[] }) => void) | null = null;
+    type PickedDoc = { id?: string; name?: string; mimeType?: string };
+    let callback: ((data: { action?: string; docs?: PickedDoc[] }) => void) | null = null;
     class FakePickerBuilder {
       enableFeature() {
         return this;

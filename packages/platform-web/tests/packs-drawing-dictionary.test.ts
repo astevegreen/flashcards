@@ -183,10 +183,10 @@ describe('Phase 6 web pack manager, stroke provider, recognizer & offline dictio
         });
       }
       if (url === 'https://packs.example.com/dict-hanja-unihan.json.gz') {
-        return new Response(hanjaPack.bytes, { status: 200 });
+        return new Response(new Uint8Array(hanjaPack.bytes), { status: 200 });
       }
       if (url === 'https://packs.example.com/strokes-ja-kanjivg.json.gz') {
-        return new Response(jaStrokePack.bytes, { status: 200 });
+        return new Response(new Uint8Array(jaStrokePack.bytes), { status: 200 });
       }
       if (url === 'https://packs.example.com/strokes/ja/0672c.json') {
         return new Response(JSON.stringify(perChar本), {

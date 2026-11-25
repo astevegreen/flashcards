@@ -55,6 +55,9 @@ describe('WebGooglePicker', () => {
       constructor(viewId: string) {
         this.viewId = viewId;
       }
+      setMimeTypes(): this {
+        return this;
+      }
     }
 
     class FakePickerBuilder {

@@ -49,7 +49,9 @@ async function exportApkg(state: CollectionState, deckIds?: string[], nowMs = NO
     collection,
     plan,
     async (hash) => MEDIA.get(hash),
-    (chunk) => chunks.push(chunk.slice()),
+    (chunk) => {
+      chunks.push(chunk.slice());
+    },
   );
   const bytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
   let offset = 0;
