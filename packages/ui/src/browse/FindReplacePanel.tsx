@@ -4,8 +4,10 @@ import {
   searchableFields,
   type FindReplaceChange,
   type FindReplaceError,
+  type FindReplaceOptions,
+  type FindReplacePlan,
 } from '@flash/core/find-replace';
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 
 export interface FindReplacePanelProps {
@@ -20,6 +22,8 @@ const inputClass =
   'min-w-0 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-xs';
 
 const PREVIEW_COUNT = 3;
+/** Pause in typing before the live count and preview update. */
+const PREVIEW_DELAY_MS = 200;
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 'es'}`;
@@ -82,30 +86,38 @@ export function FindReplacePanel({ noteIds, onClose }: Readonly<FindReplacePanel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, stateVersion, noteIds]);
 
-  const plan = useMemo(
-    () =>
-      find.length === 0
-        ? null
-        : planFindReplace(state, noteIds, {
-            find,
-            replace,
-            matchCase,
-            regex,
-            ...(fieldKey ? { fieldKey } : {}),
-          }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, stateVersion, noteIds, find, replace, matchCase, regex, fieldKey],
+  const options = useMemo<FindReplaceOptions>(
+    () => ({ find, replace, matchCase, regex, ...(fieldKey ? { fieldKey } : {}) }),
+    [find, replace, matchCase, regex, fieldKey],
   );
+
+  // The live count and preview run the plan (the pattern over every selected note) once typing
+  // pauses, not on each keystroke (P7). Replace plans again from the current input.
+  const [plan, setPlan] = useState<FindReplacePlan | null>(null);
+  useEffect(() => {
+    if (options.find.length === 0) {
+      setPlan(null);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setPlan(planFindReplace(state, noteIds, options)),
+      PREVIEW_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [state, stateVersion, noteIds, options]);
 
   const apply = (e: FormEvent) => {
     e.preventDefault();
-    if (!plan || plan.error || plan.payloads.length === 0) return;
+    if (options.find.length === 0) return;
+    const current = planFindReplace(state, noteIds, options);
+    setPlan(current);
+    if (current.error || current.payloads.length === 0) return;
     const factory = getEventFactory();
     const nowMs = Date.now();
-    emitEvents(plan.payloads.map((p) => factory.create('NoteUpserted', p, nowMs)));
-    setLastChanges(plan.changes);
+    emitEvents(current.payloads.map((p) => factory.create('NoteUpserted', p, nowMs)));
+    setLastChanges(current.changes);
     setMessage(
-      `Replaced ${plural(plan.replacementCount, 'match')} in ${notesText(plan.changedNoteCount)}.${linkedWarning(plan.linkedNoteCount)}`,
+      `Replaced ${plural(current.replacementCount, 'match')} in ${notesText(current.changedNoteCount)}.${linkedWarning(current.linkedNoteCount)}`,
     );
   };
 

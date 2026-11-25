@@ -62,6 +62,47 @@ test.describe('Find and replace', () => {
     await expect(panel).toHaveCount(0);
   });
 
+  // P7: the live preview ran the whole plan (the user's pattern over every selected note) on each
+  // keystroke. Each plan run builds the search pattern once, so counting `new RegExp` for it counts
+  // the runs: typing "school" quickly is one preview run, plus one on Replace.
+  test('previews once per pause in typing, and plans again on Replace', async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __findRuns: number };
+      w.__findRuns = 0;
+      globalThis.RegExp = new Proxy(RegExp, {
+        construct(target, args: [string | RegExp, string?], newTarget) {
+          if (args[1]?.includes('g') && 'school'.startsWith(String(args[0])) && args[0] !== '') {
+            w.__findRuns += 1;
+          }
+          return Reflect.construct(target, args, newTarget) as RegExp;
+        },
+      });
+    });
+    await page.goto('/?device=findreplaceruns');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await openKoreanSelection(page);
+    await page.getByTestId('bulk-find-replace').click();
+    const panel = page.getByTestId('find-replace-panel');
+    const runs = () =>
+      page.evaluate(() => (window as unknown as { __findRuns: number }).__findRuns);
+
+    await panel.getByTestId('find-replace-find').pressSequentially('school', { delay: 20 });
+    await expect(panel.getByTestId('find-replace-summary')).toHaveText('1 match in 1 note.');
+    // Six keystrokes: six runs before P7. One once typing pauses (some slack for a slow runner).
+    expect(await runs()).toBeLessThanOrEqual(2);
+
+    const beforeApply = await runs();
+    await panel.getByTestId('find-replace-replace').fill('academy');
+    await expect(panel.getByTestId('find-replace-preview')).toContainText('academy');
+    await panel.getByTestId('find-replace-apply').click();
+    await expect(panel.getByTestId('find-replace-message')).toHaveText(
+      'Replaced 1 match in 1 note.',
+    );
+    await expect(page.getByTestId('browse-list')).toContainText('academy');
+    // The preview for the new replacement text, then a fresh plan on Replace.
+    expect(await runs()).toBeLessThanOrEqual(beforeApply + 3);
+  });
+
   test('fits a phone-width screen without sideways scrolling', async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto('/?device=findreplacephone');
