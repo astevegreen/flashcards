@@ -15,6 +15,7 @@ import {
   type Note,
   type NoteType,
   type ReviewRating,
+  type StudyOrder,
 } from '@flash/core';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
@@ -44,6 +45,8 @@ import {
   SWIPE_RATING,
   type StudyKeyAction,
 } from '../study/studyGestures.ts';
+import { StudyOptionsBar } from '../study/StudyOptionsBar.tsx';
+import { useSessionStudyOrder } from '../study/studyOptionsStore.ts';
 import { shouldShowSwipeGuide, storeSwipeGuideDismissed } from '../study/swipeGuide.ts';
 
 const LazySwipeGuideBanner = lazyWithRetry(() =>
@@ -152,6 +155,7 @@ function buildScreenQueue(
   deckId: string | undefined,
   nowMs: number,
   tzOffsetMinutes: number,
+  order: StudyOrder | undefined,
 ) {
   if (studyFilter?.session) {
     return studyFilter.session.buildQueue(state, { deckId, nowMs, tzOffsetMinutes });
@@ -159,6 +163,7 @@ function buildScreenQueue(
   return buildStudyQueue(state, {
     ...(deckId === undefined ? {} : { deckId }),
     ...(studyFilter === undefined ? {} : { filter: studyFilter.filter }),
+    ...(order === undefined ? {} : { order }),
     nowMs,
     tzOffsetMinutes,
   });
@@ -346,10 +351,12 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
 
   // A filter naming its own decks (e.g. a Study Set saved under another deck) runs on those decks.
   const queueDeckId = resolveStudyQueueDeckId(studyFilter, activeDeckId);
+  // Study options chip: this session's card order (`undefined` = Settings defaults).
+  const sessionOrder = useSessionStudyOrder(activeDeckId);
   const queueResult = useMemo(
-    () => buildScreenQueue(state, studyFilter, queueDeckId, nowMs, tzOffsetMinutes),
+    () => buildScreenQueue(state, studyFilter, queueDeckId, nowMs, tzOffsetMinutes, sessionOrder),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, stateVersion, queueDeckId, studyFilter, clockTick],
+    [state, stateVersion, queueDeckId, studyFilter, sessionOrder, clockTick],
   );
 
   // Auto-wake queue when an intraday learning/relearning card becomes due
@@ -889,6 +896,8 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               Filter
             </button>
           )}
+
+          <StudyOptionsBar deckId={activeDeckId} studyFilter={studyFilter} />
 
           <div
             aria-label="Due card counts"

@@ -1426,6 +1426,32 @@ function applyScalarPreferences(ctx: ApplyEventContext, pref: PreferencesPatch):
   return changed;
 }
 
+/**
+ * Settings › Study Preferences defaults (study method, review order), each its own LWW register.
+ * Values an older or newer build doesn't know are ignored, never stored.
+ */
+function applyStudyDefaultPreferences(ctx: ApplyEventContext, pref: PreferencesPatch): boolean {
+  const { state, hlc, collector } = ctx;
+  let changed = false;
+  const method = pref.study_method;
+  if (
+    (method === 'schedule' || method === 'practice') &&
+    shouldApplyLww(state, 'prefs:study_method', hlc, collector)
+  ) {
+    state.preferences.study_method = method;
+    changed = true;
+  }
+  const order = pref.study_order;
+  if (
+    (order === 'deck' || order === 'random') &&
+    shouldApplyLww(state, 'prefs:study_order', hlc, collector)
+  ) {
+    state.preferences.study_order = order;
+    changed = true;
+  }
+  return changed;
+}
+
 function setTtsVoicePreference(state: CollectionState, langKey: string, voiceVal: string): void {
   const trimmed = voiceVal.trim();
   const entries = Object.entries(state.preferences.tts_voices ?? {}).filter(([k]) => k !== langKey);
@@ -1509,6 +1535,7 @@ function applyPreferencesChanged(
   const { collector } = ctx;
   const pref = payload.preferences;
   let changed = applyScalarPreferences(ctx, pref);
+  if (applyStudyDefaultPreferences(ctx, pref)) changed = true;
   if (applyTtsVoicePreferences(ctx, pref)) changed = true;
   if (applyDrawingModePreferences(ctx, pref)) changed = true;
   if (applyLanguageChoicePreferences(ctx, pref)) changed = true;

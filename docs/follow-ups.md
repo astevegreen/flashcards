@@ -509,3 +509,11 @@ Proposed scheme:
 - Namespaced tags: `level::` (e.g. `level::a` for `nikl-a`), `pos::` with the nine NIKL parts of speech folded into five (noun incl. dependent noun and pronoun, verb, adjective, adverb, other incl. numeral, determiner and interjection), `topic::` for subject groups, and `leech` kept as is.
 - Use the single word "tag" everywhere in the UI instead of "category" (the importer's `Category N` columns included).
 - Needs: a migration for existing starter notes (tag rename events, only for tags the starter seeded), a mapping for imported Anki `leech`/`marked`, and a decision on how hierarchical `::` tags show in Browse and the study-set filter.
+
+## Study method and card order (Android test notes #5, 2026-11-24)
+
+- [x] **Study screen `Method · Order` chip (session only).** Spaced repetition or Practice (cram over the current deck / filter, never changes FSRS); Deck order, Random (seeded), and Hardest first for Practice. Choices reset when the Study deck selection changes or the app restarts. Practice runs as the existing custom-study practice session, so its filter chip (×) and "Clear filter" end it too.
+- [x] **Settings › Study Preferences:** "Default study method" and "Card order (all decks)" (synced LWW preferences `study_method` / `study_order`; the order is also written to every deck's `new_card_order`). An "Apply to all" button appears when some decks use their own order.
+- [ ] **New decks start with source order.** A deck created or imported after choosing "Random (all decks)" gets `new_card_order: 'source'` (the deck default) until "Apply to all" or its own deck options change it. Decide whether deck creation should copy the Settings default.
+- [ ] **Review order is collection-wide.** `study_order` orders reviews in every deck; only new-card order can differ per deck. Add a per-deck review order only if users ask for it.
+- [ ] **"Newest first" order** (suggested in the Android review) is not built; the three orders above cover the decided scope.

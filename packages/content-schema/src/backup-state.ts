@@ -180,6 +180,8 @@ const PreferencesSchema = z.looseObject({
   drawing_modes: z.record(z.string(), z.enum(['graded', 'lookup', 'off'])).optional(),
   languages: z.record(z.string(), z.boolean()).optional(),
   leech_auto_suspend: z.boolean().optional(),
+  study_method: z.enum(['schedule', 'practice']).optional(),
+  study_order: z.enum(['deck', 'random']).optional(),
 });
 
 const EventSchema = z.looseObject({ id, device: z.string(), seq: z.number(), hlc: z.string() });

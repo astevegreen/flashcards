@@ -1,6 +1,12 @@
 import { isCardSuspended, type CollectionState } from '../events/replay.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
-import type { Card, Deck } from '../model/types.ts';
+import type { Card, Deck, StudyOrder } from '../model/types.ts';
+import {
+  compareSeededRandom,
+  compareSourceOrder,
+  resolveReviewOrder,
+  studyOrderToNewCardOrder,
+} from './card-order.ts';
 import {
   filterCardIds,
   isCardFilterEmpty,
@@ -27,6 +33,14 @@ export interface StudyQueueOptions {
    * limits and sibling burying are exactly those of the unfiltered queue (no forked FSRS state).
    */
   filter?: CardFilter;
+  /**
+   * Study-screen session card order. Omitted = the saved defaults: each deck's `new_card_order`
+   * for new cards and `preferences.study_order` for reviews. `deck` = new cards in source order,
+   * reviews by due; `random` = a reproducible daily shuffle of both. Only the order changes: the
+   * selected cards (daily limits, sibling burying) are those of the due-order queue, except which
+   * new cards fill the new-card quota. Learning / relearning cards always come first, by due.
+   */
+  order?: StudyOrder;
 }
 
 /**
@@ -54,22 +68,14 @@ export interface StudyQueueResult {
   nextLearningDueAt?: number;
 }
 
-/** Simple deterministic hash for reproducible daily random new-card ordering. */
-function hashString32(input: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
 /** Shared inputs of the queue-building passes. */
 interface QueueContext {
   state: CollectionState;
   nowMs: number;
   tzOffsetMinutes: number;
   globalDayStart: number;
+  /** Session card order override (see {@link StudyQueueOptions.order}). */
+  order?: StudyOrder | undefined;
 }
 
 function deckDayStart(ctx: QueueContext, deck: Deck): number {
@@ -319,35 +325,6 @@ function compareByDue(a: Card, b: Card): number {
   return a.schedule.due - b.schedule.due || (a.id < b.id ? -1 : 1);
 }
 
-/** Reproducible daily random order for `new_card_order: 'random'`. */
-function compareDailyRandom(todayIndex: number): (a: Card, b: Card) => number {
-  return (a, b) => {
-    const ha = hashString32(`${todayIndex}:${a.id}`);
-    const hb = hashString32(`${todayIndex}:${b.id}`);
-    return ha - hb || (a.id < b.id ? -1 : 1);
-  };
-}
-
-/** Recognition layouts sort before production layouts, then by layout id. */
-function compareLayouts(a: string, b: string): number {
-  const aIsRec = a.includes('recognition') ? 0 : 1;
-  const bIsRec = b.includes('recognition') ? 0 : 1;
-  if (aIsRec !== bIsRec) return aIsRec - bIsRec;
-  return a < b ? -1 : 1;
-}
-
-/** Source order: by note.created_order, then layout order (Recognition before Production), then variant, then id. */
-function compareSourceOrder(state: CollectionState): (a: Card, b: Card) => number {
-  return (a, b) => {
-    const oa = state.notes.get(a.note_id)?.created_order ?? 0;
-    const ob = state.notes.get(b.note_id)?.created_order ?? 0;
-    if (oa !== ob) return oa - ob;
-    if (a.layout_id !== b.layout_id) return compareLayouts(a.layout_id, b.layout_id);
-    if (a.variant !== b.variant) return a.variant - b.variant;
-    return a.id < b.id ? -1 : 1;
-  };
-}
-
 /**
  * Code-unit string order (not localeCompare): queues and lists must be identical on every device
  * and locale. The shared comparator for sorting names and ids.
@@ -484,9 +461,11 @@ function selectNewCards(
     const baseQuota = Math.max(0, deck.settings.new_cards_per_day - alreadyStarted);
     if (baseQuota === 0 && !hasOpenPool(pools)) continue;
     const todayIndex = getStudyDayIndex(ctx.nowMs, ctx.tzOffsetMinutes, deckDayStart(ctx, deck));
+    const newCardOrder =
+      ctx.order === undefined ? deck.settings.new_card_order : studyOrderToNewCardOrder(ctx.order);
     candidates.sort(
-      deck.settings.new_card_order === 'random'
-        ? compareDailyRandom(todayIndex)
+      newCardOrder === 'random'
+        ? compareSeededRandom(String(todayIndex))
         : compareSourceOrder(state),
     );
     takeNewCards(ctx, candidates, { baseQuota, pools }, selection, finalNew);
@@ -523,7 +502,8 @@ function takeNewCards(
  * - Study-day rollover (default 04:00 local time)
  * - Per-deck `new_cards_per_day` & `max_reviews_per_day`, plus custom-study extra new cards today
  *   (each `NewCardLimitRaised` is one pool shared by its decks / categories, spent once)
- * - `new_card_order` (`source` | `random`)
+ * - `new_card_order` (`source` | `random`) and the review order (`preferences.study_order`),
+ *   or the session `order` override for both
  * - Sibling burying (§5.1): if one card of a `note_id` was reviewed today (or is queued),
  *   sibling cards of the same note are buried until the next study day.
  * - Suspended cards (`CardSuspended`) are never queued.
@@ -540,6 +520,7 @@ export function buildStudyQueue(
     nowMs: options.nowMs,
     tzOffsetMinutes: options.tzOffsetMinutes,
     globalDayStart: options.dayStartHour ?? state.preferences.day_start_hour,
+    order: options.order,
   };
   const { allowed: allowedCardIds, hardest } = resolveAllowedCardIds(state, options);
 
@@ -572,6 +553,11 @@ export function buildStudyQueue(
   const finalLearning: Card[] = [];
   for (const card of eligible.learningCards) tryQueue(selection, card, finalLearning);
   const finalDue = selectDueCards(state, eligible.dueCards, activity.reviewsTodayByDeck, selection);
+  // Daily review limits picked the most overdue cards above; a random order only reshuffles them.
+  if (resolveReviewOrder(state, options.order) === 'random') {
+    const todayIndex = getStudyDayIndex(ctx.nowMs, ctx.tzOffsetMinutes, ctx.globalDayStart);
+    finalDue.sort(compareSeededRandom(`review:${todayIndex}`));
+  }
   const finalNew = selectNewCards(ctx, eligible.newCardsByDeck, activity, selection);
 
   const queue = [...finalLearning, ...finalDue, ...finalNew];

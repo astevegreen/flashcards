@@ -54,6 +54,13 @@ export interface Layout {
 
 export type NewCardOrder = 'source' | 'random';
 
+/** How Study runs: the FSRS schedule, or Practice (cram; never changes FSRS state). */
+export type StudyMethod = 'schedule' | 'practice';
+/** Card order: `deck` = new cards in source order, reviews by due; `random` = seeded shuffle. */
+export type StudyOrder = 'deck' | 'random';
+/** Practice (cram) order: a study order, or hardest first. */
+export type PracticeOrder = StudyOrder | 'hardest';
+
 export interface DeckSettings {
   new_cards_per_day: number;
   max_reviews_per_day: number;
@@ -251,6 +258,13 @@ export interface CollectionPreferences {
   languages?: Record<string, boolean>;
   /** Phase 9: suspend a card when a review makes it a leech (8 lapses; default false). */
   leech_auto_suspend?: boolean;
+  /** Settings default study method (default `schedule`); the Study screen can change it per session. */
+  study_method?: StudyMethod;
+  /**
+   * Settings default card order for scheduled reviews (default `deck` = by due). New-card order is
+   * per deck (`DeckSettings.new_card_order`); Settings writes it to every deck alongside this.
+   */
+  study_order?: StudyOrder;
 }
 
 export const DEFAULT_DECK_SETTINGS: DeckSettings = {
