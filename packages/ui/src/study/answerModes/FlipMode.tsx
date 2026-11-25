@@ -14,9 +14,15 @@ function FlipModeView({
   hideFrontRuby,
   pinyinToneColors,
 }: AnswerModeRenderProps) {
+  const isExtrasOpen = isRevealed && populatedRevealSteps.length > 1 && isFullyRevealed;
+
   return (
     <>
-      <div className="flex w-full max-w-2xl flex-col items-center gap-3 pt-4">
+      <div
+        className={`flex w-full max-w-2xl flex-col items-center gap-3 transition-[padding] duration-200 ${
+          isExtrasOpen ? 'pt-1' : 'pt-4'
+        }`}
+      >
         {layout.front_fields.map((fieldKey, idx) => {
           const value = note.fields[fieldKey];
           if (!value) return null;

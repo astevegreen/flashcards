@@ -252,15 +252,15 @@ interface SyncTransport {
 
 | Action | Desktop | Mobile |
 |---|---|---|
-| Flip / next reveal step | `Space` / `Enter` | Tap card |
-| Again | `1` / `←` | Swipe left / button |
-| Good | `2` / `→` | Swipe right / button |
-| Easy | `3` / `↑` | Swipe up / button |
-| Hard (if enabled) | `4` / `↓` | Button |
+| Flip / cycle reveal steps | `Space` / `Enter` | Tap card (cycles steps) |
+| Good | `2` / `←` | Swipe left (front or back) / button |
+| Again | `1` / `↓` | Swipe down (front or back) / button |
+| Easy (Good in 2-button mode) | `3` / `↑` | Swipe up (front or back) / button |
+| Hard (if enabled) | `4` | Button |
 | Replay audio | `R` | Tap speaker |
 | Slow audio (0.75×) | `S` | Long-press speaker |
 | Toggle furigana / hints | `F` | Tap script pill |
-| Undo | `Z` / `Ctrl+Z` | Undo button |
+| Undo / previous card | `Z` / `Ctrl+Z` / `→` | Swipe right / Undo button |
 | Edit note | `E` | Card menu → Edit (opens source Sheet for Sheet-backed decks) |
 
 Shortcuts automatically disable when a text input has focus.
