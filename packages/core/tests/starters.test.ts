@@ -64,35 +64,55 @@ describe('curated starter decks (generated data)', () => {
     },
   );
 
-  it('ships the reviewed gloss fixes, each credited as edited by the app', async () => {
+  it('ships the reviewed gloss fixes, each marked as edited in note provenance (not on the card)', async () => {
     const ko = await loadStarterDeck('starter-ko-core');
     const zh = await loadStarterDeck('starter-zh-common');
     const note = (notes: typeof ko.notes, key: string) => {
       const found = notes.find((n) => n.key === key);
       if (!found) throw new Error(`missing ${key}`);
-      return found.fields;
+      return found;
     };
     expect(note(ko.notes, 'nikl:개03:noun')).toMatchObject({
-      word: '개',
-      meaning: 'dog',
-      notes:
-        'Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L269897 (CC0), edited by this app.',
+      fields: { word: '개', meaning: 'dog', notes: '' },
+      meaningSource: 'Wikidata L269897',
+      meaningEdited: true,
     });
-    expect(note(ko.notes, 'nikl:일05:numeral')['meaning']).toBe('one (Sino-Korean number)');
-    expect(note(ko.notes, 'nikl:하나:numeral')['meaning']).toBe('one (native Korean number)');
-    // An unedited card keeps the plain Wikidata credit.
-    expect(note(ko.notes, 'nikl:가다01:verb')['notes']).toMatch(
-      /English: Wikidata L\d+ \(CC0\)\.$/,
+    expect(note(ko.notes, 'nikl:일05:numeral').fields['meaning']).toBe('one (Sino-Korean number)');
+    expect(note(ko.notes, 'nikl:하나:numeral').fields['meaning']).toBe(
+      'one (native Korean number)',
     );
+    // An unedited note records its source only.
+    const go = note(ko.notes, 'nikl:가다01:verb');
+    expect(go.meaningSource).toMatch(/^Wikidata L\d+$/);
+    expect(go.meaningEdited).toBeUndefined();
     expect(note(zh.notes, 'unihan:U+51E0')).toMatchObject({
-      word: '几',
-      meaning: 'how many; several',
+      fields: { word: '几', meaning: 'how many; several' },
+      meaningSource: 'Unihan 17.0.0 kDefinition',
+      meaningEdited: true,
     });
-    expect(note(zh.notes, 'unihan:U+51E0')['notes']).toMatch(
-      /Unicode License v3; meaning edited by this app\.$/,
-    );
-    expect(note(zh.notes, 'unihan:U+4E00')['notes']).toMatch(/Unicode License v3\.$/);
+    expect(note(zh.notes, 'unihan:U+4E00').meaningEdited).toBeUndefined();
   });
+
+  it.each(STARTER_DECKS.map((d) => [d.slug]))(
+    '%s: no card reveals a source credit; the deck credits its sources instead',
+    async (slug) => {
+      const info = findStarterDeck(slug);
+      if (!info) throw new Error(`missing ${slug}`);
+      const content = await loadStarterDeck(slug);
+      for (const note of content.notes) {
+        for (const field of ['notes', 'example']) {
+          expect(note.fields[field] ?? '', `${note.key} ${field}`).not.toMatch(
+            /KOGL|CC0|Wikidata|Unihan|NIKL|Licen[cs]e|edited by this app/,
+          );
+        }
+        expect(note.meaningSource).not.toBe('');
+      }
+      expect(info.description).toMatch(/Credits: /);
+      // Each source's licence is named (`KOGL`, `CC0`, `Unicode` License v3).
+      for (const source of info.sources)
+        expect(info.description).toContain(source.licence.split(' ')[0]);
+    },
+  );
 
   it('rejects an unknown starter deck', async () => {
     await expect(loadStarterDeck('starter-xx-none')).rejects.toThrow('Unknown starter deck');

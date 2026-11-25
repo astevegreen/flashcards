@@ -8,10 +8,10 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
     language: 'ko',
     noteTypeId: 'preset:vocab-ko',
     noteCount: 145,
-    version: '1.1.0',
-    contentHash: 'ad426ef9a1bb5410ada98073604bdbb8ce735920e8d5444e8ff5ccdb10bb3daa',
+    version: '1.2.0',
+    contentHash: '3bc9dee82bc11d93349770e4c2cf8e4bf12a70148a684120cb4adee85e7adf63',
     description:
-      'Beginner (level A) Korean words from the NIKL learning vocabulary list, most frequent first, with Hanja for Sino-Korean words and English meanings from Wikidata.',
+      'Beginner (level A) Korean words from the NIKL learning vocabulary list, most frequent first, with Hanja for Sino-Korean words and English meanings from Wikidata. Credits: word list by the National Institute of Korean Language (국립국어원), 한국어 학습용 어휘 목록 (2003), KOGL Type 1; English meanings from Wikidata lexemes (CC0), some reworded by this app.',
     sources: [
       {
         name: 'NIKL Korean learning vocabulary list (한국어 학습용 어휘 목록, 2003)',
@@ -30,7 +30,7 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
         sourceUrl: 'https://www.wikidata.org/wiki/Wikidata:Lexicographical_data',
         attribution: 'English meanings from Wikidata lexemes (CC0 1.0), one pinned revision each.',
         changes:
-          'Up to three English glosses per word, matched by spelling, part of speech and Hanja. Glosses that read as definitions, grammar labels or the wrong sense are replaced with the app’s own wording; those cards say “edited by this app”.',
+          'Up to three English glosses per word, matched by spelling, part of speech and Hanja. Glosses that read as definitions, grammar labels or the wrong sense are replaced with the app’s own wording.',
       },
     ],
     module: 'ko-core',
@@ -41,10 +41,10 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
     language: 'zh-Hans',
     noteTypeId: 'preset:vocab-zh',
     noteCount: 150,
-    version: '1.1.0',
-    contentHash: 'bd074cc957f5558757a6ea74a6de2a89a185e07f912f2d3ac3364c786273495a',
+    version: '1.2.0',
+    contentHash: '9b3d5c25bc68184e912b68a3609b458095671b533d45e9087ddd5a0c94f9be68',
     description:
-      'The most frequent characters of modern Mandarin, with pinyin and English definitions from the Unicode Unihan database.',
+      'The most frequent characters of modern Mandarin, with pinyin and English definitions from the Unicode Unihan database. Credits: Unicode Unihan 17.0.0, © Unicode, Inc., Unicode License v3; some meanings reworded by this app.',
     sources: [
       {
         name: 'Unicode Unihan database 17.0.0',
@@ -54,7 +54,7 @@ export const STARTER_CATALOG: readonly StarterDeckInfo[] = [
         attribution:
           'Copyright © 1991-2026 Unicode, Inc. Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition, kSimplifiedVariant), used under the Unicode License v3.',
         changes:
-          'The most frequent simplified characters by their own kHanyuPinlu counts, with kMandarin pinyin (a toned reading before a neutral-tone particle one) and kDefinition without Cantonese-only senses. Definitions that lead with a classical or rare sense are replaced with the app’s own wording; those cards say “meaning edited by this app”.',
+          'The most frequent simplified characters by their own kHanyuPinlu counts, with kMandarin pinyin (a toned reading before a neutral-tone particle one) and kDefinition without Cantonese-only senses. Definitions that lead with a classical or rare sense are replaced with the app’s own wording.',
       },
     ],
     module: 'zh-common',

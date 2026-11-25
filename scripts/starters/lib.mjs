@@ -219,7 +219,7 @@ function indexLexemesByHangul(lexemes) {
  * equal an earlier note's (one word listed under two parts of speech, e.g. 이 as pronoun and
  * determiner) would be an identical card: it is merged into that note as an extra tag instead.
  * `overrides` (see `glossOverride`) replaces a note's Wikidata gloss with the app's own wording,
- * after that merge, and the card's credit then says the English was edited by this app.
+ * after that merge, and the note's provenance then records the edit (`meaningEdited`).
  */
 export function buildKoreanNotes({ niklRows, lexemes, size, maxGlosses = 3, overrides = {} }) {
   const byLemma = indexLexemesByHangul(lexemes);
@@ -255,9 +255,11 @@ export function buildKoreanNotes({ niklRows, lexemes, size, maxGlosses = 3, over
         hanja,
         meaning: edited ?? meaning,
         example: '',
-        notes: `Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata ${lexeme.id} (CC0)${edited === undefined ? '' : ', edited by this app'}.`,
+        // Learner content only: the deck's credits live at deck level (see `meaningSource`).
+        notes: '',
       },
       tags: ['nikl-a', pos.tag],
+      ...meaningProvenance(`Wikidata ${lexeme.id}`, edited),
     };
     byCard.set(cardKey, note);
     notes.push(note);
@@ -383,7 +385,8 @@ function ownCounts(cp, counts, pinlu, simplifiedVariants) {
  * `ownCounts`), with their kMandarin pinyin (see `cardReading`) and the Unihan English definition
  * without Cantonese-only senses. Traditional-only forms are left out. Ties break by code point.
  * `overrides` (see `glossOverride`) replaces a kDefinition gloss with the app's own wording, and
- * the card's credit then says the meaning was edited by this app.
+ * the note's provenance then records the edit (`meaningEdited`). The Notes field holds only the
+ * character's other readings ("Also read: …"), never a credit.
  */
 export function buildMandarinNotes({
   readings,
@@ -405,7 +408,6 @@ export function buildMandarinNotes({
   return ranked.map(({ cp, counts }) => {
     const reading = cardReading(mandarin.get(cp));
     const others = counts.map((r) => r.pinyin).filter((p) => p !== reading);
-    const also = others.length > 0 ? `Also read: ${others.join(', ')}. ` : '';
     const key = `unihan:${hexCodePoint(cp)}`;
     const word = String.fromCodePoint(cp);
     const meaning = mandarinDefinition(definition.get(cp));
@@ -417,11 +419,26 @@ export function buildMandarinNotes({
         reading,
         meaning: edited ?? meaning,
         example: '',
-        notes: `${also}Source: Unicode Unihan ${unihanVersion} (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3${edited === undefined ? '' : '; meaning edited by this app'}.`,
+        // Learner content only (other readings); the credits live at deck level.
+        notes: others.length > 0 ? `Also read: ${others.join(', ')}.` : '',
       },
       tags: ['hanzi-common'],
+      ...meaningProvenance(`Unihan ${unihanVersion} kDefinition`, edited),
     };
   });
+}
+
+/**
+ * Per-note provenance of the card's meaning, kept beside the fields rather than in them: it is
+ * never revealed on a card and `buildStarterDeckEvents` does not copy it into events. The licences
+ * are satisfied at deck level (catalog `sources`, the deck description, About & Open Data
+ * Licenses and THIRD-PARTY-NOTICES.txt); this records which upstream record each meaning came
+ * from and whether the app reworded it (`content/starters/gloss-overrides.json`).
+ */
+function meaningProvenance(source, edited) {
+  return edited === undefined
+    ? { meaningSource: source }
+    : { meaningSource: source, meaningEdited: true };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -469,7 +486,13 @@ export function checkOverridesUsed(overrides, notes, deck) {
 // Deck assembly and rendering
 // ---------------------------------------------------------------------------------------------
 
-/** Validates generated notes: unique keys, non-empty front/meaning, plain text only. */
+/** Source credits belong at deck level, never in a field a card reveals (Notes, Example). */
+const CREDIT_IN_FIELD = /\b(?:KOGL|CC0|Wikidata|Unihan|NIKL|Licen[cs]e)\b/;
+
+/**
+ * Validates generated notes: unique keys, non-empty front/meaning, plain text only, and no source
+ * credit in the revealed Notes/Example fields (credits are deck-level, see `meaningProvenance`).
+ */
 export function validateNotes(notes, frontField) {
   const keys = new Set();
   for (const note of notes) {
@@ -480,6 +503,11 @@ export function validateNotes(notes, frontField) {
     }
     for (const value of Object.values(note.fields)) {
       if (/[<>]/.test(value)) throw new Error(`note ${note.key} contains markup: ${value}`);
+    }
+    for (const field of ['notes', 'example']) {
+      if (CREDIT_IN_FIELD.test(note.fields[field] ?? '')) {
+        throw new Error(`note ${note.key} has a source credit in its ${field} field`);
+      }
     }
   }
 }

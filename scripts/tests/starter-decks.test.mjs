@@ -210,7 +210,10 @@ describe('starter-deck builder', () => {
       ['nikl:전화07:noun', '電話', 'telephone'],
       ['nikl:전화하다02:verb', '電話', 'to phone'],
     ]);
-    expect(ko.notes[0].fields.notes).toContain('Wikidata L20 (CC0)');
+    expect(ko.notes[0].meaningSource).toBe('Wikidata L20');
+    expect(ko.notes[0].meaningEdited).toBeUndefined();
+    // No credit on the card: Notes and Example are learner content only.
+    expect(ko.notes.every((n) => n.fields.notes === '' && n.fields.example === '')).toBe(true);
     expect(ko.notes[0].tags).toEqual(['nikl-a', 'verb']);
     // The determiner row repeats the pronoun card exactly, so it only adds its tag.
     expect(ko.notes[3].tags).toEqual(['nikl-a', 'pronoun', 'determiner']);
@@ -229,13 +232,36 @@ describe('starter-deck builder', () => {
       ['著', 'zhù'],
     ]);
     expect(zh.notes[0].key).toBe('unihan:U+7684');
-    expect(zh.notes[0].fields.notes).toMatch(/^Also read: dí, dì\. Source: Unicode Unihan/);
-    expect(zh.notes[4].fields.notes).toMatch(/^Also read: de\. /);
+    expect(zh.notes[0].fields.notes).toBe('Also read: dí, dì.');
+    expect(zh.notes[4].fields.notes).toBe('Also read: de.');
     expect(zh.notes[5].fields.meaning).toBe('manifest');
-    expect(zh.notes[5].fields.notes).toMatch(/^Source: /);
+    expect(zh.notes[5].fields.notes).toBe('');
+    expect(zh.notes[5].meaningSource).toBe('Unihan 17.0.0 kDefinition');
   });
 
-  it('applies gloss overrides by note key and credits the edit on the card', () => {
+  it('describes each deck with a deck-level credit line', () => {
+    const [ko, zh] = build();
+    expect(ko.info.description).toMatch(/Credits: .*KOGL Type 1; .*Wikidata lexemes \(CC0\)/);
+    expect(zh.info.description).toMatch(/Credits: Unicode Unihan 17\.0\.0, .*Unicode License v3/);
+  });
+
+  it('rejects a source credit in a revealed field', async () => {
+    const { validateNotes } = await import('../starters/lib.mjs');
+    const note = (notes) => ({
+      key: 'k',
+      fields: { word: 'w', meaning: 'm', example: '', notes },
+      tags: [],
+    });
+    expect(() => validateNotes([note('Also read: de.')], 'word')).not.toThrow();
+    expect(() => validateNotes([note('Source: Unicode Unihan 17.0.0')], 'word')).toThrow(
+      'source credit in its notes field',
+    );
+    expect(() => validateNotes([note('Word list: NIKL (2003), KOGL Type 1.')], 'word')).toThrow(
+      'source credit',
+    );
+  });
+
+  it('applies gloss overrides by note key and records the edit in note provenance', () => {
     const glossOverrides = {
       'starter-ko-core': {
         'nikl:가다01:verb': { word: '가다', upstream: 'to go; to leave', meaning: 'to go' },
@@ -257,15 +283,15 @@ describe('starter-deck builder', () => {
       glossOverrides,
     });
     expect(ko.notes[0].fields.meaning).toBe('to go');
-    expect(ko.notes[0].fields.notes).toMatch(
-      /NIKL 한국어 학습용 어휘 목록 \(2003\), KOGL Type 1\. English: Wikidata L20 \(CC0\), edited by this app\.$/,
-    );
-    // Notes without an override keep the plain source credit.
-    expect(ko.notes[1].fields.notes).toMatch(/Wikidata L21 \(CC0\)\.$/);
+    expect(ko.notes[0]).toMatchObject({ meaningSource: 'Wikidata L20', meaningEdited: true });
+    expect(ko.notes[0].fields.notes).toBe('');
+    // Notes without an override are not marked as edited.
+    expect(ko.notes[1].meaningEdited).toBeUndefined();
     const zhe = zh.notes.find((n) => n.key === 'unihan:U+7740');
     expect(zhe.fields.meaning).toBe('continuous-aspect particle (-ing)');
-    expect(zhe.fields.notes).toMatch(/Unicode License v3; meaning edited by this app\.$/);
-    expect(zh.notes[0].fields.notes).toMatch(/Unicode License v3\.$/);
+    expect(zhe).toMatchObject({ meaningSource: 'Unihan 17.0.0 kDefinition', meaningEdited: true });
+    expect(zhe.fields.notes).toBe('');
+    expect(zh.notes[0].meaningEdited).toBeUndefined();
     // The hash covers the edited notes.
     expect(ko.info.contentHash).not.toBe(build()[0].info.contentHash);
   });

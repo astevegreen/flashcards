@@ -11,10 +11,40 @@ live in `packages/core/src/starters/generated/`. Never edit those files by hand.
   (the card front), `upstream` (the exact gloss the build derives from the pinned source) and
   `meaning` (what the card shows). The build fails when `word` or `upstream` no longer match, or
   when a key names no note, so an upstream change is reviewed instead of keeping a stale fix. An
-  edited card's Notes credit says so ("edited by this app"); the word list keeps its NIKL or Unihan
-  credit. This is not third-party data, so no licence applies.
+  edited note is marked `meaningEdited: true` in the generated module, and the deck description
+  says some meanings are reworded by this app. This is not third-party data, so no licence applies.
 
-Rebuild:
+## Credits live at deck level, not on cards
+
+The vocabulary layouts reveal `example` and `notes` as their last step, so a credit there is what
+a learner sees on every card. Since 1.2.0 the build keeps both fields free of credits
+(`validateNotes` fails on one): `notes` holds learner content only (the Mandarin deck's "Also
+read: …" readings) and is otherwise empty. The licences are satisfied at deck level:
+
+- **NIKL list, KOGL Type 1:** requires naming the source (기관, year, work, 공공누리 제1유형) and
+  not implying endorsement, not a per-item credit. The KOGL wording is in the catalog source's
+  `attribution`, shown in Settings > About & Open Data Licenses and in
+  `apps/web/public/THIRD-PARTY-NOTICES.txt`; the deck description names it too.
+- **Wikidata lexemes, CC0 1.0:** no attribution required; credited anyway at deck level.
+- **Unihan, Unicode License v3:** the copyright and permission notice must appear in copies of
+  the data or in associated documentation: `THIRD-PARTY-NOTICES.txt` (full text) and About.
+
+Per-note provenance is metadata beside the fields, never a field: `meaningSource` (the lexeme
+id, e.g. `Wikidata L196`, or `Unihan 17.0.0 kDefinition`) and `meaningEdited`. Seeding
+(`buildStarterDeckEvents`) does not copy it into events, so the built-in note types and the event
+format are unchanged.
+
+Decks seeded before 1.2.0 keep the old credit in their Notes field: starter decks have no update
+path yet (see `docs/follow-ups.md`). The exact old text is reproducible from `meaningSource` and
+`meaningEdited` (Korean: `Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English:
+Wikidata L… (CC0)[, edited by this app].`; Mandarin: `[Also read: …. ]Source: Unicode Unihan
+17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3[; meaning edited by this app].`),
+so a future update step can clear it only where the field still equals it exactly.
+
+Korean example sentences stay empty: no open source passed the licence gate in a pinned,
+offline-reproducible form (see `docs/follow-ups.md`). They are never invented.
+
+## Rebuild
 
 ```sh
 node scripts/fetch-starter-sources.mjs   # network: pinned NIKL list, Unihan 17.0.0, lexeme revisions
