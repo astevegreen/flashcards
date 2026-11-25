@@ -34,3 +34,16 @@ export function noteEditChanges(
   const tags = tagsText === opening.tagsText ? undefined : parseTagsText(tagsText);
   return { fields, tags };
 }
+
+/** The draft differs from the note as it was when the dialog opened (C11). */
+export function hasNoteEditChanges(
+  opening: NoteEditSnapshot,
+  draftFields: Readonly<Record<string, string>>,
+  tagsText: string,
+): boolean {
+  const changes = noteEditChanges(opening, draftFields, tagsText);
+  return changes.tags !== undefined || Object.keys(changes.fields).length > 0;
+}
+
+/** Asked before a click outside the editor or Escape throws away unsaved edits (C11). */
+export const DISCARD_NOTE_EDITS_PROMPT = 'Discard your changes to this note?';
