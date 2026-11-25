@@ -85,4 +85,13 @@ export function parseCsp(policy: string): Map<string, string[]> {
 }
 
 export const PRODUCTION_CSP = serializeCsp(PRODUCTION_CSP_DIRECTIVES);
+/**
+ * The hosting header (`apps/web/public/_headers`): `PRODUCTION_CSP` plus the header-only
+ * `frame-ancestors 'none'`, which a meta tag cannot carry, so no site can frame the app and
+ * clickjack it into Reset or Disconnect (S3).
+ */
+export const PRODUCTION_HEADER_CSP = serializeCsp([
+  ...PRODUCTION_CSP_DIRECTIVES,
+  ['frame-ancestors', ["'none'"]],
+]);
 export const TAURI_CSP = serializeCsp(TAURI_CSP_DIRECTIVES);
