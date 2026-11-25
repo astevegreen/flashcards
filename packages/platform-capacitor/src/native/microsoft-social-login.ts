@@ -26,6 +26,7 @@ import {
   type SecureStore,
 } from '../secure/secure-store.ts';
 import { assertNativeOAuthRedirect } from './deep-links.ts';
+import { registerOAuth2Provider } from './oauth2-providers.ts';
 
 /** Registered in Entra under "Mobile and desktop applications" (custom scheme already claimed). */
 export const DEFAULT_MICROSOFT_NATIVE_REDIRECT = 'flashcards://oauth/microsoft';
@@ -69,25 +70,19 @@ export async function createMicrosoftSocialLoginBridge(
   config: MicrosoftSocialLoginConfig,
 ): Promise<MicrosoftPublicClientBridge> {
   const authority = `https://login.microsoftonline.com/${encodeURIComponent(config.tenant || 'consumers')}/oauth2/v2.0`;
-  await SocialLogin.initialize({
-    oauth2: {
-      [MICROSOFT_PROVIDER_ID]: {
-        appId: config.clientId,
-        authorizationBaseUrl: `${authority}/authorize`,
-        accessTokenEndpoint: `${authority}/token`,
-        redirectUrl: assertNativeOAuthRedirect(
-          config.redirectUrl ?? DEFAULT_MICROSOFT_NATIVE_REDIRECT,
-        ),
-        responseType: 'code',
-        pkceEnabled: true,
-        scope: 'Files.ReadWrite.AppFolder offline_access',
-        // RFC 8252: the system browser, not an embedded WebView. The plugin checks `state` and keeps
-        // the PKCE verifier while the redirect comes back through the intent filter.
-        androidUseCustomTabs: true,
-        // Keep the Microsoft session cookie so a second sign-in (e.g. adding Files.Read) is one tap.
-        iosPrefersEphemeralWebBrowserSession: false,
-      },
-    },
+  await registerOAuth2Provider(MICROSOFT_PROVIDER_ID, {
+    appId: config.clientId,
+    authorizationBaseUrl: `${authority}/authorize`,
+    accessTokenEndpoint: `${authority}/token`,
+    redirectUrl: assertNativeOAuthRedirect(config.redirectUrl ?? DEFAULT_MICROSOFT_NATIVE_REDIRECT),
+    responseType: 'code',
+    pkceEnabled: true,
+    scope: 'Files.ReadWrite.AppFolder offline_access',
+    // RFC 8252: the system browser, not an embedded WebView. The plugin checks `state` and keeps
+    // the PKCE verifier while the redirect comes back through the intent filter.
+    androidUseCustomTabs: true,
+    // Keep the Microsoft session cookie so a second sign-in (e.g. adding Files.Read) is one tap.
+    iosPrefersEphemeralWebBrowserSession: false,
   });
 
   const socialLogin = createSocialLoginPort();
