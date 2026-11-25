@@ -120,6 +120,21 @@ describe('canVerticalSwipeFromScroll', () => {
 });
 
 describe('resolveStudyKeyAction', () => {
+  it('ignores key auto-repeat so holding a key never rates or undoes more than once (C1)', () => {
+    const held = { repeat: true };
+    for (const key of ['ArrowLeft', 'ArrowDown', 'ArrowUp', 'ArrowRight', '2', 'z', ' ']) {
+      expect(resolveStudyKeyAction(keyEvent(key, held), true, false, '4')).toBeUndefined();
+    }
+    expect(
+      resolveStudyKeyAction(keyEvent('z', { ...held, ctrlKey: true }), true, false, '4'),
+    ).toBeUndefined();
+    expect(resolveStudyKeyAction(keyEvent('2', { repeat: false }), true, false, '4')).toEqual({
+      type: 'rate',
+      rating: 3,
+      allowUnrevealed: false,
+    });
+  });
+
   it('maps arrow keys with swipe parity (left=Good, down=Again, up=Easy/Good, right=Undo)', () => {
     expect(resolveStudyKeyAction(keyEvent('ArrowLeft'), true, false, '3')).toEqual({
       type: 'rate',

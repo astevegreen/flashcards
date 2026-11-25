@@ -51,7 +51,8 @@ function ChoiceModeView({
   useEffect(() => {
     if (isRevealed || question.options.length < 2) return undefined;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.isComposing || e.keyCode === 229 || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.repeat || e.isComposing || e.keyCode === 229 || e.ctrlKey || e.metaKey || e.altKey)
+        return;
       if (e.target instanceof HTMLElement) {
         const tag = e.target.tagName;
         if (

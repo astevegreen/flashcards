@@ -139,6 +139,8 @@ export interface StudyKeyEventLike {
   metaKey: boolean;
   altKey: boolean;
   shiftKey: boolean;
+  /** Key auto-repeat: never acted on, so holding a key can't rate unseen cards (C1). */
+  repeat?: boolean;
   target: EventTarget | null;
 }
 
@@ -157,6 +159,7 @@ export function resolveStudyKeyAction(
   capturesFront: boolean,
   ratingMode: RatingButtonMode,
 ): StudyKeyAction | undefined {
+  if (e.repeat) return undefined;
   const key = e.key;
   if (e.ctrlKey || e.metaKey) {
     const lower = key.toLowerCase();
