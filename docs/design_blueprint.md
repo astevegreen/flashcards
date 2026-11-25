@@ -224,7 +224,7 @@ interface SyncTransport {
 |---|---|---|---|
 | **Google Drive (`drive.appdata`)** | **Primary v1** | All | Uses Google Drive's hidden singleton `appDataFolder` (non-restricted, no CASA audit, impossible to create duplicate split-brain folders, users can't accidentally delete `head.json`). Separate `drive.file` scope handles user-visible Sheets/Docs and optional backups. All platform OAuth Client IDs live in the **same GCP project**. |
 | **Local folder** | **v1 (PC)** | PC | Reads/writes a local folder (useful for local-only backups or desktop sync tools like Syncthing/OneDrive). |
-| **Dropbox (`App folder`)** | **Future plugin** | All | Pluggable `SyncTransport` using browser PKCE with offline refresh tokens; deferred until needed. |
+| **Dropbox (`App folder`)** | **v1 (optional)** | All | Scoped App Folder (`Dropbox/Apps/<app name>/`) using public-client PKCE with offline refresh tokens (no secret, no token-helper Worker). Powers both Cloud Sync (`sync/`, `media/`) and Linked Sources (`.csv`/`.tsv`/`.xlsx`/`.flashpkg` inside the App Folder, hiding sync folders). Capacitor uses Custom Tabs / `ASWebAuthenticationSession` (`flashcards://oauth/dropbox`, Keychain/Keystore refresh token); Tauri uses fixed loopback `http://127.0.0.1:53682` (OS keychain). Setup: [`setup-dropbox.md`](./setup-dropbox.md). |
 | **iCloud Drive** | **Future plugin** | iOS / macOS (Capacitor) | Optional zero-login sync for iOS-only App Store users. |
 | **Microsoft OneDrive (App folder)** | **v1 (Phase 12, optional)** | All | Microsoft Graph `/me/drive/special/approot` with `Files.ReadWrite.AppFolder` (personal Microsoft accounts; work/school accounts would need broader `Files.ReadWrite`). Web/PWA routes the code exchange and refresh through `apps/token-helper` as a confidential client, because Microsoft gives SPA-registered clients 24-hour refresh tokens; native shells are public clients using the authorization-code + PKCE flow that MSAL implements (Tauri: loopback redirect, refresh token in the OS keychain; Capacitor: the generic OAuth2 provider of `@capgo/capacitor-social-login`, because no maintained MSAL plugin supports Capacitor 8). Setup: [`setup-microsoft.md`](./setup-microsoft.md). |
 | **In-memory** | **v1 (Dev/Test)** | Tests / Dev | Powers `?device=a` / `?device=b` local dev mode and multi-device tests. |
@@ -492,7 +492,7 @@ If development ever stops:
 | SRS | `ts-fsrs` v5; optional on-device WASM optimizer |
 | Parsing | Custom ruby/cloze/pinyin parsers; `wanakana`; `read-excel-file` (lazy); `micromark` + directives (lazy); `fflate` |
 | Drawing | Hanzi Writer + KanjiVG / Make Me a Hanzi; custom permissive lookup matcher; ML Kit (native) |
-| Sync | Custom event log + `SyncTransport` (Google Drive `drive.appdata`, local folder, in-memory; Dropbox/iCloud later) |
+| Sync | Custom event log + `SyncTransport` (Google Drive `drive.appdata`, Dropbox App Folder, OneDrive App Folder, iCloud Drive, local folder, in-memory) |
 | Auth | Google OAuth redirect + stateless Cloudflare Worker (`apps/token-helper`) on web; native Google Sign-In on Capacitor/Tauri |
 | Hosting | Cloudflare Pages (static SPA) + Cloudflare Workers (stateless token helper) |
 | Tests/CI | Vitest, fast-check, Playwright, size-limit, GitHub Actions |
