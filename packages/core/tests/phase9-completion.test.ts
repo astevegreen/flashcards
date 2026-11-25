@@ -468,7 +468,7 @@ describe('Phase 9 completion — Stats filter and category export', () => {
     ).toEqual([]);
   });
 
-  it('re-importing a category package into its own deck never archives the other notes', () => {
+  it('re-importing a category package beside its deck never archives or touches that deck (D6)', () => {
     const st = reviewedState();
     const noteIds = filterNoteIds(
       st,
@@ -478,13 +478,17 @@ describe('Phase 9 completion — Stats filter and category export', () => {
     const bytes = exportFlashpkg(st, { noteIds, name: '#daily' });
     const before = st.decks.get(KO_DECK);
     const activeBefore = [...st.notes.values()].filter((n) => !n.archived).length;
+    const decksBefore = new Set(st.decks.keys());
     const f = createEventFactory('dev-z', 0, createHlcState('dev-z', NOW));
     // As a watched folder or package URL re-imports it.
     const imported = importFlashpkg(bytes, st, f, { nowMs: NOW, archiveRemovedOnUpgrade: true });
     expect(imported.events.filter((e) => e.type === 'NoteArchived')).toEqual([]);
     expect(imported.events.filter((e) => e.type === 'SourceLinked')).toEqual([]);
     applyEvents(st, imported.events);
-    expect([...st.notes.values()].filter((n) => !n.archived)).toHaveLength(activeBefore);
+    // The package isn't the deck's source, so its notes land in a deck of their own.
+    const active = [...st.notes.values()].filter((n) => !n.archived);
+    expect(active.filter((n) => decksBefore.has(n.deck_id))).toHaveLength(activeBefore);
+    expect(active.filter((n) => !decksBefore.has(n.deck_id))).toHaveLength(noteIds.size);
     expect(st.decks.get(KO_DECK)?.name).toBe(before?.name);
     expect(st.decks.get(KO_DECK)?.source).toEqual(before?.source);
 

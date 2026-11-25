@@ -225,11 +225,14 @@ describe('.flashpkg presets and folders: import', () => {
     expect(other.deckFsrsParams.get(KO)).toEqual(fsrsBefore);
     expect(resolveDeckFsrsConfig(other, KO, T0 + 2 * DAY).w).toEqual(ownW);
     expect(getDeckPreset(other, KO)).toBeUndefined();
+    // D6: KO came from no package, so the package gets its own deck and KO is left as it was.
     for (const ev of result.events) {
-      expect(['DeckFSRSParamsChanged', 'DeckPresetSaved'].includes(ev.type)).toBe(false);
+      expect((ev.payload as { deck_id?: string }).deck_id).not.toBe(KO);
     }
-    // A folder is only a place in the Library, so an unfiled existing deck still gets one.
-    expect(getDeckFolder(other, KO)).toEqual({ id: 'folder-ko', name: 'Korean' });
+    expect(getDeckFolder(other, KO)).toBeUndefined();
+    const packageDeck = uuidv5(uuidv5(FLASH_NAMESPACE_UUID, PKG), KO);
+    expect(other.decks.get(packageDeck)?.source?.package_id).toBe(PKG);
+    expect(getDeckFolder(other, packageDeck)).toEqual({ id: 'folder-ko', name: 'Korean' });
   });
 
   it('never lets an import save of a preset or folder beat the user edits under sync', () => {
@@ -325,7 +328,9 @@ describe('.flashpkg presets and folders: import', () => {
       ),
     ]);
     const result = importInto(state, pkg, factory);
-    expect(result.events.some((e) => e.type === 'DeckGroupingChanged')).toBe(false);
+    expect(
+      result.events.some((e) => e.type === 'DeckGroupingChanged' && e.payload.deck_id === KO),
+    ).toBe(false);
     expect(getDeckPreset(state, KO)).toBeUndefined();
     expect(getDeckFolder(state, KO)).toBeUndefined();
   });

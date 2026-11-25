@@ -41,6 +41,7 @@ import {
   parseMarkdownFrontmatter,
   type PageNormalizeWarning,
 } from '../sources/pages.ts';
+import { mergedNoteType } from './merge-model.ts';
 
 export const FLASHPKG_SECURITY_LIMITS = {
   maxFiles: 10_000,
@@ -553,27 +554,23 @@ export function importFlashpkg(
     }
     firstImportedNoteTypeId = ntRes.data[0]?.id;
     for (const nt of ntRes.data) {
-      packageNoteTypeFields.set(nt.id, nt.fields);
-      events.push(
-        eventFactory.create(
-          'NoteTypeChanged',
-          {
-            note_type: {
-              id: nt.id,
-              name: nt.name,
-              fields: nt.fields.map((f) => ({
-                key: f.key,
-                label: f.label ?? f.key,
-                kind: f.kind,
-                lang: f.lang,
-                ...(f.tts !== undefined ? { tts: f.tts } : {}),
-                ...(f.sortKey !== undefined ? { sortKey: f.sortKey } : {}),
-              })),
-            },
-          },
-          nowMs,
-        ),
-      );
+      // D5: a note type this collection already has (every exported preset deck carries
+      // `preset:vocab-ko`) keeps the user's version; only fields it lacks are added.
+      const existing = state.noteTypes.get(nt.id);
+      const merged = mergedNoteType(existing, {
+        id: nt.id,
+        name: nt.name,
+        fields: nt.fields.map((f) => ({
+          key: f.key,
+          label: f.label ?? f.key,
+          kind: f.kind,
+          lang: f.lang,
+          ...(f.tts !== undefined ? { tts: f.tts } : {}),
+          ...(f.sortKey !== undefined ? { sortKey: f.sortKey } : {}),
+        })),
+      });
+      packageNoteTypeFields.set(nt.id, (merged ?? existing ?? nt).fields);
+      if (merged) events.push(eventFactory.create('NoteTypeChanged', { note_type: merged }, nowMs));
     }
   }
 
@@ -583,6 +580,8 @@ export function importFlashpkg(
       throw new FlashpkgValidationError('Invalid layouts.json', layoutRes.errors);
     }
     for (const layout of layoutRes.data) {
+      // D5: never replace a layout the user has (a hostile package could disable them all).
+      if (state.layouts.has(layout.id)) continue;
       // A rule on a field the note type lacks (or on a cloze layout's text) would hide cards or
       // be ignored; drop it so the layout makes a card for every note.
       const ntFields = packageNoteTypeFields.get(layout.note_type_id);
@@ -630,6 +629,7 @@ export function importFlashpkg(
   const deckIdMap = new Map<string, string>();
   const groupImporter = createPackageGroupImporter(state, manifest, eventFactory, nowMs);
   const pageIdMap = new Map<string, string>();
+  const packageNamespace = uuidv5(FLASH_NAMESPACE_UUID, manifest.package_id);
 
   // Build list of deck entries from manifest (or discover decks/*.jsonl if manifest.decks is empty)
   const deckEntries: PackageDeckEntry[] =
@@ -657,17 +657,18 @@ export function importFlashpkg(
       );
     }
 
-    // Upgrade-safe deck matching:
-    // If collection already has a deck from the same package_id with matching deck id (or deterministic id), reuse its deck_id!
-    const deterministicDeckId = state.decks.has(deckEntry.id)
-      ? deckEntry.id
-      : uuidv5(manifest.package_id, deckEntry.id);
-
+    // D6: reuse only a deck this package made. Starter and sample deck ids are public, so a
+    // package listing one must not rename, relink or archive the user's deck. The namespace
+    // always hashes package_id: used as-is, a UUID-shaped package_id (FLASH_NAMESPACE_UUID)
+    // would reproduce `starterDeckId(slug)`. For other package ids this is the id it always was.
+    const deterministicDeckId = uuidv5(packageNamespace, deckEntry.id);
+    const legacyDeckId = uuidv5(manifest.package_id, deckEntry.id);
     const existingDeck =
-      state.decks.get(deckEntry.id) ??
       state.decks.get(deterministicDeckId) ??
       [...state.decks.values()].find(
-        (d) => d.source?.package_id === manifest.package_id && d.id === deckEntry.id,
+        (d) =>
+          d.source?.package_id === manifest.package_id &&
+          (d.id === deckEntry.id || d.id === legacyDeckId),
       );
 
     const targetDeckId = existingDeck ? existingDeck.id : deterministicDeckId;
@@ -855,6 +856,8 @@ export function importFlashpkg(
       throw new FlashpkgValidationError('Invalid courses.json', coursesRes.errors);
     }
     for (const course of coursesRes.data) {
+      // D5: an existing course stays the user's.
+      if (state.courses.has(course.id)) continue;
       events.push(
         eventFactory.create(
           'CourseChanged',

@@ -2,7 +2,7 @@ import type { CollectionState, EventFactory } from '../../events/replay.ts';
 import { suspendRegisterKey, unsuspendRegisterKey } from '../../events/suspension.ts';
 import type { EventPayloadMap, KnownEvent, KnownEventType } from '../../events/types.ts';
 import { deriveCardId, deriveNoteId, FLASH_NAMESPACE_UUID, uuidv5 } from '../../ids.ts';
-import type { Layout, NoteType, ReviewRating } from '../../model/types.ts';
+import type { Layout, ReviewRating } from '../../model/types.ts';
 import { computeNoteContentHash } from '../../sources/content-hash.ts';
 import { sha256Hex } from '../../sources/hash.ts';
 import { compareCodeUnits } from '../../study/queue.ts';
@@ -27,6 +27,7 @@ import {
   type AnkiRawPackage,
   type AnkiRevlogEntry,
 } from './types.ts';
+import { mergedNoteType } from '../merge-model.ts';
 
 /**
  * Converts a normalized Anki collection into events (§4.1: every mutation is an event).
@@ -292,15 +293,6 @@ function noteFields(
     assignMedia(fields, field.audioKeys, text.sounds, media);
   });
   return fields;
-}
-
-/** Merges new fields into an existing note type (keeps the user's own edits and order). */
-function mergedNoteType(existing: NoteType | undefined, next: NoteType): NoteType | undefined {
-  if (!existing) return next;
-  const known = new Set(existing.fields.map((f) => f.key));
-  const added = next.fields.filter((f) => !known.has(f.key));
-  if (added.length === 0) return undefined;
-  return { ...existing, fields: [...existing.fields, ...added] };
 }
 
 interface Emitter {
