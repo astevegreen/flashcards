@@ -302,7 +302,8 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
           snap.format_version <= maxFormatVersion &&
           // A newer state format would be hydrated lossily while the watermarks suppress the
           // events its unknown fields came from (D13); replay the segments instead.
-          !(snap.state.formatVersion > SERIALIZED_STATE_FORMAT_VERSION) &&
+          (typeof snap.state.formatVersion !== 'number' ||
+            snap.state.formatVersion <= SERIALIZED_STATE_FORMAT_VERSION) &&
           snap.collection_id === manifest.collection_id &&
           // From a build before media removal: replaying the segments agrees with other devices.
           !snapshotLacksMediaRecords(snap.state)

@@ -48,16 +48,19 @@ export interface McpServerContext {
   nowMs?: () => number;
 }
 
+/** A JSON-RPC 2.0 request id. */
+export type JsonRpcId = string | number | null;
+
 export interface JsonRpcRequest {
   jsonrpc: '2.0';
-  id?: string | number | null;
+  id?: JsonRpcId;
   method: string;
   params?: Record<string, unknown>;
 }
 
 export interface JsonRpcResponse {
   jsonrpc: '2.0';
-  id: string | number | null;
+  id: JsonRpcId;
   result?: unknown;
   error?: { code: number; message: string; data?: unknown };
 }
@@ -757,11 +760,11 @@ export function handleMcpRequest(
   };
 }
 
-function isJsonRpcId(value: unknown): value is string | number | null {
+function isJsonRpcId(value: unknown): value is JsonRpcId {
   return value === null || typeof value === 'string' || typeof value === 'number';
 }
 
-function invalidRequest(id: string | number | null, message: string): JsonRpcResponse {
+function invalidRequest(id: JsonRpcId, message: string): JsonRpcResponse {
   return { jsonrpc: '2.0', id, error: { code: -32600, message: `Invalid Request: ${message}` } };
 }
 
