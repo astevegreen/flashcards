@@ -346,7 +346,7 @@ describe('study default preferences (events, LWW replay, snapshots)', () => {
     const state = fx.state();
     expect(planCardOrderForAllDecks(state, 'deck')).toEqual([]);
     const plan = planCardOrderForAllDecks(state, 'random');
-    expect(plan.length).toBe(state.decks.size);
+    expect(plan).toHaveLength(state.decks.size);
     expect(plan.map((p) => p.deck_id)).toEqual(sorted(plan.map((p) => p.deck_id)));
     for (const p of plan) fx.events.push(fx.factory.create('DeckSettingsChanged', p, NOW));
     const applied = fx.state();

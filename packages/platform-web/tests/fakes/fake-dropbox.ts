@@ -62,7 +62,7 @@ export class FakeDropboxServer {
   private revCounter = 1;
   private readonly pageSize: number;
   private readonly cursors = new Map<string, unknown[]>();
-  private injected: Array<{
+  private readonly injected: Array<{
     match: (req: FakeDropboxRequest) => boolean;
     status: number;
     body?: unknown;
