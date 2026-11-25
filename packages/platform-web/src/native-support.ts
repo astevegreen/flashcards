@@ -11,6 +11,7 @@ import type {
   PlatformServices,
   SyncTransport,
 } from '@flash/platform';
+import { loadOnceUntilFailure } from './load-once.ts';
 
 export { ONEDRIVE_NATIVE_SESSION_KV_KEY } from './auth/microsoft-native-session-key.ts';
 export { DROPBOX_NATIVE_SESSION_KV_KEY } from './auth/dropbox-native-session-key.ts';
@@ -106,19 +107,6 @@ export function composeNativePlatform(
   };
 }
 
-/**
- * Runs `load` once and shares its promise; a rejected load is forgotten so the next call
- * retries (a failed sign-in plugin init must not stick for the whole session).
- */
-function loadOnceUntilFailure<T>(load: () => Promise<T>): () => Promise<T> {
-  let pending: Promise<T> | null = null;
-  return () =>
-    (pending ??= load().catch((err: unknown) => {
-      pending = null;
-      throw err;
-    }));
-}
-
 /** The OneDrive members of `PlatformServices`, all backed by one lazily created bundle. */
 export type OneDrivePlatformFields = Pick<
   PlatformServices,
@@ -172,16 +160,10 @@ export function lazyDropboxFields(
 export class LazyHandwritingRecognizer implements HandwritingRecognizer {
   readonly id = 'lazy-fallback';
   readonly isNative = false;
-  private readonly load: () => Promise<HandwritingRecognizer>;
-  private inner: Promise<HandwritingRecognizer> | null = null;
+  private readonly get: () => Promise<HandwritingRecognizer>;
 
   constructor(load: () => Promise<HandwritingRecognizer>) {
-    this.load = load;
-  }
-
-  private get(): Promise<HandwritingRecognizer> {
-    this.inner ??= this.load();
-    return this.inner;
+    this.get = loadOnceUntilFailure(load);
   }
 
   async isReady(lang?: string): Promise<boolean> {

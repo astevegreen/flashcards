@@ -17,9 +17,7 @@ import type {
   StrokeDataProvider,
   SyncTransport,
 } from '@flash/platform';
-import type { DropboxServices } from './dropbox-services.ts';
-import type { OneDriveServices } from './onedrive-services.ts';
-import type { DexiePackStorage } from './packs/dexie-pack-storage.ts';
+import { loadOnceUntilFailure } from './load-once.ts';
 import type { DexieStorage } from './storage/dexie-storage.ts';
 
 /** What `createWebPlatform` resolved at boot that the on-demand services need. */
@@ -63,21 +61,17 @@ export function createLazyWebServices(ctx: LazyWebServicesContext) {
   let cachedGoogleSources: GoogleSourcesClient | null = null;
   let cachedLocalFolderSources: LocalFolderSourcesAdapter | null = null;
   let cachedPackageFetcher: PackageSubscriptionFetcher | null = null;
-  let cachedPackStoragePromise: Promise<DexiePackStorage> | null = null;
   let cachedPackManager: PackManager | null = null;
   let cachedStrokeProvider: StrokeDataProvider | null = null;
   let cachedHandwritingRecognizer: HandwritingRecognizer | null = null;
   let cachedDictionaryService: DictionaryService | null = null;
   let cachedPurchase: Purchase | null = null;
 
-  const getPackStorage = async () => {
-    if (!cachedPackStoragePromise) {
-      cachedPackStoragePromise = import('./packs/dexie-pack-storage.ts').then(
-        ({ DexiePackStorage }) => new DexiePackStorage(slug),
-      );
-    }
-    return cachedPackStoragePromise;
-  };
+  const getPackStorage = loadOnceUntilFailure(() =>
+    import('./packs/dexie-pack-storage.ts').then(
+      ({ DexiePackStorage }) => new DexiePackStorage(slug),
+    ),
+  );
 
   const getGoogleAuth = async (): Promise<Auth> => {
     if (!cachedGoogleAuth) {
@@ -91,22 +85,22 @@ export function createLazyWebServices(ctx: LazyWebServicesContext) {
     return cachedGoogleAuth;
   };
 
-  let dropboxServices: Promise<DropboxServices> | null = null;
-  const loadDropbox = () =>
-    (dropboxServices ??= import('./dropbox-services.ts').then((m) =>
+  const loadDropbox = loadOnceUntilFailure(() =>
+    import('./dropbox-services.ts').then((m) =>
       m.createDropboxWebServices({ appKey: dropboxAppKey, storage }),
-    ));
+    ),
+  );
 
-  let oneDriveServices: Promise<OneDriveServices> | null = null;
-  const loadOneDrive = () =>
-    (oneDriveServices ??= import('./onedrive-services.ts').then((m) =>
+  const loadOneDrive = loadOnceUntilFailure(() =>
+    import('./onedrive-services.ts').then((m) =>
       m.createOneDriveWebServices({
         clientId: microsoftClientId,
         tokenHelperUrl,
         ...(microsoftTenant ? { tenant: microsoftTenant } : {}),
         storage,
       }),
-    ));
+    ),
+  );
 
   const createGoogleDriveTransport = async (): Promise<SyncTransport> => {
     if (!cachedDriveTransport) {
