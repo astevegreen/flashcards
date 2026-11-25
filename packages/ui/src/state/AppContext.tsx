@@ -68,6 +68,7 @@ import type { SyncUiState } from './useSyncController.ts';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
 import { putMediaTracked } from './recentMedia.ts';
+import type * as SnapshotApi from '@flash/core/snapshot';
 
 export type { AudioController } from './useAudioController.ts';
 export type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
@@ -204,21 +205,26 @@ function cardToRow(card: Card): MaterializedCardRow {
   };
 }
 
-/** Saves `st` as the local snapshot unless a newer Check rebuild owns it (rebuildSignal.ts). */
+type SnapshotModule = typeof SnapshotApi;
+type SerializedSnapshot = ReturnType<SnapshotModule['serializeCollectionState']>;
+let snapshotModule: SnapshotModule | undefined;
+const loadSnapshotModule = (): Promise<SnapshotModule> =>
+  import('@flash/core/snapshot').then((m) => (snapshotModule = m));
+
+/**
+ * Saves a snapshot serialized when its write was queued (D18): the queue has appended exactly the
+ * events it holds by the time this runs, so `localSeq` matches it. Skipped when a newer Check
+ * rebuild owns the snapshot (rebuildSignal.ts).
+ */
 async function saveLocalSnapshot(
   storage: PlatformServices['storage'],
   startedAtMs: number,
-  st: CollectionState,
-  watermarks: Record<string, number>,
+  snapshot: SerializedSnapshot,
 ): Promise<void> {
   if (!(await snapshotWriteAllowed(storage, startedAtMs))) return;
-  const [{ serializeCollectionState }, localSeq] = await Promise.all([
-    import('@flash/core/snapshot'),
-    storage.getMaxLocalSeq(),
-  ]);
   await storage.setLocalSnapshot({
-    snapshot: serializeCollectionState(st, watermarks),
-    localSeq,
+    snapshot,
+    localSeq: await storage.getMaxLocalSeq(),
     savedAt: Date.now(),
   });
 }
@@ -438,10 +444,20 @@ export function AppProvider({
       const removedIds = diff.removedCardIds;
 
       const totalNow = getTotalAppliedEventCount(st);
-      const shouldSnapshot = totalNow - lastLocalSnapEventsRef.current >= LOCAL_SNAPSHOT_INTERVAL;
-      const watermarksForSnap = shouldSnapshot ? syncController.getCurrentWatermarks() : null;
-      if (shouldSnapshot) {
-        lastLocalSnapEventsRef.current = totalNow;
+      let snapshot: SerializedSnapshot | undefined;
+      if (totalNow - lastLocalSnapEventsRef.current >= LOCAL_SNAPSHOT_INTERVAL) {
+        if (snapshotModule) {
+          // Serialized now, with the watermarks read now, so a later edit applied before this
+          // write runs can't end up in a snapshot whose localSeq predates it (D18).
+          snapshot = snapshotModule.serializeCollectionState(
+            st,
+            syncController.getCurrentWatermarks(),
+          );
+          lastLocalSnapEventsRef.current = totalNow;
+        } else {
+          // The next edit takes the snapshot.
+          loadSnapshotModule().catch(() => undefined);
+        }
       }
 
       void enqueuePersist(async () => {
@@ -453,9 +469,7 @@ export function AppProvider({
           await platform.storage.deleteMaterializedCards(removedIds);
         }
         await platform.storage.setDeviceMeta(nextMeta);
-        if (watermarksForSnap) {
-          await saveLocalSnapshot(platform.storage, startedAtMs, st, watermarksForSnap);
-        }
+        if (snapshot) await saveLocalSnapshot(platform.storage, startedAtMs, snapshot);
       });
     },
     [enqueuePersist, platform.storage, startedAtMs, syncController],
@@ -467,15 +481,16 @@ export function AppProvider({
     persistQueue.retryFailed().catch(() => undefined);
     // Retried writes may hold an older device meta (seq reuse after a reload) or a snapshot older
     // than the local log: the newest of both go last.
-    void enqueuePersist(async () => {
-      await platform.storage.setDeviceMeta(metaRef.current);
-      await saveLocalSnapshot(
-        platform.storage,
-        startedAtMs,
-        stateRef.current,
-        syncController.getCurrentWatermarks(),
-      );
-    });
+    void enqueuePersist(() => platform.storage.setDeviceMeta(metaRef.current));
+    loadSnapshotModule()
+      .then((m) => {
+        const snapshot = m.serializeCollectionState(
+          stateRef.current,
+          syncController.getCurrentWatermarks(),
+        );
+        return enqueuePersist(() => saveLocalSnapshot(platform.storage, startedAtMs, snapshot));
+      })
+      .catch(() => undefined);
   }, [enqueuePersist, persistQueue, platform.storage, startedAtMs, syncController]);
 
   const getEventFactory = useCallback(() => factoryRef.current, []);
