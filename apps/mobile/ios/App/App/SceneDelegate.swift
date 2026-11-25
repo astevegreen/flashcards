@@ -8,7 +8,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else { return }
 
         window = UIWindow(windowScene: windowScene)
-        window?.rootViewController = CAPBridgeViewController()
+        // MainViewController registers the app's own plugins (ICloudDocumentsPlugin); a plain
+        // CAPBridgeViewController would leave iCloud sync, the iOS default, unregistered (N2).
+        window?.rootViewController = MainViewController()
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
