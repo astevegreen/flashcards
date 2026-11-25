@@ -13,7 +13,6 @@ import {
   type SourceRef,
 } from '@flash/core';
 import { importFlashpkg } from '@flash/core/flashpkg';
-import { canCreateOrImportDeck } from '@flash/core/license';
 import { diffTabularSource, inferPresetNoteTypeId, sha256Hex } from '@flash/core/sources';
 import type {
   GoogleDriveFileInfo,
@@ -39,6 +38,7 @@ import {
   type SourceRunContext,
   withSourcesLock,
 } from './sourceRunner.ts';
+import { deckLimitReason, newDeckIds } from './deckLimit.ts';
 
 /**
  * Linked Google Drive FILES (§3.1): plain `.csv` / `.tsv` / `.xlsx` / `.flashpkg` files the user
@@ -629,19 +629,8 @@ async function pullDrivePackage(
     sourceOverride: { kind: SOURCE_KIND, external_id: source.fileId, ...(uri ? { uri } : {}) },
     archiveRemovedOnUpgrade: true,
   });
-  if (ctx.entitlement) {
-    const newDeckCount = pkgRes.events.filter(
-      (ev) => ev.type === 'DeckCreated' && !state.decks.has(ev.payload.deck_id),
-    ).length;
-    if (newDeckCount > 0) {
-      let activeDecks = 0;
-      for (const deck of state.decks.values()) if (!deck.archived) activeDecks += 1;
-      const gate = canCreateOrImportDeck(activeDecks + newDeckCount - 1, ctx.entitlement);
-      if (!gate.allowed) {
-        throw new Error(gate.reason ?? 'Free tier deck limit reached.');
-      }
-    }
-  }
+  const overLimit = deckLimitReason(ctx.entitlement, state, newDeckIds(state, pkgRes.events));
+  if (overLimit) throw new Error(overLimit);
   for (const media of pkgRes.extractedMedia) {
     await ctx.platform.storage.putMedia({ hash: media.hash, mime: media.mime, bytes: media.bytes });
   }
