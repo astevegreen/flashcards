@@ -42,6 +42,12 @@ function simpleHash(bytes: Uint8Array): string {
   return `${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}`.repeat(4);
 }
 
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
+
 function jsonResponse(status: number, data: unknown): FakeDropboxResponse {
   return {
     status,
@@ -137,7 +143,7 @@ export class FakeDropboxServer {
         path?: string;
         recursive?: boolean;
       };
-      const prefix = (body.path ?? '').toLowerCase().replace(/\/+$/, '');
+      const prefix = trimTrailingSlashes((body.path ?? '').toLowerCase());
       const recursive = Boolean(body.recursive);
       const entries: unknown[] = [];
       const seenFolders = new Set<string>();

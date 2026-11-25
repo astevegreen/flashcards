@@ -80,9 +80,16 @@ export function encodeDropboxApiArg(arg: unknown): string {
   });
 }
 
+/** Drops trailing `/` characters with a plain loop (`/\/+$/` backtracks quadratically). */
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
+
 function normalizeFolderPath(folderPath?: string): string {
   if (!folderPath) return '';
-  const trimmed = folderPath.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  const trimmed = trimTrailingSlashes(folderPath.trim().replace(/\\/g, '/'));
   if (!trimmed || trimmed === '/') return '';
   if (trimmed.includes('..') || trimmed.includes('\0')) {
     throw new SyncTransportError('UNKNOWN', `Unsafe Dropbox folder path "${folderPath}".`);
@@ -160,8 +167,8 @@ export class DropboxAppFolderFilePicker implements DropboxFilePicker {
   constructor(options: DropboxAppFolderFilePickerOptions) {
     this.auth = options.auth;
     this.fetchImpl = options.fetchImpl ?? ((...args) => fetch(...args));
-    this.apiBase = (options.apiBaseUrl ?? DROPBOX_API_BASE).replace(/\/+$/, '');
-    this.contentBase = (options.contentBaseUrl ?? DROPBOX_CONTENT_BASE).replace(/\/+$/, '');
+    this.apiBase = trimTrailingSlashes(options.apiBaseUrl ?? DROPBOX_API_BASE);
+    this.contentBase = trimTrailingSlashes(options.contentBaseUrl ?? DROPBOX_CONTENT_BASE);
     this.maxBytes = options.maxBytes ?? MAX_PICK_BYTES;
   }
 
