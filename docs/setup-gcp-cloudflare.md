@@ -52,6 +52,9 @@ In **Google Cloud Console → Google Auth Platform (APIs & Services → OAuth co
      - `https://flashcards-phase0-spike.pages.dev/*`
    - Under **API restrictions**, restrict the key to **Google Picker API** (and optionally **Cloud Text-to-Speech API** for Spike 0.7b).
 
+> [!NOTE]
+> **Linking plain Drive files (`.csv` / `.tsv` / `.xlsx` / `.flashpkg`)** needs no new scope, API or console setting: it uses the same `drive.file` scope, the **Google Drive API** (already enabled for sync) for `files.get` metadata and `alt=media` downloads, and the same Picker API key. The Picker filters by MIME type in code (`GOOGLE_DRIVE_PICKER_MIME_TYPES` in `packages/platform-web/src/sources/google-drive-files.ts`, mirrored in `apps/web/public/picker.html`): Sheets, Docs, `text/csv`, `text/tab-separated-values`, `application/vnd.ms-excel` (how Windows often uploads `.csv`), the `.xlsx` type, and `application/octet-stream` / `application/zip` / `application/x-zip-compressed` (how Drive stores `.flashpkg`). The app checks the picked file's name before reading it. Native shells open `picker.html` from `VITE_PICKER_PAGE_URL` with `mode=drive_files`, so **redeploy the web app** (which carries the new `picker.html`) before testing Drive files in an Android/iOS/desktop build. `drive.file` grants are per Cloud project, so a file picked on one device opens on the user's other devices as long as all OAuth clients live in this project.
+
 > [!TIP]
 > **Cross-client `appDataFolder` check (Spike 0.2):** Later in Phase 8 when adding Android/iOS Capacitor OAuth Client IDs, create them inside this **same GCP project** — Google scopes `appDataFolder` per GCP project, so Web, Android, and iOS clients share the identical hidden sync store automatically.
 
