@@ -1,3 +1,4 @@
+import { noteField } from '../model/note-fields.ts';
 import type { Deck, Layout, Note, NoteType, RubyDisplay, SpeakTiming } from '../model/types.ts';
 import { stripCloze } from '../parsers/cloze.ts';
 import { stripRichText } from '../parsers/rich-text.ts';
@@ -207,7 +208,7 @@ export function resolveCardAudioTarget(
   if (noteType) {
     for (const field of noteType.fields) {
       if (field.kind !== 'audio') continue;
-      const hash = parseMediaHashUri(note.fields[field.key]);
+      const hash = parseMediaHashUri(noteField(note, field.key));
       if (hash) {
         attachedMediaHash = hash;
         break;
@@ -215,7 +216,7 @@ export function resolveCardAudioTarget(
     }
   }
   if (!attachedMediaHash) {
-    const fallbackHash = parseMediaHashUri(note.fields['audio']);
+    const fallbackHash = parseMediaHashUri(noteField(note, 'audio'));
     if (fallbackHash) {
       attachedMediaHash = fallbackHash;
     }
@@ -234,7 +235,7 @@ export function resolveCardAudioTarget(
 
   const pickUsableText = (key: string | undefined): string => {
     if (!key) return '';
-    const val = note.fields[key]?.trim() ?? '';
+    const val = noteField(note, key)?.trim() ?? '';
     if (!val) return '';
     // Never pass raw `media:<sha256>` URIs into TTS engines
     if (parseMediaHashUri(val)) return '';

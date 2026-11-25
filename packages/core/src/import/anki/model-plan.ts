@@ -89,10 +89,11 @@ function slug(name: string): string {
   return out;
 }
 
+/** `base`, or `base_2`, `base_3`… when taken. Never an `Object.prototype` member such as `constructor` (S4). */
 function uniqueKey(base: string, used: Set<string>): string {
   let key = base;
   let n = 2;
-  while (used.has(key)) {
+  while (used.has(key) || key in Object.prototype) {
     key = `${base}_${n}`;
     n += 1;
   }

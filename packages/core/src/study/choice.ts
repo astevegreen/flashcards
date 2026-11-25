@@ -6,6 +6,7 @@
  */
 
 import type { CollectionState } from '../events/replay.ts';
+import { noteField } from '../model/note-fields.ts';
 import type { Card, RubyDisplay } from '../model/types.ts';
 import { stripCloze } from '../parsers/cloze.ts';
 import { stripRichText } from '../parsers/rich-text.ts';
@@ -63,7 +64,7 @@ export function generateChoiceOptions(
     const f = noteType?.fields.find((nf) => nf.key === k);
     return f?.kind !== 'image' && f?.kind !== 'audio';
   });
-  const populatedStep0 = nonMediaStep0.filter((k) => Boolean(note?.fields[k]?.trim()));
+  const populatedStep0 = nonMediaStep0.filter((k) => Boolean(noteField(note, k)?.trim()));
   const answerFieldKey =
     layout?.answer_field ??
     populatedStep0.find(
@@ -77,7 +78,7 @@ export function generateChoiceOptions(
   const fieldMeta = noteType?.fields.find((f) => f.key === answerFieldKey);
   const lang = fieldMeta?.lang ?? deck?.language ?? 'en';
 
-  const correctRaw = note?.fields[answerFieldKey]?.trim() ?? '';
+  const correctRaw = noteField(note, answerFieldKey)?.trim() ?? '';
   if (!note || !deck || !correctRaw) {
     return {
       answerFieldKey,
@@ -99,7 +100,7 @@ export function generateChoiceOptions(
       if (candidateNoteId === note.id) continue;
       const cand = state.notes.get(candidateNoteId);
       if (!cand || cand.archived) continue;
-      const val = cand.fields[answerFieldKey]?.trim();
+      const val = noteField(cand, answerFieldKey)?.trim();
       if (!val) continue;
       const norm = normalizeChoiceDedupKey(val, layout?.ruby_display);
       if (!norm || norm === correctNorm) continue;

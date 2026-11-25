@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   getPackageJsonSchemas,
+  LayoutDefSchema,
+  NoteTypeDefSchema,
   validateFamilyCatalog,
   validatePackageManifest,
   validatePackageNote,
@@ -88,5 +90,30 @@ describe('@flash/content-schema', () => {
     expect(schemas['manifest']).toBeDefined();
     expect(schemas['note_record']).toBeDefined();
     expect(schemas['family_catalog']).toBeDefined();
+  });
+
+  it('rejects field keys that name an Object.prototype member (S4)', () => {
+    const noteType = (key: string) =>
+      NoteTypeDefSchema.safeParse({
+        id: 'nt',
+        name: 'NT',
+        fields: [{ key, kind: 'text', lang: 'en' }],
+      }).success;
+    expect(noteType('word')).toBe(true);
+    expect(noteType('constructor_2')).toBe(true);
+    for (const key of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+      expect(noteType(key), key).toBe(false);
+    }
+    const layout = LayoutDefSchema.safeParse({
+      id: 'l',
+      note_type_id: 'nt',
+      name: 'L',
+      front_fields: ['word'],
+      reveal_steps: [['meaning']],
+      answer_field: 'constructor',
+    });
+    expect(layout.success).toBe(false);
+    const json = JSON.stringify(getPackageJsonSchemas()['note_type']);
+    expect(json).toContain('constructor|__proto__');
   });
 });
