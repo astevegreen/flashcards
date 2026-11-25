@@ -4,6 +4,7 @@ import {
   FAKE_UPLOAD_ORIGIN,
   FakeGraphServer,
 } from '../../../packages/platform-web/tests/fakes/fake-graph.ts';
+import { addTestOverrides } from './test-overrides.ts';
 
 /**
  * Microsoft sign-in, the token-helper's `/ms/*` endpoints and Graph, all answered by
@@ -58,10 +59,7 @@ export async function installMicrosoftFakes(
   devParams: () => string,
 ): Promise<void> {
   // The production preview build takes its test client ID only from this init script.
-  await context.addInitScript((clientId) => {
-    (window as unknown as { __FLASH_TEST_MS_CLIENT_ID__?: string }).__FLASH_TEST_MS_CLIENT_ID__ =
-      clientId;
-  }, CLIENT_ID);
+  await addTestOverrides(context, { msClientId: CLIENT_ID });
   // Sign-in page: consent is instant, so answer with the redirect straight back to the app. The
   // real redirect URI has no query; the fake keeps the dev `?device=` param.
   await context.route('https://login.microsoftonline.com/**', async (route) => {

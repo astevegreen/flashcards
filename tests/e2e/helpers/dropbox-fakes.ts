@@ -1,4 +1,5 @@
 import type { BrowserContext, Route } from '@playwright/test';
+import { addTestOverrides } from './test-overrides.ts';
 import { FakeDropboxServer } from '../../../packages/platform-web/tests/fakes/fake-dropbox.ts';
 
 export { FakeDropboxServer };
@@ -29,11 +30,7 @@ export async function installDropboxFakes(
   fakes: DropboxFakes,
   devParams: () => string,
 ): Promise<void> {
-  await context.addInitScript((appKey) => {
-    (
-      window as unknown as { __FLASH_TEST_DROPBOX_APP_KEY__?: string }
-    ).__FLASH_TEST_DROPBOX_APP_KEY__ = appKey;
-  }, APP_KEY);
+  await addTestOverrides(context, { dropboxAppKey: APP_KEY });
 
   await context.route('https://www.dropbox.com/oauth2/authorize**', async (route) => {
     const url = new URL(route.request().url());

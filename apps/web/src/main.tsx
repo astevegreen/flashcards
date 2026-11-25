@@ -26,18 +26,17 @@ const DEFAULT_GOOGLE_CLIENT_ID =
   '932735219487-p20rc5hu0gegb2bh43q8phe8lgi957v3.apps.googleusercontent.com';
 const DEFAULT_TOKEN_HELPER_URL = 'https://flashcards-token-helper.yodc.workers.dev';
 
-/** The e2e-only OneDrive client ID set by a Playwright init script (see `boot`). */
-function testMicrosoftClientId(): string {
-  const value = (window as unknown as { __FLASH_TEST_MS_CLIENT_ID__?: unknown })
-    .__FLASH_TEST_MS_CLIENT_ID__;
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-/** The e2e-only Dropbox app key set by a Playwright init script (see `boot`). */
-function testDropboxAppKey(): string {
-  const value = (window as unknown as { __FLASH_TEST_DROPBOX_APP_KEY__?: unknown })
-    .__FLASH_TEST_DROPBOX_APP_KEY__;
-  return typeof value === 'string' ? value.trim() : '';
+/**
+ * Overrides for tests (S1). The Vite dev server reads them from the URL. A production build reads
+ * them only from `window.__FLASH_TEST_QUERY__` (same `a=1&b=2` form), which only code already
+ * running in the page can set, such as a Playwright init script. So a crafted link can't swap the
+ * licence key, the starter catalogue or the OAuth client in a real build.
+ */
+function testOverrides(): URLSearchParams {
+  const query = (window as unknown as { __FLASH_TEST_QUERY__?: unknown }).__FLASH_TEST_QUERY__;
+  return new URLSearchParams(
+    import.meta.env.DEV ? window.location.search : typeof query === 'string' ? query : '',
+  );
 }
 
 type NativeRuntime = 'capacitor' | 'tauri' | null;
@@ -94,19 +93,15 @@ async function boot(): Promise<void> {
     DEFAULT_TOKEN_HELPER_URL;
   const googleApiKey = (import.meta.env['VITE_GOOGLE_API_KEY'] as string | undefined)?.trim() || '';
   const searchParams = new URLSearchParams(window.location.search);
+  const overrides = testOverrides();
   const dropboxAppKey =
-    testDropboxAppKey() ||
-    (import.meta.env.DEV ? searchParams.get('dropboxAppKey')?.trim() : '') ||
+    overrides.get('dropboxAppKey')?.trim() ||
     (import.meta.env['VITE_DROPBOX_APP_KEY'] as string | undefined)?.trim() ||
     '';
-  // OneDrive (Microsoft Entra) client ID, from the build env. Overrides exist for tests only and
-  // can never come from a link: `?msClientId=` works in the Vite dev server only, and the e2e
-  // suite (a production preview build) sets `window.__FLASH_TEST_MS_CLIENT_ID__` with an init
-  // script, which only code already running in the page can do. A crafted link therefore cannot
-  // send users to the consent screen of another Entra app.
+  // OneDrive (Microsoft Entra) client ID, from the build env (or a test override, see above), so
+  // a crafted link cannot send users to the consent screen of another Entra app.
   const microsoftClientId =
-    testMicrosoftClientId() ||
-    (import.meta.env.DEV ? searchParams.get('msClientId')?.trim() : '') ||
+    overrides.get('msClientId')?.trim() ||
     (import.meta.env['VITE_MS_CLIENT_ID'] as string | undefined)?.trim() ||
     '';
   const microsoftTenant = (import.meta.env['VITE_MS_TENANT'] as string | undefined)?.trim() || '';
@@ -114,13 +109,12 @@ async function boot(): Promise<void> {
     (import.meta.env['VITE_PACK_CATALOG_URL'] as string | undefined)?.trim() || '';
   const envStarterCatalogUrl =
     (import.meta.env['VITE_STARTER_CATALOG_URL'] as string | undefined)?.trim() || '';
-  const devStarterOverride = isDevMode ? (searchParams.get('starterCatalog')?.trim() ?? '') : '';
-  const starterCatalogUrl = devStarterOverride || envStarterCatalogUrl;
+  const starterCatalogUrl = overrides.get('starterCatalog')?.trim() || envStarterCatalogUrl;
   const enableLicenseGate =
     (import.meta.env['VITE_ENABLE_LICENSE_GATE'] as string | undefined)?.trim() === 'true' ||
-    (isDevMode && searchParams.get('licenseGate') === '1');
+    overrides.get('licenseGate') === '1';
   const licensePublicKeyHex =
-    (isDevMode ? searchParams.get('licensePubKey')?.trim() : '') ||
+    overrides.get('licensePubKey')?.trim() ||
     (import.meta.env['VITE_LICENSE_PUBLIC_KEY'] as string | undefined)?.trim() ||
     '';
 

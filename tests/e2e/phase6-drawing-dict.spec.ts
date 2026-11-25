@@ -8,6 +8,7 @@ import { createHlcState } from '../../packages/core/src/hlc.ts';
 import { deriveNoteId } from '../../packages/core/src/ids.ts';
 import { exportFlashpkg } from '../../packages/core/src/import/flashpkg.ts';
 import { BUILTIN_NOTE_TYPE_IDS } from '../../packages/core/src/model/presets.ts';
+import { addTestOverrides } from './helpers/test-overrides.ts';
 
 async function waitForOfflinePrecacheReady(page: Page): Promise<void> {
   const hasController = await page.evaluate(async () => {
@@ -291,7 +292,8 @@ test.describe('Phase 6 Drawing, Offline Dictionaries & Built-in Starter Catalog 
       });
     });
 
-    await page.goto(`/?device=p6starter&starterCatalog=${encodeURIComponent(starterCatalogUrl)}`);
+    await addTestOverrides(page, { starterCatalog: starterCatalogUrl });
+    await page.goto('/?device=p6starter');
     await expect(page.getByTestId('study-card')).toBeVisible();
 
     await page.getByRole('button', { name: 'Decks' }).first().click();

@@ -4,6 +4,7 @@ import {
   canonicalLicenseMessage,
   encodeLicenseKey,
 } from '../../packages/core/src/license/index.ts';
+import { addTestOverrides } from './helpers/test-overrides.ts';
 
 function bytesToHex(bytes: Uint8Array): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -22,6 +23,17 @@ test.describe('Phase 8 Licensing, Sunset Promise & Native Picker Bridge E2E (§1
     );
     await expect(card).toContainText('Sunset Promise (§12.2)');
     await expect(card).toContainText('keep working offline forever');
+  });
+
+  test('A link cannot turn on the licence gate or swap its key in a production build (S1)', async ({
+    page,
+  }) => {
+    await page.goto(`/?device=p8link&licenseGate=1&licensePubKey=${'ab'.repeat(32)}`);
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await expect(page.getByTestId('license-status-badge')).toContainText(
+      'Personal / Family Build (Unlocked)',
+    );
   });
 
   test('Commercial license gate: rejects invalid key, verifies Ed25519 key offline, persists across reload', async ({
@@ -50,7 +62,8 @@ test.describe('Phase 8 Licensing, Sunset Promise & Native Picker Bridge E2E (§1
     );
     const validKey = encodeLicenseKey(payload, sig);
 
-    const gatedUrl = `/?device=p8gate&licenseGate=1&licensePubKey=${publicKeyHex}`;
+    await addTestOverrides(page, { licenseGate: '1', licensePubKey: publicKeyHex });
+    const gatedUrl = '/?device=p8gate';
     await page.goto(gatedUrl);
     await expect(page.getByTestId('study-card')).toBeVisible();
 
