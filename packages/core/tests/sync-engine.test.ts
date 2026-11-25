@@ -8,6 +8,7 @@ import {
   getTotalAppliedEventCount,
 } from '../src/events/replay.ts';
 import { deserializeCollectionState, serializeCollectionState } from '../src/events/snapshot.ts';
+import { SERIALIZED_STATE_FORMAT_VERSION } from '../src/events/snapshot-format.ts';
 import type { FlashEvent, UnknownEvent } from '../src/events/types.ts';
 import { createHlcState } from '../src/hlc.ts';
 import { deriveCardId, deriveNoteId, encodeUtf8 } from '../src/ids.ts';
@@ -288,6 +289,55 @@ describe('SyncEngine & Codec unit tests (§4.2 & §13)', () => {
     applyEvents(stateB, syncB.pulledEvents);
     expect(stateB.notes.size).toBe(2);
     expect(stateB.notes.get(deriveNoteId('d1', 'n2'))?.fields['word']).toBe('불');
+  });
+
+  it('replays segments instead of a snapshot whose state format is newer than this build (D13)', async () => {
+    const transport = new RecordingMemoryTransport();
+    const t0 = Date.UTC(2026, 10, 25, 9, 0, 0);
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const events: FlashEvent[] = [
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: 'd1',
+          name: 'Future Deck',
+          note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+          language: 'ko',
+          created_at: t0,
+        },
+        t0,
+      ),
+    ];
+    const stateA = applyEvents(createEmptyState(), events);
+    const future = serializeCollectionState(stateA, { 'dev-a': 1 });
+    future.formatVersion = SERIALIZED_STATE_FORMAT_VERSION + 1;
+    await runSync({
+      transport,
+      deviceId: 'dev-a',
+      cursor: createInitialSyncCursor(),
+      localOwnSeq: 1,
+      currentTotalEvents: 1,
+      snapshotThreshold: 1,
+      nowMs: () => t0 + 100,
+      getLocalEventsAfterSeq: async (afterSeq) => events.filter((e) => e.seq > afterSeq),
+      buildSnapshotState: async () => ({
+        state: future,
+        totalEvents: 1,
+        watermarks: { 'dev-a': 1 },
+      }),
+    });
+
+    const syncB = await runSync({
+      transport,
+      deviceId: 'dev-b',
+      cursor: createInitialSyncCursor(),
+      localOwnSeq: 0,
+      canBootstrapFromSnapshot: true,
+      nowMs: () => t0 + 400,
+      getLocalEventsAfterSeq: async () => [],
+    });
+    expect(syncB.hydratedSnapshot).toBeUndefined();
+    expect(syncB.pulledEvents.map((e) => e.seq)).toEqual([1]);
   });
 
   it('replays segments instead of a snapshot from a build before media removal', async () => {

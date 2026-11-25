@@ -1,4 +1,7 @@
-import { snapshotLacksMediaRecords } from '../events/snapshot-format.ts';
+import {
+  SERIALIZED_STATE_FORMAT_VERSION,
+  snapshotLacksMediaRecords,
+} from '../events/snapshot-format.ts';
 import type { SerializedCollectionState } from '../events/snapshot.ts';
 import type { FlashEvent, KnownEvent } from '../events/types.ts';
 import { compareHlc } from '../hlc.ts';
@@ -297,6 +300,9 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
         const snap = decodeSyncSnapshot(snapBytes);
         if (
           snap.format_version <= maxFormatVersion &&
+          // A newer state format would be hydrated lossily while the watermarks suppress the
+          // events its unknown fields came from (D13); replay the segments instead.
+          !(snap.state.formatVersion > SERIALIZED_STATE_FORMAT_VERSION) &&
           snap.collection_id === manifest.collection_id &&
           // From a build before media removal: replaying the segments agrees with other devices.
           !snapshotLacksMediaRecords(snap.state)
