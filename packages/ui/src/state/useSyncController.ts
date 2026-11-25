@@ -130,6 +130,17 @@ export function shouldTriggerForegroundPull(params: {
   return true;
 }
 
+/**
+ * `prev` when `next` has the same fields with the same values (nested objects by identity), so a
+ * sync update that changes nothing re-renders nothing: React skips the AppProvider render and
+ * every useApp() consumer with it (P3).
+ */
+export function keepSyncStateIfUnchanged(prev: SyncUiState, next: SyncUiState): SyncUiState {
+  const keys = Object.keys(next) as Array<keyof SyncUiState>;
+  if (keys.length !== Object.keys(prev).length) return next;
+  return keys.every((key) => Object.is(prev[key], next[key])) ? prev : next;
+}
+
 export function useSyncController({
   platform,
   stateRef,
@@ -142,8 +153,15 @@ export function useSyncController({
   onStateMutated,
   onReplaceState,
   syncState,
-  setSyncState,
+  setSyncState: setSyncStateAlways,
 }: UseSyncControllerOptions): SyncController {
+  const setSyncState = useCallback<Dispatch<SetStateAction<SyncUiState>>>(
+    (update) =>
+      setSyncStateAlways((prev) =>
+        keepSyncStateIfUnchanged(prev, typeof update === 'function' ? update(prev) : update),
+      ),
+    [setSyncStateAlways],
+  );
   const defaultProvider: SyncProviderKind =
     initialSyncConfig?.provider ?? (platform.hasDeviceSlug ? 'dev_channel' : 'none');
 
