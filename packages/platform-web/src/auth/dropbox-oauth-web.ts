@@ -14,6 +14,7 @@ interface StoredDropboxPkce {
   state: string;
   redirectUri: string;
   returnSearch: string;
+  intent?: OAuthSignInIntent;
   createdAt: number;
 }
 
@@ -91,7 +92,7 @@ export class DropboxOAuthWebAuth implements Auth {
     return { provider: 'dropbox', accessToken: tokens.accessToken, expiresAt: tokens.expiresAt };
   }
 
-  async signIn(_opts?: { intent?: OAuthSignInIntent }): Promise<AuthSession | null> {
+  async signIn(opts?: { intent?: OAuthSignInIntent }): Promise<AuthSession | null> {
     if (!this.isConfigured()) {
       throw new SyncTransportError(
         'AUTH_REQUIRED',
@@ -118,6 +119,7 @@ export class DropboxOAuthWebAuth implements Auth {
       state,
       redirectUri,
       returnSearch: cleanSearch ? `?${cleanSearch}` : '',
+      ...(opts?.intent ? { intent: opts.intent } : {}),
       createdAt: this.nowMs(),
     };
     await this.storage.setKv(DROPBOX_PKCE_KV_KEY, pkce);
@@ -188,7 +190,12 @@ export class DropboxOAuthWebAuth implements Auth {
       ...(typeof data['account_id'] === 'string' ? { accountId: data['account_id'] } : {}),
     };
     await this.storage.setKv(DROPBOX_TOKENS_KV_KEY, stored);
-    return { provider: 'dropbox', accessToken, expiresAt };
+    return {
+      provider: 'dropbox',
+      accessToken,
+      expiresAt,
+      ...(pkce.intent ? { intent: pkce.intent } : {}),
+    };
   }
 
   async getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {

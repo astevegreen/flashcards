@@ -150,6 +150,7 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     dropboxConfigured: Boolean(dropboxAppKey),
     getDropboxAuth: defer('getDropboxAuth'),
     createDropboxTransport: defer('createDropboxTransport'),
+    getDropboxPicker: defer('getDropboxPicker'),
     oneDriveConfigured,
     getOneDriveAuth: defer('getOneDriveAuth'),
     createOneDriveTransport: defer('createOneDriveTransport'),

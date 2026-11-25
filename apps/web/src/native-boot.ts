@@ -9,6 +9,8 @@ export interface NativeBootSettings {
   /** Microsoft Entra client ID (OneDrive); native shells use it as a public client. */
   microsoftClientId: string;
   microsoftTenant: string;
+  /** Dropbox App Folder app key (public PKCE client, no secret). */
+  dropboxAppKey: string;
   packCatalogUrl: string;
   starterCatalogUrl: string;
 }
@@ -39,6 +41,7 @@ export async function bootNativePlatform(
     ...nonEmpty('starterCatalogUrl', settings.starterCatalogUrl),
     ...nonEmpty('microsoftClientId', settings.microsoftClientId),
     ...nonEmpty('microsoftTenant', settings.microsoftTenant),
+    ...nonEmpty('dropboxAppKey', settings.dropboxAppKey),
   };
   if (runtime === 'capacitor') {
     const { bootCapacitorPlatform } = await import('@flash/platform-capacitor/native');

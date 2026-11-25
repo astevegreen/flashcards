@@ -183,18 +183,27 @@ export class DropboxAppFolderTransport implements SyncTransport {
   }
 }
 
+/**
+ * Granular scopes for the Dropbox App Folder connector: used by both Sync and Linked Sources
+ * so one Dropbox sign-in powers both (§4.3).
+ */
+export const DROPBOX_APP_FOLDER_SCOPES =
+  'files.metadata.read files.content.read files.content.write';
+
 /** Builds a Dropbox PKCE authorization URL (`token_access_type=offline`, §4.3). */
 export function buildDropboxPkceAuthUrl(params: {
   clientId: string;
   redirectUri: string;
   codeChallenge: string;
   state: string;
+  scope?: string;
 }): string {
   const url = new URL('https://www.dropbox.com/oauth2/authorize');
   url.searchParams.set('client_id', params.clientId);
   url.searchParams.set('redirect_uri', params.redirectUri);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('token_access_type', 'offline');
+  url.searchParams.set('scope', params.scope ?? DROPBOX_APP_FOLDER_SCOPES);
   url.searchParams.set('code_challenge', params.codeChallenge);
   url.searchParams.set('code_challenge_method', 'S256');
   url.searchParams.set('state', params.state);
