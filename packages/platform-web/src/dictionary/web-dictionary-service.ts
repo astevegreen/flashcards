@@ -58,16 +58,33 @@ export class WebDictionaryService implements DictionaryService {
     return all.filter((p) => p.kind === 'dictionary');
   }
 
+  /**
+   * The installed packs among `requested` (all installed ones when absent). Rows left behind by an
+   * interrupted install have no `packs` row, so they never show up in results (D15).
+   */
+  private async searchablePackIds(
+    requested?: readonly DictionaryPackId[],
+  ): Promise<DictionaryPackId[]> {
+    const installed = (await this.listInstalledDictionaryPacks()).map(
+      (p) => p.id as DictionaryPackId,
+    );
+    return requested && requested.length > 0
+      ? installed.filter((id) => requested.includes(id))
+      : installed;
+  }
+
   async lookupCharacter(
     char: string,
     opts?: { packIds?: readonly DictionaryPackId[] },
   ): Promise<DictionaryEntry[]> {
     const trimmed = char.normalize('NFC').trim();
     if (!trimmed) return [];
-    const direct = await this.packStorage.lookupDictionaryByHeadword(trimmed, opts?.packIds);
+    const packIds = await this.searchablePackIds(opts?.packIds);
+    if (packIds.length === 0) return [];
+    const direct = await this.packStorage.lookupDictionaryByHeadword(trimmed, packIds);
     const tokenMatches = await this.packStorage.queryDictionaryCandidates(
       [trimmed.toLowerCase()],
-      opts?.packIds,
+      packIds,
       100,
     );
     const seen = new Set<string>();
@@ -91,11 +108,13 @@ export class WebDictionaryService implements DictionaryService {
     const plan = planDictionarySearch(query, opts.direction);
     const q = plan.query;
     if (!q.raw) return [];
+    const packIds = await this.searchablePackIds(opts.packIds);
+    if (packIds.length === 0) return [];
 
     const [direct, lemmas, candidates] = await Promise.all([
-      this.packStorage.lookupDictionaryByHeadword(q.raw, opts.packIds),
-      this.packStorage.lookupDictionaryByHeadwords(plan.headwordCandidates, opts.packIds),
-      this.packStorage.queryDictionaryCandidates(plan.prefixTokens, opts.packIds, 450),
+      this.packStorage.lookupDictionaryByHeadword(q.raw, packIds),
+      this.packStorage.lookupDictionaryByHeadwords(plan.headwordCandidates, packIds),
+      this.packStorage.queryDictionaryCandidates(plan.prefixTokens, packIds, 450),
     ]);
 
     const seen = new Set<string>();

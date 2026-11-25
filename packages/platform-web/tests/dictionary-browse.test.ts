@@ -176,3 +176,36 @@ describe('dictionary browse over installed starter packs (IndexedDB)', () => {
     storage.close();
   });
 });
+
+describe('pack reinstall (D15)', () => {
+  it('an interrupted reinstall leaves the pack not installed, and its stray rows unsearchable', async () => {
+    const { storage, svc } = await installStarters(`test-reinstall-${Date.now()}`);
+    expect((await svc.search('학교')).length).toBeGreaterThan(0);
+    const before = await storage.getInstalledPack('dict-krdict');
+    expect(before).toBeDefined();
+
+    // The reinstall stops after its first chunk, before the new `packs` row is written.
+    const stray = (await svc.search('학교', { packIds: ['dict-krdict'] })).slice(0, 1);
+    expect(stray).toHaveLength(1);
+    await storage.replaceDictionaryPackEntries('dict-krdict', stray);
+
+    expect(await storage.getInstalledPack('dict-krdict')).toBeUndefined();
+    expect((await svc.listInstalledDictionaryPacks()).map((p) => p.id)).not.toContain(
+      'dict-krdict',
+    );
+    expect((await svc.search('학교')).some((e) => e.packId === 'dict-krdict')).toBe(false);
+    expect(await svc.search('학교', { packIds: ['dict-krdict'] })).toEqual([]);
+
+    // Installing again restores the whole pack.
+    const manager = new WebPackManager({
+      packStorage: storage,
+      defaultCatalogUrl: 'https://packs.example.com/packs.json',
+      fetchImpl: () => Promise.reject(new Error('offline')),
+    });
+    await manager.installPackFromBytes(
+      new Uint8Array(readFileSync(join(PACKS_DIR, 'dict-krdict.json.gz'))),
+    );
+    expect((await storage.getInstalledPack('dict-krdict'))?.entryCount).toBe(before?.entryCount);
+    expect((await svc.search('학교')).some((e) => e.packId === 'dict-krdict')).toBe(true);
+  });
+});

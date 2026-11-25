@@ -135,6 +135,8 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      // A failed reinstall leaves the pack not installed (D15): show that, not the old row.
+      void refreshState(false).catch(() => {});
     } finally {
       setBusyPackId(null);
       setProgress(null);
@@ -197,6 +199,7 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      void refreshState(false).catch(() => {});
     } finally {
       setBusyPackId(null);
       setProgress(null);
