@@ -67,6 +67,7 @@ import { buildWatermarks, createSyncShell, initialSyncUiState } from './syncShel
 import type { SyncUiState } from './useSyncController.ts';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
+import { putMediaTracked } from './recentMedia.ts';
 
 export type { AudioController } from './useAudioController.ts';
 export type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
@@ -729,7 +730,7 @@ export function AppProvider({
       tts_lang_key?: string;
     }) => {
       const normHash = media.hash.toLowerCase();
-      await platform.storage.putMedia({
+      await putMediaTracked(platform.storage, {
         hash: normHash,
         mime: media.mime,
         bytes: media.bytes,

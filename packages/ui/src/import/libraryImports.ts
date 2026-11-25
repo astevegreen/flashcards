@@ -2,6 +2,7 @@ import type { CollectionState, EventFactory, KnownEvent } from '@flash/core';
 import type { ColumnTarget } from '@flash/core/import-mapping';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import type { EntitlementState, PlatformServices } from '@flash/platform';
+import { putMediaTracked } from '../state/recentMedia.ts';
 
 /**
  * The Library's CSV/TSV and `.flashpkg` imports, shared by the header buttons and the guided
@@ -91,7 +92,7 @@ export async function importFlashpkgBytes(
   const result = importFlashpkg(bytes, ctx.state, ctx.getEventFactory());
   assertCanAddDecks(ctx, Math.max(0, result.decksImported - result.upgradedDecks));
   for (const media of result.extractedMedia) {
-    await ctx.platform.storage.putMedia({
+    await putMediaTracked(ctx.platform.storage, {
       hash: media.hash,
       mime: media.mime,
       bytes: media.bytes,

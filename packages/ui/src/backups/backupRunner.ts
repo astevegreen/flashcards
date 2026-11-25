@@ -29,6 +29,7 @@ import type {
   SyncProviderKind,
   SyncTransport,
 } from '@flash/platform';
+import { putMediaTracked } from '../state/recentMedia.ts';
 
 /**
  * Rolling backups on this device (`@flash/core/backup`): the automatic daily snapshot, the
@@ -554,7 +555,7 @@ export async function applyRestore(
     if (await storage.getMedia(hash)) continue;
     const file = read.media.get(hash);
     if (file && verifyBackupMedia(file)) {
-      await storage.putMedia({ hash: file.hash, mime: file.mime, bytes: file.bytes });
+      await putMediaTracked(storage, { hash: file.hash, mime: file.mime, bytes: file.bytes });
     } else {
       // A synced device can still pull it from the sync folder's media store.
       result.mediaMissing += 1;

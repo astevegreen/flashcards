@@ -54,6 +54,7 @@ import {
   mergeSyncedGoogleDriveFiles,
   refreshLinkedGoogleDriveFiles,
 } from './googleDriveFileSource.ts';
+import { putMediaTracked } from '../state/recentMedia.ts';
 
 export {
   DROPBOX_RECONCILE_PREFIX,
@@ -503,7 +504,7 @@ async function preLocalizeHttpsImageUrls(
 
     try {
       const processed = await fetcher(url);
-      await ctx.platform.storage.putMedia({
+      await putMediaTracked(ctx.platform.storage, {
         hash: processed.hash,
         mime: processed.mime,
         bytes: processed.bytes,
@@ -618,7 +619,7 @@ async function preLocalizeHttpsAudioUrls(
 
     try {
       const processed = await fetcher(url);
-      await ctx.platform.storage.putMedia({
+      await putMediaTracked(ctx.platform.storage, {
         hash: processed.hash,
         mime: processed.mime,
         bytes: processed.bytes,
@@ -1743,7 +1744,7 @@ export async function scanSingleLocalFolder(
           continue;
         }
         for (const media of pkgRes.extractedMedia) {
-          await ctx.platform.storage.putMedia({
+          await putMediaTracked(ctx.platform.storage, {
             hash: media.hash,
             mime: media.mime,
             bytes: media.bytes,
@@ -1810,7 +1811,7 @@ export async function scanSingleLocalFolder(
           continue;
         }
         for (const media of pkgRes.extractedMedia) {
-          await ctx.platform.storage.putMedia({
+          await putMediaTracked(ctx.platform.storage, {
             hash: media.hash,
             mime: media.mime,
             bytes: media.bytes,
@@ -1861,7 +1862,7 @@ export async function scanSingleLocalFolder(
           const loaded = await adapter.readRelativeMedia(folder.id, file.relativePath, relMedia);
           if (!loaded) continue;
           const mHash = sha256Hex(loaded.bytes);
-          await ctx.platform.storage.putMedia({
+          await putMediaTracked(ctx.platform.storage, {
             hash: mHash,
             mime: loaded.mime,
             bytes: loaded.bytes,
@@ -1995,7 +1996,7 @@ export async function scanSingleLocalFolder(
           const loaded = await adapter.readRelativeMedia(folder.id, file.relativePath, relMedia);
           if (!loaded) continue;
           const mHash = sha256Hex(loaded.bytes);
-          await ctx.platform.storage.putMedia({
+          await putMediaTracked(ctx.platform.storage, {
             hash: mHash,
             mime: loaded.mime,
             bytes: loaded.bytes,
@@ -2247,7 +2248,7 @@ export async function refreshSinglePackageSubscription(
   if (overLimit) throw new Error(overLimit);
 
   for (const media of pkgRes.extractedMedia) {
-    await ctx.platform.storage.putMedia({
+    await putMediaTracked(ctx.platform.storage, {
       hash: media.hash,
       mime: media.mime,
       bytes: media.bytes,
