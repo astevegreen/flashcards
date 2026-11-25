@@ -7,6 +7,7 @@ import {
   type CollectionState,
   type EventFactory,
   type KnownEvent,
+  type PracticeOrder,
 } from '@flash/core';
 import type { StudySession } from './filterStore.ts';
 
@@ -21,12 +22,27 @@ export interface SessionDeps {
  * Cram / practice session (Phase 9): every card matching `filter`, answers recorded as
  * `PracticeRecorded` (never FSRS). The queue is derived from this session's events, so it
  * survives re-renders and converges with what other devices see; Undo appends `PracticeUndone`.
+ * `order` (Study screen options) sorts the queue; `withOrder` keeps the session, answers and Undo.
  */
-export function createPracticeSession(deps: SessionDeps, filter: CardFilter): StudySession {
-  const sessionId = uuidv7();
-  const answered: string[] = [];
+export function createPracticeSession(
+  deps: SessionDeps,
+  filter: CardFilter,
+  order?: PracticeOrder,
+): StudySession {
+  return practiceSession(deps, filter, uuidv7(), [], order);
+}
+
+function practiceSession(
+  deps: SessionDeps,
+  filter: CardFilter,
+  sessionId: string,
+  answered: string[],
+  order: PracticeOrder | undefined,
+): StudySession {
   return {
     kind: 'practice',
+    ...(order === undefined ? {} : { order }),
+    withOrder: (next) => practiceSession(deps, filter, sessionId, answered, next),
     buildQueue: (state, scope) =>
       buildPracticeQueue(state, {
         filter,
@@ -34,6 +50,7 @@ export function createPracticeSession(deps: SessionDeps, filter: CardFilter): St
         nowMs: scope.nowMs,
         tzOffsetMinutes: scope.tzOffsetMinutes,
         ...(scope.deckId !== undefined ? { deckId: scope.deckId } : {}),
+        ...(order === undefined ? {} : { order }),
       }),
     rate: (card, rating, durationMs) => {
       const nowMs = Date.now();

@@ -17,6 +17,7 @@ import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
 import { LeechAutoSuspendSetting } from '../study/LeechSettings.tsx';
+import { StudyDefaultsSettings } from '../study/StudyDefaultsSettings.tsx';
 import { OneDriveSyncButtons } from '../sync/OneDriveSyncButtons.tsx';
 import {
   SettingsAddDevice,
@@ -675,6 +676,8 @@ export function SettingsScreen() {
         <h2 className="text-sm font-semibold">Study Preferences</h2>
 
         <StudyRemindersSetting />
+
+        <StudyDefaultsSettings />
 
         <label className="flex items-center justify-between gap-4 text-sm">
           <div className="min-w-0">

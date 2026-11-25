@@ -2,6 +2,7 @@ import type {
   Card,
   CardFilter,
   CollectionState,
+  PracticeOrder,
   ReviewRating,
   StudyQueueResult,
 } from '@flash/core';
@@ -46,6 +47,10 @@ export interface StudySession {
   undo?: () => boolean;
   /** Whether {@link undo} has an answer to undo (Study disables Undo until then). */
   canUndo?: () => boolean;
+  /** Practice card order chosen on the Study screen (omitted = the filter's canonical order). */
+  order?: PracticeOrder;
+  /** The same practice session (answers, Undo) in another card order. */
+  withOrder?: (order: PracticeOrder) => StudySession;
 }
 
 /**
