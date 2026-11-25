@@ -375,6 +375,25 @@ export function encodeSyncSnapshot(snapshot: SyncSnapshot): Uint8Array {
   return gzipSync(encodeUtf8(JSON.stringify(snapshot)), { level: 6 });
 }
 
+/**
+ * The gzipped snapshot, or `null` when it is past what {@link decodeSyncSnapshot} will read
+ * (D12). Uploading it would only cost bandwidth: every device, this one included, skips it and
+ * replays the segments instead.
+ */
+export function encodeReadableSyncSnapshot(
+  snapshot: SyncSnapshot,
+  limits?: Partial<typeof SYNC_CODEC_LIMITS>,
+): Uint8Array | null {
+  const raw = encodeUtf8(JSON.stringify(snapshot));
+  if (raw.byteLength > (limits?.maxUncompressedBytes ?? SYNC_CODEC_LIMITS.maxUncompressedBytes)) {
+    return null;
+  }
+  const gz = gzipSync(raw, { level: 6 });
+  return gz.byteLength > (limits?.maxCompressedBytes ?? SYNC_CODEC_LIMITS.maxCompressedBytes)
+    ? null
+    : gz;
+}
+
 export function decodeSyncSnapshot(
   compressed: Uint8Array,
   limits?: Partial<typeof SYNC_CODEC_LIMITS>,

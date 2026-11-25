@@ -1,9 +1,11 @@
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { compareHlc, createHlcState, tickHlc } from '../src/hlc.ts';
 import { parseHlc, receiveHlc } from '../src/hlc-merge.ts';
 import {
   deriveCardId,
   deriveNoteId,
+  encodeUtf8,
   FLASH_NAMESPACE_UUID,
   resetUuidv7StateForTesting,
   uuidv5,
@@ -74,5 +76,20 @@ describe('Hybrid Logical Clock (HLC)', () => {
     const parsed = parseHlc(t3.hlc);
     expect(parsed.wallMs).toBe(5000);
     expect(parsed.deviceId).toBe('dev-a');
+  });
+});
+
+describe('encodeUtf8', () => {
+  it('matches TextEncoder on well-formed text and keeps the old bytes for lone surrogates', () => {
+    const encoder = new TextEncoder();
+    fc.assert(
+      fc.property(fc.string({ unit: 'binary', maxLength: 64 }), (text) => {
+        expect([...encodeUtf8(text)]).toEqual([...encoder.encode(text)]);
+      }),
+      { numRuns: 2000 },
+    );
+    // Ids hash these bytes, so a lone surrogate stays its own 3-byte sequence (not U+FFFD).
+    const loneSurrogates = `${String.fromCharCode(0xd800)}a${String.fromCharCode(0xdc00)}`;
+    expect([...encodeUtf8(loneSurrogates)]).toEqual([0xed, 0xa0, 0x80, 0x61, 0xed, 0xb0, 0x80]);
   });
 });

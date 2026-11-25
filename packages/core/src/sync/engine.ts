@@ -20,7 +20,7 @@ import {
   encodeDeviceHead,
   encodeEventsSegment,
   encodeManifest,
-  encodeSyncSnapshot,
+  encodeReadableSyncSnapshot,
   manifestPath,
   mediaObjectPath,
   parseDeviceHeadPath,
@@ -722,9 +722,14 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
           },
         };
 
+        // A snapshot too big to read back is not uploaded; the next try is `snapshotThreshold`
+        // events later (D12).
+        const encoded = encodeReadableSyncSnapshot(snapshot);
         try {
-          await transport.write(targetPath, encodeSyncSnapshot(snapshot), { ifAbsent: true });
-          snapshotWritten = targetPath;
+          if (encoded) {
+            await transport.write(targetPath, encoded, { ifAbsent: true });
+            snapshotWritten = targetPath;
+          }
         } catch (err) {
           if (!isAlreadyExists(err)) {
             throw err;

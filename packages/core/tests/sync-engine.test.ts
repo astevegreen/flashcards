@@ -21,12 +21,14 @@ import {
   encodeDeviceHead,
   encodeEventsSegment,
   encodeManifest,
+  encodeReadableSyncSnapshot,
   manifestPath,
   safeGunzip,
   sanitizeDeviceId,
   SyncCodecError,
 } from '../src/sync/codec.ts';
 import { runSync } from '../src/sync/engine.ts';
+import type { SyncSnapshot } from '../src/sync/types.ts';
 import {
   createInitialSyncCursor,
   SyncTransportError,
@@ -903,5 +905,71 @@ describe('SyncEngine & Codec unit tests (§4.2 & §13)', () => {
     for (const bad of ['zzzz', '01936A4E2F10-0001-d', '01936a4e2f10-0001-', '1-2-3']) {
       expect(() => decodeEventsSegment(line(bad))).toThrow(SyncCodecError);
     }
+  });
+});
+
+describe('snapshots past the decoder limits (D12)', () => {
+  const t0 = Date.UTC(2026, 10, 25, 9, 0, 0);
+
+  it('encodes only snapshots the decoder will read back', () => {
+    const snapshot = (pad: string): SyncSnapshot =>
+      ({
+        format_version: 1,
+        snapshot_version: 1,
+        collection_id: 'c1',
+        created_by: 'dev-a',
+        created_at: t0,
+        total_events: 1,
+        watermarks: {},
+        state: { pad },
+      }) as unknown as SyncSnapshot;
+    expect(encodeReadableSyncSnapshot(snapshot('small'))).not.toBeNull();
+    expect(
+      encodeReadableSyncSnapshot(snapshot('x'.repeat(2000)), { maxUncompressedBytes: 1000 }),
+    ).toBeNull();
+    // Random-looking text barely compresses, so the compressed cap is what it passes.
+    const noisy = Array.from({ length: 4000 }, (_, i) =>
+      ((i * 2654435761) >>> 0).toString(36),
+    ).join('');
+    expect(encodeReadableSyncSnapshot(snapshot(noisy), { maxCompressedBytes: 2000 })).toBeNull();
+  });
+
+  it('does not upload a snapshot no device could read', async () => {
+    const transport = new RecordingMemoryTransport();
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const events: FlashEvent[] = [
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: 'd1',
+          name: 'Big',
+          note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+          language: 'ko',
+        },
+        t0,
+      ),
+    ];
+    const state = applyEvents(createEmptyState(), events);
+    const serialized = serializeCollectionState(state, { 'dev-a': 1 });
+    const result = await runSync({
+      transport,
+      deviceId: 'dev-a',
+      cursor: createInitialSyncCursor(),
+      localOwnSeq: 1,
+      currentTotalEvents: 1,
+      snapshotThreshold: 1,
+      nowMs: () => t0 + 100,
+      getLocalEventsAfterSeq: async (afterSeq) => events.filter((e) => e.seq > afterSeq),
+      buildSnapshotState: async () => ({
+        // Past the 25 MiB uncompressed read cap, like a collection with ~90k reviews.
+        state: { ...serialized, padding: 'x'.repeat(26 * 1024 * 1024) },
+        totalEvents: 1,
+        watermarks: { 'dev-a': 1 },
+      }),
+    });
+    expect(result.status).toBe('ok');
+    expect(result.snapshotWritten).toBeUndefined();
+    expect([...transport.files.keys()].some((path) => path.includes('snapshot'))).toBe(false);
+    expect(result.cursor.lastSnapshotTotalEvents).toBe(1);
   });
 });
