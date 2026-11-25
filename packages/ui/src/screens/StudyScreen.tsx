@@ -14,7 +14,6 @@ import {
   type Layout,
   type Note,
   type NoteType,
-  type RatingButtonMode,
   type ReviewRating,
 } from '@flash/core';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -35,7 +34,21 @@ import {
   type StudySession,
 } from '../study/filterStore.ts';
 import { RatingBar } from '../study/RatingBar.tsx';
-import { StudyCard, type SwipeIntent } from '../study/StudyCard.tsx';
+import { StudyCard } from '../study/StudyCard.tsx';
+import {
+  canVerticalSwipeFromScroll,
+  classifySwipe,
+  nextRevealStep,
+  resolveStudyKeyAction,
+  revealHint,
+  SWIPE_RATING,
+  type StudyKeyAction,
+} from '../study/studyGestures.ts';
+import { shouldShowSwipeGuide, storeSwipeGuideDismissed } from '../study/swipeGuide.ts';
+
+const LazySwipeGuideBanner = lazyWithRetry(() =>
+  import('../study/SwipeGuideBanner.tsx').then((m) => ({ default: m.SwipeGuideBanner })),
+);
 
 const LazyNoteEditDialog = lazyWithRetry(
   () => import('../components/NoteEditDialog.tsx').then((m) => ({ default: m.NoteEditDialog })),
@@ -160,79 +173,6 @@ function populatedRevealStepsFor(layout: Layout | undefined, note: Note | undefi
   return steps.length > 0 ? steps : [layout.reveal_steps[0] ?? []];
 }
 
-/** Swipe direction past the given thresholds (px), or `null`. Easy needs 3+ rating buttons. */
-function classifySwipe(
-  dx: number,
-  dy: number,
-  ratingMode: RatingButtonMode,
-  minX: number,
-  minUp: number,
-): SwipeIntent {
-  const absX = Math.abs(dx);
-  const absY = Math.abs(dy);
-  if (absX >= minX && absX > absY) return dx < 0 ? 'again' : 'good';
-  if (dy <= -minUp && absY > absX && ratingMode !== '2') return 'easy';
-  return null;
-}
-
-const SWIPE_RATING: Record<Exclude<SwipeIntent, null>, ReviewRating> = {
-  again: 1,
-  good: 3,
-  easy: 4,
-};
-
-type StudyKeyAction =
-  'undo' | 'redo' | 'reveal' | 'furigana' | 'speak' | 'slow' | 'edit' | ReviewRating;
-
-const LETTER_KEY_ACTIONS: Record<string, StudyKeyAction> = {
-  f: 'furigana',
-  r: 'speak',
-  s: 'slow',
-  z: 'undo',
-  e: 'edit',
-};
-
-/** Rating keys: the rating, and the fewest rating buttons that show it (§5.1). */
-const RATING_KEYS: Record<string, readonly [ReviewRating, number]> = {
-  '1': [1, 0],
-  ArrowLeft: [1, 0],
-  '2': [3, 0],
-  ArrowRight: [3, 0],
-  '3': [4, 3],
-  ArrowUp: [4, 3],
-  '4': [2, 4],
-  ArrowDown: [2, 4],
-};
-
-/** Space / Enter reveal the next step, unless focus is on a button or link (no double activation). */
-function confirmKeyAction(e: KeyboardEvent, isFullyRevealed: boolean): StudyKeyAction | undefined {
-  if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement) {
-    return undefined;
-  }
-  return isFullyRevealed ? undefined : 'reveal';
-}
-
-/** Desktop keyboard shortcuts (§5.1 & §5.2). */
-function resolveStudyKeyAction(
-  e: KeyboardEvent,
-  isRevealed: boolean,
-  isFullyRevealed: boolean,
-  ratingMode: RatingButtonMode,
-): StudyKeyAction | undefined {
-  const key = e.key;
-  if (e.ctrlKey || e.metaKey) {
-    const lower = key.toLowerCase();
-    if ((lower === 'z' && e.shiftKey) || (lower === 'y' && !e.shiftKey)) return 'redo';
-    if (lower === 'z') return 'undo';
-  }
-  if (e.ctrlKey || e.metaKey || e.altKey) return undefined;
-  if (key === ' ' || key === 'Enter') return confirmKeyAction(e, isFullyRevealed);
-  const letter = LETTER_KEY_ACTIONS[key.toLowerCase()];
-  if (letter !== undefined) return letter;
-  const rating = isRevealed ? RATING_KEYS[key] : undefined;
-  return rating && Number(ratingMode) >= rating[1] ? rating[0] : undefined;
-}
-
 /** Undo is enabled only when there is something to undo: the session's last answer, else a review. */
 function canUndo(session: StudySession | undefined, reviewUndoDepth: number): boolean {
   if (session?.undo) return session.canUndo?.() ?? true;
@@ -241,11 +181,6 @@ function canUndo(session: StudySession | undefined, reviewUndoDepth: number): bo
 
 function layoutLabelFor(layout: Layout, card: Card): string {
   return card.variant > 0 ? `${layout.name} · c${card.variant}` : layout.name;
-}
-
-function revealHint(isRevealed: boolean, isFullyRevealed: boolean, capturesFront: boolean) {
-  if (isFullyRevealed || (capturesFront && !isRevealed)) return null;
-  return isRevealed ? 'Tap or press Space for more' : 'Tap card or press Space to reveal';
 }
 
 function caughtUpMessage(
@@ -359,6 +294,8 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   const [evaluation, setEvaluation] = useState<AnswerEvaluation | null>(null);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [swipe, setSwipe] = useState<SwipeState>(NO_SWIPE);
+  const [bounceBack, setBounceBack] = useState(false);
+  const [showSwipeGuide, setShowSwipeGuide] = useState(() => shouldShowSwipeGuide());
   const [clockTick, setClockTick] = useState(0);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const storedStudyFilter = useStudyFilter();
@@ -372,7 +309,15 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     if (storedStudyFilter && !studyFilter) setStudyFilter(undefined);
   }, [storedStudyFilter, studyFilter]);
 
-  const pointerStartRef = useRef<{ id: number; x: number; y: number } | null>(null);
+  const cardScrollRef = useRef<HTMLDivElement | null>(null);
+  const pointerStartRef = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    startedInScrollableBody: boolean;
+    startScrollTop: number;
+    scrolled: boolean;
+  } | null>(null);
   const cardShownAtRef = useRef<number>(Date.now());
 
   const decks = useMemo(
@@ -598,7 +543,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   const handleRevealNext = useCallback(() => {
     if (!currentCard) return;
     speakOnFirstReveal();
-    setRevealStep((prev) => Math.min(totalRevealSteps, prev + 1));
+    setRevealStep((prev) => nextRevealStep(prev, totalRevealSteps));
   }, [currentCard, speakOnFirstReveal, totalRevealSteps]);
 
   const handleEvaluateAndReveal = useCallback(
@@ -635,8 +580,9 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   );
 
   const handleRate = useCallback(
-    (rating: ReviewRating) => {
-      if (!currentCard || !isRevealed) return;
+    (rating: ReviewRating, options?: { allowUnrevealed?: boolean }) => {
+      if (!currentCard) return;
+      if (!isRevealed && !options?.allowUnrevealed) return;
       unlockAudio();
       stopAudio();
       const elapsed = Date.now() - cardShownAtRef.current;
@@ -667,6 +613,12 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     ],
   );
 
+  const undoAvailable = canUndo(studyFilter?.session, undoStack.length);
+  const triggerBounceBack = useCallback(() => {
+    setBounceBack(false);
+    window.requestAnimationFrame(() => setBounceBack(true));
+  }, []);
+
   const handleUndo = useCallback(() => {
     stopAudio();
     if ((studyFilter?.session?.undo ?? undoLastReview)()) {
@@ -674,7 +626,9 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       setFuriganaOverride(null);
       setEvaluation(null);
       cardShownAtRef.current = Date.now();
+      return true;
     }
+    return false;
   }, [stopAudio, studyFilter, undoLastReview]);
 
   // Redo is for FSRS reviews only; a practice session keeps its own one-way Undo.
@@ -701,9 +655,11 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   // Desktop keyboard shortcuts (§5.1 & §5.2)
   useEffect(() => {
     const runKeyAction = (action: StudyKeyAction) => {
-      if (typeof action === 'number') handleRate(action);
-      else if (action === 'undo') handleUndo();
-      else if (action === 'redo') handleRedo();
+      if (typeof action === 'object') {
+        handleRate(action.rating, { allowUnrevealed: action.allowUnrevealed });
+      } else if (action === 'undo') {
+        if (!handleUndo()) triggerBounceBack();
+      } else if (action === 'redo') handleRedo();
       else if (action === 'reveal') handleRevealNext();
       else if (action === 'furigana') handleToggleFurigana();
       else if (action === 'edit') setEditingNote(currentNote ?? null);
@@ -713,7 +669,12 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       if (e.isComposing || e.keyCode === 229) return;
       if (editingNote !== null || isEditableTarget(e.target)) return;
       unlockAudio();
-      const action = resolveStudyKeyAction(e, isRevealed, isFullyRevealed, ratingMode);
+      const action = resolveStudyKeyAction(
+        e,
+        isRevealed,
+        activeModePlugin.capturesFrontInteraction,
+        ratingMode,
+      );
       if (action === undefined || (action === 'edit' && !currentNote)) return;
       e.preventDefault();
       runKeyAction(action);
@@ -722,6 +683,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
+    activeModePlugin.capturesFrontInteraction,
     currentNote,
     editingNote,
     handleRate,
@@ -730,26 +692,44 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     handleRedo,
     handleToggleFurigana,
     handleUndo,
-    isFullyRevealed,
     isRevealed,
     ratingMode,
+    triggerBounceBack,
     unlockAudio,
   ]);
 
-  // Mobile Pointer Events swipe gestures
+  const canSwipeCard = isRevealed || !activeModePlugin.capturesFrontInteraction;
+  const isExtrasOpen = isRevealed && totalRevealSteps > 1 && isFullyRevealed;
+
+  // Mobile Pointer Events swipe gestures:
+  // LEFT = Good (3), DOWN = Again (1), UP = Easy (4, or Good in 2-button mode), RIGHT = Back (Undo).
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     audio.unlock();
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     if (isInteractiveControl(e.target)) return;
-    if (!isRevealed && activeModePlugin.capturesFrontInteraction) return;
-    if (e.pointerType !== 'mouse') {
+    if (!canSwipeCard) return;
+    const scrollEl = cardScrollRef.current;
+    const startedInScrollableBody = Boolean(
+      scrollEl &&
+      e.target instanceof Node &&
+      scrollEl.contains(e.target) &&
+      scrollEl.scrollHeight > scrollEl.clientHeight + 1,
+    );
+    if (e.pointerType !== 'mouse' && !startedInScrollableBody) {
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
         // Ignore if pointer capture is unavailable (e.g. synthetic events)
       }
     }
-    pointerStartRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    pointerStartRef.current = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      startedInScrollableBody,
+      startScrollTop: scrollEl?.scrollTop ?? 0,
+      scrolled: false,
+    };
     setSwipe({ ...NO_SWIPE, active: true });
   };
 
@@ -758,6 +738,26 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     if (!start || start.id !== e.pointerId) return;
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
+    const scrollEl = cardScrollRef.current;
+    if (start.startedInScrollableBody && scrollEl) {
+      if (Math.abs(scrollEl.scrollTop - start.startScrollTop) > 2) {
+        start.scrolled = true;
+        setSwipe(NO_SWIPE);
+        return;
+      }
+      if (
+        Math.abs(dy) > Math.abs(dx) &&
+        !canVerticalSwipeFromScroll(
+          dy,
+          start.startScrollTop,
+          scrollEl.scrollHeight,
+          scrollEl.clientHeight,
+        )
+      ) {
+        setSwipe(NO_SWIPE);
+        return;
+      }
+    }
     setSwipe({ dx, dy, active: true });
   };
 
@@ -769,18 +769,38 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     const dy = e.clientY - start.y;
     setSwipe(NO_SWIPE);
 
-    // Swipe left -> Again, right -> Good, up -> Easy
-    const intent = isRevealed ? classifySwipe(dx, dy, ratingMode, 72, 80) : null;
-    if (intent) {
-      handleRate(SWIPE_RATING[intent]);
+    const scrollEl = cardScrollRef.current;
+    const didScroll =
+      start.scrolled ||
+      (start.startedInScrollableBody &&
+        scrollEl !== null &&
+        Math.abs(scrollEl.scrollTop - start.startScrollTop) > 2);
+    if (didScroll) return;
+
+    const verticalAllowed =
+      !start.startedInScrollableBody ||
+      !scrollEl ||
+      Math.abs(dx) >= Math.abs(dy) ||
+      canVerticalSwipeFromScroll(
+        dy,
+        start.startScrollTop,
+        scrollEl.scrollHeight,
+        scrollEl.clientHeight,
+      );
+
+    const intent =
+      canSwipeCard && verticalAllowed ? classifySwipe(dx, dy, ratingMode, 72, 80) : null;
+    if (intent === 'back') {
+      if (!handleUndo()) triggerBounceBack();
       return;
     }
-    // Small tap advances reveal (suppressed on front of interactive modes)
+    if (intent) {
+      handleRate(SWIPE_RATING[intent], { allowUnrevealed: true });
+      return;
+    }
+    // Small tap cycles reveal steps (suppressed on front of interactive modes)
     const isTap = Math.abs(dx) < 12 && Math.abs(dy) < 12;
-    if (
-      isTap &&
-      revealHint(isRevealed, isFullyRevealed, activeModePlugin.capturesFrontInteraction)
-    ) {
+    if (isTap && canSwipeCard && totalRevealSteps > 0) {
       handleRevealNext();
     }
   };
@@ -791,7 +811,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   };
 
   const swipeIntent =
-    swipe.active && isRevealed ? classifySwipe(swipe.dx, swipe.dy, ratingMode, 48, 56) : null;
+    swipe.active && canSwipeCard ? classifySwipe(swipe.dx, swipe.dy, ratingMode, 48, 56) : null;
 
   const suggestedRating = evaluation?.suggestedRating;
   const needsAiReview = currentNote?.provenance.source === 'ai' && !currentNote.provenance.reviewed;
@@ -923,8 +943,8 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           <button
             type="button"
             onClick={handleUndo}
-            disabled={!canUndo(studyFilter?.session, undoStack.length)}
-            title="Undo last review (Z)"
+            disabled={!undoAvailable}
+            title="Undo last review (Z / →)"
             className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)] disabled:opacity-40"
           >
             Undo
@@ -1009,6 +1029,19 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         </div>
       )}
 
+      {/* One-time dismissible touch swipe tutorial hint (lazily loaded) */}
+      {showSwipeGuide && !caughtUp && (
+        <Suspense fallback={null}>
+          <LazySwipeGuideBanner
+            ratingMode={ratingMode}
+            onDismiss={() => {
+              storeSwipeGuideDismissed(true);
+              setShowSwipeGuide(false);
+            }}
+          />
+        </Suspense>
+      )}
+
       {/* Main Card Surface or Caught-Up State */}
       {!currentCard || !currentNote || !currentLayout || !currentDeck ? (
         <CaughtUpPanel
@@ -1032,10 +1065,17 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
             deckName={currentDeck.name}
             layoutLabel={layoutLabelFor(currentLayout, currentCard)}
             isRevealed={isRevealed}
+            isExtrasOpen={isExtrasOpen}
             capturesFront={activeModePlugin.capturesFrontInteraction}
+            canSwipe={canSwipeCard}
+            canUndo={undoAvailable}
+            bounceBack={bounceBack}
+            onBounceEnd={() => setBounceBack(false)}
+            scrollRef={cardScrollRef}
             hint={revealHint(
               isRevealed,
               isFullyRevealed,
+              totalRevealSteps,
               activeModePlugin.capturesFrontInteraction,
             )}
             swipe={swipe}

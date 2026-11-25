@@ -162,7 +162,7 @@ export function RatingBar({
               onClick={onRevealNext}
               onKeyDown={(e) => {
                 // Arrow keys on "Reveal more" move focus into the rating buttons, never rate
-                // (the global ← / → / ↑ / ↓ shortcuts only apply when no button has focus).
+                // (the global ← / ↓ / ↑ / → shortcuts only apply when no button has focus).
                 const step = ARROW_STEP[e.key];
                 if (step === undefined) return;
                 e.preventDefault();
