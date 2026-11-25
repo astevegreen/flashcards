@@ -33,7 +33,11 @@ import {
   exportCachePath,
   sweepExportCache,
 } from '../files/capacitor-stream.ts';
-import { isCompletedStorePurchase, type StoreBillingPlugin } from '../purchase/store-purchase.ts';
+import {
+  isCompletedStorePurchase,
+  unacknowledgedPlayTokens,
+  type StoreBillingPlugin,
+} from '../purchase/store-purchase.ts';
 import type { LocalNotificationsBridge } from '../reminders/local-notification-reminders.ts';
 import type { SystemBrowserLauncher } from '../sources/native-picker-bridge.ts';
 import type { SqliteDriver } from '../storage/sqlite-storage.ts';
@@ -369,6 +373,14 @@ export function createStoreBillingPlugin(): StoreBillingPlugin {
         productType: PURCHASE_TYPE.INAPP,
         onlyCurrentEntitlements: true,
       });
+      // A purchase that was pending at checkout clears later; unacknowledged, Play refunds it.
+      await Promise.all(
+        unacknowledgedPlayTokens(purchases).map((purchaseToken) =>
+          NativePurchases.acknowledgePurchase({ purchaseToken }).catch((err: unknown) => {
+            console.warn('Could not acknowledge a Play purchase:', err);
+          }),
+        ),
+      );
       return purchases.filter(isCompletedStorePurchase).map((p) => p.productIdentifier);
     },
   };

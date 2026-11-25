@@ -24,6 +24,10 @@ export interface StoreTransactionState {
   /** iOS only: set when Apple revoked the transaction (a refund). */
   revocationDate?: string;
   isActive?: boolean;
+  /** Android only: Play refunds a purchase that isn't acknowledged within 3 days. */
+  isAcknowledged?: boolean;
+  /** Android only: the token `acknowledgePurchase` takes. */
+  purchaseToken?: string;
 }
 
 /**
@@ -36,12 +40,35 @@ export function isCompletedStorePurchase(tx: StoreTransactionState): boolean {
   return !tx.revocationDate && tx.isActive !== false;
 }
 
+/**
+ * Tokens of completed Play purchases nobody acknowledged yet: a purchase that was still pending at
+ * checkout clears later, outside the purchase flow that acknowledges it, and Play refunds it after
+ * 3 days unless the app acknowledges it.
+ */
+export function unacknowledgedPlayTokens(txs: readonly StoreTransactionState[]): string[] {
+  return txs
+    .filter((tx) => isCompletedStorePurchase(tx) && tx.isAcknowledged === false)
+    .flatMap((tx) => (tx.purchaseToken ? [tx.purchaseToken] : []));
+}
+
 const STORE_ENTITLEMENT_KV_KEY = 'capacitor_store_entitlement_v1';
+const RESTORED_TRANSACTION_ID = 'restored-store-entitlement';
 
 interface CachedStoreEntitlement {
   unlocked: boolean;
   transactionId?: string;
   verifiedAt: number;
+  /** What unlocked this device. Only a store unlock is the store's to take back (S8). */
+  via?: 'store' | 'license_key';
+}
+
+/**
+ * Entries saved before S8 have no `via`. Only Restore Purchases wrote a fixed transaction id, so
+ * that one is a store unlock; any other is treated as a licence key, which is never re-checked
+ * (no screen started a store purchase before S8).
+ */
+function isStoreUnlock(cached: CachedStoreEntitlement): boolean {
+  return cached.via ? cached.via === 'store' : cached.transactionId === RESTORED_TRANSACTION_ID;
 }
 
 const DEFAULT_STORE_LICENSE_PUBLIC_KEY =
@@ -76,11 +103,11 @@ export class CapacitorStorePurchase implements Purchase {
     if (this.isPersonalBuild) {
       return createPersonalEntitlement();
     }
-    const cached = await this.storage.getKv<CachedStoreEntitlement>(STORE_ENTITLEMENT_KV_KEY);
+    const cached = await this.readCache();
     if (cached?.unlocked) {
       return {
         unlocked: true,
-        source: 'store_iap',
+        source: isStoreUnlock(cached) ? 'store_iap' : 'license_key',
         personalBuild: false,
         productId: UNLOCK_PRODUCT_ID,
         ...(cached.transactionId ? { keyId: cached.transactionId } : {}),
@@ -101,20 +128,12 @@ export class CapacitorStorePurchase implements Purchase {
     }
     const res = await this.billingPlugin.purchaseNonConsumable(UNLOCK_PRODUCT_ID);
     if (res.purchased) {
-      const now = Date.now();
       await this.storage.setKv(STORE_ENTITLEMENT_KV_KEY, {
         unlocked: true,
+        via: 'store',
         ...(res.transactionId ? { transactionId: res.transactionId } : {}),
-        verifiedAt: now,
+        verifiedAt: Date.now(),
       } satisfies CachedStoreEntitlement);
-      return {
-        unlocked: true,
-        source: 'store_iap',
-        personalBuild: false,
-        productId: UNLOCK_PRODUCT_ID,
-        ...(res.transactionId ? { keyId: res.transactionId } : {}),
-        verifiedAt: now,
-      };
     }
     return this.getEntitlement();
   }
@@ -127,17 +146,48 @@ export class CapacitorStorePurchase implements Purchase {
   async restorePurchases(): Promise<EntitlementState> {
     if (this.isPersonalBuild) return createPersonalEntitlement();
     if (this.billingPlugin) {
-      const owned = await this.billingPlugin.queryEntitlements();
-      if (owned.includes(UNLOCK_PRODUCT_ID)) {
-        const now = Date.now();
-        await this.storage.setKv(STORE_ENTITLEMENT_KV_KEY, {
-          unlocked: true,
-          transactionId: 'restored-store-entitlement',
-          verifiedAt: now,
-        } satisfies CachedStoreEntitlement);
-      }
+      await this.applyStoreAnswer(await this.billingPlugin.queryEntitlements());
     }
     return this.getEntitlement();
+  }
+
+  /**
+   * Run at launch (S8): asks the store again, so a refunded or revoked store unlock locks and a
+   * store purchase on a fresh install unlocks. A licence key is left alone, and a store check that
+   * fails (offline, no store account) changes nothing.
+   */
+  async recheckStore(): Promise<EntitlementState> {
+    if (this.isPersonalBuild || !this.billingPlugin) return this.getEntitlement();
+    const cached = await this.readCache();
+    if (cached?.unlocked && !isStoreUnlock(cached)) return this.getEntitlement();
+    let owned: string[];
+    try {
+      owned = await this.billingPlugin.queryEntitlements();
+    } catch {
+      return this.getEntitlement();
+    }
+    await this.applyStoreAnswer(owned);
+    return this.getEntitlement();
+  }
+
+  private readCache(): Promise<CachedStoreEntitlement | undefined> {
+    return this.storage.getKv<CachedStoreEntitlement>(STORE_ENTITLEMENT_KV_KEY);
+  }
+
+  /** Makes the cached store unlock match what the store owns. A licence key is never touched. */
+  private async applyStoreAnswer(owned: readonly string[]): Promise<void> {
+    const cached = await this.readCache();
+    if (cached?.unlocked && !isStoreUnlock(cached)) return;
+    if (owned.includes(UNLOCK_PRODUCT_ID)) {
+      await this.storage.setKv(STORE_ENTITLEMENT_KV_KEY, {
+        unlocked: true,
+        via: 'store',
+        transactionId: cached?.transactionId ?? RESTORED_TRANSACTION_ID,
+        verifiedAt: Date.now(),
+      } satisfies CachedStoreEntitlement);
+    } else if (cached) {
+      await this.storage.deleteKv(STORE_ENTITLEMENT_KV_KEY);
+    }
   }
 
   async activateLicenseKey(
@@ -157,6 +207,7 @@ export class CapacitorStorePurchase implements Purchase {
     const now = Date.now();
     await this.storage.setKv(STORE_ENTITLEMENT_KV_KEY, {
       unlocked: true,
+      via: 'license_key',
       transactionId: verified.payload.keyId,
       verifiedAt: now,
     } satisfies CachedStoreEntitlement);

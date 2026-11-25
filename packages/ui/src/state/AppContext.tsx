@@ -56,6 +56,7 @@ import {
   parseAddDeviceDeepLink,
   type AddDeviceLink,
 } from '../sync/addDeviceLink.ts';
+import { refreshThenRecheckStore } from './entitlementAtLaunch.ts';
 import { priorOfMediaEdits } from './mediaEditPrior.ts';
 import { createMediaReAddQueue, type MediaReAddQueue } from './mediaReAddQueue.ts';
 import { createPersistQueue, type PersistQueue } from './persistQueue.ts';
@@ -288,8 +289,8 @@ export function AppProvider({
   }, [platform]);
 
   useEffect(() => {
-    void refreshEntitlement();
-  }, [refreshEntitlement]);
+    void refreshThenRecheckStore(platform.getPurchase, refreshEntitlement);
+  }, [platform, refreshEntitlement]);
 
   // Phase 14 add-device link (`?sync=<provider>&col=<collection id>`): read and stripped from
   // the address bar once per page load. Its collection id is kept on this device until the first
