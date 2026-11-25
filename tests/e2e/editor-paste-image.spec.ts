@@ -37,7 +37,7 @@ async function dispatchTransfer(
         else if (file.text) bytes = new TextEncoder().encode(file.text);
         else bytes = new Uint8Array(file.size ?? 0);
         const dt = new DataTransfer();
-        dt.items.add(new File([bytes], file.name, { type: file.type }));
+        dt.items.add(new File([new Uint8Array(bytes)], file.name, { type: file.type }));
         if (file.plainText) dt.setData('text/plain', file.plainText);
         const event =
           kind === 'paste'

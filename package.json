@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "pnpm --filter @flash/web dev",
     "build": "pnpm -r --filter \"!@flash/desktop\" build",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.e2e.json",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

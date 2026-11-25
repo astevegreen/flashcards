@@ -66,7 +66,6 @@ function buildStarterDeckFlashpkg(): Buffer {
       packageId: 'pkg:starter-hanja-101',
       name: 'Starter Hanja 101',
       version: '1.0.0',
-      languages: ['ko'],
     }),
   );
 }
