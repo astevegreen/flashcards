@@ -250,7 +250,7 @@ function CaughtUpPanel({
           onClick={onOpenLibrary}
           className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)]"
         >
-          Open Library
+          Open Decks
         </button>
       </div>
     </div>

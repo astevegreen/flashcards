@@ -318,13 +318,7 @@ function dropSourcesUnlinkedElsewhere(registry: SourcesRegistry, state: Collecti
 
 /** A linked-source row that Unlink removes. */
 export type UnlinkSourceKind =
-  | 'google'
-  | 'onedrive'
-  | 'gdrive_file'
-  | 'dropbox'
-  | 'folder'
-  | 'package'
-  | 'catalog';
+  'google' | 'onedrive' | 'gdrive_file' | 'dropbox' | 'folder' | 'package' | 'catalog';
 
 /** Which synced deck/page sources a registry row stands for (none for folders and catalogs). */
 function syncedSourceMatcher(

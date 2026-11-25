@@ -28,7 +28,7 @@ test.describe('Dropbox App Folder linked sources (fake Dropbox)', () => {
     await page.goto('/?device=dbxsrc');
     await expect(page.getByTestId('study-card')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('dropbox-import-btn').click();
     await page.getByTestId('dropbox-connect-btn').click();
 
@@ -40,7 +40,7 @@ test.describe('Dropbox App Folder linked sources (fake Dropbox)', () => {
     await expect(page.getByTestId('connect-dropbox-btn')).toBeVisible();
 
     // Browse App Folder: sync/ and media/ are hidden; Decks/ is visible.
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('dropbox-import-btn').click();
     await expect(page.getByTestId('dropbox-folder-sync')).toHaveCount(0);
     await expect(page.getByTestId('dropbox-folder-media')).toHaveCount(0);
@@ -72,7 +72,7 @@ test.describe('Dropbox App Folder linked sources (fake Dropbox)', () => {
     await expect(page.getByTestId('count-new')).toHaveText('3');
 
     // Unlink removes the source row while keeping the deck intact.
-    await page.getByRole('button', { name: 'Library' }).first().click();
+    await page.getByRole('button', { name: 'Decks' }).first().click();
     await row.getByRole('button', { name: 'Unlink' }).click();
     await expect(page.getByText('Source unlinked.')).toBeVisible();
     await expect(row).toHaveCount(0);

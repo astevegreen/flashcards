@@ -896,9 +896,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       const archivedDeck = state.decks.get(rec.deckId);
       if (archivedDeck?.archived) {
         // Nothing would be applied to an archived deck: keep the prompt for after a restore.
-        onErrorMessage(
-          `The deck "${archivedDeck.name}" is archived. Restore it in the Library first.`,
-        );
+        onErrorMessage(`The deck "${archivedDeck.name}" is archived. Restore it in Decks first.`);
         return;
       }
       const nextReg = await runner.loadSourcesRegistry(platform, state);

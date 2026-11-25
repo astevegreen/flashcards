@@ -27,6 +27,7 @@ type ProviderPlatform = Pick<
   | 'oneDriveConfigured'
   | 'getOneDrivePicker'
   | 'dropboxConfigured'
+  | 'getDropboxPicker'
   | 'supportsLocalFolderSync'
 >;
 
@@ -53,9 +54,8 @@ export function linkedSourceProviders(platform: ProviderPlatform): LinkedSourceP
       name: 'Dropbox',
       description: 'Dropbox files',
       linkHint: 'a Dropbox file',
-      // Dropbox is not a linked source in this build yet; dev builds still say which key it needs.
-      available: false,
-      ...(platform.dropboxConfigured ? {} : { envHint: 'VITE_DROPBOX_APP_KEY' }),
+      available: platform.dropboxConfigured === true && platform.getDropboxPicker !== undefined,
+      envHint: 'VITE_DROPBOX_APP_KEY',
     },
     {
       id: 'local_folder',

@@ -190,7 +190,7 @@ export function StudyCard({
             ? `translate3d(${Math.max(-90, Math.min(90, swipe.dx * 0.45))}px, ${Math.max(-60, Math.min(60, swipe.dy * 0.4))}px, 0)`
             : undefined,
       }}
-      className={`study-card relative flex min-h-[9rem] min-w-0 flex-1 select-none flex-col rounded-3xl border bg-[var(--surface)] shadow-sm transition-transform duration-100 ${
+      className={`study-card relative flex min-h-[7rem] min-w-0 flex-1 select-none flex-col rounded-3xl border bg-[var(--surface)] shadow-sm transition-transform duration-100 sm:min-h-[9rem] ${
         !isRevealed && capturesFront ? '' : 'cursor-pointer'
       } ${bounceBack ? 'study-card-bounce-right' : ''} ${borderClass}`}
     >

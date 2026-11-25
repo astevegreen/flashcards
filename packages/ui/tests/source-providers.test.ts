@@ -23,9 +23,11 @@ describe('Linked Sources provider list', () => {
     const everything = platform({
       oneDriveConfigured: true,
       getOneDrivePicker: async () => ({}) as never,
+      dropboxConfigured: true,
+      getDropboxPicker: async () => ({}) as never,
     });
     expect(linkedSourcesDescription(everything)).toBe(
-      'Pull updates from Google Drive (Sheets, Docs, and CSV/TSV/XLSX files), OneDrive spreadsheets, PC local folders (including Inbox/), or subscribed .flashpkg URLs. Everything stays cached offline.',
+      'Pull updates from Google Drive (Sheets, Docs, and CSV/TSV/XLSX files), OneDrive spreadsheets, Dropbox files, PC local folders (including Inbox/), or subscribed .flashpkg URLs. Everything stays cached offline.',
     );
 
     // A phone build without OneDrive: no OneDrive, no local folders.
@@ -65,6 +67,7 @@ describe('Linked Sources provider list', () => {
         oneDriveConfigured: true,
         getOneDrivePicker: async () => ({}) as never,
         dropboxConfigured: true,
+        getDropboxPicker: async () => ({}) as never,
       }),
     );
     expect(noPicker.map((h) => h.id)).toEqual(['google-picker']);
