@@ -71,7 +71,7 @@ class FakeDrive {
     if (forced) return new Response('denied', { status: forced });
     const file = this.files.get(id);
     if (!file) return new Response('missing', { status: 404 });
-    if (url.searchParams.get('alt') === 'media') return new Response(file.bytes);
+    if (url.searchParams.get('alt') === 'media') return new Response(new Uint8Array(file.bytes));
     return Response.json({
       id,
       name: file.name,

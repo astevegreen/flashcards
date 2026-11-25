@@ -189,11 +189,11 @@ describe('linked Dropbox App Folder sources', () => {
     const { server, ctx, state } = setup({ connected: false, canParseXlsx: false });
     const xlsx = server.put('Decks/sheet.xlsx', new Uint8Array([80, 75, 5, 6]));
     const reg = await loadSourcesRegistry(ctx.platform, state);
-    const src = {
+    const src: Parameters<typeof refreshSingleDropboxSource>[0] = {
       id: `dropbox:${xlsx.id}`,
       fileId: xlsx.id,
       name: 'sheet',
-      lastStatus: 'idle' as const,
+      lastStatus: 'idle',
     };
     reg.dropboxSources = [src];
     const disconnected = await refreshSingleDropboxSource(src, ctx);
@@ -203,11 +203,11 @@ describe('linked Dropbox App Folder sources', () => {
     // Connected but device cannot parse .xlsx -> skipped with unreadable
     const setup2 = setup({ connected: true, canParseXlsx: false });
     const xlsx2 = setup2.server.put('Decks/sheet.xlsx', new Uint8Array([80, 75, 5, 6]));
-    const src2 = {
+    const src2: Parameters<typeof refreshSingleDropboxSource>[0] = {
       id: `dropbox:${xlsx2.id}`,
       fileId: xlsx2.id,
       name: 'sheet',
-      lastStatus: 'idle' as const,
+      lastStatus: 'idle',
     };
     const unreadable = await refreshSingleDropboxSource(src2, setup2.ctx);
     expect(unreadable.unreadable).toBe(true);

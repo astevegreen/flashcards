@@ -185,7 +185,7 @@ describe('native streamed export: failures and .apkg', () => {
     const text = await exportAnkiApkg(platform, state, { deckIds: [deckId] });
     expect(text).toMatch(/^Exported /);
     expect(log).toEqual(['close']);
-    expect([...(chunks[0] ?? []).subarray(0, 4)]).toEqual([0x50, 0x4b, 0x03, 0x04]);
+    expect([...(chunks[0] ?? new Uint8Array()).subarray(0, 4)]).toEqual([0x50, 0x4b, 0x03, 0x04]);
     fail = true;
     await expect(exportAnkiApkg(platform, state, { deckIds: [deckId] })).rejects.toThrow(
       'disk full',

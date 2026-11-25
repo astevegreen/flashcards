@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["tests/**/*.ts", "tests/**/*.d.ts", "../platform-web/src/anki/sqljs-assets.d.ts"]
+}
