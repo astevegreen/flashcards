@@ -1075,6 +1075,14 @@ export function SettingsScreen({ onOpenImportExport }: SettingsScreenProps = {})
           <button
             type="button"
             onClick={() => {
+              // C6: this erases the device's whole collection, so it asks first, in every build.
+              if (
+                !window.confirm(
+                  'Erase all cards, reviews and settings on this device? Anything that isn’t synced or backed up is lost for good.',
+                )
+              ) {
+                return;
+              }
               void resetLocalData().then(() => setStatus('Local device storage cleared.'));
             }}
             className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400"

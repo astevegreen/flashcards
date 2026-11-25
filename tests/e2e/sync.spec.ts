@@ -402,6 +402,8 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
     await expect(page1.getByTestId('device-id-value')).toHaveText(id1);
 
     // Resetting local device data assigns a brand-new unique device ID so it cannot collide with old cloud segments
+    // Reset asks for confirmation first (C6).
+    page1.once('dialog', (dialog) => void dialog.accept());
     await page1.getByRole('button', { name: 'Reset Local Device Data' }).click();
     await expect(page1.getByTestId('device-id-value')).not.toHaveText(id1);
     const id1AfterReset = (await page1.getByTestId('device-id-value').textContent())?.trim() ?? '';
@@ -436,6 +438,8 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
     await expect(pageB.getByTestId('count-new')).toHaveText('3');
 
     // Reset Local Device Data on Device A (same ?device=reca slug), then Sync Now to recover own events
+    // Reset asks for confirmation first (C6).
+    pageA.once('dialog', (dialog) => void dialog.accept());
     await pageA.getByRole('button', { name: 'Reset Local Device Data' }).click();
     await pageA.getByTestId('sync-now-btn').click();
     await expect(pageA.getByTestId('sync-status-pill')).toHaveText('Synced');
