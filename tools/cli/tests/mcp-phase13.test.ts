@@ -300,6 +300,23 @@ describe('Phase 13 MCP: protocol versions', () => {
     expect(failed.content[0]?.text).toMatch(/requires non-empty name/);
   });
 
+  it('gives every proposal a fresh package id, whatever the caller asks for (S9)', () => {
+    const propose = () =>
+      (
+        call(ctx, 'propose_package', {
+          name: 'Korean Starter',
+          language: 'ko',
+          packageId: 'pkg:korean-starter',
+          notes: [{ id: 'n1', fields: { word: '학교', meaning: 'school' } }],
+        })?.result as { structuredContent: { packageId: string } }
+      ).structuredContent.packageId;
+    const first = propose();
+    const second = propose();
+    expect(first).toMatch(/^pkg:ai-proposal:[0-9a-f-]{36}$/);
+    expect(second).toMatch(/^pkg:ai-proposal:[0-9a-f-]{36}$/);
+    expect(second).not.toBe(first);
+  });
+
   it('answers ping and ignores notifications', () => {
     expect(handleMcpRequest({ jsonrpc: '2.0', id: 9, method: 'ping' }, ctx)?.result).toEqual({});
     const note: JsonRpcRequest = { jsonrpc: '2.0', method: 'notifications/initialized' };
