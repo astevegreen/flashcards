@@ -560,17 +560,33 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
-  const handleRefreshOneDriveOne = async (src: LinkedOneDriveSource) => {
+  /** Refresh one linked OneDrive or Dropbox file and report the outcome. */
+  const refreshCloudFileOne = async (
+    kind: 'onedrive' | 'dropbox',
+    id: string,
+    permissionMessage: string,
+  ) => {
     setBusy(true);
     onErrorMessage(null);
     try {
-      const { loadSourcesRegistry, refreshSingleOneDriveSource, saveSourcesRegistry } =
-        await import('../sources/sourceRunner.ts');
-      const nextReg = await loadSourcesRegistry(platform, state);
-      const target = nextReg.oneDriveSources?.find((s) => s.id === src.id);
+      const runner = await import('../sources/sourceRunner.ts');
+      const nextReg = await runner.loadSourcesRegistry(platform, state);
+      const list = kind === 'onedrive' ? nextReg.oneDriveSources : nextReg.dropboxSources;
+      const target = list?.find((s) => s.id === id);
       if (!target) return;
       try {
-        const res = await refreshSingleOneDriveSource(target, makeRunnerCtx(), { force: true });
+        const res =
+          kind === 'onedrive'
+            ? await runner.refreshSingleOneDriveSource(
+                target as LinkedOneDriveSource,
+                makeRunnerCtx(),
+                { force: true },
+              )
+            : await runner.refreshSingleDropboxSource(
+                target as LinkedDropboxSource,
+                makeRunnerCtx(),
+                { force: true },
+              );
         if (res.pending) {
           const held = res.pending;
           setPendingReconciliations((prev) => [
@@ -583,7 +599,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
             `"${target.name}" has rows that may be renamed. Match them below to keep review history.`,
           );
         } else if (target.lastStatus === 'permission_required') {
-          onErrorMessage(target.lastError ?? 'Allow OneDrive file access to refresh this source.');
+          onErrorMessage(target.lastError ?? permissionMessage);
         } else if (target.lastError) {
           onErrorMessage(target.lastError);
         } else if (target.lastStatus === 'offline') {
@@ -600,7 +616,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         target.lastError = err instanceof Error ? err.message : String(err);
         onErrorMessage(target.lastError);
       }
-      await saveSourcesRegistry(platform, nextReg);
+      await runner.saveSourcesRegistry(platform, nextReg);
       setRegistry(nextReg);
     } catch (err) {
       onErrorMessage(err instanceof Error ? err.message : String(err));
@@ -608,6 +624,9 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       setBusy(false);
     }
   };
+
+  const handleRefreshOneDriveOne = (src: LinkedOneDriveSource) =>
+    refreshCloudFileOne('onedrive', src.id, 'Allow OneDrive file access to refresh this source.');
 
   const handleRefreshDriveFileOne = async (src: LinkedGoogleDriveFileSource) => {
     setBusy(true);
@@ -651,54 +670,8 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
-  const handleRefreshDropboxOne = async (src: LinkedDropboxSource) => {
-    setBusy(true);
-    onErrorMessage(null);
-    try {
-      const { loadSourcesRegistry, refreshSingleDropboxSource, saveSourcesRegistry } =
-        await import('../sources/sourceRunner.ts');
-      const nextReg = await loadSourcesRegistry(platform, state);
-      const target = nextReg.dropboxSources?.find((s) => s.id === src.id);
-      if (!target) return;
-      try {
-        const res = await refreshSingleDropboxSource(target, makeRunnerCtx(), { force: true });
-        if (res.pending) {
-          const held = res.pending;
-          setPendingReconciliations((prev) => [
-            ...prev.filter(
-              (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
-            ),
-            held,
-          ]);
-          onStatusMessage(
-            `"${target.name}" has rows that may be renamed. Match them below to keep review history.`,
-          );
-        } else if (target.lastStatus === 'permission_required') {
-          onErrorMessage(target.lastError ?? 'Connect Dropbox to refresh this source.');
-        } else if (target.lastError) {
-          onErrorMessage(target.lastError);
-        } else if (target.lastStatus === 'offline') {
-          onErrorMessage('You are offline. Try again when you are back online.');
-        } else {
-          onStatusMessage(
-            res.updated
-              ? `Refreshed "${target.name}" (${res.notesTouched} note change(s)).`
-              : `"${target.name}" is already up to date.`,
-          );
-        }
-      } catch (err) {
-        target.lastStatus = 'error';
-        target.lastError = err instanceof Error ? err.message : String(err);
-        onErrorMessage(target.lastError);
-      }
-      await saveSourcesRegistry(platform, nextReg);
-      setRegistry(nextReg);
-    } catch (err) {
-      onErrorMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const handleRefreshDropboxOne = (src: LinkedDropboxSource) =>
+    refreshCloudFileOne('dropbox', src.id, 'Connect Dropbox to refresh this source.');
 
   const handleRefreshFolderOne = async (folder: LinkedLocalFolder) => {
     setBusy(true);
@@ -1150,7 +1123,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       )}
 
       {/* Optional OneDrive file picker: lazy, below the action row. The fallback reserves the
-          panel's fixed height (h-[26rem], ONEDRIVE_PICKER_PANEL_HEIGHT), so nothing below moves. */}
+          panel's fixed height (h-[26rem], CLOUD_PICKER_PANEL_HEIGHT), so nothing below moves. */}
       {showOneDrivePicker && (
         <Suspense
           fallback={
