@@ -68,6 +68,7 @@ import type { SyncUiState } from './useSyncController.ts';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
 import { putMediaTracked } from './recentMedia.ts';
+import { hasNewerReview, inStudyScope } from './undoGuard.ts';
 import type * as SnapshotApi from '@flash/core/snapshot';
 
 export type { AudioController } from './useAudioController.ts';
@@ -630,7 +631,12 @@ export function AppProvider({
 
   const undoLastReview = useCallback((): boolean => {
     const last = undoStack[undoStack.length - 1];
-    if (!last) return false;
+    if (!last || !inStudyScope(last, activeDeckId)) return false;
+    if (hasNewerReview(stateRef.current, last)) {
+      // A newer answer (synced from another device) stands; this entry can't be undone any more.
+      setUndoStack((prev) => prev.slice(0, -1));
+      return false;
+    }
     const factory = factoryRef.current;
     const nowMs = Date.now();
     const events: KnownEvent[] = [
@@ -647,21 +653,17 @@ export function AppProvider({
     setRedoStack((prev) => [...prev.slice(-49), last]);
     emitEvents(events);
     return true;
-  }, [emitEvents, undoStack]);
+  }, [activeDeckId, emitEvents, undoStack]);
 
   // Redo records the undone review again under a new id, with its original time and answer, so
   // replay gives the card the schedule it had before the Undo. Refused (and dropped) once the card
   // has a newer review, e.g. synced from another device, which the old one would now precede.
   const redoLastUndo = useCallback((): boolean => {
     const last = redoStack[redoStack.length - 1];
-    if (!last) return false;
+    if (!last || !inStudyScope(last, activeDeckId)) return false;
     setRedoStack((prev) => prev.slice(0, -1));
     const st = stateRef.current;
-    if (!st.cards.has(last.cardId)) return false;
-    const newer = (st.reviewsByCard.get(last.cardId) ?? []).some(
-      (r) => !st.undoneReviewIds.has(r.review_id) && r.reviewed_at > last.review.reviewed_at,
-    );
-    if (newer) return false;
+    if (!st.cards.has(last.cardId) || hasNewerReview(st, last)) return false;
     const factory = factoryRef.current;
     const nowMs = Date.now();
     const review: ReviewRecordedPayload = { ...last.review, review_id: uuidv7(nowMs) };
@@ -679,7 +681,7 @@ export function AppProvider({
     setUndoStack((prev) => [...prev.slice(-49), { ...last, reviewId: review.review_id, review }]);
     emitEvents(events);
     return true;
-  }, [emitEvents, redoStack]);
+  }, [activeDeckId, emitEvents, redoStack]);
 
   const updateNote = useCallback(
     (note: Note, fields: Record<string, string>, tags?: string[]) => {

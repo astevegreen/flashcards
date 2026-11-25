@@ -29,7 +29,8 @@ import {
 import { LazyErrorBoundary, lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
 import type * as DeferredSyncPromptModuleType from '../onboarding/DeferredSyncPromptSlot.tsx';
-import { useApp, type AppContextValue } from '../state/AppContext.tsx';
+import { useApp, type AppContextValue, type UndoEntry } from '../state/AppContext.tsx';
+import { inStudyScope } from '../state/undoGuard.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import { msUntilNextLocalHour, studyDayKey } from '../study/queueClock.ts';
@@ -187,10 +188,18 @@ function populatedRevealStepsFor(layout: Layout | undefined, note: Note | undefi
   return steps.length > 0 ? steps : [layout.reveal_steps[0] ?? []];
 }
 
-/** Undo is enabled only when there is something to undo: the session's last answer, else a review. */
-function canUndo(session: StudySession | undefined, reviewUndoDepth: number): boolean {
+/**
+ * Undo is enabled only when there is something to undo: the session's last answer, else a review
+ * of the deck being studied (C8).
+ */
+function canUndo(session: StudySession | undefined, reviewUndoable: boolean): boolean {
   if (session?.undo) return session.canUndo?.() ?? true;
-  return reviewUndoDepth > 0;
+  return reviewUndoable;
+}
+
+function lastInScope(stack: readonly UndoEntry[], activeDeckId: string | undefined): boolean {
+  const last = stack[stack.length - 1];
+  return last !== undefined && inStudyScope(last, activeDeckId);
 }
 
 function layoutLabelFor(layout: Layout, card: Card): string {
@@ -656,7 +665,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     ],
   );
 
-  const undoAvailable = canUndo(studyFilter?.session, undoStack.length);
+  const undoAvailable = canUndo(studyFilter?.session, lastInScope(undoStack, activeDeckId));
   const triggerBounceBack = useCallback(() => {
     setBounceBack(false);
     window.requestAnimationFrame(() => setBounceBack(true));
@@ -675,7 +684,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
   }, [stopAudio, studyFilter, undoLastReview]);
 
   // Redo is for FSRS reviews only; a practice session keeps its own one-way Undo.
-  const canRedo = !studyFilter?.session?.undo && redoStack.length > 0;
+  const canRedo = !studyFilter?.session?.undo && lastInScope(redoStack, activeDeckId);
   const handleRedo = useCallback(() => {
     if (!canRedo) return;
     stopAudio();
