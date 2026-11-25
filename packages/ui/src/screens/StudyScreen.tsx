@@ -342,6 +342,9 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     scrolled: boolean;
   } | null>(null);
   const cardShownAtRef = useRef<number>(Date.now());
+  // Counts card showings, so a card that comes straight back (rated Again with nothing else due,
+  // or undone) is shown afresh: reveal, typed input and Listen auto-play reset as for a new card (C10).
+  const [showing, setShowing] = useState(0);
 
   const decks = useMemo(
     () =>
@@ -544,9 +547,9 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         1.0,
       );
     }
-    // Only re-run when the active card changes (not on unrelated state ticks)
+    // Only re-run when the active card changes or is shown again (not on unrelated state ticks)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentCard?.id]);
+  }, [currentCard?.id, showing]);
 
   // Ruby (furigana, pinyin) is offered for ja/zh. Korean shows Hanja as plain text, so a Korean
   // card gets the toggle only when ruby already stored in it is hidden on the front.
@@ -643,6 +646,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       setFuriganaOverride(null);
       setEvaluation(null);
       cardShownAtRef.current = Date.now();
+      setShowing((n) => n + 1);
       // Custom study practice records its own answers (never FSRS); everything else is a review.
       const sessionRate = studyFilter?.session?.rate;
       if (sessionRate) sessionRate(currentCard, rating, elapsed);
@@ -678,6 +682,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       setFuriganaOverride(null);
       setEvaluation(null);
       cardShownAtRef.current = Date.now();
+      setShowing((n) => n + 1);
       return true;
     }
     return false;
@@ -693,6 +698,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       setFuriganaOverride(null);
       setEvaluation(null);
       cardShownAtRef.current = Date.now();
+      setShowing((n) => n + 1);
     }
   }, [canRedo, redoLastUndo, stopAudio]);
 
@@ -1147,7 +1153,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           >
             {/* Pluggable Answer Mode renderer (§5.2). A card that throws keeps the rating bar,
                 so the queue can move past it (C2). */}
-            <LazyErrorBoundary key={currentCard.id}>
+            <LazyErrorBoundary key={`${currentCard.id}:${showing}`}>
               {activeModePlugin.render({
                 state,
                 card: currentCard,
