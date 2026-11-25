@@ -30,8 +30,11 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
+
+# One publish at a time; a newer run waits rather than racing a deploy.
+concurrency:
+  group: publish-packs
+  cancel-in-progress: false
 
 jobs:
   build-and-validate:
@@ -56,6 +59,7 @@ jobs:
         run: echo "key=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
 
       - name: Cache raw upstream open data
+        id: upstream-cache
         if: ${{ (inputs.mode || 'full') == 'full' }}
         uses: actions/cache@v4
         with:
@@ -65,7 +69,12 @@ jobs:
 
       - name: Fetch upstream open data (Unihan, KANJIDIC2, JMdict, CC-CEDICT, KanjiVG, Make Me a Hanzi)
         if: ${{ (inputs.mode || 'full') == 'full' }}
-        run: node scripts/fetch-upstream-packs.mjs --dir .cache/upstream-open-data
+        # On an exact hit (a rerun in the same ISO week) reuse the files. Otherwise the cache was
+        # restored from an older week by `restore-keys`, and the fetch script keeps any existing
+        # file, so force a re-download or the weekly refresh never refreshes (T2).
+        env:
+          FORCE_FETCH: ${{ steps.upstream-cache.outputs.cache-hit != 'true' && '--force' || '' }}
+        run: node scripts/fetch-upstream-packs.mjs --dir .cache/upstream-open-data $FORCE_FETCH
 
       - name: Build static dictionary & stroke packs
         env:
@@ -139,7 +148,7 @@ jobs:
           node tools/cli/bin/flash-cli.mjs validate dist-static/decks/starter-bundle.flashpkg
 
       - name: Upload static pack artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: static-packs-and-starter-decks
           path: dist-static/
@@ -148,15 +157,16 @@ jobs:
     needs: build-and-validate
     if: github.ref == 'refs/heads/main' && vars.CLOUDFLARE_PAGES_PROJECT != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Download built static packs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: static-packs-and-starter-decks
           path: dist-static/
 
       - name: Publish to Cloudflare Pages (CORS-enabled)
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
