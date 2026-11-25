@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { makeReviewFixture, type ReviewFixture } from './helpers/review-fixture.ts';
 import { computeStatePatch, mergeStatePatch } from '../src/events/patch.ts';
-import {
-  createEventFactory,
-  isCardSuspended,
-  replayAllEvents,
-  type CollectionState,
-  type EventFactory,
-} from '../src/events/replay.ts';
+import { createEventFactory, isCardSuspended, replayAllEvents } from '../src/events/replay.ts';
 import { deserializeCollectionState, serializeCollectionState } from '../src/events/snapshot.ts';
 import {
   isKnownEventType,
@@ -16,8 +11,6 @@ import {
 } from '../src/events/types.ts';
 import { createHlcState } from '../src/hlc.ts';
 import { deriveCardId, deriveNoteId, FLASH_NAMESPACE_UUID, uuidv5 } from '../src/ids.ts';
-import type { ReviewRating } from '../src/model/types.ts';
-import { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } from '../src/samples/decks.ts';
 import { computeCollectionStats } from '../src/stats/stats.ts';
 import {
   buildPracticeQueue,
@@ -51,73 +44,10 @@ const koNote = (n: number) => deriveNoteId(KO_DECK, `ko-${n}`);
 const koCard = (n: number, layout = REC) => deriveCardId(koNote(n), layout, 0);
 const SCOPE = { nowMs: NOW, tzOffsetMinutes: KST };
 
-interface Fixture {
-  factory: EventFactory;
-  events: FlashEvent[];
-  review: (cardId: string, rating: ReviewRating, at: number) => void;
-  practice: (cardId: string, rating: ReviewRating, at: number, sessionId?: string) => string;
-  state: () => CollectionState;
-}
+type Fixture = ReviewFixture;
 
-function makeFixture(deviceId = 'dev-a'): Fixture {
-  const factory = createEventFactory(deviceId, 0, createHlcState(deviceId, SAMPLE_SEED_EPOCH_MS));
-  const events: FlashEvent[] = buildSampleDeckEvents(factory);
-  // Enable the Production layout so every Korean note has two sibling cards.
-  events.push(
-    factory.create(
-      'DeckSettingsChanged',
-      { deck_id: KO_DECK, settings: { enabled_layout_ids: [PROD, REC] } },
-      SAMPLE_SEED_EPOCH_MS + 1000,
-    ),
-  );
-  let n = 0;
-  return {
-    factory,
-    events,
-    review(cardId, rating, at) {
-      n += 1;
-      events.push(
-        factory.create(
-          'ReviewRecorded',
-          {
-            review_id: `rev-${String(n).padStart(4, '0')}`,
-            card_id: cardId,
-            rating,
-            reviewed_at: at,
-            tz_offset: KST,
-            duration_ms: 2000,
-            answer_mode: 'flip',
-            fsrs_params_version: 0,
-            resulting_due_at: at,
-          },
-          at,
-        ),
-      );
-    },
-    practice(cardId, rating, at, sessionId = 'session-1') {
-      n += 1;
-      const practiceId = `prac-${String(n).padStart(4, '0')}`;
-      events.push(
-        factory.create(
-          'PracticeRecorded',
-          {
-            practice_id: practiceId,
-            session_id: sessionId,
-            card_id: cardId,
-            rating,
-            practiced_at: at,
-            tz_offset: KST,
-            duration_ms: 1500,
-            answer_mode: 'flip',
-          },
-          at,
-        ),
-      );
-      return practiceId;
-    },
-    state: () => replayAllEvents(events),
-  };
-}
+const makeFixture = (deviceId?: string): Fixture =>
+  makeReviewFixture({ ...(deviceId ? { deviceId } : {}), withProduction: true });
 
 /** 학교 graduated long ago and is due today; 도서관 is due in a few days; 약속 later still. */
 function reviewedHistory(): Fixture {

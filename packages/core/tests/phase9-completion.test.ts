@@ -1,20 +1,17 @@
 import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
+import { makeReviewFixture, type ReviewFixture } from './helpers/review-fixture.ts';
 import {
   applyEvents,
   createEmptyState,
   createEventFactory,
   replayAllEvents,
   type CollectionState,
-  type EventFactory,
 } from '../src/events/replay.ts';
-import type { KnownEvent } from '../src/events/types.ts';
 import { compareHlc, createHlcState } from '../src/hlc.ts';
 import { decodeUtf8 } from '../src/utf8-decode.ts';
 import { deriveCardId, deriveNoteId, FLASH_NAMESPACE_UUID, uuidv5 } from '../src/ids.ts';
 import { exportFlashpkg, importFlashpkg } from '../src/import/flashpkg.ts';
-import type { ReviewRating } from '../src/model/types.ts';
-import { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } from '../src/samples/decks.ts';
 import { computeCollectionStats, computeFilteredCollectionStats } from '../src/stats/index.ts';
 import {
   buildReviewAheadQueue,
@@ -47,43 +44,9 @@ const PROD = 'layout:vocab-ko:production';
 const koNote = (n: number) => deriveNoteId(KO_DECK, `ko-${n}`);
 const koCard = (n: number, layout = REC) => deriveCardId(koNote(n), layout, 0);
 
-interface Fixture {
-  factory: EventFactory;
-  events: KnownEvent[];
-  review: (cardId: string, rating: ReviewRating, at: number) => void;
-  state: () => CollectionState;
-}
+type Fixture = ReviewFixture;
 
-function makeFixture(): Fixture {
-  const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', SAMPLE_SEED_EPOCH_MS));
-  const events: KnownEvent[] = buildSampleDeckEvents(factory);
-  let n = 0;
-  return {
-    factory,
-    events,
-    review(cardId, rating, at) {
-      n += 1;
-      events.push(
-        factory.create(
-          'ReviewRecorded',
-          {
-            review_id: `rev-${String(n).padStart(4, '0')}`,
-            card_id: cardId,
-            rating,
-            reviewed_at: at,
-            tz_offset: KST,
-            duration_ms: 2000,
-            answer_mode: 'flip',
-            fsrs_params_version: 0,
-            resulting_due_at: at,
-          },
-          at,
-        ),
-      );
-    },
-    state: () => replayAllEvents(events),
-  };
-}
+const makeFixture = (): Fixture => makeReviewFixture();
 
 /** Graduates a card, then gives it `lapses` lapses (Again, Good, Good each), ending at `end`. */
 function lapseCard(fx: Fixture, cardId: string, lapses: number, end: number): void {
