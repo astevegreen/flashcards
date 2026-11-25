@@ -4,36 +4,37 @@ import { STARTER_CATALOG } from '../../packages/core/src/starters/generated/cata
 /**
  * Phase 14 curated starter decks. A fresh device (production preview, no `?device=`) offers
  * onboarding; each language's first deck is its open-data starter deck, or the built-in sample
- * deck for languages no open source covers yet. Picking it reaches a study card from that deck,
- * and the deck's credits are on every card (Notes). A starter deck is the user's own (native)
- * deck in the Library, not a linked package.
+ * deck for languages no open source covers yet. Picking it reaches a study card from that deck.
+ * No card reveals a licence credit: each deck credits its sources at deck level (its description
+ * and Settings > About & Open Data Licenses). A starter deck is the user's own (native) deck in the
+ * Library, not a linked package.
  */
 
 interface LanguageCase {
   language: string;
   /** The deck onboarding lists first for the language. */
   deckName: string;
-  starter?: { slug: string; credit: RegExp; noteCount: number };
+  starter?: { slug: string; noteCount: number };
 }
 
-function starterCase(language: string, credit: RegExp): LanguageCase {
+function starterCase(language: string): LanguageCase {
   const info = STARTER_CATALOG.find((d) => d.language === language);
   if (!info) throw new Error(`no starter deck for ${language}`);
   return {
     language,
     deckName: info.name,
-    starter: { slug: info.slug, credit, noteCount: info.noteCount },
+    starter: { slug: info.slug, noteCount: info.noteCount },
   };
 }
 
+/** What a per-card source credit looked like before 1.2.0 (it must never be revealed again). */
+const CARD_CREDIT = /KOGL|CC0|Wikidata|Unihan|Unicode License|edited by this app/;
+
 const CASES: readonly LanguageCase[] = [
-  starterCase(
-    'ko',
-    /NIKL 한국어 학습용 어휘 목록 \(2003\), KOGL Type 1\. English: Wikidata L\d+ \(CC0\)/,
-  ),
+  starterCase('ko'),
   // No Japanese source passed the licence gate (JMdict/KANJIDIC2 are share-alike): sample deck.
   { language: 'ja', deckName: 'Japanese Essentials (JA)' },
-  starterCase('zh-Hans', /Source: Unicode Unihan [\d.]+ .*Unicode License v3/),
+  starterCase('zh-Hans'),
   { language: 'en', deckName: 'English Idioms (EN)' },
 ];
 
@@ -64,10 +65,19 @@ test.describe('Phase 14 starter decks in first-run onboarding', () => {
       ]);
       if (!c.starter) return;
 
-      // Reveal every step: the card's credits are in its Notes field.
+      // Reveal every step: the meaning is there, but no licence credit.
       await page.keyboard.press('Space');
       await page.keyboard.press('Space');
-      await expect(page.getByTestId('card-back')).toContainText(c.starter.credit);
+      const back = page.getByTestId('card-back');
+      await expect(back).toBeVisible();
+      await expect(back).not.toContainText(CARD_CREDIT);
+
+      // The deck's sources are credited in About & Open Data Licenses instead.
+      await page.getByRole('button', { name: 'Settings' }).first().click();
+      const credits = page.getByTestId('starter-deck-credits');
+      for (const source of STARTER_CATALOG.find((d) => d.slug === c.starter?.slug)?.sources ?? []) {
+        await expect(credits).toContainText(source.name);
+      }
 
       // The Library row shows the whole deck as the user's own deck (no linked-source badge).
       await page.getByRole('button', { name: 'Library' }).first().click();
