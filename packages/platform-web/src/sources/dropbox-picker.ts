@@ -89,7 +89,7 @@ function trimTrailingSlashes(value: string): string {
 
 function normalizeFolderPath(folderPath?: string): string {
   if (!folderPath) return '';
-  const trimmed = trimTrailingSlashes(folderPath.trim().replace(/\\/g, '/'));
+  const trimmed = trimTrailingSlashes(folderPath.trim().replaceAll('\\', '/'));
   if (!trimmed || trimmed === '/') return '';
   if (trimmed.includes('..') || trimmed.includes('\0')) {
     throw new SyncTransportError('UNKNOWN', `Unsafe Dropbox folder path "${folderPath}".`);
@@ -103,7 +103,7 @@ function normalizeFileSelector(fileIdOrPath: string): string {
     throw new SyncTransportError('UNKNOWN', `Invalid Dropbox file identifier "${fileIdOrPath}".`);
   }
   if (trimmed.startsWith('id:')) return trimmed;
-  const clean = trimmed.replace(/\\/g, '/');
+  const clean = trimmed.replaceAll('\\', '/');
   if (clean.includes('..')) {
     throw new SyncTransportError('UNKNOWN', `Unsafe Dropbox file path "${fileIdOrPath}".`);
   }

@@ -27,7 +27,7 @@ function missingAndroidVoiceMessage(normLang: string): string {
 }
 
 function voiceMatchesLanguage(voiceLangRaw: string, targetCanonical: string): boolean {
-  const v = voiceLangRaw.trim().toLowerCase().replace(/_/g, '-');
+  const v = voiceLangRaw.trim().toLowerCase().replaceAll('_', '-');
   if (!v) return false;
 
   if (targetCanonical === 'zh-Hant') {
@@ -58,7 +58,9 @@ function pickBestVoice(
 ): DeviceVoiceInfo | undefined {
   if (voices.length === 0) return undefined;
   const targetBcp47 = toBcp47SpeechTag(targetCanonical).toLowerCase();
-  const exact = voices.find((v) => v.lang.trim().toLowerCase().replace(/_/g, '-') === targetBcp47);
+  const exact = voices.find(
+    (v) => v.lang.trim().toLowerCase().replaceAll('_', '-') === targetBcp47,
+  );
   return exact ?? voices[0];
 }
 
