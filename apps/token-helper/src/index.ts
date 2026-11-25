@@ -262,6 +262,22 @@ const microsoftRefresh: RouteHandler = async (body, env, origin) => {
   });
 };
 
+/** A 429 once this IP has used up its requests to this route for the minute (S2), else null. */
+async function rateLimitResponse(
+  request: Request,
+  env: Env,
+  pathname: string,
+  origin: string,
+): Promise<Response | null> {
+  if (!env.TOKEN_RATE_LIMITER) return null;
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  const { success } = await env.TOKEN_RATE_LIMITER.limit({ key: `${ip} ${pathname}` });
+  if (success) return null;
+  const res = jsonResponse({ error: 'rate_limited' }, 429, origin);
+  res.headers.set('Retry-After', '60');
+  return res;
+}
+
 const googleConfigured = (env: Env) => Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
 const microsoftConfigured = (env: Env) => Boolean(env.MS_CLIENT_ID && env.MS_CLIENT_SECRET);
 
@@ -307,15 +323,8 @@ export default {
     if (!route.isConfigured(env)) {
       return jsonResponse({ error: 'server_misconfigured' }, 500, corsOrigin);
     }
-    if (env.TOKEN_RATE_LIMITER) {
-      const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-      const { success } = await env.TOKEN_RATE_LIMITER.limit({ key: `${ip} ${url.pathname}` });
-      if (!success) {
-        const res = jsonResponse({ error: 'rate_limited' }, 429, corsOrigin);
-        res.headers.set('Retry-After', '60');
-        return res;
-      }
-    }
+    const limited = await rateLimitResponse(request, env, url.pathname, corsOrigin);
+    if (limited) return limited;
 
     const text = await readBoundedText(request);
     if (text === BODY_TOO_LARGE) {
