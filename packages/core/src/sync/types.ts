@@ -140,6 +140,8 @@ export interface SyncRunResult {
   pushedMediaCount?: number;
   pulledMediaCount?: number;
   mediaWarnings?: string[];
+  /** Listed segments that could not be read; the pull stopped there and retries next run. */
+  pullWarnings?: string[];
   hydratedSnapshot?: SyncSnapshot;
   snapshotWritten?: string;
   maxRemoteHlc?: string;

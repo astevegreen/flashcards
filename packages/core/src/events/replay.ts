@@ -38,6 +38,7 @@ import {
   type KnownEventType,
   type UnknownEvent,
 } from './types.ts';
+import { isApplicableEvent } from './validate.ts';
 
 export interface PendingDeckPatch {
   name?: string;
@@ -1696,7 +1697,7 @@ export function applyEventsWithCollector(
       maxHlc = event.hlc;
     }
 
-    if (isKnownEventType(event.type)) {
+    if (isKnownEventType(event.type) && isApplicableEvent(event as KnownEvent)) {
       applyKnownEvent(state, event as KnownEvent, dirtyCards, dirtyDecks, dirtyNotes, collector);
     } else {
       state.unknownEvents.push(event);
@@ -1766,7 +1767,8 @@ export function applyEventsWithDiff(
  * Handles arbitrary out-of-order delivery across devices:
  * - Events are sorted by (hlc, id) for entity LWW consistency.
  * - Reviews are always replayed sorted by (reviewed_at, hlc, review_id).
- * - Unknown future event types are preserved in `state.unknownEvents` without crashing.
+ * - Unknown future event types, newer schema versions and malformed payloads are preserved in
+ *   `state.unknownEvents` without crashing (see ./validate.ts).
  */
 export function applyEvents(
   state: CollectionState,

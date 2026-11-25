@@ -52,9 +52,10 @@ describe('persist queue', () => {
     expect(log).toEqual(['first', 'second', 'saved']);
   });
 
-  it('a failed write is logged and does not block the next or whenSaved', async () => {
+  it('a failed write is reported, does not block the next, and makes whenSaved reject', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const q = createPersistQueue();
+    const onFailed = vi.fn();
+    const q = createPersistQueue(onFailed);
     const log: string[] = [];
     void q.enqueue(() => Promise.reject(new Error('disk full')));
     void q.enqueue(() => {
@@ -63,8 +64,37 @@ describe('persist queue', () => {
     void q.enqueue(async () => {
       log.push('third');
     });
-    await q.whenSaved();
+    await expect(q.whenSaved()).rejects.toThrow('2 change(s) could not be saved.');
     expect(log).toEqual(['third']);
     expect(err).toHaveBeenCalledTimes(2);
+    expect(onFailed).toHaveBeenCalledTimes(2);
+  });
+
+  it('retryFailed runs the failed writes again in order, then whenSaved resolves', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const q = createPersistQueue();
+    const log: string[] = [];
+    let full = true;
+    const write = (name: string) => async () => {
+      if (full) throw new Error('disk full');
+      log.push(name);
+    };
+    void q.enqueue(write('a'));
+    void q.enqueue(write('b'));
+    await expect(q.whenSaved()).rejects.toThrow();
+    full = false;
+    await q.retryFailed();
+    expect(log).toEqual(['a', 'b']);
+    await expect(q.whenSaved()).resolves.toBeUndefined();
+  });
+
+  it('retryFailed rejects and keeps the write when it fails again', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const onFailed = vi.fn();
+    const q = createPersistQueue(onFailed);
+    void q.enqueue(() => Promise.reject(new Error('disk full')));
+    await expect(q.whenSaved()).rejects.toThrow();
+    await expect(q.retryFailed()).rejects.toThrow('1 change(s) could not be saved.');
+    expect(onFailed).toHaveBeenCalledTimes(2);
   });
 });

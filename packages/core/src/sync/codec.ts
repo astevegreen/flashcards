@@ -227,6 +227,8 @@ export function safeGunzip(
   return concatChunks(chunks, totalUncompressed);
 }
 
+const HLC_FORMAT = /^[\da-f]{12}-[\da-f]{4}-./;
+
 /** Encodes events as gzipped JSONL preserving all properties verbatim. */
 export function encodeEventsSegment(events: readonly FlashEvent[]): Uint8Array {
   const jsonl = events.map((ev) => JSON.stringify(ev)).join('\n') + (events.length > 0 ? '\n' : '');
@@ -264,6 +266,8 @@ export function decodeEventsSegment(
       typeof obj['seq'] !== 'number' ||
       !Number.isFinite(obj['seq']) ||
       typeof obj['hlc'] !== 'string' ||
+      // The format `formatHlc` writes: an odd one would break `receiveHlc` or win every LWW.
+      !HLC_FORMAT.test(obj['hlc']) ||
       typeof obj['type'] !== 'string' ||
       typeof obj['v'] !== 'number'
     ) {

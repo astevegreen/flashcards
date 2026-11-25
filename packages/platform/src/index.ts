@@ -227,7 +227,17 @@ export interface SyncFileInfo {
   updatedAt?: number;
 }
 
-/** Exact §4.3 SyncTransport contract. */
+/**
+ * Exact §4.3 SyncTransport contract. The sync engine depends on these failure codes, so every
+ * implementation throws a `SyncTransportError` (`@flash/core`) rather than a provider error:
+ * - `read` of a missing file → `NOT_FOUND`;
+ * - `write(…, { ifAbsent: true })` over an existing file → `ALREADY_EXISTS` (never a silent
+ *   success; any other failure, such as a full drive, must throw);
+ * - expired or revoked sign-in → `AUTH_REQUIRED`; throttling → `RATE_LIMITED`.
+ * `list(prefix)` returns every file whose path starts with `prefix` (a missing folder lists as
+ * empty), in code-unit order. `packages/platform-web/tests/helpers/sync-transport-contract.ts`
+ * is the shared conformance suite.
+ */
 export interface SyncTransport {
   list(prefix: string): Promise<SyncFileInfo[]>;
   read(path: string): Promise<Uint8Array>;

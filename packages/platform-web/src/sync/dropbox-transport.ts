@@ -1,28 +1,27 @@
+import { SyncTransportError } from '@flash/core';
 import type { SyncFileInfo, SyncTransport } from '@flash/platform';
+import { AuthorizedHttpClient } from './authorized-http.ts';
+import { dropboxFailure } from './dropbox-errors.ts';
 
 const DROPBOX_API_BASE = 'https://api.dropboxapi.com/2';
 const DROPBOX_CONTENT_BASE = 'https://content.dropboxapi.com/2';
 
 export interface DropboxTransportOptions {
-  getAccessToken: () => Promise<string>;
+  /** Returns a valid access token; `forceRefresh` is passed once after a 401. */
+  getAccessToken: (opts?: { forceRefresh?: boolean }) => Promise<string>;
   fetchImpl?: typeof fetch;
   /** App-folder root subfolder prefix inside Dropbox App Folder (default empty = root). */
   rootPrefix?: string;
-}
-
-export class DropboxTransportError extends Error {
-  readonly status?: number;
-  constructor(message: string, status?: number) {
-    super(message);
-    this.name = 'DropboxTransportError';
-    if (status !== undefined) this.status = status;
-  }
+  /** Backoff hooks (injectable for deterministic tests). */
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
+  maxAttempts?: number;
 }
 
 function normalizeSyncPath(path: string, rootPrefix = ''): string {
   const clean = path.replace(/\\/g, '/').replace(/^\/+/, '');
   if (!clean || clean.includes('..') || clean.includes('\0')) {
-    throw new DropboxTransportError(`Unsafe Dropbox sync path "${path}".`);
+    throw new SyncTransportError('UNKNOWN', `Unsafe Dropbox sync path "${path}".`);
   }
   const base = rootPrefix.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
   return base ? `/${base}/${clean}` : `/${clean}`;
@@ -57,42 +56,57 @@ interface DropboxListResponse {
 /**
  * Pluggable Dropbox App Folder `SyncTransport` (§4.3, §15 Phase 8).
  * Operates inside the app's scoped Dropbox App Folder using OAuth PKCE tokens.
+ *
+ * Errors follow the `SyncTransport` contract the sync engine relies on: a missing file is
+ * `SyncTransportError('NOT_FOUND')` (Dropbox sends 409 `path/not_found`), and a write-once
+ * conflict is `ALREADY_EXISTS`. A 401 refreshes the token once; 429 / 5xx retry with backoff.
  */
 export class DropboxAppFolderTransport implements SyncTransport {
-  private readonly getAccessToken: () => Promise<string>;
-  private readonly fetchImpl: typeof fetch;
+  private readonly client: AuthorizedHttpClient;
   private readonly rootPrefix: string;
 
   constructor(options: DropboxTransportOptions) {
-    this.getAccessToken = options.getAccessToken;
-    this.fetchImpl = options.fetchImpl ?? ((...args) => fetch(...args));
+    this.client = new AuthorizedHttpClient(
+      {
+        auth: { getValidAccessToken: (opts) => options.getAccessToken(opts) },
+        ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+        ...(options.sleep ? { sleep: options.sleep } : {}),
+        ...(options.random ? { random: options.random } : {}),
+        ...(options.maxAttempts !== undefined ? { maxAttempts: options.maxAttempts } : {}),
+      },
+      'Dropbox',
+    );
     this.rootPrefix = options.rootPrefix ?? '';
   }
 
+  private postJson(url: string, body: unknown): Promise<Response> {
+    return this.client.send(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
   async list(prefix: string): Promise<SyncFileInfo[]> {
-    const token = await this.getAccessToken();
-    const folderPath = normalizeSyncPath(prefix, this.rootPrefix).replace(/\/+$/, '');
+    // `list_folder` takes a folder, so list the prefix's parent folder recursively and keep the
+    // paths that start with the full prefix (`sync/v1/devices/` and `…/seg-` both work).
+    const cleanPrefix = prefix.replace(/\\/g, '/').replace(/^\/+/, '');
+    const slash = cleanPrefix.lastIndexOf('/');
+    const folder = slash === -1 ? '' : cleanPrefix.slice(0, slash);
+    const base = this.rootPrefix.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const folderPath = folder ? normalizeSyncPath(folder, this.rootPrefix) : base ? `/${base}` : '';
     const results: SyncFileInfo[] = [];
 
-    const res = await this.fetchImpl(`${DROPBOX_API_BASE}/files/list_folder`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: folderPath === '/' ? '' : folderPath,
-        recursive: true,
-        include_deleted: false,
-      }),
+    const res = await this.postJson(`${DROPBOX_API_BASE}/files/list_folder`, {
+      path: folderPath,
+      recursive: true,
+      include_deleted: false,
     });
-
-    if (res.status === 409) {
-      // Folder does not exist yet in empty App Folder
-      return [];
-    }
     if (!res.ok) {
-      throw new DropboxTransportError(`Dropbox list_folder failed (${res.status})`, res.status);
+      const failure = await dropboxFailure(res, `listing of "${prefix}"`);
+      // The folder does not exist yet in an empty App Folder.
+      if (failure.code === 'NOT_FOUND') return [];
+      throw failure;
     }
 
     let page = (await res.json()) as DropboxListResponse;
@@ -102,6 +116,7 @@ export class DropboxAppFolderTransport implements SyncTransport {
         const rawPath = entry.path_display ?? entry.path_lower;
         if (!rawPath) continue;
         const rel = stripRootPrefix(rawPath, this.rootPrefix);
+        if (!rel.startsWith(cleanPrefix)) continue;
         results.push({
           path: rel,
           size: entry.size ?? 0,
@@ -112,20 +127,10 @@ export class DropboxAppFolderTransport implements SyncTransport {
     collect(page.entries);
 
     while (page.has_more) {
-      const contRes = await this.fetchImpl(`${DROPBOX_API_BASE}/files/list_folder/continue`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ cursor: page.cursor }),
+      const contRes = await this.postJson(`${DROPBOX_API_BASE}/files/list_folder/continue`, {
+        cursor: page.cursor,
       });
-      if (!contRes.ok) {
-        throw new DropboxTransportError(
-          `Dropbox list_folder/continue failed (${contRes.status})`,
-          contRes.status,
-        );
-      }
+      if (!contRes.ok) throw await dropboxFailure(contRes, `listing of "${prefix}"`);
       page = (await contRes.json()) as DropboxListResponse;
       collect(page.entries);
     }
@@ -134,32 +139,21 @@ export class DropboxAppFolderTransport implements SyncTransport {
   }
 
   async read(path: string): Promise<Uint8Array> {
-    const token = await this.getAccessToken();
     const dropboxPath = normalizeSyncPath(path, this.rootPrefix);
-    const res = await this.fetchImpl(`${DROPBOX_CONTENT_BASE}/files/download`, {
+    const res = await this.client.send(`${DROPBOX_CONTENT_BASE}/files/download`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Dropbox-API-Arg': JSON.stringify({ path: dropboxPath }),
-      },
+      headers: { 'Dropbox-API-Arg': JSON.stringify({ path: dropboxPath }) },
     });
-    if (!res.ok) {
-      throw new DropboxTransportError(
-        `Dropbox download "${path}" failed (${res.status})`,
-        res.status,
-      );
-    }
+    if (!res.ok) throw await dropboxFailure(res, `download of "${path}"`);
     return new Uint8Array(await res.arrayBuffer());
   }
 
   async write(path: string, data: Uint8Array, opts?: { ifAbsent?: boolean }): Promise<void> {
-    const token = await this.getAccessToken();
     const dropboxPath = normalizeSyncPath(path, this.rootPrefix);
     const bodyCopy = new Uint8Array(data);
-    const res = await this.fetchImpl(`${DROPBOX_CONTENT_BASE}/files/upload`, {
+    const res = await this.client.send(`${DROPBOX_CONTENT_BASE}/files/upload`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/octet-stream',
         'Dropbox-API-Arg': JSON.stringify({
           path: dropboxPath,
@@ -170,16 +164,10 @@ export class DropboxAppFolderTransport implements SyncTransport {
       },
       body: bodyCopy.buffer,
     });
-    if (!res.ok) {
-      // Ignore write-once conflict (`path/conflict/file`) when ifAbsent is true
-      if (opts?.ifAbsent && res.status === 409) {
-        return;
-      }
-      throw new DropboxTransportError(
-        `Dropbox upload "${path}" failed (${res.status})`,
-        res.status,
-      );
-    }
+    // A write-once conflict (`path/conflict/file`) surfaces as ALREADY_EXISTS, which the sync
+    // engine handles (adopting a raced manifest, crash-recovering a segment). Any other failure,
+    // such as `path/insufficient_space`, is thrown so a missing file never passes as written.
+    if (!res.ok) throw await dropboxFailure(res, `upload of "${path}"`);
   }
 }
 

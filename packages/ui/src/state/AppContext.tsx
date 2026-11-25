@@ -45,7 +45,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -56,7 +55,6 @@ import {
   parseAddDeviceDeepLink,
   type AddDeviceLink,
 } from '../sync/addDeviceLink.ts';
-import { SECURE_KEYS_LOST_KV_KEY } from './secureKeysNotice.ts';
 import { priorOfMediaEdits } from './mediaEditPrior.ts';
 import { createMediaReAddQueue, type MediaReAddQueue } from './mediaReAddQueue.ts';
 import { createPersistQueue, type PersistQueue } from './persistQueue.ts';
@@ -99,10 +97,6 @@ export interface AppContextValue {
   undoStack: readonly UndoEntry[];
   activeDeckId: string | undefined;
   setActiveDeckId: (deckId: string | undefined) => void;
-  showBackupBanner: boolean;
-  /** The secure key for sign-ins was lost (native shells): explain once why to sign in again. */
-  secureKeysLostNotice: boolean;
-  dismissSecureKeysLostNotice: () => void;
   audio: AudioController;
   syncState: SyncUiState;
   syncNow: () => Promise<void>;
@@ -130,8 +124,15 @@ export interface AppContextValue {
   redoLastUndo: () => boolean;
   /** Forgets the study undo history (after a restore changed the collection under it). */
   clearUndoStack: () => void;
-  /** Resolves once queued writes and media re-adds have reached storage (call before a reload). */
+  /**
+   * Resolves once queued writes and media re-adds have reached storage (call before a reload);
+   * rejects while a write failed (`persistFailed`), so a reload never drops unsaved changes.
+   */
   whenSaved: () => Promise<void>;
+  /** A storage write failed (storage full or blocked): the changes live only in this tab. */
+  persistFailed: boolean;
+  /** Runs the failed storage writes again. */
+  retryPersist: () => void;
   updateNote: (note: Note, fields: Record<string, string>, tags: string[]) => void;
   setNoteArchived: (noteId: string, archived: boolean) => void;
   markNoteReviewed: (note: Note) => void;
@@ -172,7 +173,6 @@ export interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const LOCAL_SNAPSHOT_INTERVAL = 200;
 
 const DEFAULT_PERSONAL_ENTITLEMENT: EntitlementState = {
@@ -191,6 +191,25 @@ function cardToRow(card: Card): MaterializedCardRow {
     due: card.schedule.due,
     schedule: card.schedule,
   };
+}
+
+/** Saves `st` as the local snapshot unless a newer Check rebuild owns it (rebuildSignal.ts). */
+async function saveLocalSnapshot(
+  storage: PlatformServices['storage'],
+  startedAtMs: number,
+  st: CollectionState,
+  watermarks: Record<string, number>,
+): Promise<void> {
+  if (!(await snapshotWriteAllowed(storage, startedAtMs))) return;
+  const [{ serializeCollectionState }, localSeq] = await Promise.all([
+    import('@flash/core/snapshot'),
+    storage.getMaxLocalSeq(),
+  ]);
+  await storage.setLocalSnapshot({
+    snapshot: serializeCollectionState(st, watermarks),
+    localSeq,
+    savedAt: Date.now(),
+  });
 }
 
 export interface AppProviderProps {
@@ -214,17 +233,17 @@ export function AppProvider({
   initialOAuthError,
   children,
 }: AppProviderProps) {
-  const stateRef = useRef<CollectionState | null>(null);
-  if (stateRef.current === null) {
-    stateRef.current = initialState ?? applyEvents(createEmptyState(), initialEvents);
-  }
+  // Both refs are set on the first render and only ever replaced (reset, hydrate), never cleared.
+  const [bootState] = useState(
+    () => initialState ?? applyEvents(createEmptyState(), initialEvents),
+  );
+  const stateRef = useRef<CollectionState>(bootState);
   const collectionState = stateRef.current;
 
-  const factoryRef = useRef<EventFactory | null>(null);
-  if (factoryRef.current === null) {
-    factoryRef.current = createEventFactory(initialMeta.deviceId, initialMeta.seq, initialMeta.hlc);
-  }
-  const eventFactory = factoryRef.current;
+  const [bootFactory] = useState(() =>
+    createEventFactory(initialMeta.deviceId, initialMeta.seq, initialMeta.hlc),
+  );
+  const factoryRef = useRef<EventFactory>(bootFactory);
 
   const [stateVersion, setStateVersion] = useState(0);
   const metaRef = useRef<DeviceMeta>(initialMeta);
@@ -234,7 +253,10 @@ export function AppProvider({
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [redoStack, setRedoStack] = useState<UndoEntry[]>([]);
   const [activeDeckId, setActiveDeckId] = useState<string | undefined>(undefined);
-  const [persistQueue] = useState<PersistQueue>(createPersistQueue);
+  const [persistFailed, setPersistFailed] = useState(false);
+  const [persistQueue] = useState<PersistQueue>(() =>
+    createPersistQueue(() => setPersistFailed(true)),
+  );
   const lastLocalSnapEventsRef = useRef<number>(getTotalAppliedEventCount(collectionState));
   // A Check database rebuild saved after this start keeps its snapshot (see rebuildSignal.ts).
   const [startedAtMs] = useState(() => Date.now());
@@ -310,15 +332,10 @@ export function AppProvider({
     () =>
       retryImport(() => import('./mediaReAdds.ts')).then(
         (m) => (batch) =>
-          m.planMediaReAdds(
-            batch.prior,
-            batch.events,
-            stateRef.current ?? collectionState,
-            platform.storage,
-          ),
+          m.planMediaReAdds(batch.prior, batch.events, stateRef.current, platform.storage),
       ),
     (entries) => {
-      const f = factoryRef.current ?? eventFactory;
+      const f = factoryRef.current;
       const now = Date.now();
       emitEventsRef.current(entries.map((media) => f.create('MediaAdded', { media }, now)));
     },
@@ -344,9 +361,9 @@ export function AppProvider({
 
   const syncController = useSyncController({
     platform,
-    stateRef: stateRef as React.MutableRefObject<CollectionState>,
+    stateRef,
     metaRef,
-    factoryRef: factoryRef as React.MutableRefObject<EventFactory>,
+    factoryRef,
     ...(initialSyncConfig !== undefined ? { initialSyncConfig } : {}),
     ...(initialSyncCursor !== undefined ? { initialSyncCursor } : {}),
     ...(initialOAuthError !== undefined ? { initialOAuthError } : {}),
@@ -356,38 +373,11 @@ export function AppProvider({
     onReplaceState: handleReplaceState,
   });
 
-  const syncStatusForNotice = syncController.syncState.status;
-  // The phone apps leave a plain flag when the sign-in secrets were lost (Android: the Keystore key
-  // was lost and the secrets dropped; iOS: stored Keychain items are gone). Shown once; re-read when sync status changes (the loss is usually found
-  // by the first sync after launch).
-  const [secureKeysLostNotice, setSecureKeysLostNotice] = useState(false);
-  const secureKeysDismissedRef = useRef(false);
-  useEffect(() => {
-    let live = true;
-    platform.storage
-      .getKv(SECURE_KEYS_LOST_KV_KEY)
-      .then((flag) => {
-        // Once dismissed in this session, a later sync-status change never brings it back.
-        if (live && flag !== undefined && !secureKeysDismissedRef.current) {
-          setSecureKeysLostNotice(true);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [platform.storage, syncStatusForNotice]);
-  const dismissSecureKeysLostNotice = useCallback(() => {
-    secureKeysDismissedRef.current = true;
-    setSecureKeysLostNotice(false);
-    platform.storage.deleteKv(SECURE_KEYS_LOST_KV_KEY).catch(() => undefined);
-  }, [platform.storage]);
-
   const emitEvents = useCallback(
     (events: readonly KnownEvent[]) => {
       if (events.length === 0) return;
-      const factory = factoryRef.current ?? eventFactory;
-      const st = stateRef.current ?? collectionState;
+      const factory = factoryRef.current;
+      const st = stateRef.current;
       // An edit that starts using a file re-adds it right after, so the newer use beats a Check
       // media removal another device decided before this edit synced (mediaReAdds.ts).
       const mediaPrior = priorOfMediaEdits(st, events);
@@ -432,24 +422,32 @@ export function AppProvider({
           await platform.storage.deleteMaterializedCards(removedIds);
         }
         await platform.storage.setDeviceMeta(nextMeta);
-        if (watermarksForSnap && (await snapshotWriteAllowed(platform.storage, startedAtMs))) {
-          const [{ serializeCollectionState }, maxLocalSeq] = await Promise.all([
-            import('@flash/core/snapshot'),
-            platform.storage.getMaxLocalSeq(),
-          ]);
-          const snapshotPayload = serializeCollectionState(st, watermarksForSnap);
-          await platform.storage.setLocalSnapshot({
-            snapshot: snapshotPayload,
-            localSeq: maxLocalSeq,
-            savedAt: Date.now(),
-          });
+        if (watermarksForSnap) {
+          await saveLocalSnapshot(platform.storage, startedAtMs, st, watermarksForSnap);
         }
       });
     },
-    [collectionState, enqueuePersist, eventFactory, platform.storage, startedAtMs, syncController],
+    [enqueuePersist, platform.storage, startedAtMs, syncController],
   );
 
-  const getEventFactory = useCallback(() => factoryRef.current ?? eventFactory, [eventFactory]);
+  const retryPersist = useCallback(() => {
+    setPersistFailed(false);
+    // A write that fails again reports through the queue's callback and shows the alert again.
+    persistQueue.retryFailed().catch(() => undefined);
+    // Retried writes may hold an older device meta (seq reuse after a reload) or a snapshot older
+    // than the local log: the newest of both go last.
+    void enqueuePersist(async () => {
+      await platform.storage.setDeviceMeta(metaRef.current);
+      await saveLocalSnapshot(
+        platform.storage,
+        startedAtMs,
+        stateRef.current,
+        syncController.getCurrentWatermarks(),
+      );
+    });
+  }, [enqueuePersist, persistQueue, platform.storage, startedAtMs, syncController]);
+
+  const getEventFactory = useCallback(() => factoryRef.current, []);
 
   // Leech backfill, once per app launch: cards that reached the leech threshold before leech
   // tagging existed (or on an older build, or through an imported history) get the `leech` tag as
@@ -466,12 +464,12 @@ export function AppProvider({
   useEffect(() => {
     if (!backfillReady || backfillDoneRef.current) return;
     backfillDoneRef.current = true;
-    const plan = planLeechBackfill(stateRef.current ?? collectionState);
+    const plan = planLeechBackfill(stateRef.current);
     if (plan.length === 0) return;
-    const factory = factoryRef.current ?? eventFactory;
+    const factory = factoryRef.current;
     const nowMs = Date.now();
     emitEventsRef.current(plan.map((payload) => factory.create('NoteTagsAdded', payload, nowMs)));
-  }, [backfillReady, collectionState, eventFactory]);
+  }, [backfillReady, collectionState]);
 
   // Deck option presets: after each sync completed in this launch, copy every preset into any
   // member deck that fell behind it (lazy; see library/presetCatchUp.ts). Idempotent.
@@ -479,15 +477,8 @@ export function AppProvider({
   useEffect(() => {
     if (presetCatchUpAt === undefined) return;
     void import('../library/presetCatchUp.ts')
-      .then((m) =>
-        m.runPresetCatchUp(
-          stateRef.current ?? collectionState,
-          factoryRef.current ?? eventFactory,
-          emitEventsRef.current,
-        ),
-      )
+      .then((m) => m.runPresetCatchUp(stateRef.current, factoryRef.current, emitEventsRef.current))
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presetCatchUpAt]);
 
   // Non-blocking post-first-paint source check (§3.1 modifiedTime check & §3.2 local folder rescan).
@@ -508,7 +499,7 @@ export function AppProvider({
           await refreshAllSources(
             {
               platform,
-              getState: () => stateRef.current ?? collectionState,
+              getState: () => stateRef.current,
               getEventFactory,
               emitEvents,
             },
@@ -526,10 +517,10 @@ export function AppProvider({
 
   const rateCard = useCallback(
     (card: Card, rating: ReviewRating, durationMs: number, options?: { typedAnswer?: string }) => {
-      const factory = factoryRef.current ?? eventFactory;
+      const factory = factoryRef.current;
       const nowMs = Date.now();
       const tzOffset = -new Date(nowMs).getTimezoneOffset();
-      const st = stateRef.current ?? collectionState;
+      const st = stateRef.current;
       const paramsVersion = getActiveFsrsParamsVersion(st, card.deck_id);
       const fsrsConfig = resolveDeckFsrsConfig(st, card.deck_id, nowMs, paramsVersion);
       const { next, resulting_due_at } = applyReviewToSchedule(
@@ -585,13 +576,13 @@ export function AppProvider({
       setRedoStack([]);
       emitEvents(events);
     },
-    [collectionState, emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const undoLastReview = useCallback((): boolean => {
     const last = undoStack[undoStack.length - 1];
     if (!last) return false;
-    const factory = factoryRef.current ?? eventFactory;
+    const factory = factoryRef.current;
     const nowMs = Date.now();
     const events: KnownEvent[] = [
       factory.create('ReviewUndone', { review_id: last.reviewId }, nowMs),
@@ -599,7 +590,7 @@ export function AppProvider({
     if (last.leechSuspended) {
       events.push(factory.create('CardUnsuspended', { card_id: last.cardId }, nowMs));
     }
-    const st = stateRef.current ?? collectionState;
+    const st = stateRef.current;
     const card = last.leechTagged ? st.cards.get(last.cardId) : undefined;
     const untag = card && planLeechTagUndo(st, card);
     if (untag) events.push(factory.create('NoteUpserted', untag, nowMs));
@@ -607,7 +598,7 @@ export function AppProvider({
     setRedoStack((prev) => [...prev.slice(-49), last]);
     emitEvents(events);
     return true;
-  }, [collectionState, emitEvents, eventFactory, undoStack]);
+  }, [emitEvents, undoStack]);
 
   // Redo records the undone review again under a new id, with its original time and answer, so
   // replay gives the card the schedule it had before the Undo. Refused (and dropped) once the card
@@ -616,13 +607,13 @@ export function AppProvider({
     const last = redoStack[redoStack.length - 1];
     if (!last) return false;
     setRedoStack((prev) => prev.slice(0, -1));
-    const st = stateRef.current ?? collectionState;
+    const st = stateRef.current;
     if (!st.cards.has(last.cardId)) return false;
     const newer = (st.reviewsByCard.get(last.cardId) ?? []).some(
       (r) => !st.undoneReviewIds.has(r.review_id) && r.reviewed_at > last.review.reviewed_at,
     );
     if (newer) return false;
-    const factory = factoryRef.current ?? eventFactory;
+    const factory = factoryRef.current;
     const nowMs = Date.now();
     const review: ReviewRecordedPayload = { ...last.review, review_id: uuidv7(nowMs) };
     const events: KnownEvent[] = [factory.create('ReviewRecorded', review, nowMs)];
@@ -639,11 +630,11 @@ export function AppProvider({
     setUndoStack((prev) => [...prev.slice(-49), { ...last, reviewId: review.review_id, review }]);
     emitEvents(events);
     return true;
-  }, [collectionState, emitEvents, eventFactory, redoStack]);
+  }, [emitEvents, redoStack]);
 
   const updateNote = useCallback(
     (note: Note, fields: Record<string, string>, tags: string[]) => {
-      const factory = factoryRef.current ?? eventFactory;
+      const factory = factoryRef.current;
       const ev = factory.create(
         'NoteUpserted',
         {
@@ -658,24 +649,24 @@ export function AppProvider({
       );
       emitEvents([ev]);
     },
-    [emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const setNoteArchived = useCallback(
     (noteId: string, archived: boolean) => {
-      const factory = factoryRef.current ?? eventFactory;
+      const factory = factoryRef.current;
       const nowMs = Date.now();
       const ev = archived
         ? factory.create('NoteArchived', { note_id: noteId }, nowMs)
         : factory.create('NoteRestored', { note_id: noteId }, nowMs);
       emitEvents([ev]);
     },
-    [emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const markNoteReviewed = useCallback(
     (note: Note) => {
-      const factory = factoryRef.current ?? eventFactory;
+      const factory = factoryRef.current;
       const ev = factory.create(
         'NoteUpserted',
         {
@@ -689,7 +680,7 @@ export function AppProvider({
       );
       emitEvents([ev]);
     },
-    [emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const addMedia = useCallback(
@@ -708,14 +699,14 @@ export function AppProvider({
         mime: media.mime,
         bytes: media.bytes,
       });
-      const st = stateRef.current ?? collectionState;
+      const st = stateRef.current;
       const existing = st.media.get(normHash);
       const needsEvent =
         !existing ||
         (media.tts_key !== undefined && existing.tts_key !== media.tts_key) ||
         (media.tts_lang_key !== undefined && existing.tts_lang_key !== media.tts_lang_key);
       if (needsEvent) {
-        const factory = factoryRef.current ?? eventFactory;
+        const factory = factoryRef.current;
         const ev = factory.create(
           'MediaAdded',
           {
@@ -735,19 +726,19 @@ export function AppProvider({
         setStateVersion((v) => v + 1);
       }
     },
-    [collectionState, emitEvents, eventFactory, platform.storage],
+    [emitEvents, platform.storage],
   );
 
   const audio = useAudioController({
     platform,
-    stateRef: stateRef as React.MutableRefObject<CollectionState>,
+    stateRef,
     addMedia,
   });
 
   const upsertLayout = useCallback(
     (layout: Layout, enableOnDeckId?: string) => {
-      const factory = factoryRef.current ?? eventFactory;
-      const st = stateRef.current ?? collectionState;
+      const factory = factoryRef.current;
+      const st = stateRef.current;
       const nowMs = Date.now();
       const events: KnownEvent[] = [factory.create('LayoutChanged', { layout }, nowMs)];
       if (enableOnDeckId) {
@@ -770,7 +761,7 @@ export function AppProvider({
       }
       emitEvents(events);
     },
-    [collectionState, emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const upsertPage = useCallback(
@@ -782,7 +773,7 @@ export function AppProvider({
       lang?: string;
       tags: string[];
     }): string => {
-      const factory = factoryRef.current ?? eventFactory;
+      const factory = factoryRef.current;
       const nowMs = Date.now();
       const cleanSlug =
         input.slug
@@ -808,31 +799,31 @@ export function AppProvider({
       emitEvents([ev]);
       return pageId;
     },
-    [emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const markPageRead = useCallback(
     (pageId: string) => {
-      const factory = factoryRef.current ?? eventFactory;
+      const factory = factoryRef.current;
       const nowMs = Date.now();
       const ev = factory.create('PageRead', { page_id: pageId, read_at: nowMs }, nowMs);
       emitEvents([ev]);
     },
-    [emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const upsertCourse = useCallback(
     (course: Course) => {
-      const factory = factoryRef.current ?? eventFactory;
+      const factory = factoryRef.current;
       const ev = factory.create('CourseChanged', { course }, Date.now());
       emitEvents([ev]);
     },
-    [emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const createDeck = useCallback(
     (name: string, noteTypeId: string, language: string): string => {
-      const factory = factoryRef.current ?? eventFactory;
+      const factory = factoryRef.current;
       const nowMs = Date.now();
       const deckId = uuidv5(FLASH_NAMESPACE_UUID, `${name}:${nowMs}:${uuidv7(nowMs)}`);
       const ev = factory.create(
@@ -850,7 +841,7 @@ export function AppProvider({
       emitEvents([ev]);
       return deckId;
     },
-    [emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const updateDeckSettings = useCallback(
@@ -858,8 +849,8 @@ export function AppProvider({
       deckId: string,
       patch: { name?: string; archived?: boolean; settings?: Partial<DeckSettings> },
     ) => {
-      const factory = factoryRef.current ?? eventFactory;
-      const st = stateRef.current ?? collectionState;
+      const factory = factoryRef.current;
+      const st = stateRef.current;
       const existingDeck = st.decks.get(deckId);
       const nowMs = Date.now();
       const events: KnownEvent[] = [];
@@ -893,12 +884,12 @@ export function AppProvider({
       }
       emitEvents(events);
     },
-    [collectionState, emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const toggleDeckLayout = useCallback(
     (deckId: string, layoutId: string) => {
-      const st = stateRef.current ?? collectionState;
+      const st = stateRef.current;
       const deck = st.decks.get(deckId);
       if (!deck) return;
       const currentEnabled = getEnabledLayoutsForDeck(st, deck).map((l) => l.id);
@@ -912,13 +903,13 @@ export function AppProvider({
       }
       updateDeckSettings(deckId, { settings: { enabled_layout_ids: nextIds } });
     },
-    [collectionState, updateDeckSettings],
+    [updateDeckSettings],
   );
 
   const rescheduleDeck = useCallback(
     (deckId: string) => {
-      const factory = factoryRef.current ?? eventFactory;
-      const st = stateRef.current ?? collectionState;
+      const factory = factoryRef.current;
+      const st = stateRef.current;
       const deck = st.decks.get(deckId);
       if (!deck) return;
       const nowMs = Date.now();
@@ -936,22 +927,22 @@ export function AppProvider({
       );
       emitEvents([ev]);
     },
-    [collectionState, emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const updatePreferences = useCallback(
     (patch: Partial<CollectionPreferences>) => {
-      const factory = factoryRef.current ?? eventFactory;
+      const factory = factoryRef.current;
       const ev = factory.create('PreferencesChanged', { preferences: patch }, Date.now());
       emitEvents([ev]);
     },
-    [emitEvents, eventFactory],
+    [emitEvents],
   );
 
   const loadSampleDecks = useCallback(() => {
     void retryImport(() => import('@flash/core/samples'))
       .then(({ buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS }) => {
-        const factory = factoryRef.current ?? eventFactory;
+        const factory = factoryRef.current;
         const events = buildSampleDeckEvents(factory, SAMPLE_SEED_EPOCH_MS);
         emitEvents(events);
       })
@@ -959,7 +950,7 @@ export function AppProvider({
         // Offline before the chunk was cached: nothing is added; the button can be pressed again.
         console.warn('Could not load the sample decks', error);
       });
-  }, [emitEvents, eventFactory]);
+  }, [emitEvents]);
 
   const markBackupCompleted = useCallback(async () => {
     const nextMeta: DeviceMeta = {
@@ -1007,6 +998,9 @@ export function AppProvider({
     void addDevice?.clearAddDeviceExpectation(platform.storage);
     // The link this page load was opened with is forgotten too (it was read once and stripped).
     setOpenedAddDeviceLink(undefined);
+    // Writes that failed before the reset belong to the old collection: never retry them.
+    persistQueue.discardFailed();
+    setPersistFailed(false);
     metaRef.current = freshMeta;
     stateRef.current = createEmptyState();
     factoryRef.current = createEventFactory(freshMeta.deviceId, 0, freshMeta.hlc);
@@ -1022,47 +1016,7 @@ export function AppProvider({
       await platform.storage.setDeviceMeta(freshMeta);
     });
     await refreshEntitlement();
-  }, [audio, enqueuePersist, platform, refreshEntitlement, syncController]);
-
-  const showBackupBanner = useMemo(() => {
-    // Auto-hide weekly backup reminder once cloud or local-folder sync is connected and active
-    // (§4.4). Automatic backups stay on the device, so they never hide it.
-    const provider = syncController.syncState.provider;
-    if (
-      provider !== 'none' &&
-      provider !== 'dev_channel' &&
-      syncController.syncState.status !== 'reconnect_required'
-    ) {
-      return false;
-    }
-    const st = stateRef.current ?? collectionState;
-    if (st.decks.size === 0) return false;
-    const now = Date.now();
-    if (
-      meta.backupReminderDismissedAt !== undefined &&
-      now - meta.backupReminderDismissedAt < SEVEN_DAYS_MS
-    ) {
-      return false;
-    }
-    if (meta.lastBackupAt !== undefined) {
-      return now - meta.lastBackupAt > SEVEN_DAYS_MS;
-    }
-    // Show banner once the user has recorded at least 5 reviews and never backed up
-    let reviewCount = 0;
-    for (const list of st.reviewsByCard.values()) {
-      reviewCount += list.length;
-      if (reviewCount >= 5) return true;
-    }
-    return false;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    collectionState,
-    meta.lastBackupAt,
-    meta.backupReminderDismissedAt,
-    stateVersion,
-    syncController.syncState.provider,
-    syncController.syncState.status,
-  ]);
+  }, [audio, enqueuePersist, persistQueue, platform, refreshEntitlement, syncController]);
 
   // Once this device syncs with the link's provider, the link has done its job.
   const addDeviceLink =
@@ -1073,7 +1027,7 @@ export function AppProvider({
   const value: AppContextValue = {
     platform,
     addDeviceLink,
-    state: stateRef.current ?? collectionState,
+    state: stateRef.current,
     stateVersion,
     ready: true,
     meta,
@@ -1086,11 +1040,10 @@ export function AppProvider({
       setRedoStack([]);
     },
     whenSaved,
+    persistFailed,
+    retryPersist,
     activeDeckId,
     setActiveDeckId,
-    showBackupBanner,
-    secureKeysLostNotice,
-    dismissSecureKeysLostNotice,
     audio,
     syncState: syncController.syncState,
     syncNow: syncController.syncNow,

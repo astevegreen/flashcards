@@ -488,6 +488,7 @@ export async function runSyncCycle(
       });
     }
 
+    const notice = result.message ?? result.pullWarnings?.[0];
     ctx.setSyncState({
       provider,
       status: result.readOnly ? 'upgrade_required' : 'synced',
@@ -500,7 +501,8 @@ export async function runSyncCycle(
         ? { localFolderName: ctx.configRef.current.localFolderName }
         : {}),
       pendingCount: Math.max(0, ctx.metaRef.current.seq - result.cursor.lastPushedSeq),
-      ...(result.message !== undefined ? { errorMessage: result.message } : {}),
+      // A segment another device wrote that could not be read is retried; say so in Settings.
+      ...(notice !== undefined ? { errorMessage: notice } : {}),
       lastPulledCount: result.pulledEvents.length,
       lastPushedCount: result.pushedEventCount,
     });

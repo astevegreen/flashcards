@@ -29,7 +29,11 @@ function RebuildListener() {
         disabled={reloading}
         onClick={() => {
           setReloading(true);
-          void whenSaved().finally(() => location.reload());
+          // A failed write keeps the tab open (the "not saved" alert offers a retry).
+          whenSaved().then(
+            () => location.reload(),
+            () => setReloading(false),
+          );
         }}
         className="rounded-md bg-[var(--accent)] px-3 py-1.5 font-semibold text-white disabled:opacity-60"
       >

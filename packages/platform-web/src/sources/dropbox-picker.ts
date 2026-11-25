@@ -1,4 +1,4 @@
-import { compareCodeUnits, SyncTransportError, type SyncTransportErrorCode } from '@flash/core';
+import { compareCodeUnits, SyncTransportError } from '@flash/core';
 import type {
   Auth,
   DropboxBrowseItem,
@@ -6,6 +6,7 @@ import type {
   DropboxFilePicker,
   PickedFile,
 } from '@flash/platform';
+import { dropboxFailure } from '../sync/dropbox-errors.ts';
 
 const DROPBOX_API_BASE = 'https://api.dropboxapi.com/2';
 const DROPBOX_CONTENT_BASE = 'https://content.dropboxapi.com/2';
@@ -106,39 +107,6 @@ function compareBrowseItems(a: DropboxBrowseItem, b: DropboxBrowseItem): number 
   if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
   return (
     compareCodeUnits(a.name.toLowerCase(), b.name.toLowerCase()) || compareCodeUnits(a.id, b.id)
-  );
-}
-
-function codeForDropboxStatus(status: number, errorSummary?: string): SyncTransportErrorCode {
-  if (status === 401) return 'AUTH_REQUIRED';
-  if (status === 403) return 'PERMISSION_DENIED';
-  if (status === 404) return 'NOT_FOUND';
-  if (status === 409) {
-    if (errorSummary?.includes('not_found')) return 'NOT_FOUND';
-    return 'UNKNOWN';
-  }
-  if (status === 429) return 'RATE_LIMITED';
-  if (status >= 500) return 'NETWORK';
-  return 'UNKNOWN';
-}
-
-async function dropboxFailure(res: Response, action: string): Promise<SyncTransportError> {
-  let summary: string | undefined;
-  try {
-    const raw = (await res.json()) as { error_summary?: unknown; error?: unknown };
-    if (typeof raw.error_summary === 'string' && raw.error_summary) {
-      summary = raw.error_summary;
-    } else if (typeof raw.error === 'string' && raw.error) {
-      summary = raw.error;
-    }
-  } catch {
-    // non-JSON error body
-  }
-  const detail = summary ?? `HTTP ${res.status}`;
-  return new SyncTransportError(
-    codeForDropboxStatus(res.status, summary),
-    `Dropbox ${action} failed: ${detail}`,
-    res.status,
   );
 }
 

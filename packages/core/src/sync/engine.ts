@@ -269,6 +269,7 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
   // -------------------------------------------------------------------------
   let hydratedSnapshot: SyncSnapshot | undefined;
   const pulledEvents: FlashEvent[] = [];
+  const pullWarnings: string[] = [];
   let maxRemoteHlc: string | undefined;
 
   if (
@@ -394,8 +395,17 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
         const segBytes = await transport.read(deviceSegmentPath(devId, segNum));
         segEvents = decodeEventsSegment(segBytes);
       } catch (err) {
-        if (isNotFound(err)) continue;
-        if (readOnly && err instanceof SyncCodecError) continue;
+        // A listed segment that can't be read (listing lag, a deleted file, a corrupt or newer
+        // format) ends this device's pull here; other devices still sync. Skipping it would let
+        // later segments move the watermark past its events, and they would never be fetched again
+        // (nor by any device hydrating from a snapshot that carries that watermark). The next sync
+        // retries from it.
+        if (isNotFound(err) || err instanceof SyncCodecError) {
+          pullWarnings.push(
+            `Segment ${segNum} from device ${devId} could not be read; its events and any later ones will be retried on the next sync.`,
+          );
+          break;
+        }
         throw err;
       }
 
@@ -730,6 +740,7 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
     pushedSegments: pushedSegmentsCount,
     ...(mediaStore ? { pushedMediaCount, pulledMediaCount } : {}),
     ...(mediaWarnings.length > 0 ? { mediaWarnings } : {}),
+    ...(pullWarnings.length > 0 ? { pullWarnings } : {}),
     ...(hydratedSnapshot !== undefined ? { hydratedSnapshot } : {}),
     ...(snapshotWritten !== undefined ? { snapshotWritten } : {}),
     ...(maxRemoteHlc !== undefined ? { maxRemoteHlc } : {}),

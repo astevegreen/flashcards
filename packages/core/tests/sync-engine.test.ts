@@ -756,4 +756,102 @@ describe('SyncEngine & Codec unit tests (§4.2 & §13)', () => {
     expect(third.cursor.lastPushedSegment).toBe(2);
     expect(third.cursor.lastPushedSeq).toBe(3);
   });
+
+  it('stops at a listed segment that reads NOT_FOUND and never moves the watermark past its events', async () => {
+    const transport = new RecordingMemoryTransport();
+    const t0 = Date.UTC(2026, 10, 25, 9, 0, 0);
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const events = Array.from({ length: 6 }, (_, i) =>
+      factory.create('PreferencesChanged', { preferences: { day_start_hour: i } }, t0 + i),
+    );
+    const pushed = await runSync({
+      transport,
+      deviceId: 'dev-a',
+      cursor: createInitialSyncCursor(),
+      localOwnSeq: 6,
+      nowMs: () => t0 + 100,
+      maxEventsPerSegment: 2,
+      getLocalEventsAfterSeq: async (after) => events.filter((e) => e.seq > after),
+    });
+    expect(pushed.pushedSegments).toBe(3);
+
+    // Segment 2 (seq 3–4) is listed in head.json but not readable yet (list-read lag, deleted file).
+    const seg2Path = deviceSegmentPath('dev-a', 2);
+    const seg2 = transport.files.get(seg2Path);
+    expect(seg2).toBeDefined();
+    transport.files.delete(seg2Path);
+
+    const partial = await runSync({
+      transport,
+      deviceId: 'dev-b',
+      cursor: createInitialSyncCursor(),
+      localOwnSeq: 0,
+      nowMs: () => t0 + 200,
+      getLocalEventsAfterSeq: async () => [],
+    });
+    expect(partial.status).toBe('ok');
+    expect(partial.pulledEvents.map((e) => e.seq)).toEqual([1, 2]);
+    expect(partial.cursor.remoteWatermarks['dev-a']).toBe(2);
+    expect(partial.pullWarnings?.[0]).toContain('Segment 2 from device dev-a');
+
+    // Once the segment is readable again, the next run picks up everything it missed.
+    if (seg2) transport.files.set(seg2Path, seg2);
+    const healed = await runSync({
+      transport,
+      deviceId: 'dev-b',
+      cursor: partial.cursor,
+      localOwnSeq: 0,
+      nowMs: () => t0 + 300,
+      getLocalEventsAfterSeq: async () => [],
+    });
+    expect(healed.pulledEvents.map((e) => e.seq)).toEqual([3, 4, 5, 6]);
+    expect(healed.cursor.remoteWatermarks['dev-a']).toBe(6);
+    expect(healed.pullWarnings).toBeUndefined();
+  });
+
+  it('a corrupt segment from one device stops only that device and still pulls the others', async () => {
+    const transport = new RecordingMemoryTransport();
+    const t0 = Date.UTC(2026, 10, 25, 10, 0, 0);
+    for (const dev of ['dev-a', 'dev-c']) {
+      const factory = createEventFactory(dev, 0, createHlcState(dev, t0));
+      const events = [factory.create('PreferencesChanged', { preferences: {} }, t0)];
+      await runSync({
+        transport,
+        deviceId: dev,
+        cursor: createInitialSyncCursor(),
+        localOwnSeq: 1,
+        nowMs: () => t0 + 100,
+        getLocalEventsAfterSeq: async (after) => events.filter((e) => e.seq > after),
+      });
+    }
+    const corrupt = gzipSync(encodeUtf8('{"id":"x","device":"dev-a","seq":1,"hlc":"zzzz"}\n'));
+    transport.files.set(deviceSegmentPath('dev-a', 1), { data: corrupt, updatedAt: 99 });
+
+    const res = await runSync({
+      transport,
+      deviceId: 'dev-b',
+      cursor: createInitialSyncCursor(),
+      localOwnSeq: 0,
+      nowMs: () => t0 + 200,
+      getLocalEventsAfterSeq: async () => [],
+    });
+    expect(res.status).toBe('ok');
+    expect(res.pulledEvents.map((e) => e.device)).toEqual(['dev-c']);
+    expect(res.cursor.remoteWatermarks['dev-a'] ?? 0).toBe(0);
+    expect(res.pullWarnings?.[0]).toContain('Segment 1 from device dev-a');
+  });
+
+  it('rejects an event whose HLC is not in the format formatHlc writes', () => {
+    const line = (hlc: string) =>
+      gzipSync(
+        encodeUtf8(
+          JSON.stringify({ id: 'e1', device: 'd', seq: 1, hlc, type: 'X', v: 1, payload: {} }) +
+            '\n',
+        ),
+      );
+    expect(decodeEventsSegment(line('01936a4e2f10-0001-device-a'))).toHaveLength(1);
+    for (const bad of ['zzzz', '01936A4E2F10-0001-d', '01936a4e2f10-0001-', '1-2-3']) {
+      expect(() => decodeEventsSegment(line(bad))).toThrow(SyncCodecError);
+    }
+  });
 });

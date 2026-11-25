@@ -22,7 +22,7 @@ export function createDropboxServicesForAuth(
   return {
     auth,
     transport: new DropboxAppFolderTransport({
-      getAccessToken: () => auth.getValidAccessToken(),
+      getAccessToken: (opts) => auth.getValidAccessToken(opts),
       ...(fetchImpl ? { fetchImpl } : {}),
     }),
     picker: new DropboxAppFolderFilePicker({

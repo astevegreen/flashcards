@@ -1,13 +1,17 @@
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
-import { SECURE_KEYS_LOST_MESSAGE } from '../state/secureKeysNotice.ts';
 import { applyCardTextSize, readCardTextSize } from '../study/cardTextSize.ts';
 import { getSidebarBadge, sidebarBadgeOpensSettings, sidebarBadgeTitle } from './sidebarBadge.ts';
 
 // Study reminders (native notifications / PWA badge) and automatic backups: lazy, renders nothing.
 const LazyBackgroundRuntime = lazyWithRetry(
   () => import('./BackgroundRuntime.tsx').then((m) => ({ default: m.BackgroundRuntime })),
+  { quiet: true },
+);
+// The secure-keys-lost notice and the backup reminder: rare banners, lazy (§8).
+const LazyShellNotices = lazyWithRetry(
+  () => import('./ShellNotices.tsx').then((m) => ({ default: m.ShellNotices })),
   { quiet: true },
 );
 
@@ -62,15 +66,7 @@ const NAV_ITEMS: readonly { id: NavTab; label: string; icon: string }[] = [
 const PULL_REFRESH_THRESHOLD_PX = 64;
 
 export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
-  const {
-    platform,
-    showBackupBanner,
-    dismissBackupBanner,
-    secureKeysLostNotice,
-    dismissSecureKeysLostNotice,
-    syncState,
-    syncNow,
-  } = useApp();
+  const { platform, persistFailed, retryPersist, syncState, syncNow } = useApp();
   useState(initCardTextSize);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -230,60 +226,29 @@ export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
 
       {/* Main viewport */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {secureKeysLostNotice && (
+        {persistFailed && (
           <div
             role="alert"
-            data-testid="secure-keys-lost-notice"
+            data-testid="persist-failed-notice"
             className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--accent-soft)] px-4 py-2 text-xs text-[var(--fg)]"
           >
-            <span className="min-w-0 flex-1 basis-48 break-words">{SECURE_KEYS_LOST_MESSAGE}</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  dismissSecureKeysLostNotice();
-                  onSelectTab('settings');
-                }}
-                className="min-h-11 rounded-md bg-[var(--accent)] px-2.5 py-1 font-semibold text-white"
-              >
-                Sign in again
-              </button>
-              <button
-                type="button"
-                data-testid="secure-keys-lost-dismiss"
-                onClick={dismissSecureKeysLostNotice}
-                className="min-h-11 rounded-md px-2 py-1 text-[var(--muted)] hover:bg-[var(--surface-2)]"
-              >
-                Dismiss
-              </button>
-            </div>
+            <span className="min-w-0 flex-1 basis-48 break-words">
+              Changes aren't being saved on this device. Free up storage, then retry. Keep this tab
+              open until then.
+            </span>
+            <button
+              type="button"
+              onClick={retryPersist}
+              className="min-h-11 rounded-md bg-[var(--accent)] px-2.5 py-1 font-semibold text-white"
+            >
+              Retry
+            </button>
           </div>
         )}
 
-        {showBackupBanner && (
-          <div
-            role="status"
-            className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--accent-soft)] px-4 py-2 text-xs text-[var(--fg)]"
-          >
-            <span>Back up your collection regularly as a .flashpkg file.</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onSelectTab('settings')}
-                className="rounded-md bg-[var(--accent)] px-2.5 py-1 font-semibold text-white"
-              >
-                Export Backup
-              </button>
-              <button
-                type="button"
-                onClick={() => void dismissBackupBanner()}
-                className="rounded-md px-2 py-1 text-[var(--muted)] hover:bg-[var(--surface-2)]"
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        )}
+        <Suspense fallback={null}>
+          <LazyShellNotices onSelectTab={onSelectTab} />
+        </Suspense>
 
         {pullDistance > 16 && (
           <div role="status" className="py-1 text-center text-xs font-medium text-[var(--muted)]">
