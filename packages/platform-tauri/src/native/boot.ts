@@ -1,5 +1,9 @@
 import type { PlatformServices } from '@flash/platform';
-import { composeNativePlatform, lazyOneDriveFields } from '@flash/platform-web/native-support';
+import {
+  composeNativePlatform,
+  lazyDropboxFields,
+  lazyOneDriveFields,
+} from '@flash/platform-web/native-support';
 import {
   createSqliteRefreshTokenStore,
   resolveRefreshTokenStore,
@@ -32,6 +36,8 @@ export interface TauriBootConfig {
   /** Entra client ID for OneDrive (public client, loopback redirect `http://localhost`). */
   microsoftClientId?: string;
   microsoftTenant?: string;
+  /** Dropbox App Folder app key (public PKCE client, fixed loopback `http://127.0.0.1:53682`). */
+  dropboxAppKey?: string;
   packCatalogUrl?: string;
   starterCatalogUrl?: string;
 }
@@ -43,6 +49,10 @@ export const INSECURE_TOKEN_STORAGE_WARNING =
 /** Shown in Settings when the Microsoft (OneDrive) refresh token has to stay in SQLite. */
 export const INSECURE_MICROSOFT_TOKEN_STORAGE_WARNING =
   'Your OneDrive sign-in is saved in the app database, not in a secure store, because the OS keychain could not be used. Install and unlock a keyring (for example GNOME Keyring or KWallet), then restart the app to move it there.';
+
+/** Shown in Settings when the Dropbox refresh token has to stay in SQLite. */
+export const INSECURE_DROPBOX_TOKEN_STORAGE_WARNING =
+  'Your Dropbox sign-in is saved in the app database, not in a secure store, because the OS keychain could not be used. Install and unlock a keyring (for example GNOME Keyring or KWallet), then restart the app to move it there.';
 
 /**
  * Boots `PlatformServices` for the Tauri desktop shell with real Tauri v2 plugins.
@@ -131,10 +141,39 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
       })
     : {};
 
+  const dropboxAppKey = config.dropboxAppKey;
+  let dropboxStorageWarning: string | undefined;
+  const dropbox = dropboxAppKey
+    ? lazyDropboxFields(async () => {
+        const [{ createDropboxLoopbackBridge }, { createNativeDropboxServices }] =
+          await Promise.all([
+            import('./dropbox-loopback.ts'),
+            import('@flash/platform-web/dropbox'),
+          ]);
+        const dbxTokens = await resolveRefreshTokenStore({
+          secure: createSecureSecretBackend(),
+          legacy: createSqliteRefreshTokenStore(sqlDb, 'dropbox'),
+          account: 'dropbox-refresh-token',
+          onInsecureFallback: (reason) => {
+            console.warn(`Dropbox refresh token stays in SQLite: ${reason}`);
+            dropboxStorageWarning = INSECURE_DROPBOX_TOKEN_STORAGE_WARNING;
+          },
+        });
+        return createNativeDropboxServices({
+          bridge: createDropboxLoopbackBridge({
+            appKey: dropboxAppKey,
+            tokenStore: dbxTokens.store,
+          }),
+          storage: native.storage,
+        });
+      })
+    : {};
+
   const platform: PlatformServices = {
     ...composeNativePlatform(native, base),
     onAddDeviceUrl: createAddDeviceUrlSource(),
     ...oneDrive,
+    ...dropbox,
     // Phase 13 study reminders: desktop notifications while the app runs. The notification
     // plugin cannot schedule on desktop, so nothing fires after the app quits (Settings says so).
     studyReminderDelivery: 'while-app-runs',
@@ -143,14 +182,15 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
       return createDesktopReminderScheduler(createDesktopNotificationBridge());
     },
   };
-  // The OneDrive token store resolves lazily, after boot: read the warnings when Settings renders.
+  // The OneDrive / Dropbox token stores resolve lazily, after boot: read the warnings when Settings renders.
   const googleWarning = oauthPlugin ? secureStorageWarning : undefined;
   Object.defineProperty(platform, 'secureStorageWarning', {
     enumerable: true,
     configurable: true,
     get: () =>
-      [googleWarning, microsoftStorageWarning].filter((w) => w !== undefined).join(' ') ||
-      undefined,
+      [googleWarning, microsoftStorageWarning, dropboxStorageWarning]
+        .filter((w) => w !== undefined)
+        .join(' ') || undefined,
   });
   return platform;
 }

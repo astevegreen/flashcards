@@ -1,6 +1,7 @@
 import type { PlatformServices } from '@flash/platform';
 import {
   composeNativePlatform,
+  lazyDropboxFields,
   LazyHandwritingRecognizer,
   lazyOneDriveFields,
 } from '@flash/platform-web/native-support';
@@ -15,6 +16,7 @@ import {
   prepareSecureStorageAtLaunch,
 } from '../secure/secure-launch.ts';
 import {
+  DROPBOX_REFRESH_TOKEN_KEY,
   MICROSOFT_REFRESH_TOKEN_KEY,
   SECURE_KEYS_LOST_KV_KEY,
   SECURE_KV_KEYS,
@@ -47,6 +49,8 @@ export interface CapacitorBootConfig {
   /** Entra client ID for OneDrive (public client, `flashcards://oauth/microsoft` redirect). */
   microsoftClientId?: string;
   microsoftTenant?: string;
+  /** Dropbox App Folder app key (public PKCE client, `flashcards://oauth/dropbox` redirect). */
+  dropboxAppKey?: string;
 }
 
 /** Memoizes an async loader; a failed attempt is forgotten so the next call retries. */
@@ -88,7 +92,7 @@ export async function bootCapacitorPlatform(
     inner: database,
     secureStore: secureStorage,
     kvKeys: SECURE_KV_KEYS,
-    extraSecretKeys: [MICROSOFT_REFRESH_TOKEN_KEY],
+    extraSecretKeys: [MICROSOFT_REFRESH_TOKEN_KEY, DROPBOX_REFRESH_TOKEN_KEY],
   });
   await prepareSecureStorageAtLaunch({
     database,
@@ -130,6 +134,7 @@ export async function bootCapacitorPlatform(
   });
 
   const loadOneDrive = oneDriveLoader(config, secureStorage, native.storage);
+  const loadDropbox = dropboxLoader(config, secureStorage, native.storage);
 
   // In the background, so it never delays the first study screen.
   void clearPluginTokenCopiesAtLaunch({
@@ -137,6 +142,7 @@ export async function bootCapacitorPlatform(
     secureStorage,
     storage: native.storage,
     ...(loadOneDrive ? { loadOneDrive } : {}),
+    ...(loadDropbox ? { loadDropbox } : {}),
   }).catch((err: unknown) => {
     console.warn('Could not clear sign-in plugin token copies at launch:', err);
   });
@@ -145,6 +151,7 @@ export async function bootCapacitorPlatform(
     ...composeNativePlatform(native, base),
     onAddDeviceUrl: createAddDeviceUrlSource(),
     ...(loadOneDrive ? lazyOneDriveFields(loadOneDrive) : {}),
+    ...(loadDropbox ? lazyDropboxFields(loadDropbox) : {}),
     // Phase 13 study reminders: OS local notifications (the PWA only shows an in-app badge).
     studyReminderDelivery: 'os-scheduled',
     getStudyReminderScheduler: async () => {
@@ -191,6 +198,28 @@ function oneDriveLoader(
       bridge: await createMicrosoftSocialLoginBridge({
         clientId,
         ...(config.microsoftTenant ? { tenant: config.microsoftTenant } : {}),
+        secureStore,
+      }),
+      storage,
+    });
+  });
+}
+
+/** Lazily builds the Dropbox App Folder services (only when a Dropbox app key is configured). */
+function dropboxLoader(
+  config: CapacitorBootConfig,
+  secureStore: ReturnType<typeof createNativeSecureStorage>,
+  storage: PlatformServices['storage'],
+) {
+  const appKey = config.dropboxAppKey;
+  if (!appKey) return undefined;
+  return retryableOnce(async () => {
+    const [{ createDropboxSocialLoginBridge }, { createNativeDropboxServices }] = await Promise.all(
+      [import('./dropbox-social-login.ts'), import('@flash/platform-web/dropbox')],
+    );
+    return createNativeDropboxServices({
+      bridge: await createDropboxSocialLoginBridge({
+        appKey,
         secureStore,
       }),
       storage,
