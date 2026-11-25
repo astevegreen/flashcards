@@ -1140,7 +1140,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       )}
 
       {/* Optional OneDrive file picker: lazy, below the action row. The fallback reserves the
-          panel's fixed height (h-[26rem], ONEDRIVE_PICKER_PANEL_HEIGHT), so nothing below moves. */}
+          panel's fixed height (h-[26rem], CLOUD_PICKER_PANEL_HEIGHT), so nothing below moves. */}
       {showOneDrivePicker && (
         <Suspense
           fallback={

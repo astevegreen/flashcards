@@ -1,6 +1,11 @@
 import { SyncTransportError } from '@flash/core';
 import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
 import { ONEDRIVE_NATIVE_SESSION_KV_KEY } from './microsoft-native-session-key.ts';
+import {
+  isNativeTokenFresh,
+  refreshNativeSession,
+  requireNativeSession,
+} from './native-token-session.ts';
 import { MICROSOFT_PICKER_SCOPE, MICROSOFT_SYNC_SCOPES } from './microsoft-oauth-web.ts';
 
 /** Tokens returned by a native Microsoft public-client sign-in or refresh. */
@@ -44,7 +49,6 @@ function isRefreshRejected(err: unknown): boolean {
 }
 
 const SESSION_KV_KEY = ONEDRIVE_NATIVE_SESSION_KV_KEY;
-const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
 function scopeList(scope: string): string[] {
   return scope.split(' ').filter((s) => s.length > 0);
@@ -142,15 +146,8 @@ export class NativeMicrosoftAuth implements Auth {
   }
 
   async getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
-    const session = await this.readSession();
-    if (!session) throw new SyncTransportError('AUTH_REQUIRED', 'OneDrive is not connected.');
-    if (session.reconnectRequired) {
-      throw new SyncTransportError(
-        'AUTH_REQUIRED',
-        'OneDrive session expired. Please reconnect in Settings.',
-      );
-    }
-    if (!opts?.forceRefresh && session.expiresAt - this.nowMs() > REFRESH_MARGIN_MS) {
+    const session = requireNativeSession(await this.readSession(), 'OneDrive');
+    if (!opts?.forceRefresh && isNativeTokenFresh(session, this.nowMs())) {
       return session.accessToken;
     }
     this.inFlightRefresh ??= this.refresh(session).finally(() => {
@@ -159,27 +156,17 @@ export class NativeMicrosoftAuth implements Auth {
     return this.inFlightRefresh;
   }
 
-  private async refresh(session: NativeMicrosoftSession): Promise<string> {
+  private refresh(session: NativeMicrosoftSession): Promise<string> {
     const bridge = this.requireBridge();
-    let tokens: MicrosoftTokenSet;
-    try {
-      tokens = await bridge.refresh(scopeList(session.scope));
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      // Only an explicit rejection forces a new sign-in; offline blips just retry later.
-      if (!isRefreshRejected(err)) {
-        throw new SyncTransportError('NETWORK', `OneDrive refresh failed: ${detail}`);
-      }
-      await this.storage.setKv(SESSION_KV_KEY, { ...session, reconnectRequired: true });
-      throw new SyncTransportError('AUTH_REQUIRED', `OneDrive session expired: ${detail}`);
-    }
-    await this.storage.setKv(SESSION_KV_KEY, {
-      ...session,
-      accessToken: tokens.accessToken,
-      expiresAt: this.nowMs() + tokens.expiresInSeconds * 1000,
-      reconnectRequired: false,
-    } satisfies NativeMicrosoftSession);
-    return tokens.accessToken;
+    return refreshNativeSession({
+      label: 'OneDrive',
+      session,
+      storage: this.storage,
+      kvKey: SESSION_KV_KEY,
+      nowMs: this.nowMs,
+      refresh: () => bridge.refresh(scopeList(session.scope)),
+      isRejected: isRefreshRejected,
+    });
   }
 
   async signOut(): Promise<void> {

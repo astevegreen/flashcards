@@ -10,7 +10,7 @@ import { canCreateOrImportDeck, type EntitlementState } from '@flash/core/licens
 import type { PickedFile, PlatformServices } from '@flash/platform';
 
 /**
- * One-shot import of a file picked from OneDrive (§15 Phase 12): `.csv` / `.tsv` / `.xlsx` become a
+ * One-shot import of a file picked from OneDrive or Dropbox (§15 Phase 12): `.csv` / `.tsv` / `.xlsx` become a
  * new deck, `.flashpkg` imports exactly like Library > Import .flashpkg. Loaded with the picker.
  */
 export interface PickedFileImportContext {
@@ -48,6 +48,7 @@ export function gridToCsv(grid: readonly (readonly string[])[]): string {
 async function importSpreadsheet(
   picked: PickedFile,
   ctx: PickedFileImportContext,
+  provider: string,
 ): Promise<string> {
   const noteType = ctx.state.noteTypes.get(ctx.noteTypeId);
   if (!noteType) throw new Error('Choose a note type for the new deck.');
@@ -63,7 +64,8 @@ async function importSpreadsheet(
     text = decodeUtf8(picked.bytes);
   }
   const { buildEventsFromCsv } = await import('@flash/core/csv');
-  const deckName = picked.name.slice(0, picked.name.length - ext.length).trim() || 'OneDrive Deck';
+  const deckName =
+    picked.name.slice(0, picked.name.length - ext.length).trim() || `${provider} Deck`;
   const build = (deckId: string, eventFactory: EventFactory) =>
     buildEventsFromCsv(text, {
       deckId,
@@ -75,17 +77,21 @@ async function importSpreadsheet(
   // Parse first with a throwaway factory (no sequence numbers used), so a file that fails to
   // parse or holds no notes never leaves an empty deck behind.
   const dryRunFactory = createEventFactory('dry-run', 0, createHlcState('dry-run', Date.now()));
-  if (build('onedrive-import-dry-run', dryRunFactory).importedCount === 0) {
+  if (build('cloud-import-dry-run', dryRunFactory).importedCount === 0) {
     throw new Error(`"${picked.name}" has no notes to import, so no deck was created.`);
   }
   const deckId = ctx.createDeck(deckName, noteType.id, ctx.language);
   const result = build(deckId, ctx.getEventFactory());
   if (result.events.length > 0) ctx.emitEvents(result.events);
   const warn = result.warnings.length > 0 ? ` (${result.warnings.length} warning(s))` : '';
-  return `Imported ${result.importedCount} note(s) from OneDrive into "${deckName}"${warn}.`;
+  return `Imported ${result.importedCount} note(s) from ${provider} into "${deckName}"${warn}.`;
 }
 
-async function importPackage(picked: PickedFile, ctx: PickedFileImportContext): Promise<string> {
+async function importPackage(
+  picked: PickedFile,
+  ctx: PickedFileImportContext,
+  provider: string,
+): Promise<string> {
   const { importFlashpkg } = await import('@flash/core/flashpkg');
   const result = importFlashpkg(picked.bytes, ctx.state, ctx.getEventFactory());
   const netNewDecks = Math.max(0, result.decksImported - result.upgradedDecks);
@@ -100,16 +106,29 @@ async function importPackage(picked: PickedFile, ctx: PickedFileImportContext): 
     await ctx.platform.storage.putMedia({ hash: media.hash, mime: media.mime, bytes: media.bytes });
   }
   if (result.events.length > 0) ctx.emitEvents(result.events);
-  return `Imported "${result.manifest.name}" from OneDrive (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.pagesImported} page(s)).`;
+  return `Imported "${result.manifest.name}" from ${provider} (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.pagesImported} page(s)).`;
 }
 
-/** Imports one picked file and returns the status line to show. */
-export async function importPickedOneDriveFile(
+/**
+ * Imports one file picked from a cloud drive (OneDrive or Dropbox) and returns the status line to
+ * show. `provider` names the drive in messages and in a new deck's fallback name.
+ */
+export async function importPickedCloudFile(
+  picked: PickedFile,
+  ctx: PickedFileImportContext,
+  provider: string,
+): Promise<string> {
+  const ext = extensionOf(picked.name);
+  if (ext === '.flashpkg') return importPackage(picked, ctx, provider);
+  if (ext === '.csv' || ext === '.tsv' || ext === '.xlsx')
+    return importSpreadsheet(picked, ctx, provider);
+  throw new Error(`"${picked.name}" is not a .csv, .tsv, .xlsx or .flashpkg file.`);
+}
+
+/** Imports one picked OneDrive file and returns the status line to show. */
+export function importPickedOneDriveFile(
   picked: PickedFile,
   ctx: PickedFileImportContext,
 ): Promise<string> {
-  const ext = extensionOf(picked.name);
-  if (ext === '.flashpkg') return importPackage(picked, ctx);
-  if (ext === '.csv' || ext === '.tsv' || ext === '.xlsx') return importSpreadsheet(picked, ctx);
-  throw new Error(`"${picked.name}" is not a .csv, .tsv, .xlsx or .flashpkg file.`);
+  return importPickedCloudFile(picked, ctx, 'OneDrive');
 }
