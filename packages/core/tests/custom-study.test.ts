@@ -376,7 +376,7 @@ describe('Phase 9 custom study: extra new cards today', () => {
 
     raise(fx, 'r1', 1, NOW - 2 * MIN);
     raise(fx, 'r2', 1, NOW - MIN, []);
-    const dup = fx.events[fx.events.length - 1] as FlashEvent;
+    const dup = fx.events[fx.events.length - 1] as KnownEvent;
     fx.events.push({ ...dup, id: `${dup.id}-dup`, hlc: `${dup.hlc}x` });
     const st = fx.state();
     expect(getExtraNewCardsToday(st, KO_DECK, NOW, KST, 4)).toBe(2);
