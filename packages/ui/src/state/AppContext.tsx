@@ -133,7 +133,8 @@ export interface AppContextValue {
   persistFailed: boolean;
   /** Runs the failed storage writes again. */
   retryPersist: () => void;
-  updateNote: (note: Note, fields: Record<string, string>, tags: string[]) => void;
+  /** Sends only `fields` given, and `tags` only when defined: both replay LWW (D7). */
+  updateNote: (note: Note, fields: Record<string, string>, tags?: string[]) => void;
   setNoteArchived: (noteId: string, archived: boolean) => void;
   markNoteReviewed: (note: Note) => void;
   addMedia: (media: {
@@ -633,17 +634,19 @@ export function AppProvider({
   }, [emitEvents, redoStack]);
 
   const updateNote = useCallback(
-    (note: Note, fields: Record<string, string>, tags: string[]) => {
-      const factory = factoryRef.current;
-      const ev = factory.create(
+    (note: Note, fields: Record<string, string>, tags?: string[]) => {
+      // The live note, so a deck move or re-key synced while the editor was open isn't undone.
+      const live = stateRef.current.notes.get(note.id) ?? note;
+      if (!tags && !Object.keys(fields).length && live.provenance.reviewed) return;
+      const ev = factoryRef.current.create(
         'NoteUpserted',
         {
           note_id: note.id,
-          deck_id: note.deck_id,
-          source_key: note.source_key,
+          deck_id: live.deck_id,
+          source_key: live.source_key,
           fields,
-          tags,
-          provenance: { ...note.provenance, reviewed: true },
+          ...(tags && { tags }),
+          provenance: { ...live.provenance, reviewed: true },
         },
         Date.now(),
       );

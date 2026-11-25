@@ -764,7 +764,9 @@ export function BrowseScreen({
             {...(editingNote && state.decks.get(editingNote.deck_id)?.source !== undefined
               ? { deckSource: state.decks.get(editingNote.deck_id)?.source }
               : {})}
-            onSave={(note, fields, tags) => updateNote(note, fields, normalizeTagList(tags))}
+            onSave={(note, fields, tags) =>
+              updateNote(note, fields, tags && normalizeTagList(tags))
+            }
             onClose={() => setEditingNote(null)}
           />
         </>

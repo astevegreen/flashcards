@@ -23,6 +23,7 @@ import { MediaAudioPlayer } from './MediaAudioPlayer.tsx';
 import { MediaImage } from './MediaImage.tsx';
 import { RichText } from './RichText.tsx';
 import { RichTextToolbar } from './RichTextToolbar.tsx';
+import { noteEditChanges, type NoteEditSnapshot } from './noteEditDiff.ts';
 
 /**
  * Largest pasted or dropped image read into memory. Mirrors the 20 MiB input cap that
@@ -50,7 +51,8 @@ export interface NoteEditDialogProps {
   note: Note | null;
   noteType: NoteType | undefined;
   deckSource?: SourceRef | undefined;
-  onSave: (note: Note, fields: Record<string, string>, tags: string[]) => void;
+  /** Receives only the fields that changed and, when the tag text was edited, the new tags (D7). */
+  onSave: (note: Note, fields: Record<string, string>, tags: string[] | undefined) => void;
   onClose: () => void;
 }
 
@@ -73,6 +75,7 @@ export function NoteEditDialog({
   const closedByCodeRef = useRef(false);
   const [draftFields, setDraftFields] = useState<Record<string, string>>({});
   const [tagsText, setTagsText] = useState('');
+  const openingRef = useRef<NoteEditSnapshot>({ fields: {}, tagsText: '' });
   const [uploadingField, setUploadingField] = useState<string | null>(null);
   // Synchronous twin of `uploadingField`: two pastes in one tick both see stale state.
   const uploadingRef = useRef(false);
@@ -138,8 +141,10 @@ export function NoteEditDialog({
 
     if (note) {
       closedByCodeRef.current = false;
-      setDraftFields({ ...note.fields });
-      setTagsText(note.tags.join(', '));
+      const opening = { fields: { ...note.fields }, tagsText: note.tags.join(', ') };
+      openingRef.current = opening;
+      setDraftFields({ ...opening.fields });
+      setTagsText(opening.tagsText);
       setUploadError(null);
       if (!dialog.open) {
         dialog.showModal();
@@ -317,11 +322,8 @@ export function NoteEditDialog({
     e.preventDefault();
     // Saving mid-upload would drop the image and orphan the blob `addMedia` is writing.
     if (!note || uploadingField !== null) return;
-    const parsedTags = tagsText
-      .split(/[;,]/)
-      .map((t) => t.trim())
-      .filter((t) => t.length > 0);
-    onSave(note, draftFields, parsedTags);
+    const changes = noteEditChanges(openingRef.current, draftFields, tagsText);
+    onSave(note, changes.fields, changes.tags);
     closeDialog('save');
   };
 
