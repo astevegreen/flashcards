@@ -14,3 +14,12 @@ compatibility_date = "2026-11-01"
 
 [observability]
 enabled = false
+
+# Per-client cap on the token routes (S2): 20 requests a minute per IP and route. The counters are
+# short-lived and per Cloudflare location; they hold no user data. `namespace_id` is any positive
+# integer that is unique among this account's rate limiters. Remove the block to turn the cap off
+# (the Worker skips the check when the binding is absent).
+[[ratelimits]]
+name = "TOKEN_RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }

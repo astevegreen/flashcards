@@ -12,6 +12,12 @@ export interface Env {
    * `organizations`, or a tenant GUID / domain.
    */
   MS_TENANT?: string;
+  /**
+   * Cloudflare rate-limiting binding (`[[ratelimits]]` in wrangler.toml), keyed by client IP and
+   * route. A browser Origin header is easy to fake outside a browser, so this is what caps what one
+   * client can do with the client secret. When the binding is absent the check is skipped.
+   */
+  TOKEN_RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
 }
 
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
@@ -64,9 +70,39 @@ function jsonResponse(body: unknown, status: number, origin: string | null): Res
   return new Response(JSON.stringify(body), { status, headers: buildHeaders(origin) });
 }
 
-async function readJsonBody(request: Request): Promise<Record<string, unknown> | null> {
-  const text = await request.text();
-  if (text.length > MAX_BODY_BYTES) return null;
+const BODY_TOO_LARGE = Symbol('body_too_large');
+
+/**
+ * Reads at most `MAX_BODY_BYTES` of the body. A declared `Content-Length` over the cap is refused
+ * before anything is read, and a streamed body is cancelled as soon as it passes the cap.
+ */
+async function readBoundedText(request: Request): Promise<string | typeof BODY_TOO_LARGE> {
+  const declared = Number(request.headers.get('Content-Length') ?? '');
+  if (declared > MAX_BODY_BYTES) return BODY_TOO_LARGE;
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BODY_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      return BODY_TOO_LARGE;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(text);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
@@ -263,11 +299,29 @@ export default {
     if (!route) {
       return jsonResponse({ error: 'not_found' }, 404, corsOrigin);
     }
+    // Only the web app calls these routes, and a browser always sends Origin on a cross-origin
+    // POST. The native apps talk to Google, Microsoft and Dropbox directly.
+    if (!corsOrigin) {
+      return jsonResponse({ error: 'origin_not_allowed' }, 403, null);
+    }
     if (!route.isConfigured(env)) {
       return jsonResponse({ error: 'server_misconfigured' }, 500, corsOrigin);
     }
+    if (env.TOKEN_RATE_LIMITER) {
+      const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+      const { success } = await env.TOKEN_RATE_LIMITER.limit({ key: `${ip} ${url.pathname}` });
+      if (!success) {
+        const res = jsonResponse({ error: 'rate_limited' }, 429, corsOrigin);
+        res.headers.set('Retry-After', '60');
+        return res;
+      }
+    }
 
-    const body = await readJsonBody(request);
+    const text = await readBoundedText(request);
+    if (text === BODY_TOO_LARGE) {
+      return jsonResponse({ error: 'body_too_large' }, 413, corsOrigin);
+    }
+    const body = parseJsonObject(text);
     if (!body) {
       return jsonResponse({ error: 'invalid_json_body' }, 400, corsOrigin);
     }
