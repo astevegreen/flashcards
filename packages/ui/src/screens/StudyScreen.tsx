@@ -29,7 +29,8 @@ import {
 import { LazyErrorBoundary, lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
 import type * as DeferredSyncPromptModuleType from '../onboarding/DeferredSyncPromptSlot.tsx';
-import { useApp, type AppContextValue } from '../state/AppContext.tsx';
+import { useApp, type AppContextValue, type UndoEntry } from '../state/AppContext.tsx';
+import { inStudyScope } from '../state/undoGuard.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import { msUntilNextLocalHour, studyDayKey } from '../study/queueClock.ts';
@@ -187,10 +188,18 @@ function populatedRevealStepsFor(layout: Layout | undefined, note: Note | undefi
   return steps.length > 0 ? steps : [layout.reveal_steps[0] ?? []];
 }
 
-/** Undo is enabled only when there is something to undo: the session's last answer, else a review. */
-function canUndo(session: StudySession | undefined, reviewUndoDepth: number): boolean {
+/**
+ * Undo is enabled only when there is something to undo: the session's last answer, else a review
+ * of the deck being studied (C8).
+ */
+function canUndo(session: StudySession | undefined, reviewUndoable: boolean): boolean {
   if (session?.undo) return session.canUndo?.() ?? true;
-  return reviewUndoDepth > 0;
+  return reviewUndoable;
+}
+
+function lastInScope(stack: readonly UndoEntry[], activeDeckId: string | undefined): boolean {
+  const last = stack.at(-1);
+  return last !== undefined && inStudyScope(last, activeDeckId);
 }
 
 function layoutLabelFor(layout: Layout, card: Card): string {
@@ -333,6 +342,9 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     scrolled: boolean;
   } | null>(null);
   const cardShownAtRef = useRef<number>(Date.now());
+  // Counts card showings, so a card that comes straight back (rated Again with nothing else due,
+  // or undone) is shown afresh: reveal, typed input and Listen auto-play reset as for a new card (C10).
+  const [showing, setShowing] = useState(0);
 
   const decks = useMemo(
     () =>
@@ -535,9 +547,9 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         1.0,
       );
     }
-    // Only re-run when the active card changes (not on unrelated state ticks)
+    // Only re-run when the active card changes or is shown again (not on unrelated state ticks)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentCard?.id]);
+  }, [currentCard?.id, showing]);
 
   // Ruby (furigana, pinyin) is offered for ja/zh. Korean shows Hanja as plain text, so a Korean
   // card gets the toggle only when ruby already stored in it is hidden on the front.
@@ -634,6 +646,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       setFuriganaOverride(null);
       setEvaluation(null);
       cardShownAtRef.current = Date.now();
+      setShowing((n) => n + 1);
       // Custom study practice records its own answers (never FSRS); everything else is a review.
       const sessionRate = studyFilter?.session?.rate;
       if (sessionRate) sessionRate(currentCard, rating, elapsed);
@@ -656,7 +669,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     ],
   );
 
-  const undoAvailable = canUndo(studyFilter?.session, undoStack.length);
+  const undoAvailable = canUndo(studyFilter?.session, lastInScope(undoStack, activeDeckId));
   const triggerBounceBack = useCallback(() => {
     setBounceBack(false);
     window.requestAnimationFrame(() => setBounceBack(true));
@@ -669,13 +682,14 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       setFuriganaOverride(null);
       setEvaluation(null);
       cardShownAtRef.current = Date.now();
+      setShowing((n) => n + 1);
       return true;
     }
     return false;
   }, [stopAudio, studyFilter, undoLastReview]);
 
   // Redo is for FSRS reviews only; a practice session keeps its own one-way Undo.
-  const canRedo = !studyFilter?.session?.undo && redoStack.length > 0;
+  const canRedo = !studyFilter?.session?.undo && lastInScope(redoStack, activeDeckId);
   const handleRedo = useCallback(() => {
     if (!canRedo) return;
     stopAudio();
@@ -684,6 +698,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       setFuriganaOverride(null);
       setEvaluation(null);
       cardShownAtRef.current = Date.now();
+      setShowing((n) => n + 1);
     }
   }, [canRedo, redoLastUndo, stopAudio]);
 
@@ -1138,7 +1153,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           >
             {/* Pluggable Answer Mode renderer (§5.2). A card that throws keeps the rating bar,
                 so the queue can move past it (C2). */}
-            <LazyErrorBoundary key={currentCard.id}>
+            <LazyErrorBoundary key={`${currentCard.id}:${showing}`}>
               {activeModePlugin.render({
                 state,
                 card: currentCard,

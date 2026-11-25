@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { noteEditChanges, parseTagsText } from '../src/components/noteEditDiff.ts';
+import {
+  hasNoteEditChanges,
+  noteEditChanges,
+  parseTagsText,
+} from '../src/components/noteEditDiff.ts';
 
 describe('noteEditChanges (D7)', () => {
   const opening = {
@@ -49,5 +53,18 @@ describe('noteEditChanges (D7)', () => {
 
   it('parses comma and semicolon separated tags', () => {
     expect(parseTagsText(' a, b;c ,, ')).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('unsaved note edits (C11)', () => {
+  const opening = { fields: { word: '학교', meaning: 'school' }, tagsText: 'noun' };
+  it('is clean when the draft matches the note as opened', () => {
+    expect(hasNoteEditChanges(opening, { word: '학교', meaning: 'school' }, 'noun')).toBe(false);
+  });
+  it('is dirty after a field or the tag text changes', () => {
+    expect(hasNoteEditChanges(opening, { word: '학교', meaning: 'a school' }, 'noun')).toBe(true);
+    expect(hasNoteEditChanges(opening, { word: '학교', meaning: 'school' }, 'noun, place')).toBe(
+      true,
+    );
   });
 });

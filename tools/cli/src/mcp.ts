@@ -300,7 +300,6 @@ export const MCP_TOOLS = [
       properties: {
         name: { type: 'string' },
         language: { type: 'string' },
-        packageId: { type: 'string' },
         noteTypeId: { type: 'string' },
         notes: {
           type: 'array',
@@ -630,7 +629,9 @@ function proposePackageTool(
   const noteTypeId = typeof args['noteTypeId'] === 'string' ? args['noteTypeId'] : undefined;
 
   const built = buildPackageFromSpec({
-    ...(typeof args['packageId'] === 'string' ? { packageId: args['packageId'] } : {}),
+    // Never caller-chosen (S9): a reused id would make the Inbox import upgrade, rewrite or
+    // restore the notes of an earlier package. Each proposal is its own package and deck.
+    packageId: `pkg:ai-proposal:${crypto.randomUUID()}`,
     name,
     version: '1.0.0',
     aiProvenance: true,

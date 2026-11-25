@@ -53,6 +53,30 @@ export interface SyncUiState {
   collectionChoice?: { expectedCollectionId: string; remoteCollectionId: string };
 }
 
+/**
+ * Runs one sync cycle. A cycle whose code can't load (offline before the chunk was cached) or that
+ * throws past the runner's own error handling would leave the status on "syncing" for good (C7):
+ * it ends as an error the user can retry instead.
+ */
+export async function runGuardedSyncCycle(
+  run: () => Promise<void>,
+  setSyncState: Dispatch<SetStateAction<SyncUiState>>,
+): Promise<void> {
+  try {
+    await run();
+  } catch {
+    setSyncState((prev) =>
+      prev.status === 'syncing'
+        ? {
+            ...prev,
+            status: 'error',
+            errorMessage: "Sync couldn't run. Check your connection and try again.",
+          }
+        : prev,
+    );
+  }
+}
+
 export type { CollectionChoice } from './collectionChoice.ts';
 import type { CollectionChoice } from './collectionChoice.ts';
 
@@ -250,8 +274,10 @@ export function useSyncController({
     }));
 
     try {
-      const { runSyncCycle } = await import('./syncRunner.ts');
-      await runSyncCycle(makeRunnerCtx(), provider);
+      await runGuardedSyncCycle(async () => {
+        const { runSyncCycle } = await import('./syncRunner.ts');
+        await runSyncCycle(makeRunnerCtx(), provider);
+      }, setSyncState);
     } finally {
       inFlightRef.current = false;
       if (queuedRef.current) {

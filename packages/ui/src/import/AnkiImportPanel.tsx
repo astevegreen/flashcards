@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
 import { useApp } from '../state/AppContext.tsx';
 import { ANKI_IMPORT_PANEL_HEIGHT } from './anki-import-layout.ts';
+import { putMediaListTracked } from '../state/recentMedia.ts';
 
 const MAX_LISTED_WARNINGS = 5;
 
@@ -285,9 +286,7 @@ export function AnkiImportPanel({
       }
     }
     go('saving');
-    for (const media of result.extractedMedia) {
-      await platform.storage.putMedia({ hash: media.hash, mime: media.mime, bytes: media.bytes });
-    }
+    await putMediaListTracked(platform.storage, result.extractedMedia);
     if (result.events.length > 0) emitEvents(result.events);
     setPrepared(null);
     setWarnings([...new Set(result.warnings)]);
