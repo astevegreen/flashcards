@@ -650,6 +650,11 @@ function asArray(val) {
   return Array.isArray(val) ? val : [val];
 }
 
+/** NFC-normalized, trimmed text for a string field; `''` for anything else. */
+function nfcText(val) {
+  return typeof val === 'string' ? val.normalize('NFC').trim() : '';
+}
+
 /**
  * Parses one NIKL 우리말샘 JSON export (`channel.item[]` from opendict.korean.go.kr).
  * Korean–Korean coverage pack: `definitionNative` holds the Korean definition and `source` is
@@ -676,10 +681,10 @@ export function parseUrimalsamJson(jsonText) {
     const homonymNum = Number(item?.target_code ? wi?.homonym_number : item?.homonym_number);
     const homonym = Number.isFinite(homonymNum) && homonymNum > 0 ? homonymNum : undefined;
 
-    const origins = asArray(wi?.original_language_info)
+    const firstOrigin = asArray(wi?.original_language_info)
       .map((o) => (typeof o?.original_language === 'string' ? o.original_language : ''))
-      .filter(Boolean);
-    const origin = cleanKrdictOrigin(origins[0] ?? wi?.origin);
+      .find(Boolean);
+    const origin = cleanKrdictOrigin(firstOrigin ?? wi?.origin);
     const hanja = extractHanjaRun(origin);
 
     const readings = uniq(
@@ -750,7 +755,7 @@ export function parseUrimalsamJson(jsonText) {
  */
 export function parseUrimalsamXml(xml) {
   const tagText = (block, tag) => {
-    const m = block.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`));
+    const m = block.match(new RegExp(String.raw`<${tag}\b[^>]*>([\s\S]*?)</${tag}>`));
     return m
       ? decodeXmlText(m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'))
           .normalize('NFC')
@@ -827,7 +832,7 @@ export function parseKaikkiKoJsonl(jsonlText) {
   const entries = [];
   for (const rawLine of jsonlText.split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (!line || line[0] !== '{') continue;
+    if (!line.startsWith('{')) continue;
     let obj;
     try {
       obj = JSON.parse(line);
@@ -853,12 +858,7 @@ export function parseKaikkiKoJsonl(jsonlText) {
         if (examples.length >= KAIKKI_MAX_EXAMPLES) break;
         const text = typeof ex?.text === 'string' ? ex.text.normalize('NFC').trim() : '';
         if (!text) continue;
-        const translation =
-          typeof ex?.english === 'string' && ex.english.trim()
-            ? ex.english.normalize('NFC').trim()
-            : typeof ex?.translation === 'string' && ex.translation.trim()
-              ? ex.translation.normalize('NFC').trim()
-              : undefined;
+        const translation = nfcText(ex?.english) || nfcText(ex?.translation) || undefined;
         examples.push({ text, ...(translation ? { translation } : {}) });
       }
 
@@ -885,13 +885,10 @@ export function parseKaikkiKoJsonl(jsonlText) {
 
     const readings = uniq(
       asArray(obj.sounds)
-        .map((s) =>
-          typeof s?.hangeul === 'string'
-            ? s.hangeul
-            : typeof s?.phonetic_hangeul === 'string'
-              ? s.phonetic_hangeul
-              : '',
-        )
+        .map((s) => {
+          if (typeof s?.hangeul === 'string') return s.hangeul;
+          return typeof s?.phonetic_hangeul === 'string' ? s.phonetic_hangeul : '';
+        })
         .map((r) => r.replace(/[[\]]/g, '').normalize('NFC').trim())
         .filter(Boolean),
     );
