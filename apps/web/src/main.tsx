@@ -183,6 +183,14 @@ async function boot(): Promise<void> {
     };
     await platform.storage.setDeviceMeta(meta);
   }
+  // Events are stored before the meta that counts them; a session killed in between left the meta
+  // behind, and its next events would reuse those seq numbers (D11). Normally finds nothing.
+  const ownTail = await platform.storage.getDeviceEventsAfterSeq(meta.deviceId, meta.seq);
+  if (ownTail.length > 0) {
+    const { advanceClockPastOwnEvents } = await import('@flash/core/sync');
+    meta = { ...meta, ...advanceClockPastOwnEvents(meta, ownTail) };
+    await platform.storage.setDeviceMeta(meta);
+  }
 
   if (nativeRuntime === null && (searchParams.has('code') || searchParams.has('error'))) {
     try {
