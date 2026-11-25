@@ -2,6 +2,7 @@ import { compareCodeUnits } from '@flash/core';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import type {
   CatalogPackageInfo,
+  LinkedDropboxSource,
   LinkedGoogleSource,
   LinkedLocalFolder,
   LinkedOneDriveSource,
@@ -17,6 +18,9 @@ import type * as SourceRunner from '../sources/sourceRunner.ts';
 import { useApp } from '../state/AppContext.tsx';
 
 const LazyOneDrivePickerPanel = lazyWithRetry(() => import('../sources/OneDrivePickerPanel.tsx'), {
+  closeWith: 'onClose',
+});
+const LazyDropboxPickerPanel = lazyWithRetry(() => import('../sources/DropboxPickerPanel.tsx'), {
   closeWith: 'onClose',
 });
 
@@ -136,6 +140,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   const [registry, setRegistry] = useState<SourcesRegistry>({
     googleSources: [],
     oneDriveSources: [],
+    dropboxSources: [],
     localFolders: [],
     packageSubscriptions: [],
     catalogs: [],
@@ -149,6 +154,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
 
   const [showSubscribeForm, setShowSubscribeForm] = useState(false);
   const [showOneDrivePicker, setShowOneDrivePicker] = useState(false);
+  const [showDropboxPicker, setShowDropboxPicker] = useState(false);
   const [subscribeUrl, setSubscribeUrl] = useState('');
   const [subscribeKind, setSubscribeKind] = useState<'auto' | 'package' | 'catalog'>('auto');
 
@@ -281,6 +287,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   const totalSources =
     registry.googleSources.length +
     (registry.oneDriveSources?.length ?? 0) +
+    (registry.dropboxSources?.length ?? 0) +
     registry.localFolders.length +
     registry.packageSubscriptions.length +
     registry.catalogs.length;
@@ -573,6 +580,67 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
+  const handleConnectDropbox = async () => {
+    onErrorMessage(null);
+    try {
+      const picker = await platform.getDropboxPicker?.();
+      if (picker && (await picker.connect())) {
+        onStatusMessage('Dropbox connected. Refresh the source to pull it.');
+      }
+    } catch (err) {
+      onErrorMessage(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleRefreshDropboxOne = async (src: LinkedDropboxSource) => {
+    setBusy(true);
+    onErrorMessage(null);
+    try {
+      const { loadSourcesRegistry, refreshSingleDropboxSource, saveSourcesRegistry } =
+        await import('../sources/sourceRunner.ts');
+      const nextReg = await loadSourcesRegistry(platform, state);
+      const target = nextReg.dropboxSources?.find((s) => s.id === src.id);
+      if (!target) return;
+      try {
+        const res = await refreshSingleDropboxSource(target, makeRunnerCtx(), { force: true });
+        if (res.pending) {
+          const held = res.pending;
+          setPendingReconciliations((prev) => [
+            ...prev.filter(
+              (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
+            ),
+            held,
+          ]);
+          onStatusMessage(
+            `"${target.name}" has rows that may be renamed. Match them below to keep review history.`,
+          );
+        } else if (target.lastStatus === 'permission_required') {
+          onErrorMessage(target.lastError ?? 'Connect Dropbox to refresh this source.');
+        } else if (target.lastError) {
+          onErrorMessage(target.lastError);
+        } else if (target.lastStatus === 'offline') {
+          onErrorMessage('You are offline. Try again when you are back online.');
+        } else {
+          onStatusMessage(
+            res.updated
+              ? `Refreshed "${target.name}" (${res.notesTouched} note change(s)).`
+              : `"${target.name}" is already up to date.`,
+          );
+        }
+      } catch (err) {
+        target.lastStatus = 'error';
+        target.lastError = err instanceof Error ? err.message : String(err);
+        onErrorMessage(target.lastError);
+      }
+      await saveSourcesRegistry(platform, nextReg);
+      setRegistry(nextReg);
+    } catch (err) {
+      onErrorMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleRefreshFolderOne = async (folder: LinkedLocalFolder) => {
     setBusy(true);
     onErrorMessage(null);
@@ -696,6 +764,43 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     );
   };
 
+  /** Applies a held Dropbox pull with the user's matches (`renameMap`). */
+  const applyDropboxReconciliation = async (
+    rec: PendingXlsxReconciliation,
+    renameMap: Record<string, string>,
+    runner: typeof SourceRunner,
+  ) => {
+    const nextReg = await runner.loadSourcesRegistry(platform, state);
+    const fileId = rec.folderId.slice(runner.DROPBOX_RECONCILE_PREFIX.length);
+    const dbx = nextReg.dropboxSources?.find((s) => s.fileId === fileId);
+    if (!dbx) return;
+    const res = await runner.refreshSingleDropboxSource(dbx, makeRunnerCtx(), {
+      force: true,
+      renameMap,
+    });
+    await runner.saveSourcesRegistry(platform, nextReg);
+    setRegistry(nextReg);
+    const notApplied =
+      dbx.lastStatus === 'offline' ||
+      dbx.lastStatus === 'permission_required' ||
+      res.unreadable ||
+      dbx.lastError;
+    if (notApplied) {
+      onErrorMessage(
+        dbx.lastStatus === 'offline'
+          ? 'You are offline. Try again when you are back online.'
+          : (dbx.lastError ?? 'Dropbox could not be read. Try Refresh on the source.'),
+      );
+      return;
+    }
+    dropPendingReconciliation(rec);
+    onStatusMessage(
+      res.updated
+        ? `Applied the Dropbox changes to "${rec.deckName}".`
+        : `"${rec.deckName}" is already up to date.`,
+    );
+  };
+
   const handleApplyReconciliation = async (rec: PendingXlsxReconciliation) => {
     setBusy(true);
     onErrorMessage(null);
@@ -709,6 +814,10 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       const runner = await import('../sources/sourceRunner.ts');
       if (rec.folderId.startsWith(runner.ONEDRIVE_RECONCILE_PREFIX)) {
         await applyOneDriveReconciliation(rec, renameMap, runner);
+        return;
+      }
+      if (rec.folderId.startsWith(runner.DROPBOX_RECONCILE_PREFIX)) {
+        await applyDropboxReconciliation(rec, renameMap, runner);
         return;
       }
       const archivedDeck = state.decks.get(rec.deckId);
@@ -918,6 +1027,20 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
           </button>
         )}
 
+        {platform.dropboxConfigured && platform.getDropboxPicker && (
+          <button
+            type="button"
+            data-testid="dropbox-import-btn"
+            aria-expanded={showDropboxPicker}
+            disabled={busy}
+            onClick={() => setShowDropboxPicker((v) => !v)}
+            title="Import a .csv, .tsv, .xlsx or .flashpkg file from your Dropbox App Folder, or link a spreadsheet so it refreshes"
+            className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-40"
+          >
+            Dropbox file…
+          </button>
+        )}
+
         <button
           type="button"
           data-testid="toggle-subscribe-url-btn"
@@ -944,6 +1067,32 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
             onStatusMessage={onStatusMessage}
             onErrorMessage={onErrorMessage}
             onClose={() => setShowOneDrivePicker(false)}
+            onPendingReconciliation={(held) =>
+              setPendingReconciliations((prev) => [
+                ...prev.filter(
+                  (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
+                ),
+                held,
+              ])
+            }
+          />
+        </Suspense>
+      )}
+
+      {/* Optional Dropbox App Folder file picker: lazy, fixed height (h-[26rem]). */}
+      {showDropboxPicker && (
+        <Suspense
+          fallback={
+            <div
+              data-testid="dropbox-picker-fallback"
+              className="h-[26rem] rounded-xl border border-[var(--border)] bg-[var(--bg)]"
+            />
+          }
+        >
+          <LazyDropboxPickerPanel
+            onStatusMessage={onStatusMessage}
+            onErrorMessage={onErrorMessage}
+            onClose={() => setShowDropboxPicker(false)}
             onPendingReconciliation={(held) =>
               setPendingReconciliations((prev) => [
                 ...prev.filter(
@@ -1228,6 +1377,73 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
                     type="button"
                     disabled={busy}
                     onClick={() => void handleUnlink('onedrive', src.id)}
+                    className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--muted)] hover:text-rose-600"
+                  >
+                    Unlink
+                  </button>
+                </div>
+              </div>
+              <WarningsDisclosure warnings={src.warnings} />
+            </div>
+          ))}
+
+          {(registry.dropboxSources ?? []).map((src) => (
+            <div
+              key={src.id}
+              data-testid={`dropbox-source-row-${src.fileId}`}
+              className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--muted)]">
+                      Dropbox
+                    </span>
+                    <span className="truncate text-xs font-semibold">{src.name}</span>
+                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                      Read-only
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${rowPillClass(src)}`}
+                    >
+                      {rowPillLabel(src)}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-[var(--muted)]">
+                    {src.pathDisplay ? `${src.pathDisplay} · ` : ''}Last synced:{' '}
+                    {src.lastSyncedAt ? new Date(src.lastSyncedAt).toLocaleString() : 'Never'}
+                  </div>
+                  {src.lastError && (
+                    <div className="mt-1 text-[11px] text-rose-600 dark:text-rose-400">
+                      {src.lastError}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {src.lastStatus === 'permission_required' && (
+                    <button
+                      type="button"
+                      data-testid={`dropbox-connect-row-${src.fileId}`}
+                      disabled={busy}
+                      onClick={() => void handleConnectDropbox()}
+                      className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] font-medium hover:bg-[var(--surface-2)] disabled:opacity-40"
+                    >
+                      Connect
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleRefreshDropboxOne(src)}
+                    className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] font-medium hover:bg-[var(--surface-2)] disabled:opacity-40"
+                  >
+                    Refresh
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleUnlink('dropbox', src.id)}
                     className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--muted)] hover:text-rose-600"
                   >
                     Unlink
