@@ -127,13 +127,13 @@ Time to fully synced: \_\_\_ s. Sign-ins: \_\_\_.
 
 ### Known gaps to check during the audit
 
-- **macOS has no iCloud transport.** iCloud Drive sync exists only in the iOS app, so "Sync my
-  devices" defaults to Google Drive on the macOS desktop app.
-- **The add-device link opens the web app.** In the native apps (Android, iOS, desktop) there is no
-  app link for it yet, so they show which provider to pick instead of a QR code, and a native new
-  device can't open a link. Open owner decision: encode a public web address (waits on the
-  domain decision in the pre-launch checklist) or a `flashcards://add-device` deep link handled by
-  the native shells.
+- **macOS iCloud transport is unsigned and untested on a Mac.** Built in PR #22 and compiled in CI,
+  but signing, notarizing, entitlements and real iCloud Drive sync wait on an Apple Developer
+  account. On unsigned Mac builds, "Sync my devices" hides iCloud Drive and defaults to Google Drive.
+- **Native add-device deep links are unverified on real devices.** Native shells (Android, iOS,
+  Tauri) now show a QR code and a `flashcards://add-device` deep link (PR #20), but scanning with a
+  real phone camera and opening the link on Android, iOS and desktop have not been tested yet. App
+  Links and universal links wait on the §16 domain decision.
 - **Sign-in screens are the provider's.** Count Google, Microsoft and Dropbox consent screens as
   steps; they can't be removed, only explained.
 

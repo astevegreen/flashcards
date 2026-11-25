@@ -53,7 +53,7 @@ export default defineConfig({
       workbox: {
         // `wasm`: the lazy FSRS optimizer (Phase 11) must work offline like everything else.
         globPatterns: ['**/*.{js,css,html,svg,png,ico,wasm}'],
-        globIgnores: ['packs/**', 'picker.html'],
+        globIgnores: ['packs/**', 'picker.html', 'picker.js'],
         ignoreURLParametersMatching: [
           /^device$/,
           /^starterCatalog$/,

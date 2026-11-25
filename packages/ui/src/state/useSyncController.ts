@@ -492,8 +492,13 @@ export function useSyncController({
       throw new Error('Dropbox sync is not available in this build.');
     }
     const auth = await platform.getDropboxAuth();
-    await auth.signIn({ intent: 'sync' });
-  }, [platform]);
+    // Web redirects away (null); native shells return the session right here.
+    const session = await auth.signIn({ intent: 'sync' });
+    if (!session) return;
+    const { activateCloudProvider } = await import('./syncRunner.ts');
+    await activateCloudProvider(makeRunnerCtx(), 'dropbox', clearCollectionBinding);
+    await executeSync();
+  }, [clearCollectionBinding, executeSync, makeRunnerCtx, platform]);
 
   const connectOneDrive = useCallback(async (): Promise<void> => {
     if (!platform.getOneDriveAuth) {

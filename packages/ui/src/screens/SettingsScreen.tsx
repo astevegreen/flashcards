@@ -293,11 +293,17 @@ export function SettingsScreen({ onOpenImportExport }: SettingsScreenProps = {})
       setError(syncGate.reason ?? 'Cloud sync requires the one-time Unlock upgrade.');
       return;
     }
+    setSyncBusy(true);
+    setStatus('Waiting for Google sign-in…');
     setError(null);
     try {
       await connectGoogleDrive();
+      setStatus('Connected Google Drive.');
     } catch (err) {
+      setStatus(null);
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSyncBusy(false);
     }
   };
 
@@ -307,11 +313,17 @@ export function SettingsScreen({ onOpenImportExport }: SettingsScreenProps = {})
       setError(syncGate.reason ?? 'Cloud sync requires the one-time Unlock upgrade.');
       return;
     }
+    setSyncBusy(true);
+    setStatus('Waiting for Dropbox sign-in…');
     setError(null);
     try {
       await connectDropbox();
+      setStatus('Connected Dropbox.');
     } catch (err) {
+      setStatus(null);
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSyncBusy(false);
     }
   };
 
