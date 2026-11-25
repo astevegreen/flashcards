@@ -119,8 +119,7 @@ test.describe('Linked Google Drive files', () => {
 
     const row = page.getByTestId(`gdrive-source-row-${FILE_ID}`);
     await expect(row).toContainText('Google Drive file');
-    await page.getByTestId('refresh-sources-btn').click();
-    await expect(page.getByTestId('library-status')).toContainText('Refreshed sources');
+    // The post-first-paint source check pulls linked Drive files on launch (C13).
     await expect(row).toContainText('Synced');
     await expect(deckRow(page, 'Drive Vocab')).toBeVisible();
     expect(mediaDownloads).toEqual(['md5-a']);
