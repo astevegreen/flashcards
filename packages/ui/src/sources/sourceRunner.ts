@@ -1042,16 +1042,10 @@ export async function refreshSingleGoogleSource(
         updates.push({ a1: cell.a1, value: cell.newCardId });
       }
       if (updates.length > 0) {
+        // Keep the first read's `modifiedTime` (D9). A post-write time would also cover Sheet
+        // edits made after that read, and the next refresh would short-circuit past them. The
+        // cost is one extra full pull after our own Card ID write.
         await client.writeSheetCells(source.fileId, grid.sheetTitle, updates);
-        // Capture post-write modifiedTime so our own Card ID write doesn't trigger a redundant pull
-        try {
-          const postMeta = await client.getFileMetadata(source.fileId);
-          if (postMeta.modifiedTime) {
-            grid.modifiedTime = postMeta.modifiedTime;
-          }
-        } catch {
-          // Ignore post-write metadata failure
-        }
       }
     } catch (writeErr) {
       if (isSyncTransportError(writeErr) && writeErr.code === 'PERMISSION_DENIED') {
