@@ -246,7 +246,7 @@ interface SyncTransport {
 ## 5. Study Experience
 
 ### 5.1 Shell and Controls
-- **Shell:** Pure static SPA (Vite + React + TypeScript + Tailwind), zero SSR dependencies, Capacitor-ready `dist/`. Bottom tabs on mobile (`Study`, `Library`, `Browse`, `Settings`), collapsible left rail on desktop, `viewport-fit=cover` + `env(safe-area-inset-*)`.
+- **Shell:** Pure static SPA (Vite + React + TypeScript + Tailwind), zero SSR dependencies, Capacitor-ready `dist/`. Bottom tabs on mobile (`Study`, `Decks`, `Words`, `Stats`, `Settings`), collapsible left rail on desktop, `viewport-fit=cover` + `env(safe-area-inset-*)`.
 - **Startup:** Reads due counts and queues directly from local DB—zero spinners before the first card.
 - **Ratings:** `ts-fsrs` v5 with **3 buttons by default** (`Again` / `Good` / `Easy` = `1 / 3 / 4`). Settings allow enabling the optional **Hard** (`2`) button or switching to 2 buttons (`Again` / `Good`).
 
@@ -601,8 +601,8 @@ Goal: the best offline Korean↔English lookup in any flashcard app, built on op
   - **Fit the card to the screen:** the study screen (prompt, answer, rating buttons) always fits without scrolling. Replace the fixed `min-h-[20rem]` card with sizing based on the available height. In landscape phones and short windows, use a compact layout: rating buttons beside the card, tab bar hidden while studying.
   - **Auto-fit card text:** scale the font with screen size and content length, so a single Hanja fills the card while a long grammar explanation (e.g. Flashcards Deluxe grammar decks) drops to a readable size and scrolls inside the card.
   - **Small screens (< 360 px)** and foldable cover screens: a compact type scale, icon-only tabs, and touch targets of at least 44–48 px.
-  - **Tablets and foldables (inner screen):** use the width. Browse and the dictionary get a list + detail split view, and the study card can show notes or a dictionary panel beside it. Also handle split-screen / multi-window resizing and, where supported, the foldable hinge (CSS viewport segments).
-  - **Large monitors:** a wider max width for Browse, Library and Dictionary; keep the study card centered with a capped line length.
+  - **Tablets and foldables (inner screen):** use the width. Words (Browse) and the dictionary get a list + detail split view, and the study card can show notes or a dictionary panel beside it. Also handle split-screen / multi-window resizing and, where supported, the foldable hinge (CSS viewport segments).
+  - **Large monitors:** a wider max width for Words (Browse), Decks (Library) and Dictionary; keep the study card centered with a capped line length.
   - **Non-touch and keypad devices:** full keyboard and D-pad focus navigation with visible focus rings. Number keys `1–4` already map to ratings. Don't depend on hover.
   - **Accessibility scaling:** an in-app card text-size setting; respect OS text size (iOS Dynamic Type and the Android font scale inside the native WebViews; to be verified); `prefers-reduced-motion`.
   - **Test matrix:** Playwright projects for a small phone (320×568), a regular phone (390×844), a landscape phone (844×390), a foldable cover screen, a tablet (820×1180 portrait/landscape) and a desktop (1920×1080). The e2e suite currently runs only Desktop Chrome plus one 390×844 test.

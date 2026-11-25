@@ -225,7 +225,7 @@ export function TagManagerPanel({ onClose }: TagManagerPanelProps) {
       )}
 
       {summary.tags.length === 0 ? (
-        <p className="text-sm text-[var(--muted)]">No tags yet. Add them to notes in Browse.</p>
+        <p className="text-sm text-[var(--muted)]">No tags yet. Add them to notes in Words.</p>
       ) : (
         <ul className="flex max-h-[50dvh] flex-col overflow-y-auto" data-testid="tag-manager-list">
           {summary.tags.map((tag) => {

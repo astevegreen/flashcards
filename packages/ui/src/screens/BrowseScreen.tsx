@@ -71,6 +71,10 @@ const SELECTED_BROWSE_ROW_CLASS = '@3xl:bg-[var(--accent-soft)]';
 
 export interface BrowseScreenProps {
   onOpenSettings?: () => void;
+  /** Deck id passed when navigating here via "View words" on a deck row. */
+  initialDeckId?: string;
+  /** Bumped each time a deck-filter navigation occurs so re-selecting works cleanly. */
+  initialDeckNonce?: number;
 }
 
 /** True when the visible list is non-empty and every visible note is selected. */
@@ -78,7 +82,11 @@ function isEveryNoteSelected(visibleCount: number, selectedCount: number): boole
   return visibleCount > 0 && selectedCount === visibleCount;
 }
 
-export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
+export function BrowseScreen({
+  onOpenSettings,
+  initialDeckId,
+  initialDeckNonce,
+}: BrowseScreenProps = {}) {
   const {
     state,
     stateVersion,
@@ -91,7 +99,14 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   const active = useActiveLanguages();
   const [browseMode, setBrowseMode] = useState<'notes' | 'dictionary'>('notes');
   const [query, setQuery] = useState('');
-  const [deckFilter, setDeckFilter] = useState('');
+  const [deckFilter, setDeckFilter] = useState(initialDeckId ?? '');
+
+  useEffect(() => {
+    if (initialDeckId !== undefined) {
+      setDeckFilter(initialDeckId);
+      setBrowseMode('notes');
+    }
+  }, [initialDeckId, initialDeckNonce]);
   const [categoryFilter, setCategoryFilter] = useState<CategoryCriterion | undefined>(undefined);
   const [stateFilter, setStateFilter] = useState<CardStateKind | ''>('');
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
@@ -248,55 +263,62 @@ export function BrowseScreen({ onOpenSettings }: BrowseScreenProps = {}) {
   return (
     <section className="@container flex flex-1 flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold tracking-tight">
-            {browseMode === 'notes' ? (
-              <>
-                Browse{' '}
-                <span className="text-sm font-normal text-[var(--muted)]">
-                  ({filteredNotes.length})
-                </span>
-              </>
-            ) : (
-              'Dictionary & Draw'
-            )}
-          </h1>
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold tracking-tight">
+              {browseMode === 'notes' ? (
+                <>
+                  Words{' '}
+                  <span className="text-sm font-normal text-[var(--muted)]">
+                    ({filteredNotes.length})
+                  </span>
+                </>
+              ) : (
+                'Dictionary & Draw'
+              )}
+            </h1>
 
-          {/* Mode switcher: Notes | Dictionary & Draw (§6.3, §6.4) */}
-          <div
-            role="tablist"
-            aria-label="Browse mode"
-            className="inline-flex rounded-xl border border-[var(--border)] bg-[var(--surface)] p-0.5 text-xs font-semibold"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={browseMode === 'notes'}
-              data-testid="browse-tab-notes"
-              onClick={() => setBrowseMode('notes')}
-              className={`rounded-lg px-2.5 py-1 transition-colors ${
-                browseMode === 'notes'
-                  ? 'bg-[var(--accent)] text-white'
-                  : 'text-[var(--muted)] hover:text-[var(--fg)]'
-              }`}
+            {/* Mode switcher: My words | Dictionary & Draw (§6.3, §6.4) */}
+            <div
+              role="tablist"
+              aria-label="Words mode"
+              className="inline-flex rounded-xl border border-[var(--border)] bg-[var(--surface)] p-0.5 text-xs font-semibold"
             >
-              Notes
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={browseMode === 'dictionary'}
-              data-testid="browse-tab-dictionary"
-              onClick={() => setBrowseMode('dictionary')}
-              className={`rounded-lg px-2.5 py-1 transition-colors ${
-                browseMode === 'dictionary'
-                  ? 'bg-[var(--accent)] text-white'
-                  : 'text-[var(--muted)] hover:text-[var(--fg)]'
-              }`}
-            >
-              Dictionary &amp; Draw
-            </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={browseMode === 'notes'}
+                data-testid="browse-tab-notes"
+                onClick={() => setBrowseMode('notes')}
+                className={`rounded-lg px-2.5 py-1 transition-colors ${
+                  browseMode === 'notes'
+                    ? 'bg-[var(--accent)] text-white'
+                    : 'text-[var(--muted)] hover:text-[var(--fg)]'
+                }`}
+              >
+                My words
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={browseMode === 'dictionary'}
+                data-testid="browse-tab-dictionary"
+                onClick={() => setBrowseMode('dictionary')}
+                className={`rounded-lg px-2.5 py-1 transition-colors ${
+                  browseMode === 'dictionary'
+                    ? 'bg-[var(--accent)] text-white'
+                    : 'text-[var(--muted)] hover:text-[var(--fg)]'
+                }`}
+              >
+                Dictionary &amp; Draw
+              </button>
+            </div>
           </div>
+          {browseMode === 'notes' && (
+            <p className="text-xs text-[var(--muted)]">
+              Every word in your decks: search, edit, tag and clean up.
+            </p>
+          )}
         </div>
 
         {browseMode === 'notes' && (

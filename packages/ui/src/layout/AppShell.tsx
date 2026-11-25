@@ -53,8 +53,8 @@ export interface AppShellProps {
 
 const NAV_ITEMS: readonly { id: NavTab; label: string; icon: string }[] = [
   { id: 'study', label: 'Study', icon: '◫' },
-  { id: 'library', label: 'Library', icon: '▤' },
-  { id: 'browse', label: 'Browse', icon: '⌕' },
+  { id: 'library', label: 'Decks', icon: '▤' },
+  { id: 'browse', label: 'Words', icon: '⌕' },
   { id: 'stats', label: 'Stats', icon: '▥' },
   { id: 'settings', label: 'Settings', icon: '⚙' },
 ];

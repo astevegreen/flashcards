@@ -279,7 +279,7 @@ export default function DrawQuizPanel({
       >
         <p className="max-w-xs text-xs text-amber-700 dark:text-amber-300">
           Stroke data for this character ({script === 'ja' ? 'KanjiVG JA' : 'Make Me a Hanzi ZH'})
-          isn’t cached offline yet. Practice freehand below or pre-cache this deck in Library.
+          isn’t cached offline yet. Practice freehand below or pre-cache this deck in Decks.
         </p>
         <PointerInkCanvas
           size={240}

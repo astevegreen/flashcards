@@ -218,7 +218,7 @@ export function ColumnMappingView({
         {mapping.targets.some((t) => t.kind === 'tags') && (
           <p data-testid="bring-map-tags-hint" className="text-[11px] text-[var(--muted)]">
             Columns named Category 1, Category 2 and so on become tags. Use “::” to nest them, like
-            Grammar::Particles. You can filter by tag in Browse.
+            Grammar::Particles. You can filter by tag in Words.
           </p>
         )}
       </div>
