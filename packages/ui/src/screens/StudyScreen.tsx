@@ -18,7 +18,7 @@ import {
   type StudyOrder,
 } from '@flash/core';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
+import { LazyErrorBoundary, lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
 import type * as DeferredSyncPromptModuleType from '../onboarding/DeferredSyncPromptSlot.tsx';
 import { useApp, type AppContextValue } from '../state/AppContext.tsx';
@@ -1100,27 +1100,30 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerCancel}
           >
-            {/* Pluggable Answer Mode renderer (§5.2) */}
-            {activeModePlugin.render({
-              state,
-              card: currentCard,
-              note: currentNote,
-              deck: currentDeck,
-              layout: currentLayout,
-              noteType: currentNoteType,
-              fieldMetaByKey,
-              populatedRevealSteps,
-              revealStep,
-              isRevealed,
-              isFullyRevealed,
-              hideFrontRuby,
-              pinyinToneColors: state.preferences.pinyin_tone_colors,
-              studyDayIndex,
-              evaluation,
-              onRevealNext: handleRevealNext,
-              onEvaluateAndReveal: handleEvaluateAndReveal,
-              onSpeak: handleSpeak,
-            })}
+            {/* Pluggable Answer Mode renderer (§5.2). A card that throws keeps the rating bar,
+                so the queue can move past it (C2). */}
+            <LazyErrorBoundary key={currentCard.id}>
+              {activeModePlugin.render({
+                state,
+                card: currentCard,
+                note: currentNote,
+                deck: currentDeck,
+                layout: currentLayout,
+                noteType: currentNoteType,
+                fieldMetaByKey,
+                populatedRevealSteps,
+                revealStep,
+                isRevealed,
+                isFullyRevealed,
+                hideFrontRuby,
+                pinyinToneColors: state.preferences.pinyin_tone_colors,
+                studyDayIndex,
+                evaluation,
+                onRevealNext: handleRevealNext,
+                onEvaluateAndReveal: handleEvaluateAndReveal,
+                onSpeak: handleSpeak,
+              })}
+            </LazyErrorBoundary>
           </StudyCard>
 
           <RatingBar

@@ -1,7 +1,7 @@
 import type { CollectionState, FlashEvent, SyncCursorState } from '@flash/core';
 import type { DeviceMeta, PlatformServices, SyncConfig } from '@flash/platform';
 import { Suspense, useCallback, useEffect, useState } from 'react';
-import { lazyWithRetry } from './lazy/lazyWithRetry.tsx';
+import { LazyErrorBoundary, lazyWithRetry } from './lazy/lazyWithRetry.tsx';
 import { AppShell, type NavTab } from './layout/AppShell.tsx';
 import { StudyScreen } from './screens/StudyScreen.tsx';
 import { AppProvider, useApp } from './state/AppContext.tsx';
@@ -66,56 +66,59 @@ function ScreenRouter() {
 
   return (
     <AppShell activeTab={activeTab} onSelectTab={handleSelectTab}>
-      {activeTab === 'study' && (
-        <StudyScreen
-          onOpenLibrary={() => handleSelectTab('library')}
-          onOpenSettings={() => handleSelectTab('settings')}
-        />
-      )}
-      {activeTab !== 'study' && (
-        <Suspense
-          fallback={<div className="py-12 text-center text-sm text-[var(--muted)]">Loading…</div>}
-        >
-          {activeTab === 'library' && (
-            <LibraryScreen
-              onStudyDeck={(deckId) => {
-                setActiveDeckId(deckId);
-                handleSelectTab('study');
-              }}
-              onViewWords={(deckId) => {
-                setBrowseDeckRequest((prev) => ({ deckId, nonce: (prev?.nonce ?? 0) + 1 }));
-                handleSelectTab('browse');
-              }}
-              {...(libraryImportExportRequest !== undefined
-                ? { initialImportExport: libraryImportExportRequest }
-                : {})}
-            />
-          )}
-          {activeTab === 'browse' && (
-            <BrowseScreen
-              onOpenSettings={() => handleSelectTab('settings')}
-              {...(browseDeckRequest !== undefined
-                ? {
-                    initialDeckId: browseDeckRequest.deckId,
-                    initialDeckNonce: browseDeckRequest.nonce,
-                  }
-                : {})}
-            />
-          )}
-          {activeTab === 'stats' && <StatsScreen />}
-          {activeTab === 'settings' && (
-            <SettingsScreen
-              onOpenImportExport={() => {
-                setLibraryImportExportRequest((prev) => ({
-                  tab: 'export',
-                  nonce: (prev?.nonce ?? 0) + 1,
-                }));
-                handleSelectTab('library');
-              }}
-            />
-          )}
-        </Suspense>
-      )}
+      {/* A screen that throws shows Retry under the tab bar instead of blanking the app (C2). */}
+      <LazyErrorBoundary key={activeTab}>
+        {activeTab === 'study' && (
+          <StudyScreen
+            onOpenLibrary={() => handleSelectTab('library')}
+            onOpenSettings={() => handleSelectTab('settings')}
+          />
+        )}
+        {activeTab !== 'study' && (
+          <Suspense
+            fallback={<div className="py-12 text-center text-sm text-[var(--muted)]">Loading…</div>}
+          >
+            {activeTab === 'library' && (
+              <LibraryScreen
+                onStudyDeck={(deckId) => {
+                  setActiveDeckId(deckId);
+                  handleSelectTab('study');
+                }}
+                onViewWords={(deckId) => {
+                  setBrowseDeckRequest((prev) => ({ deckId, nonce: (prev?.nonce ?? 0) + 1 }));
+                  handleSelectTab('browse');
+                }}
+                {...(libraryImportExportRequest !== undefined
+                  ? { initialImportExport: libraryImportExportRequest }
+                  : {})}
+              />
+            )}
+            {activeTab === 'browse' && (
+              <BrowseScreen
+                onOpenSettings={() => handleSelectTab('settings')}
+                {...(browseDeckRequest !== undefined
+                  ? {
+                      initialDeckId: browseDeckRequest.deckId,
+                      initialDeckNonce: browseDeckRequest.nonce,
+                    }
+                  : {})}
+              />
+            )}
+            {activeTab === 'stats' && <StatsScreen />}
+            {activeTab === 'settings' && (
+              <SettingsScreen
+                onOpenImportExport={() => {
+                  setLibraryImportExportRequest((prev) => ({
+                    tab: 'export',
+                    nonce: (prev?.nonce ?? 0) + 1,
+                  }));
+                  handleSelectTab('library');
+                }}
+              />
+            )}
+          </Suspense>
+        )}
+      </LazyErrorBoundary>
     </AppShell>
   );
 }
