@@ -167,11 +167,9 @@ export function StudyCard({
     };
   }, [bodyOverflows, bodyRef, canSwipe]);
 
-  const borderClass = swipeIntent
-    ? swipeIntent === 'back' && !canUndo
-      ? BACK_DISABLED_BORDER
-      : INTENT_BORDER[swipeIntent]
-    : 'border-[var(--border)]';
+  let borderClass = 'border-[var(--border)]';
+  if (swipeIntent === 'back' && !canUndo) borderClass = BACK_DISABLED_BORDER;
+  else if (swipeIntent) borderClass = INTENT_BORDER[swipeIntent];
 
   return (
     <div

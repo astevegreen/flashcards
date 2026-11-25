@@ -238,7 +238,10 @@ export class FakeDropboxServer {
   }
 
   readonly fetch: typeof fetch = async (input, init) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    let url: string;
+    if (typeof input === 'string') url = input;
+    else if (input instanceof URL) url = input.href;
+    else url = input.url;
     const headers: Record<string, string> = {};
     if (init?.headers) {
       new Headers(init.headers).forEach((v, k) => {
