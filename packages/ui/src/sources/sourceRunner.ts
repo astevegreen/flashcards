@@ -67,6 +67,22 @@ import { refreshLinkedDropboxFiles } from './dropboxSourceRunner.ts';
 
 export const LINKED_SOURCES_KV_KEY = 'linked_sources_v1';
 
+/**
+ * One queue for every load → mutate → save of the device-local sources registry and for every
+ * refresh (D8). Without it, the launch `refreshAllSources` (which can run for minutes) saved its
+ * stale copy over a folder or catalog the user linked meanwhile, and a manual refresh of the same
+ * Sheet ran alongside it and emitted duplicate events.
+ *
+ * Not reentrant: a task must never call another locked function, or it waits on itself.
+ */
+let lockTail: Promise<unknown> = Promise.resolve();
+
+export function withSourcesLock<T>(task: () => Promise<T>): Promise<T> {
+  const run = lockTail.then(task, task);
+  lockTail = run.catch(() => undefined);
+  return run;
+}
+
 const GOOGLE_SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
 const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
 
@@ -386,32 +402,34 @@ export async function unlinkSource(
   id: string,
   ctx: SourceRunContext,
 ): Promise<SourcesRegistry> {
-  const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
-  const matches = syncedSourceMatcher(registry, kind, id);
-  if (matches) {
-    ctx.emitEvents(
-      planSourceUnlinkEvents(ctx.getState(), ctx.getEventFactory(), matches, Date.now()),
-    );
-  }
-  if (kind === 'google') {
-    registry.googleSources = registry.googleSources.filter((s) => s.id !== id);
-  } else if (kind === 'onedrive') {
-    registry.oneDriveSources = (registry.oneDriveSources ?? []).filter((s) => s.id !== id);
-  } else if (kind === 'gdrive_file') {
-    registry.googleDriveFiles = (registry.googleDriveFiles ?? []).filter((s) => s.id !== id);
-  } else if (kind === 'dropbox') {
-    registry.dropboxSources = (registry.dropboxSources ?? []).filter((s) => s.id !== id);
-  } else if (kind === 'folder') {
-    registry.localFolders = registry.localFolders.filter((f) => f.id !== id);
-    const adapter = await ctx.platform.getLocalFolderSources();
-    await adapter.removeFolder(id);
-  } else if (kind === 'package') {
-    registry.packageSubscriptions = registry.packageSubscriptions.filter((p) => p.id !== id);
-  } else {
-    registry.catalogs = registry.catalogs.filter((c) => c.id !== id);
-  }
-  await saveSourcesRegistry(ctx.platform, registry);
-  return registry;
+  return withSourcesLock(async () => {
+    const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
+    const matches = syncedSourceMatcher(registry, kind, id);
+    if (matches) {
+      ctx.emitEvents(
+        planSourceUnlinkEvents(ctx.getState(), ctx.getEventFactory(), matches, Date.now()),
+      );
+    }
+    if (kind === 'google') {
+      registry.googleSources = registry.googleSources.filter((s) => s.id !== id);
+    } else if (kind === 'onedrive') {
+      registry.oneDriveSources = (registry.oneDriveSources ?? []).filter((s) => s.id !== id);
+    } else if (kind === 'gdrive_file') {
+      registry.googleDriveFiles = (registry.googleDriveFiles ?? []).filter((s) => s.id !== id);
+    } else if (kind === 'dropbox') {
+      registry.dropboxSources = (registry.dropboxSources ?? []).filter((s) => s.id !== id);
+    } else if (kind === 'folder') {
+      registry.localFolders = registry.localFolders.filter((f) => f.id !== id);
+      const adapter = await ctx.platform.getLocalFolderSources();
+      await adapter.removeFolder(id);
+    } else if (kind === 'package') {
+      registry.packageSubscriptions = registry.packageSubscriptions.filter((p) => p.id !== id);
+    } else {
+      registry.catalogs = registry.catalogs.filter((c) => c.id !== id);
+    }
+    await saveSourcesRegistry(ctx.platform, registry);
+    return registry;
+  });
 }
 
 export async function saveSourcesRegistry(
@@ -701,86 +719,90 @@ export async function linkPickedGoogleFiles(
     columnMap?: SourceColumnMapping[];
   },
 ): Promise<SourceRefreshSummary> {
-  const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
-  const toRefresh: LinkedGoogleSource[] = [];
+  return withSourcesLock(async () => {
+    const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
+    const toRefresh: LinkedGoogleSource[] = [];
 
-  for (const file of picked) {
-    const isSheet = file.mimeType === GOOGLE_SHEET_MIME;
-    const isDoc = file.mimeType === GOOGLE_DOC_MIME;
-    if (!isSheet && !isDoc) continue;
+    for (const file of picked) {
+      const isSheet = file.mimeType === GOOGLE_SHEET_MIME;
+      const isDoc = file.mimeType === GOOGLE_DOC_MIME;
+      if (!isSheet && !isDoc) continue;
 
-    const existing = registry.googleSources.find((s) => s.fileId === file.id);
-    if (existing) {
-      if (isSheet && options?.columnMap) existing.columnMap = options.columnMap;
-      toRefresh.push(existing);
-      continue;
+      const existing = registry.googleSources.find((s) => s.fileId === file.id);
+      if (existing) {
+        if (isSheet && options?.columnMap) existing.columnMap = options.columnMap;
+        toRefresh.push(existing);
+        continue;
+      }
+
+      const entry: LinkedGoogleSource = isSheet
+        ? {
+            id: `gsheet:${file.id}`,
+            kind: 'google_sheets',
+            fileId: file.id,
+            name: file.name,
+            uri: file.url || `https://docs.google.com/spreadsheets/d/${file.id}/edit`,
+            ...(options?.defaultNoteTypeId !== undefined
+              ? { noteTypeId: options.defaultNoteTypeId }
+              : {}),
+            ...(options?.defaultLanguage !== undefined
+              ? { language: options.defaultLanguage }
+              : {}),
+            ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
+            lastStatus: 'idle',
+          }
+        : {
+            id: `gdoc:${file.id}`,
+            kind: 'google_docs',
+            fileId: file.id,
+            name: file.name,
+            uri: file.url || `https://docs.google.com/document/d/${file.id}/edit`,
+            lastStatus: 'idle',
+          };
+
+      registry.googleSources.push(entry);
+      toRefresh.push(entry);
     }
 
-    const entry: LinkedGoogleSource = isSheet
-      ? {
-          id: `gsheet:${file.id}`,
-          kind: 'google_sheets',
-          fileId: file.id,
-          name: file.name,
-          uri: file.url || `https://docs.google.com/spreadsheets/d/${file.id}/edit`,
-          ...(options?.defaultNoteTypeId !== undefined
-            ? { noteTypeId: options.defaultNoteTypeId }
+    let updatedSources = 0;
+    let importedNotes = 0;
+    let importedPages = 0;
+    let warningsCount = 0;
+    const errors: string[] = [];
+
+    for (const src of toRefresh) {
+      try {
+        const res = await refreshSingleGoogleSource(src, ctx, {
+          force: true,
+          ...(options?.columnMap && src.kind === 'google_sheets'
+            ? { columnMap: options.columnMap }
             : {}),
-          ...(options?.defaultLanguage !== undefined ? { language: options.defaultLanguage } : {}),
-          ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
-          lastStatus: 'idle',
-        }
-      : {
-          id: `gdoc:${file.id}`,
-          kind: 'google_docs',
-          fileId: file.id,
-          name: file.name,
-          uri: file.url || `https://docs.google.com/document/d/${file.id}/edit`,
-          lastStatus: 'idle',
-        };
-
-    registry.googleSources.push(entry);
-    toRefresh.push(entry);
-  }
-
-  let updatedSources = 0;
-  let importedNotes = 0;
-  let importedPages = 0;
-  let warningsCount = 0;
-  const errors: string[] = [];
-
-  for (const src of toRefresh) {
-    try {
-      const res = await refreshSingleGoogleSource(src, ctx, {
-        force: true,
-        ...(options?.columnMap && src.kind === 'google_sheets'
-          ? { columnMap: options.columnMap }
-          : {}),
-      });
-      if (res.updated) updatedSources += 1;
-      importedNotes += res.notesTouched;
-      importedPages += res.pagesTouched;
-      warningsCount += res.warnings.length;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      src.lastStatus = 'error';
-      src.lastError = msg;
-      errors.push(`${src.name}: ${msg}`);
+        });
+        if (res.updated) updatedSources += 1;
+        importedNotes += res.notesTouched;
+        importedPages += res.pagesTouched;
+        warningsCount += res.warnings.length;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        src.lastStatus = 'error';
+        src.lastError = msg;
+        errors.push(`${src.name}: ${msg}`);
+      }
     }
-  }
 
-  await saveSourcesRegistry(ctx.platform, registry);
-  return {
-    registry,
-    updatedSources,
-    importedNotes,
-    importedPages,
-    inboxImported: 0,
-    warningsCount,
-    pendingReconciliations: [],
-    errors,
-    skipped: [],
-  };
+    await saveSourcesRegistry(ctx.platform, registry);
+    return {
+      registry,
+      updatedSources,
+      importedNotes,
+      importedPages,
+      inboxImported: 0,
+      warningsCount,
+      pendingReconciliations: [],
+      errors,
+      skipped: [],
+    };
+  });
 }
 
 /**
@@ -790,40 +812,42 @@ export async function createAndLinkGoogleSheetTemplate(
   options: { title: string; noteTypeId: string; language: string },
   ctx: SourceRunContext,
 ): Promise<{ source: LinkedGoogleSource; registry: SourcesRegistry }> {
-  const state = ctx.getState();
-  const noteType = resolveNoteType(state, options.noteTypeId);
-  const headers = [...noteType.fields.map((f) => f.label), 'Tags', 'Card ID'];
-  const sampleRow = [
-    ...noteType.fields.map((_, idx) => (idx === 0 ? 'Example' : '')),
-    'sample',
-    '',
-  ];
+  return withSourcesLock(async () => {
+    const state = ctx.getState();
+    const noteType = resolveNoteType(state, options.noteTypeId);
+    const headers = [...noteType.fields.map((f) => f.label), 'Tags', 'Card ID'];
+    const sampleRow = [
+      ...noteType.fields.map((_, idx) => (idx === 0 ? 'Example' : '')),
+      'sample',
+      '',
+    ];
 
-  const client = await ctx.platform.getGoogleSourcesClient();
-  const created = await client.createSheetFromTemplate({
-    title: options.title.trim() || 'Flashcards Deck',
-    headers,
-    sampleRows: [sampleRow],
+    const client = await ctx.platform.getGoogleSourcesClient();
+    const created = await client.createSheetFromTemplate({
+      title: options.title.trim() || 'Flashcards Deck',
+      headers,
+      sampleRows: [sampleRow],
+    });
+
+    const registry = await loadSourcesRegistry(ctx.platform, state);
+    const source: LinkedGoogleSource = {
+      id: `gsheet:${created.fileId}`,
+      kind: 'google_sheets',
+      fileId: created.fileId,
+      name: created.title,
+      uri: created.uri,
+      sheetTab: created.sheetTitle,
+      noteTypeId: noteType.id,
+      language: options.language,
+      readOnly: false,
+      lastStatus: 'idle',
+    };
+    registry.googleSources.push(source);
+
+    await refreshSingleGoogleSource(source, ctx, { force: true });
+    await saveSourcesRegistry(ctx.platform, registry);
+    return { source, registry };
   });
-
-  const registry = await loadSourcesRegistry(ctx.platform, state);
-  const source: LinkedGoogleSource = {
-    id: `gsheet:${created.fileId}`,
-    kind: 'google_sheets',
-    fileId: created.fileId,
-    name: created.title,
-    uri: created.uri,
-    sheetTab: created.sheetTitle,
-    noteTypeId: noteType.id,
-    language: options.language,
-    readOnly: false,
-    lastStatus: 'idle',
-  };
-  registry.googleSources.push(source);
-
-  await refreshSingleGoogleSource(source, ctx, { force: true });
-  await saveSourcesRegistry(ctx.platform, registry);
-  return { source, registry };
 }
 
 /**
@@ -1206,42 +1230,44 @@ export async function linkOneDriveFile(
   notesTouched: number;
   pending?: PendingXlsxReconciliation;
 }> {
-  if (!ONEDRIVE_TABLE_EXTENSION.test(file.name)) {
-    throw new Error(`"${file.name}" is not a .csv, .tsv or .xlsx file.`);
-  }
-  const state = ctx.getState();
-  const registry = await loadSourcesRegistry(ctx.platform, state);
-  const existing = registry.oneDriveSources?.find((s) => s.itemId === file.id);
-  const archived = state.decks.get(oneDriveDeckId(existing ?? { itemId: file.id }));
-  if (archived?.archived) {
-    throw new Error(
-      `The deck "${archived.name}" from this file is archived. Restore it in Decks first.`,
+  return withSourcesLock(async () => {
+    if (!ONEDRIVE_TABLE_EXTENSION.test(file.name)) {
+      throw new Error(`"${file.name}" is not a .csv, .tsv or .xlsx file.`);
+    }
+    const state = ctx.getState();
+    const registry = await loadSourcesRegistry(ctx.platform, state);
+    const existing = registry.oneDriveSources?.find((s) => s.itemId === file.id);
+    const archived = state.decks.get(oneDriveDeckId(existing ?? { itemId: file.id }));
+    if (archived?.archived) {
+      throw new Error(
+        `The deck "${archived.name}" from this file is archived. Restore it in Decks first.`,
+      );
+    }
+    // Linking again after an unlink is deliberate: stop hiding the file's synced deck.
+    registry.unlinkedOneDriveIds = (registry.unlinkedOneDriveIds ?? []).filter(
+      (id) => id !== file.id,
     );
-  }
-  // Linking again after an unlink is deliberate: stop hiding the file's synced deck.
-  registry.unlinkedOneDriveIds = (registry.unlinkedOneDriveIds ?? []).filter(
-    (id) => id !== file.id,
-  );
-  const source = existing ?? addOneDriveSource(registry, file, options);
-  if (options?.columnMap) source.columnMap = [...options.columnMap];
-  try {
-    const res = await refreshSingleOneDriveSource(source, ctx, {
-      force: true,
-      ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
-    });
-    if (res.unreadable) throw new Error(source.lastError ?? 'This file cannot be read here.');
-    await saveSourcesRegistry(ctx.platform, registry);
-    return {
-      source,
-      registry,
-      notesTouched: res.notesTouched,
-      ...(res.pending ? { pending: res.pending } : {}),
-    };
-  } catch (err) {
-    recordFailedOneDriveLink(registry, source, err, Boolean(options?.columnMap));
-    await saveSourcesRegistry(ctx.platform, registry);
-    throw err;
-  }
+    const source = existing ?? addOneDriveSource(registry, file, options);
+    if (options?.columnMap) source.columnMap = [...options.columnMap];
+    try {
+      const res = await refreshSingleOneDriveSource(source, ctx, {
+        force: true,
+        ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
+      });
+      if (res.unreadable) throw new Error(source.lastError ?? 'This file cannot be read here.');
+      await saveSourcesRegistry(ctx.platform, registry);
+      return {
+        source,
+        registry,
+        notesTouched: res.notesTouched,
+        ...(res.pending ? { pending: res.pending } : {}),
+      };
+    } catch (err) {
+      recordFailedOneDriveLink(registry, source, err, Boolean(options?.columnMap));
+      await saveSourcesRegistry(ctx.platform, registry);
+      throw err;
+    }
+  });
 }
 
 export function excelUnreadableMessage(name: string): string {
@@ -1593,39 +1619,41 @@ export async function refreshSingleOneDriveSource(
 export async function linkAndScanLocalFolder(
   ctx: SourceRunContext,
 ): Promise<{ folder: LinkedLocalFolder | null; summary?: SourceRefreshSummary }> {
-  const adapter = await ctx.platform.getLocalFolderSources();
-  const picked = await adapter.pickFolder();
-  if (!picked) return { folder: null };
+  return withSourcesLock(async () => {
+    const adapter = await ctx.platform.getLocalFolderSources();
+    const picked = await adapter.pickFolder();
+    if (!picked) return { folder: null };
 
-  const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
-  const folder: LinkedLocalFolder = {
-    id: picked.id,
-    name: picked.name,
-    addedAt: Date.now(),
-    writeCardIds: true,
-    lastStatus: 'idle',
-    files: {},
-    inboxImported: {},
-  };
-  registry.localFolders.push(folder);
+    const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
+    const folder: LinkedLocalFolder = {
+      id: picked.id,
+      name: picked.name,
+      addedAt: Date.now(),
+      writeCardIds: true,
+      lastStatus: 'idle',
+      files: {},
+      inboxImported: {},
+    };
+    registry.localFolders.push(folder);
 
-  const scanRes = await scanSingleLocalFolder(folder, ctx, { requestPermission: true });
-  await saveSourcesRegistry(ctx.platform, registry);
+    const scanRes = await scanSingleLocalFolder(folder, ctx, { requestPermission: true });
+    await saveSourcesRegistry(ctx.platform, registry);
 
-  return {
-    folder,
-    summary: {
-      registry,
-      updatedSources: scanRes.updated ? 1 : 0,
-      importedNotes: scanRes.notesTouched,
-      importedPages: scanRes.pagesTouched,
-      inboxImported: scanRes.inboxImported,
-      warningsCount: (folder.warnings ?? []).length,
-      pendingReconciliations: scanRes.pendingReconciliations,
-      errors: scanRes.error ? [scanRes.error] : [],
-      skipped: [],
-    },
-  };
+    return {
+      folder,
+      summary: {
+        registry,
+        updatedSources: scanRes.updated ? 1 : 0,
+        importedNotes: scanRes.notesTouched,
+        importedPages: scanRes.pagesTouched,
+        inboxImported: scanRes.inboxImported,
+        warningsCount: (folder.warnings ?? []).length,
+        pendingReconciliations: scanRes.pendingReconciliations,
+        errors: scanRes.error ? [scanRes.error] : [],
+        skipped: [],
+      },
+    };
+  });
 }
 
 /**
@@ -2127,27 +2155,29 @@ export async function subscribeToPackageUrl(
   ctx: SourceRunContext,
   meta?: { title?: string; packageId?: string; expectedSha256?: string; catalogUrl?: string },
 ): Promise<{ subscription: PackageSubscription; registry: SourcesRegistry }> {
-  const safeUrl = assertSafeHttpsUrl(rawUrl);
-  const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
-  let sub = registry.packageSubscriptions.find((s) => s.url === safeUrl);
-  if (!sub) {
-    sub = {
-      id: `pkgurl:${uuidv5(FLASH_NAMESPACE_UUID, safeUrl)}`,
-      url: safeUrl,
-      title: meta?.title || safeUrl.split('/').pop() || 'Subscribed Package',
-      ...(meta?.packageId !== undefined ? { packageId: meta.packageId } : {}),
-      ...(meta?.expectedSha256 !== undefined ? { expectedSha256: meta.expectedSha256 } : {}),
-      ...(meta?.catalogUrl !== undefined ? { catalogUrl: meta.catalogUrl } : {}),
-      lastStatus: 'idle',
-    };
-    registry.packageSubscriptions.push(sub);
-  } else if (meta?.expectedSha256) {
-    sub.expectedSha256 = meta.expectedSha256;
-  }
+  return withSourcesLock(async () => {
+    const safeUrl = assertSafeHttpsUrl(rawUrl);
+    const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
+    let sub = registry.packageSubscriptions.find((s) => s.url === safeUrl);
+    if (!sub) {
+      sub = {
+        id: `pkgurl:${uuidv5(FLASH_NAMESPACE_UUID, safeUrl)}`,
+        url: safeUrl,
+        title: meta?.title || safeUrl.split('/').pop() || 'Subscribed Package',
+        ...(meta?.packageId !== undefined ? { packageId: meta.packageId } : {}),
+        ...(meta?.expectedSha256 !== undefined ? { expectedSha256: meta.expectedSha256 } : {}),
+        ...(meta?.catalogUrl !== undefined ? { catalogUrl: meta.catalogUrl } : {}),
+        lastStatus: 'idle',
+      };
+      registry.packageSubscriptions.push(sub);
+    } else if (meta?.expectedSha256) {
+      sub.expectedSha256 = meta.expectedSha256;
+    }
 
-  await refreshSinglePackageSubscription(sub, ctx, { force: true });
-  await saveSourcesRegistry(ctx.platform, registry);
-  return { subscription: sub, registry };
+    await refreshSinglePackageSubscription(sub, ctx, { force: true });
+    await saveSourcesRegistry(ctx.platform, registry);
+    return { subscription: sub, registry };
+  });
 }
 
 /**
@@ -2230,51 +2260,53 @@ export async function subscribeToFamilyCatalog(
   rawUrl: string,
   ctx: SourceRunContext,
 ): Promise<{ catalog: FamilyCatalogSubscription; registry: SourcesRegistry }> {
-  const safeUrl = assertSafeHttpsUrl(rawUrl);
-  const fetcher = await ctx.platform.getPackageFetcher();
-  const fetched = await fetcher.fetchCatalog(safeUrl);
-  if (fetched.notModified) {
+  return withSourcesLock(async () => {
+    const safeUrl = assertSafeHttpsUrl(rawUrl);
+    const fetcher = await ctx.platform.getPackageFetcher();
+    const fetched = await fetcher.fetchCatalog(safeUrl);
+    if (fetched.notModified) {
+      const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
+      const existing = registry.catalogs.find((c) => c.url === safeUrl);
+      if (existing) return { catalog: existing, registry };
+      throw new Error('Catalog returned 304 Not Modified without cached copy.');
+    }
+
+    const validated = parseAndValidateFamilyCatalog(fetched.rawJson);
     const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
-    const existing = registry.catalogs.find((c) => c.url === safeUrl);
-    if (existing) return { catalog: existing, registry };
-    throw new Error('Catalog returned 304 Not Modified without cached copy.');
-  }
+    const nowMs = Date.now();
+    const packages: CatalogPackageInfo[] = validated.packages.map((p) => ({
+      package_id: p.package_id,
+      title: p.title,
+      url: p.url,
+      version: p.version,
+      languages: [...p.languages],
+      ...(p.description !== undefined ? { description: p.description } : {}),
+      ...(p.updated_at !== undefined ? { updated_at: p.updated_at } : {}),
+      ...(p.author !== undefined ? { author: p.author } : {}),
+      ...(p.sha256 !== undefined ? { sha256: p.sha256 } : {}),
+    }));
 
-  const validated = parseAndValidateFamilyCatalog(fetched.rawJson);
-  const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
-  const nowMs = Date.now();
-  const packages: CatalogPackageInfo[] = validated.packages.map((p) => ({
-    package_id: p.package_id,
-    title: p.title,
-    url: p.url,
-    version: p.version,
-    languages: [...p.languages],
-    ...(p.description !== undefined ? { description: p.description } : {}),
-    ...(p.updated_at !== undefined ? { updated_at: p.updated_at } : {}),
-    ...(p.author !== undefined ? { author: p.author } : {}),
-    ...(p.sha256 !== undefined ? { sha256: p.sha256 } : {}),
-  }));
+    const existingIdx = registry.catalogs.findIndex((c) => c.url === safeUrl);
+    const catalog: FamilyCatalogSubscription = {
+      id: `catalog:${uuidv5(FLASH_NAMESPACE_UUID, safeUrl)}`,
+      url: safeUrl,
+      name: validated.name,
+      ...(validated.description !== undefined ? { description: validated.description } : {}),
+      ...(validated.updated_at !== undefined ? { updatedAt: validated.updated_at } : {}),
+      ...(fetched.etag !== undefined ? { etag: fetched.etag } : {}),
+      lastFetchedAt: nowMs,
+      packages,
+    };
 
-  const existingIdx = registry.catalogs.findIndex((c) => c.url === safeUrl);
-  const catalog: FamilyCatalogSubscription = {
-    id: `catalog:${uuidv5(FLASH_NAMESPACE_UUID, safeUrl)}`,
-    url: safeUrl,
-    name: validated.name,
-    ...(validated.description !== undefined ? { description: validated.description } : {}),
-    ...(validated.updated_at !== undefined ? { updatedAt: validated.updated_at } : {}),
-    ...(fetched.etag !== undefined ? { etag: fetched.etag } : {}),
-    lastFetchedAt: nowMs,
-    packages,
-  };
+    if (existingIdx >= 0) {
+      registry.catalogs[existingIdx] = catalog;
+    } else {
+      registry.catalogs.push(catalog);
+    }
 
-  if (existingIdx >= 0) {
-    registry.catalogs[existingIdx] = catalog;
-  } else {
-    registry.catalogs.push(catalog);
-  }
-
-  await saveSourcesRegistry(ctx.platform, registry);
-  return { catalog, registry };
+    await saveSourcesRegistry(ctx.platform, registry);
+    return { catalog, registry };
+  });
 }
 
 type OneDriveRefreshTally = Pick<
@@ -2330,171 +2362,173 @@ export async function refreshAllSources(
   ctx: SourceRunContext,
   opts?: { requestFolderPermission?: boolean; force?: boolean },
 ): Promise<SourceRefreshSummary> {
-  const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
-  let updatedSources = 0;
-  let importedNotes = 0;
-  let importedPages = 0;
-  let inboxImported = 0;
-  let warningsCount = 0;
-  const pendingReconciliations: PendingXlsxReconciliation[] = [];
-  const errors: string[] = [];
-  const skipped: string[] = [];
+  return withSourcesLock(async () => {
+    const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
+    let updatedSources = 0;
+    let importedNotes = 0;
+    let importedPages = 0;
+    let inboxImported = 0;
+    let warningsCount = 0;
+    const pendingReconciliations: PendingXlsxReconciliation[] = [];
+    const errors: string[] = [];
+    const skipped: string[] = [];
 
-  // 1. Local Folders (works fully offline!)
-  for (const folder of registry.localFolders) {
-    const res = await scanSingleLocalFolder(folder, ctx, {
-      ...(opts?.requestFolderPermission !== undefined
-        ? { requestPermission: opts.requestFolderPermission }
-        : {}),
-      ...(opts?.force !== undefined ? { force: opts.force } : {}),
-    });
-    if (res.updated) updatedSources += 1;
-    importedNotes += res.notesTouched;
-    importedPages += res.pagesTouched;
-    inboxImported += res.inboxImported;
-    warningsCount += (folder.warnings ?? []).length;
-    pendingReconciliations.push(...res.pendingReconciliations);
-    if (res.error) errors.push(`${folder.name}: ${res.error}`);
-  }
-
-  // 2. Google Sheets & Docs, and linked Google Drive files (online + connected)
-  const driveFiles = registry.googleDriveFiles ?? [];
-  if (isOnline() && (registry.googleSources.length > 0 || driveFiles.length > 0)) {
-    let googleConnected: boolean;
-    try {
-      const auth = await ctx.platform.getGoogleAuth();
-      googleConnected = await auth.isConnected();
-    } catch {
-      googleConnected = false;
+    // 1. Local Folders (works fully offline!)
+    for (const folder of registry.localFolders) {
+      const res = await scanSingleLocalFolder(folder, ctx, {
+        ...(opts?.requestFolderPermission !== undefined
+          ? { requestPermission: opts.requestFolderPermission }
+          : {}),
+        ...(opts?.force !== undefined ? { force: opts.force } : {}),
+      });
+      if (res.updated) updatedSources += 1;
+      importedNotes += res.notesTouched;
+      importedPages += res.pagesTouched;
+      inboxImported += res.inboxImported;
+      warningsCount += (folder.warnings ?? []).length;
+      pendingReconciliations.push(...res.pendingReconciliations);
+      if (res.error) errors.push(`${folder.name}: ${res.error}`);
     }
 
-    if (googleConnected) {
-      for (const src of registry.googleSources) {
-        try {
-          const res = await refreshSingleGoogleSource(src, ctx, {
-            ...(opts?.force !== undefined ? { force: opts.force } : {}),
-          });
-          if (res.updated) updatedSources += 1;
-          importedNotes += res.notesTouched;
-          importedPages += res.pagesTouched;
-          warningsCount += res.warnings.length;
-          if (src.skipReason) skipped.push(`${src.name}: ${src.lastError ?? 'not refreshed'}`);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          src.lastStatus = 'error';
-          src.lastError = msg;
-          errors.push(`${src.name}: ${msg}`);
-        }
+    // 2. Google Sheets & Docs, and linked Google Drive files (online + connected)
+    const driveFiles = registry.googleDriveFiles ?? [];
+    if (isOnline() && (registry.googleSources.length > 0 || driveFiles.length > 0)) {
+      let googleConnected: boolean;
+      try {
+        const auth = await ctx.platform.getGoogleAuth();
+        googleConnected = await auth.isConnected();
+      } catch {
+        googleConnected = false;
       }
-      if (driveFiles.length > 0) {
-        const gd = await refreshLinkedGoogleDriveFiles(driveFiles, ctx, opts?.force);
-        updatedSources += gd.updatedSources;
-        importedNotes += gd.importedNotes;
-        warningsCount += gd.warningsCount;
-        pendingReconciliations.push(...gd.pendingReconciliations);
-        errors.push(...gd.errors);
-        skipped.push(...gd.skipped);
-      }
-    }
-  }
 
-  // 3. Linked OneDrive files (online; skipped until the user has allowed OneDrive file access)
-  if (isOnline() && ctx.platform.oneDriveConfigured) {
-    const od = await refreshLinkedOneDriveFiles(registry.oneDriveSources ?? [], ctx, opts?.force);
-    updatedSources += od.updatedSources;
-    importedNotes += od.importedNotes;
-    warningsCount += od.warningsCount;
-    pendingReconciliations.push(...od.pendingReconciliations);
-    errors.push(...od.errors);
-    skipped.push(...od.skipped);
-  }
-
-  // 3b. Linked Dropbox App Folder files (online; skipped until Dropbox is connected)
-  if (isOnline() && ctx.platform.dropboxConfigured) {
-    const dbx = await refreshLinkedDropboxFiles(registry.dropboxSources ?? [], ctx, opts?.force);
-    updatedSources += dbx.updatedSources;
-    importedNotes += dbx.importedNotes;
-    warningsCount += dbx.warningsCount;
-    pendingReconciliations.push(...dbx.pendingReconciliations);
-    errors.push(...dbx.errors);
-    skipped.push(...dbx.skipped);
-  }
-
-  // 4. Family Library Catalogs & Subscribed .flashpkg URLs (online)
-  if (isOnline()) {
-    const fetcher =
-      registry.catalogs.length > 0 || registry.packageSubscriptions.length > 0
-        ? await ctx.platform.getPackageFetcher()
-        : null;
-
-    if (fetcher) {
-      for (const cat of registry.catalogs) {
-        try {
-          const fetched = await fetcher.fetchCatalog(cat.url, {
-            ...(cat.etag ? { etag: cat.etag } : {}),
-          });
-          if (!fetched.notModified) {
-            const validated = parseAndValidateFamilyCatalog(fetched.rawJson);
-            cat.name = validated.name;
-            if (validated.description !== undefined) cat.description = validated.description;
-            if (validated.updated_at !== undefined) cat.updatedAt = validated.updated_at;
-            if (fetched.etag) cat.etag = fetched.etag;
-            cat.packages = validated.packages.map((p) => ({
-              package_id: p.package_id,
-              title: p.title,
-              url: p.url,
-              version: p.version,
-              languages: [...p.languages],
-              ...(p.description !== undefined ? { description: p.description } : {}),
-              ...(p.updated_at !== undefined ? { updated_at: p.updated_at } : {}),
-              ...(p.author !== undefined ? { author: p.author } : {}),
-              ...(p.sha256 !== undefined ? { sha256: p.sha256 } : {}),
-            }));
+      if (googleConnected) {
+        for (const src of registry.googleSources) {
+          try {
+            const res = await refreshSingleGoogleSource(src, ctx, {
+              ...(opts?.force !== undefined ? { force: opts.force } : {}),
+            });
+            if (res.updated) updatedSources += 1;
+            importedNotes += res.notesTouched;
+            importedPages += res.pagesTouched;
+            warningsCount += res.warnings.length;
+            if (src.skipReason) skipped.push(`${src.name}: ${src.lastError ?? 'not refreshed'}`);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            src.lastStatus = 'error';
+            src.lastError = msg;
+            errors.push(`${src.name}: ${msg}`);
           }
-          cat.lastFetchedAt = Date.now();
-          delete cat.lastError;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          cat.lastError = msg;
-          errors.push(`${cat.name}: ${msg}`);
         }
-      }
-
-      for (const sub of registry.packageSubscriptions) {
-        try {
-          // If this subscription came from a catalog, pick up any updated expectedSha256
-          if (sub.catalogUrl && sub.packageId) {
-            const parentCat = registry.catalogs.find((c) => c.url === sub.catalogUrl);
-            const catPkg = parentCat?.packages.find((p) => p.package_id === sub.packageId);
-            if (catPkg?.sha256) sub.expectedSha256 = catPkg.sha256;
-          }
-          const res = await refreshSinglePackageSubscription(sub, ctx, {
-            ...(opts?.force !== undefined ? { force: opts.force } : {}),
-          });
-          if (res.updated) updatedSources += 1;
-          importedNotes += res.notesTouched;
-          importedPages += res.pagesTouched;
-          warningsCount += (sub.warnings ?? []).length;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          sub.lastStatus = 'error';
-          sub.lastError = msg;
-          errors.push(`${sub.title}: ${msg}`);
+        if (driveFiles.length > 0) {
+          const gd = await refreshLinkedGoogleDriveFiles(driveFiles, ctx, opts?.force);
+          updatedSources += gd.updatedSources;
+          importedNotes += gd.importedNotes;
+          warningsCount += gd.warningsCount;
+          pendingReconciliations.push(...gd.pendingReconciliations);
+          errors.push(...gd.errors);
+          skipped.push(...gd.skipped);
         }
       }
     }
-  }
 
-  await saveSourcesRegistry(ctx.platform, registry);
-  return {
-    registry,
-    updatedSources,
-    importedNotes,
-    importedPages,
-    inboxImported,
-    warningsCount,
-    pendingReconciliations,
-    errors,
-    skipped,
-  };
+    // 3. Linked OneDrive files (online; skipped until the user has allowed OneDrive file access)
+    if (isOnline() && ctx.platform.oneDriveConfigured) {
+      const od = await refreshLinkedOneDriveFiles(registry.oneDriveSources ?? [], ctx, opts?.force);
+      updatedSources += od.updatedSources;
+      importedNotes += od.importedNotes;
+      warningsCount += od.warningsCount;
+      pendingReconciliations.push(...od.pendingReconciliations);
+      errors.push(...od.errors);
+      skipped.push(...od.skipped);
+    }
+
+    // 3b. Linked Dropbox App Folder files (online; skipped until Dropbox is connected)
+    if (isOnline() && ctx.platform.dropboxConfigured) {
+      const dbx = await refreshLinkedDropboxFiles(registry.dropboxSources ?? [], ctx, opts?.force);
+      updatedSources += dbx.updatedSources;
+      importedNotes += dbx.importedNotes;
+      warningsCount += dbx.warningsCount;
+      pendingReconciliations.push(...dbx.pendingReconciliations);
+      errors.push(...dbx.errors);
+      skipped.push(...dbx.skipped);
+    }
+
+    // 4. Family Library Catalogs & Subscribed .flashpkg URLs (online)
+    if (isOnline()) {
+      const fetcher =
+        registry.catalogs.length > 0 || registry.packageSubscriptions.length > 0
+          ? await ctx.platform.getPackageFetcher()
+          : null;
+
+      if (fetcher) {
+        for (const cat of registry.catalogs) {
+          try {
+            const fetched = await fetcher.fetchCatalog(cat.url, {
+              ...(cat.etag ? { etag: cat.etag } : {}),
+            });
+            if (!fetched.notModified) {
+              const validated = parseAndValidateFamilyCatalog(fetched.rawJson);
+              cat.name = validated.name;
+              if (validated.description !== undefined) cat.description = validated.description;
+              if (validated.updated_at !== undefined) cat.updatedAt = validated.updated_at;
+              if (fetched.etag) cat.etag = fetched.etag;
+              cat.packages = validated.packages.map((p) => ({
+                package_id: p.package_id,
+                title: p.title,
+                url: p.url,
+                version: p.version,
+                languages: [...p.languages],
+                ...(p.description !== undefined ? { description: p.description } : {}),
+                ...(p.updated_at !== undefined ? { updated_at: p.updated_at } : {}),
+                ...(p.author !== undefined ? { author: p.author } : {}),
+                ...(p.sha256 !== undefined ? { sha256: p.sha256 } : {}),
+              }));
+            }
+            cat.lastFetchedAt = Date.now();
+            delete cat.lastError;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            cat.lastError = msg;
+            errors.push(`${cat.name}: ${msg}`);
+          }
+        }
+
+        for (const sub of registry.packageSubscriptions) {
+          try {
+            // If this subscription came from a catalog, pick up any updated expectedSha256
+            if (sub.catalogUrl && sub.packageId) {
+              const parentCat = registry.catalogs.find((c) => c.url === sub.catalogUrl);
+              const catPkg = parentCat?.packages.find((p) => p.package_id === sub.packageId);
+              if (catPkg?.sha256) sub.expectedSha256 = catPkg.sha256;
+            }
+            const res = await refreshSinglePackageSubscription(sub, ctx, {
+              ...(opts?.force !== undefined ? { force: opts.force } : {}),
+            });
+            if (res.updated) updatedSources += 1;
+            importedNotes += res.notesTouched;
+            importedPages += res.pagesTouched;
+            warningsCount += (sub.warnings ?? []).length;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            sub.lastStatus = 'error';
+            sub.lastError = msg;
+            errors.push(`${sub.title}: ${msg}`);
+          }
+        }
+      }
+    }
+
+    await saveSourcesRegistry(ctx.platform, registry);
+    return {
+      registry,
+      updatedSources,
+      importedNotes,
+      importedPages,
+      inboxImported,
+      warningsCount,
+      pendingReconciliations,
+      errors,
+      skipped,
+    };
+  });
 }

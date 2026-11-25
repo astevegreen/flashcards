@@ -37,6 +37,7 @@ import {
   saveSourcesRegistry,
   type SourceRefreshSummary,
   type SourceRunContext,
+  withSourcesLock,
 } from './sourceRunner.ts';
 
 /**
@@ -289,55 +290,57 @@ export async function linkGoogleDriveFile(
   notesTouched: number;
   pending?: PendingXlsxReconciliation;
 }> {
-  const kind = classifyGoogleDriveFile(file.name, file.mimeType ?? '');
-  if (kind !== 'table' && kind !== 'flashpkg') {
-    throw new Error(`"${file.name}" is not a .csv, .tsv, .xlsx or .flashpkg file.`);
-  }
-  const state = ctx.getState();
-  const registry = await loadSourcesRegistry(ctx.platform, state);
-  const existing = registry.googleDriveFiles?.find((s) => s.fileId === file.id);
-  if (kind === 'table') {
-    const archived = state.decks.get(driveDeckId(existing ?? { fileId: file.id }));
-    if (archived?.archived) {
-      throw new Error(
-        `The deck "${archived.name}" from this file is archived. Restore it in the Library first.`,
+  return withSourcesLock(async () => {
+    const kind = classifyGoogleDriveFile(file.name, file.mimeType ?? '');
+    if (kind !== 'table' && kind !== 'flashpkg') {
+      throw new Error(`"${file.name}" is not a .csv, .tsv, .xlsx or .flashpkg file.`);
+    }
+    const state = ctx.getState();
+    const registry = await loadSourcesRegistry(ctx.platform, state);
+    const existing = registry.googleDriveFiles?.find((s) => s.fileId === file.id);
+    if (kind === 'table') {
+      const archived = state.decks.get(driveDeckId(existing ?? { fileId: file.id }));
+      if (archived?.archived) {
+        throw new Error(
+          `The deck "${archived.name}" from this file is archived. Restore it in the Library first.`,
+        );
+      }
+    }
+    const source =
+      existing ??
+      addDriveSource(
+        registry,
+        { id: file.id, name: file.name, format: kind, ...(file.url ? { url: file.url } : {}) },
+        options,
       );
+    if (options?.columnMap) source.columnMap = [...options.columnMap];
+    try {
+      const res = await refreshSingleGoogleDriveFileSource(source, ctx, {
+        force: true,
+        ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
+      });
+      if (res.unreadable || source.lastStatus === 'permission_required') {
+        throw new Error(source.lastError ?? 'This file cannot be read here.');
+      }
+      await saveSourcesRegistry(ctx.platform, registry);
+      return {
+        source,
+        registry,
+        notesTouched: res.notesTouched,
+        ...(res.pending ? { pending: res.pending } : {}),
+      };
+    } catch (err) {
+      if (!source.deckId) {
+        registry.googleDriveFiles = (registry.googleDriveFiles ?? []).filter((s) => s !== source);
+      } else {
+        source.lastStatus = 'error';
+        source.lastError = err instanceof Error ? err.message : String(err);
+        if (options?.columnMap) source.columnMapUnsaved = true;
+      }
+      await saveSourcesRegistry(ctx.platform, registry);
+      throw err;
     }
-  }
-  const source =
-    existing ??
-    addDriveSource(
-      registry,
-      { id: file.id, name: file.name, format: kind, ...(file.url ? { url: file.url } : {}) },
-      options,
-    );
-  if (options?.columnMap) source.columnMap = [...options.columnMap];
-  try {
-    const res = await refreshSingleGoogleDriveFileSource(source, ctx, {
-      force: true,
-      ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
-    });
-    if (res.unreadable || source.lastStatus === 'permission_required') {
-      throw new Error(source.lastError ?? 'This file cannot be read here.');
-    }
-    await saveSourcesRegistry(ctx.platform, registry);
-    return {
-      source,
-      registry,
-      notesTouched: res.notesTouched,
-      ...(res.pending ? { pending: res.pending } : {}),
-    };
-  } catch (err) {
-    if (!source.deckId) {
-      registry.googleDriveFiles = (registry.googleDriveFiles ?? []).filter((s) => s !== source);
-    } else {
-      source.lastStatus = 'error';
-      source.lastError = err instanceof Error ? err.message : String(err);
-      if (options?.columnMap) source.columnMapUnsaved = true;
-    }
-    await saveSourcesRegistry(ctx.platform, registry);
-    throw err;
-  }
+  });
 }
 
 function markSkipped(
@@ -760,20 +763,22 @@ export async function refreshGoogleDriveFileRow(
   ctx: SourceRunContext,
   opts?: Pick<DriveRefreshOptions, 'renameMap'>,
 ): Promise<{ registry: SourcesRegistry; outcome: DriveRowOutcome } | null> {
-  const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
-  const target = registry.googleDriveFiles?.find((s) => s.id === id);
-  if (!target) return null;
-  let outcome: DriveRowOutcome;
-  try {
-    const res = await refreshSingleGoogleDriveFileSource(target, ctx, { force: true, ...opts });
-    outcome = describeRefresh(target, res);
-  } catch (err) {
-    target.lastStatus = 'error';
-    target.lastError = err instanceof Error ? err.message : String(err);
-    outcome = { kind: 'error', message: target.lastError };
-  }
-  await saveSourcesRegistry(ctx.platform, registry);
-  return { registry, outcome };
+  return withSourcesLock(async () => {
+    const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
+    const target = registry.googleDriveFiles?.find((s) => s.id === id);
+    if (!target) return null;
+    let outcome: DriveRowOutcome;
+    try {
+      const res = await refreshSingleGoogleDriveFileSource(target, ctx, { force: true, ...opts });
+      outcome = describeRefresh(target, res);
+    } catch (err) {
+      target.lastStatus = 'error';
+      target.lastError = err instanceof Error ? err.message : String(err);
+      outcome = { kind: 'error', message: target.lastError };
+    }
+    await saveSourcesRegistry(ctx.platform, registry);
+    return { registry, outcome };
+  });
 }
 
 /**

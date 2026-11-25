@@ -33,6 +33,10 @@ const LazyDropboxPickerPanel = lazyWithRetry(() => import('../sources/DropboxPic
   closeWith: 'onClose',
 });
 
+/** The sources registry lock (D8), loaded with the source runner so it adds no chunk. */
+const lockedSources = <T,>(task: () => Promise<T>): Promise<T> =>
+  import('../sources/sourceRunner.ts').then((runner) => runner.withSourcesLock(task));
+
 function formatStatusLabel(status?: SourceSyncStatus): string {
   switch (status) {
     case 'synced':
@@ -518,34 +522,35 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
-  const handleRefreshGoogleOne = async (src: LinkedGoogleSource) => {
-    setBusy(true);
-    onErrorMessage(null);
-    try {
-      const { loadSourcesRegistry, refreshSingleGoogleSource, saveSourcesRegistry } =
-        await import('../sources/sourceRunner.ts');
-      const nextReg = await loadSourcesRegistry(platform, state);
-      const target = nextReg.googleSources.find((s) => s.id === src.id);
-      if (!target) return;
-      const res = await refreshSingleGoogleSource(target, makeRunnerCtx(), { force: true });
-      await saveSourcesRegistry(platform, nextReg);
-      setRegistry(nextReg);
-      if (target.skipReason && target.lastError) {
-        // An archived deck: nothing was pulled, so "up to date" would be wrong.
-        onErrorMessage(target.lastError);
-        return;
+  const handleRefreshGoogleOne = (src: LinkedGoogleSource) =>
+    lockedSources(async () => {
+      setBusy(true);
+      onErrorMessage(null);
+      try {
+        const { loadSourcesRegistry, refreshSingleGoogleSource, saveSourcesRegistry } =
+          await import('../sources/sourceRunner.ts');
+        const nextReg = await loadSourcesRegistry(platform, state);
+        const target = nextReg.googleSources.find((s) => s.id === src.id);
+        if (!target) return;
+        const res = await refreshSingleGoogleSource(target, makeRunnerCtx(), { force: true });
+        await saveSourcesRegistry(platform, nextReg);
+        setRegistry(nextReg);
+        if (target.skipReason && target.lastError) {
+          // An archived deck: nothing was pulled, so "up to date" would be wrong.
+          onErrorMessage(target.lastError);
+          return;
+        }
+        onStatusMessage(
+          res.updated
+            ? `Refreshed "${target.name}" (${res.notesTouched} note change(s), ${res.pagesTouched} page(s)).`
+            : `"${target.name}" is already up to date.`,
+        );
+      } catch (err) {
+        onErrorMessage(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
       }
-      onStatusMessage(
-        res.updated
-          ? `Refreshed "${target.name}" (${res.notesTouched} note change(s), ${res.pagesTouched} page(s)).`
-          : `"${target.name}" is already up to date.`,
-      );
-    } catch (err) {
-      onErrorMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
   const handleAllowOneDriveAccess = async () => {
     onErrorMessage(null);
@@ -560,54 +565,57 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
-  const handleRefreshOneDriveOne = async (src: LinkedOneDriveSource) => {
-    setBusy(true);
-    onErrorMessage(null);
-    try {
-      const { loadSourcesRegistry, refreshSingleOneDriveSource, saveSourcesRegistry } =
-        await import('../sources/sourceRunner.ts');
-      const nextReg = await loadSourcesRegistry(platform, state);
-      const target = nextReg.oneDriveSources?.find((s) => s.id === src.id);
-      if (!target) return;
+  const handleRefreshOneDriveOne = (src: LinkedOneDriveSource) =>
+    lockedSources(async () => {
+      setBusy(true);
+      onErrorMessage(null);
       try {
-        const res = await refreshSingleOneDriveSource(target, makeRunnerCtx(), { force: true });
-        if (res.pending) {
-          const held = res.pending;
-          setPendingReconciliations((prev) => [
-            ...prev.filter(
-              (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
-            ),
-            held,
-          ]);
-          onStatusMessage(
-            `"${target.name}" has rows that may be renamed. Match them below to keep review history.`,
-          );
-        } else if (target.lastStatus === 'permission_required') {
-          onErrorMessage(target.lastError ?? 'Allow OneDrive file access to refresh this source.');
-        } else if (target.lastError) {
+        const { loadSourcesRegistry, refreshSingleOneDriveSource, saveSourcesRegistry } =
+          await import('../sources/sourceRunner.ts');
+        const nextReg = await loadSourcesRegistry(platform, state);
+        const target = nextReg.oneDriveSources?.find((s) => s.id === src.id);
+        if (!target) return;
+        try {
+          const res = await refreshSingleOneDriveSource(target, makeRunnerCtx(), { force: true });
+          if (res.pending) {
+            const held = res.pending;
+            setPendingReconciliations((prev) => [
+              ...prev.filter(
+                (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
+              ),
+              held,
+            ]);
+            onStatusMessage(
+              `"${target.name}" has rows that may be renamed. Match them below to keep review history.`,
+            );
+          } else if (target.lastStatus === 'permission_required') {
+            onErrorMessage(
+              target.lastError ?? 'Allow OneDrive file access to refresh this source.',
+            );
+          } else if (target.lastError) {
+            onErrorMessage(target.lastError);
+          } else if (target.lastStatus === 'offline') {
+            onErrorMessage('You are offline. Try again when you are back online.');
+          } else {
+            onStatusMessage(
+              res.updated
+                ? `Refreshed "${target.name}" (${res.notesTouched} note change(s)).`
+                : `"${target.name}" is already up to date.`,
+            );
+          }
+        } catch (err) {
+          target.lastStatus = 'error';
+          target.lastError = err instanceof Error ? err.message : String(err);
           onErrorMessage(target.lastError);
-        } else if (target.lastStatus === 'offline') {
-          onErrorMessage('You are offline. Try again when you are back online.');
-        } else {
-          onStatusMessage(
-            res.updated
-              ? `Refreshed "${target.name}" (${res.notesTouched} note change(s)).`
-              : `"${target.name}" is already up to date.`,
-          );
         }
+        await saveSourcesRegistry(platform, nextReg);
+        setRegistry(nextReg);
       } catch (err) {
-        target.lastStatus = 'error';
-        target.lastError = err instanceof Error ? err.message : String(err);
-        onErrorMessage(target.lastError);
+        onErrorMessage(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
       }
-      await saveSourcesRegistry(platform, nextReg);
-      setRegistry(nextReg);
-    } catch (err) {
-      onErrorMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
   const handleRefreshDriveFileOne = async (src: LinkedGoogleDriveFileSource) => {
     setBusy(true);
@@ -651,121 +659,128 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
-  const handleRefreshDropboxOne = async (src: LinkedDropboxSource) => {
-    setBusy(true);
-    onErrorMessage(null);
-    try {
-      const { loadSourcesRegistry, refreshSingleDropboxSource, saveSourcesRegistry } =
-        await import('../sources/sourceRunner.ts');
-      const nextReg = await loadSourcesRegistry(platform, state);
-      const target = nextReg.dropboxSources?.find((s) => s.id === src.id);
-      if (!target) return;
+  const handleRefreshDropboxOne = (src: LinkedDropboxSource) =>
+    lockedSources(async () => {
+      setBusy(true);
+      onErrorMessage(null);
       try {
-        const res = await refreshSingleDropboxSource(target, makeRunnerCtx(), { force: true });
-        if (res.pending) {
-          const held = res.pending;
-          setPendingReconciliations((prev) => [
-            ...prev.filter(
-              (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
-            ),
-            held,
-          ]);
-          onStatusMessage(
-            `"${target.name}" has rows that may be renamed. Match them below to keep review history.`,
-          );
-        } else if (target.lastStatus === 'permission_required') {
-          onErrorMessage(target.lastError ?? 'Connect Dropbox to refresh this source.');
-        } else if (target.lastError) {
+        const { loadSourcesRegistry, refreshSingleDropboxSource, saveSourcesRegistry } =
+          await import('../sources/sourceRunner.ts');
+        const nextReg = await loadSourcesRegistry(platform, state);
+        const target = nextReg.dropboxSources?.find((s) => s.id === src.id);
+        if (!target) return;
+        try {
+          const res = await refreshSingleDropboxSource(target, makeRunnerCtx(), { force: true });
+          if (res.pending) {
+            const held = res.pending;
+            setPendingReconciliations((prev) => [
+              ...prev.filter(
+                (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
+              ),
+              held,
+            ]);
+            onStatusMessage(
+              `"${target.name}" has rows that may be renamed. Match them below to keep review history.`,
+            );
+          } else if (target.lastStatus === 'permission_required') {
+            onErrorMessage(target.lastError ?? 'Connect Dropbox to refresh this source.');
+          } else if (target.lastError) {
+            onErrorMessage(target.lastError);
+          } else if (target.lastStatus === 'offline') {
+            onErrorMessage('You are offline. Try again when you are back online.');
+          } else {
+            onStatusMessage(
+              res.updated
+                ? `Refreshed "${target.name}" (${res.notesTouched} note change(s)).`
+                : `"${target.name}" is already up to date.`,
+            );
+          }
+        } catch (err) {
+          target.lastStatus = 'error';
+          target.lastError = err instanceof Error ? err.message : String(err);
           onErrorMessage(target.lastError);
-        } else if (target.lastStatus === 'offline') {
-          onErrorMessage('You are offline. Try again when you are back online.');
+        }
+        await saveSourcesRegistry(platform, nextReg);
+        setRegistry(nextReg);
+      } catch (err) {
+        onErrorMessage(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    });
+
+  const handleRefreshFolderOne = (folder: LinkedLocalFolder) =>
+    lockedSources(async () => {
+      setBusy(true);
+      onErrorMessage(null);
+      try {
+        const { loadSourcesRegistry, saveSourcesRegistry, scanSingleLocalFolder } =
+          await import('../sources/sourceRunner.ts');
+        const nextReg = await loadSourcesRegistry(platform, state);
+        const target = nextReg.localFolders.find((f) => f.id === folder.id);
+        if (!target) return;
+        const res = await scanSingleLocalFolder(target, makeRunnerCtx(), {
+          requestPermission: true,
+        });
+        await saveSourcesRegistry(platform, nextReg);
+        setRegistry(nextReg);
+        if (res.pendingReconciliations.length > 0) {
+          setPendingReconciliations(res.pendingReconciliations);
+        }
+        if (res.error) {
+          onErrorMessage(res.error);
         } else {
           onStatusMessage(
             res.updated
-              ? `Refreshed "${target.name}" (${res.notesTouched} note change(s)).`
-              : `"${target.name}" is already up to date.`,
+              ? `Scanned "${target.name}" (${res.notesTouched} note change(s), ${res.pagesTouched} page(s), ${res.inboxImported} Inbox).`
+              : `"${target.name}" has no new changes.`,
           );
         }
       } catch (err) {
-        target.lastStatus = 'error';
-        target.lastError = err instanceof Error ? err.message : String(err);
-        onErrorMessage(target.lastError);
+        onErrorMessage(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
       }
-      await saveSourcesRegistry(platform, nextReg);
-      setRegistry(nextReg);
-    } catch (err) {
-      onErrorMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
-  const handleRefreshFolderOne = async (folder: LinkedLocalFolder) => {
-    setBusy(true);
-    onErrorMessage(null);
-    try {
-      const { loadSourcesRegistry, saveSourcesRegistry, scanSingleLocalFolder } =
+  const handleToggleFolderWriteCardIds = (folder: LinkedLocalFolder, enabled: boolean) =>
+    lockedSources(async () => {
+      const { loadSourcesRegistry, saveSourcesRegistry } =
         await import('../sources/sourceRunner.ts');
       const nextReg = await loadSourcesRegistry(platform, state);
       const target = nextReg.localFolders.find((f) => f.id === folder.id);
       if (!target) return;
-      const res = await scanSingleLocalFolder(target, makeRunnerCtx(), {
-        requestPermission: true,
-      });
+      target.writeCardIds = enabled;
       await saveSourcesRegistry(platform, nextReg);
       setRegistry(nextReg);
-      if (res.pendingReconciliations.length > 0) {
-        setPendingReconciliations(res.pendingReconciliations);
-      }
-      if (res.error) {
-        onErrorMessage(res.error);
-      } else {
+    });
+
+  const handleRefreshPackageOne = (sub: PackageSubscription) =>
+    lockedSources(async () => {
+      setBusy(true);
+      onErrorMessage(null);
+      try {
+        const { loadSourcesRegistry, refreshSinglePackageSubscription, saveSourcesRegistry } =
+          await import('../sources/sourceRunner.ts');
+        const nextReg = await loadSourcesRegistry(platform, state);
+        const target = nextReg.packageSubscriptions.find((p) => p.id === sub.id);
+        if (!target) return;
+        const res = await refreshSinglePackageSubscription(target, makeRunnerCtx(), {
+          force: true,
+        });
+        await saveSourcesRegistry(platform, nextReg);
+        setRegistry(nextReg);
         onStatusMessage(
           res.updated
-            ? `Scanned "${target.name}" (${res.notesTouched} note change(s), ${res.pagesTouched} page(s), ${res.inboxImported} Inbox).`
-            : `"${target.name}" has no new changes.`,
+            ? `Updated "${target.title}"${target.version ? ` to v${target.version}` : ''}.`
+            : `"${target.title}" is already up to date.`,
         );
+      } catch (err) {
+        onErrorMessage(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
       }
-    } catch (err) {
-      onErrorMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleToggleFolderWriteCardIds = async (folder: LinkedLocalFolder, enabled: boolean) => {
-    const { loadSourcesRegistry, saveSourcesRegistry } = await import('../sources/sourceRunner.ts');
-    const nextReg = await loadSourcesRegistry(platform, state);
-    const target = nextReg.localFolders.find((f) => f.id === folder.id);
-    if (!target) return;
-    target.writeCardIds = enabled;
-    await saveSourcesRegistry(platform, nextReg);
-    setRegistry(nextReg);
-  };
-
-  const handleRefreshPackageOne = async (sub: PackageSubscription) => {
-    setBusy(true);
-    onErrorMessage(null);
-    try {
-      const { loadSourcesRegistry, refreshSinglePackageSubscription, saveSourcesRegistry } =
-        await import('../sources/sourceRunner.ts');
-      const nextReg = await loadSourcesRegistry(platform, state);
-      const target = nextReg.packageSubscriptions.find((p) => p.id === sub.id);
-      if (!target) return;
-      const res = await refreshSinglePackageSubscription(target, makeRunnerCtx(), { force: true });
-      await saveSourcesRegistry(platform, nextReg);
-      setRegistry(nextReg);
-      onStatusMessage(
-        res.updated
-          ? `Updated "${target.title}"${target.version ? ` to v${target.version}` : ''}.`
-          : `"${target.title}" is already up to date.`,
-      );
-    } catch (err) {
-      onErrorMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
   const handleUnlink = async (kind: SourceRunner.UnlinkSourceKind, id: string) => {
     onErrorMessage(null);
@@ -786,79 +801,81 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   };
 
   /** Applies a held OneDrive pull with the user's matches (`renameMap`). */
-  const applyOneDriveReconciliation = async (
+  const applyOneDriveReconciliation = (
     rec: PendingXlsxReconciliation,
     renameMap: Record<string, string>,
     runner: typeof SourceRunner,
-  ) => {
-    const nextReg = await runner.loadSourcesRegistry(platform, state);
-    const itemId = rec.folderId.slice(runner.ONEDRIVE_RECONCILE_PREFIX.length);
-    const od = nextReg.oneDriveSources?.find((s) => s.itemId === itemId);
-    if (!od) return;
-    const res = await runner.refreshSingleOneDriveSource(od, makeRunnerCtx(), {
-      force: true,
-      renameMap,
-    });
-    await runner.saveSourcesRegistry(platform, nextReg);
-    setRegistry(nextReg);
-    const notApplied =
-      od.lastStatus === 'offline' ||
-      od.lastStatus === 'permission_required' ||
-      res.unreadable ||
-      od.lastError;
-    if (notApplied) {
-      // Nothing was applied (an archived deck says so here): keep the prompt for later.
-      onErrorMessage(
-        od.lastStatus === 'offline'
-          ? 'You are offline. Try again when you are back online.'
-          : (od.lastError ?? 'OneDrive could not be read. Try Refresh on the source.'),
+  ) =>
+    lockedSources(async () => {
+      const nextReg = await runner.loadSourcesRegistry(platform, state);
+      const itemId = rec.folderId.slice(runner.ONEDRIVE_RECONCILE_PREFIX.length);
+      const od = nextReg.oneDriveSources?.find((s) => s.itemId === itemId);
+      if (!od) return;
+      const res = await runner.refreshSingleOneDriveSource(od, makeRunnerCtx(), {
+        force: true,
+        renameMap,
+      });
+      await runner.saveSourcesRegistry(platform, nextReg);
+      setRegistry(nextReg);
+      const notApplied =
+        od.lastStatus === 'offline' ||
+        od.lastStatus === 'permission_required' ||
+        res.unreadable ||
+        od.lastError;
+      if (notApplied) {
+        // Nothing was applied (an archived deck says so here): keep the prompt for later.
+        onErrorMessage(
+          od.lastStatus === 'offline'
+            ? 'You are offline. Try again when you are back online.'
+            : (od.lastError ?? 'OneDrive could not be read. Try Refresh on the source.'),
+        );
+        return;
+      }
+      dropPendingReconciliation(rec);
+      onStatusMessage(
+        res.updated
+          ? `Applied the OneDrive changes to "${rec.deckName}".`
+          : `"${rec.deckName}" is already up to date.`,
       );
-      return;
-    }
-    dropPendingReconciliation(rec);
-    onStatusMessage(
-      res.updated
-        ? `Applied the OneDrive changes to "${rec.deckName}".`
-        : `"${rec.deckName}" is already up to date.`,
-    );
-  };
+    });
 
   /** Applies a held Dropbox pull with the user's matches (`renameMap`). */
-  const applyDropboxReconciliation = async (
+  const applyDropboxReconciliation = (
     rec: PendingXlsxReconciliation,
     renameMap: Record<string, string>,
     runner: typeof SourceRunner,
-  ) => {
-    const nextReg = await runner.loadSourcesRegistry(platform, state);
-    const fileId = rec.folderId.slice(runner.DROPBOX_RECONCILE_PREFIX.length);
-    const dbx = nextReg.dropboxSources?.find((s) => s.fileId === fileId);
-    if (!dbx) return;
-    const res = await runner.refreshSingleDropboxSource(dbx, makeRunnerCtx(), {
-      force: true,
-      renameMap,
-    });
-    await runner.saveSourcesRegistry(platform, nextReg);
-    setRegistry(nextReg);
-    const notApplied =
-      dbx.lastStatus === 'offline' ||
-      dbx.lastStatus === 'permission_required' ||
-      res.unreadable ||
-      dbx.lastError;
-    if (notApplied) {
-      onErrorMessage(
-        dbx.lastStatus === 'offline'
-          ? 'You are offline. Try again when you are back online.'
-          : (dbx.lastError ?? 'Dropbox could not be read. Try Refresh on the source.'),
+  ) =>
+    lockedSources(async () => {
+      const nextReg = await runner.loadSourcesRegistry(platform, state);
+      const fileId = rec.folderId.slice(runner.DROPBOX_RECONCILE_PREFIX.length);
+      const dbx = nextReg.dropboxSources?.find((s) => s.fileId === fileId);
+      if (!dbx) return;
+      const res = await runner.refreshSingleDropboxSource(dbx, makeRunnerCtx(), {
+        force: true,
+        renameMap,
+      });
+      await runner.saveSourcesRegistry(platform, nextReg);
+      setRegistry(nextReg);
+      const notApplied =
+        dbx.lastStatus === 'offline' ||
+        dbx.lastStatus === 'permission_required' ||
+        res.unreadable ||
+        dbx.lastError;
+      if (notApplied) {
+        onErrorMessage(
+          dbx.lastStatus === 'offline'
+            ? 'You are offline. Try again when you are back online.'
+            : (dbx.lastError ?? 'Dropbox could not be read. Try Refresh on the source.'),
+        );
+        return;
+      }
+      dropPendingReconciliation(rec);
+      onStatusMessage(
+        res.updated
+          ? `Applied the Dropbox changes to "${rec.deckName}".`
+          : `"${rec.deckName}" is already up to date.`,
       );
-      return;
-    }
-    dropPendingReconciliation(rec);
-    onStatusMessage(
-      res.updated
-        ? `Applied the Dropbox changes to "${rec.deckName}".`
-        : `"${rec.deckName}" is already up to date.`,
-    );
-  };
+    });
 
   const handleApplyReconciliation = async (rec: PendingXlsxReconciliation) => {
     setBusy(true);
@@ -899,17 +916,20 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         onErrorMessage(`The deck "${archivedDeck.name}" is archived. Restore it in Decks first.`);
         return;
       }
-      const nextReg = await runner.loadSourcesRegistry(platform, state);
-      const folder = nextReg.localFolders.find((f) => f.id === rec.folderId);
-      if (!folder) return;
-
-      await runner.scanSingleLocalFolder(folder, makeRunnerCtx(), {
-        requestPermission: true,
-        force: true,
-        xlsxRenameMaps: { [rec.relativePath]: renameMap },
+      const scanned = await lockedSources(async () => {
+        const nextReg = await runner.loadSourcesRegistry(platform, state);
+        const folder = nextReg.localFolders.find((f) => f.id === rec.folderId);
+        if (!folder) return false;
+        await runner.scanSingleLocalFolder(folder, makeRunnerCtx(), {
+          requestPermission: true,
+          force: true,
+          xlsxRenameMaps: { [rec.relativePath]: renameMap },
+        });
+        await runner.saveSourcesRegistry(platform, nextReg);
+        setRegistry(nextReg);
+        return true;
       });
-      await runner.saveSourcesRegistry(platform, nextReg);
-      setRegistry(nextReg);
+      if (!scanned) return;
       dropPendingReconciliation(rec);
       onStatusMessage(`Applied .xlsx reconciliation for "${rec.deckName}".`);
     } catch (err) {

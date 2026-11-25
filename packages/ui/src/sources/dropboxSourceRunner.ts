@@ -27,6 +27,7 @@ import {
   saveSourcesRegistry,
   type SourceRefreshSummary,
   type SourceRunContext,
+  withSourcesLock,
 } from './sourceRunner.ts';
 
 const DROPBOX_TABLE_EXTENSION = /\.(csv|tsv|xlsx)$/i;
@@ -273,39 +274,41 @@ export async function linkDropboxFile(
   notesTouched: number;
   pending?: PendingXlsxReconciliation;
 }> {
-  if (!DROPBOX_TABLE_EXTENSION.test(file.name)) {
-    throw new Error(`"${file.name}" is not a .csv, .tsv or .xlsx file.`);
-  }
-  const state = ctx.getState();
-  const registry = await loadSourcesRegistry(ctx.platform, state);
-  const existing = registry.dropboxSources?.find((s) => s.fileId === file.id);
-  const archived = state.decks.get(dropboxDeckId(existing ?? { fileId: file.id }));
-  if (archived?.archived) {
-    throw new Error(
-      `The deck "${archived.name}" from this file is archived. Restore it in the Library first.`,
-    );
-  }
-  const source = existing ?? addDropboxSource(registry, file, options);
-  if (file.pathDisplay) source.pathDisplay = file.pathDisplay;
-  if (options?.columnMap) source.columnMap = [...options.columnMap];
-  try {
-    const res = await refreshSingleDropboxSource(source, ctx, {
-      force: true,
-      ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
-    });
-    if (res.unreadable) throw new Error(source.lastError ?? 'This file cannot be read here.');
-    await saveSourcesRegistry(ctx.platform, registry);
-    return {
-      source,
-      registry,
-      notesTouched: res.notesTouched,
-      ...(res.pending ? { pending: res.pending } : {}),
-    };
-  } catch (err) {
-    recordFailedDropboxLink(registry, source, err, Boolean(options?.columnMap));
-    await saveSourcesRegistry(ctx.platform, registry);
-    throw err;
-  }
+  return withSourcesLock(async () => {
+    if (!DROPBOX_TABLE_EXTENSION.test(file.name)) {
+      throw new Error(`"${file.name}" is not a .csv, .tsv or .xlsx file.`);
+    }
+    const state = ctx.getState();
+    const registry = await loadSourcesRegistry(ctx.platform, state);
+    const existing = registry.dropboxSources?.find((s) => s.fileId === file.id);
+    const archived = state.decks.get(dropboxDeckId(existing ?? { fileId: file.id }));
+    if (archived?.archived) {
+      throw new Error(
+        `The deck "${archived.name}" from this file is archived. Restore it in the Library first.`,
+      );
+    }
+    const source = existing ?? addDropboxSource(registry, file, options);
+    if (file.pathDisplay) source.pathDisplay = file.pathDisplay;
+    if (options?.columnMap) source.columnMap = [...options.columnMap];
+    try {
+      const res = await refreshSingleDropboxSource(source, ctx, {
+        force: true,
+        ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
+      });
+      if (res.unreadable) throw new Error(source.lastError ?? 'This file cannot be read here.');
+      await saveSourcesRegistry(ctx.platform, registry);
+      return {
+        source,
+        registry,
+        notesTouched: res.notesTouched,
+        ...(res.pending ? { pending: res.pending } : {}),
+      };
+    } catch (err) {
+      recordFailedDropboxLink(registry, source, err, Boolean(options?.columnMap));
+      await saveSourcesRegistry(ctx.platform, registry);
+      throw err;
+    }
+  });
 }
 
 /**
