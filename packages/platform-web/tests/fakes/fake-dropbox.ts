@@ -77,7 +77,7 @@ export class FakeDropboxServer {
   }
 
   put(relPath: string, bytes: Uint8Array, mtimeMs = Date.now()): FakeDropboxFile {
-    const clean = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const clean = relPath.replaceAll('\\', '/').replace(/^\/+/, '');
     const pathDisplay = `/${clean}`;
     const pathLower = pathDisplay.toLowerCase();
     const name = clean.split('/').pop() ?? clean;
