@@ -13,6 +13,7 @@ import {
   type CategoryCriterion,
   type KnownEvent,
   type Note,
+  deckNoteType,
 } from '@flash/core';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
@@ -567,7 +568,7 @@ export function BrowseScreen({
                   const note = filteredNotes[virtualRow.index];
                   if (!note) return null;
                   const deck = state.decks.get(note.deck_id);
-                  const nt = deck ? state.noteTypes.get(deck.note_type_id) : undefined;
+                  const nt = deckNoteType(state, deck);
                   const primaryKey = nt?.fields[0]?.key ?? Object.keys(note.fields)[0] ?? '';
                   const secondaryKey =
                     nt?.fields.find(

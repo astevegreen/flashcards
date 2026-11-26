@@ -1,4 +1,4 @@
-import { BUILTIN_NOTE_TYPE_IDS } from '../model/presets.ts';
+import { LANGUAGE_NEUTRAL_NOTE_TYPE_IDS } from '../model/deck-note-type.ts';
 import { parseRuby } from '../parsers/ruby.ts';
 import { compareCodeUnits } from '../compare.ts';
 import { normalizeLanguage } from './normalize.ts';
@@ -28,16 +28,6 @@ export const LANGUAGE_FEATURE_LANGUAGES: Readonly<Record<LanguageFeature, readon
 
 /** Languages the app supports, in the order Settings > Languages lists them. */
 export const SUPPORTED_LANGUAGES: readonly string[] = ['ko', 'ja', 'zh-Hans', 'en'];
-
-/**
- * Built-in note types that are not tied to one language (their field tags are only defaults), so
- * a Korean cloze deck does not make Japanese active. The deck's own language still counts.
- */
-const LANGUAGE_NEUTRAL_NOTE_TYPE_IDS: ReadonlySet<string> = new Set([
-  BUILTIN_NOTE_TYPE_IDS.CLOZE,
-  BUILTIN_NOTE_TYPE_IDS.SENTENCE,
-  BUILTIN_NOTE_TYPE_IDS.GRAMMAR,
-]);
 
 export { normalizeLanguage };
 
