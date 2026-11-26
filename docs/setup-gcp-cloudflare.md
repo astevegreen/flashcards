@@ -101,36 +101,13 @@ The same Worker also serves the OneDrive storage connector's `/ms/exchange` and 
 
 ---
 
-## 4. Deploy the Phase 0 Spike PWA Harness (`spikes/phase0/`) to Cloudflare Pages
+## 4. Phase 0 Spike Harness (retired)
 
-Deploy the static throwaway harness (HTTPS required for iOS Home-Screen PWA & Google OAuth):
-
-```powershell
-pnpm --filter @flash/token-helper exec wrangler pages deploy spikes/phase0 --project-name flashcards-phase0-spike
-```
-
-_(If your deployed Pages URL differs from `https://flashcards-phase0-spike.pages.dev`, update both the GCP OAuth authorized redirect URI and the Worker's `ALLOWED_ORIGINS` secret.)_
+The throwaway Phase 0 harness (`spikes/phase0/`) has been removed; do not deploy it. Its findings are recorded in [ADR 0001](./adr/0001-phase0-spike-results.md). Check sign-in, Drive sync, the Picker and audio on devices with the real PWA (`pnpm build`, then host `apps/web/dist`), using that host's URL wherever this guide shows `https://flashcards-phase0-spike.pages.dev`.
 
 ---
 
-## 5. Run the Interactive Device Verification Checklist
-
-1. **Windows Chrome/Edge (Spike 0.4 + 0.2 + 0.3 + 0.6 + 0.7):**
-   - Open your deployed Pages URL (or `pnpm dlx vite spikes/phase0 --port 5173`), install it as a PWA, and run:
-     - **Spike 0.4:** Pick a folder under `G:\My Drive\...`, close and reopen the installed PWA, click **Restore Handle & Check Permission**, then **Request Permission & Scan Files**.
-     - **Spike 0.2:** Paste your Web Client ID + Worker URL → **Ping Worker /health** → **Sign In (Redirect + PKCE)** → **Test `/auth/refresh`** → **Test `appDataFolder` CRUD**.
-     - **Spike 0.3:** Paste your Browser API Key → **Open Google Picker (Multi-Select)** → select a test Sheet & Doc → test **Read Selected Sheet (FORMULA)**, **Test Guarded Card ID batchUpdate**, and **Export Selected Doc as Markdown**.
-     - **Spike 0.6:** Open **Drawing Quiz Spike** and complete a stroke quiz on `食` (Japanese KanjiVG 9 strokes) vs. `食` (Simplified Chinese).
-     - **Spike 0.7:** Test browser CORS fetch + optional BYO Cloud TTS playback.
-2. **iOS Safari Home-Screen PWA (Spikes 0.1 & 0.2):**
-   - Open the Pages URL in iOS Safari → **Share → Add to Home Screen** → launch from Home Screen.
-   - Run **Inspect PWA / Safe Areas** (`STANDALONE PWA` badge), **Request Storage Persist & IDB Test**, flip the hardware **Silent Switch ON**, tap **Unlock & Play 1.0×** and **Play 0.75× (Slow)**.
-   - Enable **Airplane Mode**, force-quit & relaunch the Home-Screen PWA, verify offline load + offline chime playback + persisted IndexedDB sentinel.
-   - Disable Airplane Mode and run **Spike 0.2 Sign In (Redirect + PKCE)** from the Home-Screen PWA to confirm whether iOS returns directly into standalone mode (or note if Safari fallback handling is needed for Phase 2).
-
----
-
-## 6. Content Security Policy for the Production PWA Host (WASM Workers)
+## 5. Content Security Policy for the Production PWA Host (WASM Workers)
 
 The single source of truth is `apps/web/csp.ts`. `pnpm build` writes `PRODUCTION_CSP` into `dist/index.html` as a `<meta http-equiv="Content-Security-Policy">` tag; `apps/web/tests/csp.test.ts` checks that this section, the Tauri shell and the shared policy agree, and the `phase11-fsrs-optimizer.spec.ts` "production CSP header" e2e tests run the optimizer with these headers on every response.
 

@@ -1,6 +1,6 @@
 # ADR 0001: Phase 0 Assumption Spike Findings & Decisions
 
-- **Status:** In Progress (Track A automated spikes verified; Track B cloud/device harness ready for live run)
+- **Status:** Closed 2026-11-26: the harness in `spikes/phase0/` was removed; the shipped app superseded the live Track B runs, and the two KanjiVG conversions moved to `scripts/packs/fixtures/`.
 - **Date:** 2026-11-20
 - **Source Blueprint:** [design_blueprint.md §15](file:///c:/Antigravity/Korean/docs/design_blueprint.md#L495-L503)
 
