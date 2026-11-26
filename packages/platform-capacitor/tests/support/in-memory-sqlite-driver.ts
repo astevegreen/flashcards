@@ -14,17 +14,6 @@ function paramText(value: unknown, fallback: string): string {
 export class InMemorySqliteDriver implements SqliteDriver {
   private events: StoredEventDbRow[] = [];
   private nextLocalSeq = 1;
-  private cards = new Map<
-    string,
-    {
-      id: string;
-      deck_id: string;
-      note_id: string;
-      layout_id: string;
-      due: number;
-      schedule_json: string;
-    }
-  >();
   private media = new Map<string, { hash: string; mime: string; bytes_b64: string }>();
   private kv = new Map<string, string>();
   private backups = new Map<
@@ -54,26 +43,6 @@ export class InMemorySqliteDriver implements SqliteDriver {
         card_id: params[6] !== null && params[6] !== undefined ? String(params[6]) : null,
         payload_json: String(params[7] ?? 'null'),
         extra_fields_json: params[8] !== null && params[8] !== undefined ? String(params[8]) : null,
-      });
-      return;
-    }
-    if (norm.startsWith('DELETE FROM cards_cache WHERE id =')) {
-      this.cards.delete(String(params[0] ?? ''));
-      return;
-    }
-    if (norm.startsWith('DELETE FROM cards_cache')) {
-      this.cards.clear();
-      return;
-    }
-    if (norm.startsWith('INSERT OR REPLACE INTO cards_cache')) {
-      const id = String(params[0] ?? '');
-      this.cards.set(id, {
-        id,
-        deck_id: String(params[1] ?? ''),
-        note_id: String(params[2] ?? ''),
-        layout_id: String(params[3] ?? ''),
-        due: Number(params[4] ?? 0),
-        schedule_json: String(params[5] ?? '{}'),
       });
       return;
     }
@@ -202,15 +171,6 @@ export class InMemorySqliteDriver implements SqliteDriver {
       return (limit === undefined ? rows : rows.slice(0, limit)) as T[];
     }
 
-    if (norm.includes('FROM cards_cache')) {
-      let rows = [...this.cards.values()];
-      if (norm.includes('WHERE id > ? ORDER BY id ASC LIMIT ?')) {
-        const afterId = String(params[0] ?? '');
-        rows = rows.filter((r) => r.id > afterId).sort((a, b) => (a.id < b.id ? -1 : 1));
-        rows = rows.slice(0, Number(params[1]));
-      }
-      return rows as T[];
-    }
     if (norm.startsWith('SELECT chunk FROM local_snapshot_chunks WHERE gen = ? AND idx = ?')) {
       const raw = this.snapshotChunks.get(
         `${paramText(params[0], '')}\u0000${Number(params[1] ?? 0)}`,

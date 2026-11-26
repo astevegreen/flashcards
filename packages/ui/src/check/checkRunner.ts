@@ -12,7 +12,7 @@ import {
 } from '@flash/core/check';
 import { deserializeCollectionState, serializeCollectionState } from '@flash/core/snapshot';
 import { applyEvents, createEmptyState } from '@flash/core';
-import type { MaterializedCardRow, PlatformServices } from '@flash/platform';
+import type { PlatformServices } from '@flash/platform';
 import { openBackupStore } from '../backups/backupRunner.ts';
 import { storedMediaEntries } from '../state/storedMedia.ts';
 import { announceRebuild } from '../state/rebuildChannel.ts';
@@ -200,19 +200,8 @@ export async function runDatabaseCheck(ctx: CheckContext): Promise<DatabaseCheck
   return { ...result, changedDuringCheck };
 }
 
-function cardRows(state: CollectionState): MaterializedCardRow[] {
-  return [...state.cards.values()].map((card) => ({
-    id: card.id,
-    deck_id: card.deck_id,
-    note_id: card.note_id,
-    layout_id: card.layout_id,
-    due: card.schedule.due,
-    schedule: card.schedule,
-  }));
-}
-
 /**
- * Saves a full rebuild as this device's starting point (local snapshot and cards cache); the
+ * Saves a full rebuild as this device's starting point (its local snapshot); the
  * caller reloads the app so it runs on it. The event log is not touched. Tabs still on the old
  * collection (this one until it reloads, and others, which are told to reload) stop writing
  * snapshots first, and the saved one is read back to make sure it is the one that stays.
@@ -224,7 +213,6 @@ export async function saveRebuiltCollection(
   const storage = ctx.platform.storage;
   const savedAt = Date.now();
   await storage.setKv(COLLECTION_REBUILT_KV_KEY, savedAt);
-  await storage.saveMaterializedCards(cardRows(rebuilt.state));
   await storage.setLocalSnapshot({
     snapshot: serializeCollectionState(rebuilt.state, rebuilt.watermarks),
     localSeq: rebuilt.localSeq,

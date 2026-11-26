@@ -142,7 +142,7 @@ describe.each([
     expect(await storage.getLocalSnapshot()).toEqual({ snapshot: b, localSeq: 2, savedAt: 2 });
   });
 
-  it('pages events and the card cache in order across page boundaries', async () => {
+  it('pages events in order across page boundaries', async () => {
     const storage = await make();
     // hlc runs against insertion order, and neighbours share an hlc so the id tie-break is
     // exercised across the 500-row page boundary.
@@ -172,19 +172,6 @@ describe.each([
     expect(delta.events).toHaveLength(n - 100);
     expect(delta.events[0]?.id).toBe('ev-0100');
     expect(delta.maxLocalSeq).toBe(n);
-
-    const cards = Array.from({ length: 4500 }, (_, i) => ({
-      id: `c-${String(4499 - i).padStart(4, '0')}`,
-      deck_id: 'd',
-      note_id: `n-${i}`,
-      layout_id: 'l',
-      due: i,
-      schedule: { state: 'new' },
-    }));
-    await storage.saveMaterializedCards(cards as never);
-    const loaded = await storage.loadMaterializedCards();
-    expect(loaded.map((c) => c.id)).toEqual(cards.map((c) => c.id).reverse());
-    expect(loaded[0]?.schedule).toEqual({ state: 'new' });
   });
 });
 
@@ -285,5 +272,35 @@ describe.each([
     expect(await chunkCount(driver, 'orphan')).toBe(0);
     expect(await chunkCount(driver, 'kept')).toBe(1);
     expect([...((await next.getBytes('kept')) ?? [])]).toEqual([1, 2, 3]);
+  });
+});
+
+describe('the unread card cache (P5)', () => {
+  it('drops a pre-P5 cards_cache table and keeps the events', async () => {
+    const driver = await sqlJsDriver();
+    const ev = {
+      id: 'ev-1',
+      device: 'dev-a',
+      seq: 1,
+      hlc: '0000000000001:0000:dev-a',
+      type: 'DeckCreated',
+      v: 1,
+      payload: { deck_id: 'd' },
+    };
+    await new CapacitorSqliteStorage(driver).appendEvents([ev] as never);
+    // The card cache a pre-P5 build created and filled next to the log.
+    await driver.execute(`CREATE TABLE cards_cache (
+      id TEXT PRIMARY KEY, deck_id TEXT NOT NULL, note_id TEXT NOT NULL, layout_id TEXT NOT NULL,
+      due INTEGER NOT NULL, schedule_json TEXT NOT NULL)`);
+    await driver.execute(`CREATE INDEX idx_cards_deck_due ON cards_cache(deck_id, due)`);
+    await driver.execute(`INSERT INTO cards_cache VALUES ('c1', 'd', 'n', 'l', 1, '{}')`);
+
+    // The next launch, on this build.
+    const storage = new CapacitorSqliteStorage(driver);
+    expect((await storage.getAllEvents()).map((e) => e.id)).toEqual(['ev-1']);
+    const tables = await driver.query<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE name IN ('cards_cache', 'idx_cards_deck_due')`,
+    );
+    expect(tables).toEqual([]);
   });
 });

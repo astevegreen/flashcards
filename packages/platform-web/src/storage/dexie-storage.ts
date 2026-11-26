@@ -2,7 +2,6 @@ import { createHlcState, uuidv7, type FlashEvent, type SyncCursorState } from '@
 import type {
   DeviceMeta,
   LocalSnapshotRecord,
-  MaterializedCardRow,
   BackupStore,
   MediaBlob,
   Storage,
@@ -53,7 +52,12 @@ const LATEST_SNAPSHOT_KEY = 'latest';
 
 export class FlashcardsDexieDb extends Dexie {
   events!: Table<StoredEventRow, string>;
-  cards_cache!: Table<MaterializedCardRow, string>;
+  /**
+   * The materialized card cache: written on every persist until v4 and never read (review P5).
+   * v4 empties it; the store stays declared because a stale PWA tab still on an older build opens
+   * this database at v4 (Dexie retries on a VersionError) and still writes to it.
+   */
+  cards_cache!: Table<unknown, string>;
   meta!: Table<StoredMetaRow, string>;
   media!: Table<StoredMediaRow, string>;
   snapshots!: Table<StoredSnapshotRow, string>;
@@ -100,6 +104,13 @@ export class FlashcardsDexieDb extends Dexie {
       });
     // Rolling backups (lazy: ./dexie-backup-store.ts).
     this.version(3).stores({ backups: 'backup_id, created_at', backup_blobs: 'id' });
+    // P5: boot reads the local snapshot plus newer events, so the card cache goes unread. Its rows
+    // were derived from events; clearing them loses nothing.
+    this.version(4)
+      .stores({})
+      .upgrade(async (tx) => {
+        await tx.table('cards_cache').clear();
+      });
   }
 }
 
@@ -267,29 +278,6 @@ export class DexieStorage implements Storage {
     };
     await this.setDeviceMeta(meta);
     return meta;
-  }
-
-  async saveMaterializedCards(cards: readonly MaterializedCardRow[]): Promise<void> {
-    await this.db.transaction('rw', this.db.cards_cache, async () => {
-      await this.db.cards_cache.clear();
-      if (cards.length > 0) {
-        await this.db.cards_cache.bulkPut([...cards]);
-      }
-    });
-  }
-
-  async upsertMaterializedCards(cards: readonly MaterializedCardRow[]): Promise<void> {
-    if (cards.length === 0) return;
-    await this.db.cards_cache.bulkPut([...cards]);
-  }
-
-  async deleteMaterializedCards(cardIds: readonly string[]): Promise<void> {
-    if (cardIds.length === 0) return;
-    await this.db.cards_cache.bulkDelete([...cardIds]);
-  }
-
-  async loadMaterializedCards(): Promise<MaterializedCardRow[]> {
-    return this.db.cards_cache.toArray();
   }
 
   async getSyncCursor(): Promise<SyncCursorState | undefined> {

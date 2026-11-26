@@ -2,7 +2,6 @@ import type { FlashEvent, SyncCursorState } from '@flash/core';
 import type {
   DeviceMeta,
   LocalSnapshotRecord,
-  MaterializedCardRow,
   BackupStore,
   MediaBlob,
   StoredBackupInfo,
@@ -34,15 +33,6 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_events_card_id ON events(card_id)`,
   // Keyset pagination in `getEvents` seeks on (hlc, id).
   `CREATE INDEX IF NOT EXISTS idx_events_hlc_id ON events(hlc, id)`,
-  `CREATE TABLE IF NOT EXISTS cards_cache (
-    id TEXT PRIMARY KEY,
-    deck_id TEXT NOT NULL,
-    note_id TEXT NOT NULL,
-    layout_id TEXT NOT NULL,
-    due INTEGER NOT NULL,
-    schedule_json TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_cards_deck_due ON cards_cache(deck_id, due)`,
   `CREATE TABLE IF NOT EXISTS media (
     hash TEXT PRIMARY KEY,
     mime TEXT NOT NULL,
@@ -77,6 +67,10 @@ const SCHEMA_STATEMENTS = [
   )`,
   // An earlier development build's single-generation chunk table.
   `DROP TABLE IF EXISTS snapshot_chunks`,
+  // The materialized card cache, written on every persist and never read (review P5): boot reads
+  // the local snapshot plus newer events instead. Its rows were derived from events, so nothing
+  // is lost; dropping the table drops its index too.
+  `DROP TABLE IF EXISTS cards_cache`,
 ] as const;
 
 interface SnapshotMeta {
@@ -94,8 +88,6 @@ const SNAPSHOT_KV_KEY = '__local_snapshot';
 const SNAPSHOT_META_KV_KEY = '__local_snapshot_meta';
 const SNAPSHOT_CHUNK_CHARS = 512 * 1024;
 const EVENT_QUERY_PAGE = 500;
-const CARD_CACHE_QUERY_PAGE = 2000;
-
 function extractCardId(event: FlashEvent): string | null {
   if (
     event.payload &&
@@ -284,64 +276,6 @@ export class CapacitorSqliteStorage implements Storage {
 
   async setDeviceMeta(meta: DeviceMeta): Promise<void> {
     await this.setKv(META_KV_KEY, meta);
-  }
-
-  async saveMaterializedCards(cards: readonly MaterializedCardRow[]): Promise<void> {
-    await this.ensureReady();
-    await this.driver.execute(`DELETE FROM cards_cache`);
-    await this.upsertMaterializedCards(cards);
-  }
-
-  async upsertMaterializedCards(cards: readonly MaterializedCardRow[]): Promise<void> {
-    if (cards.length === 0) return;
-    await this.ensureReady();
-    for (const c of cards) {
-      await this.driver.execute(
-        `INSERT OR REPLACE INTO cards_cache (id, deck_id, note_id, layout_id, due, schedule_json)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [c.id, c.deck_id, c.note_id, c.layout_id, c.due, JSON.stringify(c.schedule)],
-      );
-    }
-  }
-
-  async deleteMaterializedCards(cardIds: readonly string[]): Promise<void> {
-    if (cardIds.length === 0) return;
-    await this.ensureReady();
-    for (const id of cardIds) {
-      await this.driver.execute(`DELETE FROM cards_cache WHERE id = ?`, [id]);
-    }
-  }
-
-  async loadMaterializedCards(): Promise<MaterializedCardRow[]> {
-    await this.ensureReady();
-    const out: MaterializedCardRow[] = [];
-    let afterId = '';
-    for (;;) {
-      const rows = await this.driver.query<{
-        id: string;
-        deck_id: string;
-        note_id: string;
-        layout_id: string;
-        due: number;
-        schedule_json: string;
-      }>(
-        `SELECT id, deck_id, note_id, layout_id, due, schedule_json FROM cards_cache WHERE id > ? ORDER BY id ASC LIMIT ?`,
-        [afterId, CARD_CACHE_QUERY_PAGE],
-      );
-      afterId = rows.at(-1)?.id ?? afterId;
-      for (const r of rows) {
-        out.push({
-          id: r.id,
-          deck_id: r.deck_id,
-          note_id: r.note_id,
-          layout_id: r.layout_id,
-          due: r.due,
-          schedule: JSON.parse(r.schedule_json) as MaterializedCardRow['schedule'],
-        });
-      }
-      if (rows.length < CARD_CACHE_QUERY_PAGE) break;
-    }
-    return out;
   }
 
   async getSyncCursor(): Promise<SyncCursorState | undefined> {
@@ -594,7 +528,6 @@ export class CapacitorSqliteStorage implements Storage {
     // A snapshot write still queued would otherwise land after the clear.
     await this.snapshotWrites;
     await this.driver.execute(`DELETE FROM events`);
-    await this.driver.execute(`DELETE FROM cards_cache`);
     const backupRows = await this.driver.query<{ info_json: string }>(
       `SELECT info_json FROM backups`,
     );

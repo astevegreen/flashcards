@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { PRODUCTION_CSP } from '../../apps/web/csp.ts';
+import { readStoredCards } from './helpers/stored-cards.ts';
 
 /**
  * A snapshot whose `backup/state.json` is far over 160 KB, under the production CSP (sent as a
@@ -13,8 +14,9 @@ const REVIEWS_PER_CARD = 80;
 
 /** Writes a long review history for every card straight into the event log; returns the count. */
 async function seedReviews(page: Page): Promise<number> {
+  const cards = (await readStoredCards(page, dbNameFor(page))).map((c) => c.id);
   return page.evaluate(
-    async ({ dbName, perCard }) => {
+    async ({ dbName, perCard, cards }) => {
       const DAY = 86_400_000;
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
         const req = indexedDB.open(dbName);
@@ -27,7 +29,6 @@ async function seedReviews(page: Page): Promise<number> {
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-      const cards = ((await getAll('cards_cache')) as { id: string }[]).map((c) => c.id).sort();
       const kv = (await getAll('kv')) as { key: string; value: unknown }[];
       const counterRow = kv.find((r) => r.key === '__local_seq_counter');
       let localSeq = typeof counterRow?.value === 'number' ? counterRow.value : 0;
@@ -75,7 +76,7 @@ async function seedReviews(page: Page): Promise<number> {
       db.close();
       return rows.length;
     },
-    { dbName: dbNameFor(page), perCard: REVIEWS_PER_CARD },
+    { dbName: dbNameFor(page), perCard: REVIEWS_PER_CARD, cards },
   );
 }
 

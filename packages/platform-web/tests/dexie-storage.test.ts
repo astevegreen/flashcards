@@ -10,7 +10,6 @@ import {
   type UnknownEvent,
 } from '@flash/core';
 import { advanceClockPastOwnEvents } from '@flash/core/sync';
-import type { MaterializedCardRow } from '@flash/platform';
 import Dexie from 'dexie';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DexieStorage } from '../src/storage/dexie-storage.ts';
@@ -132,37 +131,8 @@ describe('DexieStorage v2 unit tests (fake-indexeddb)', () => {
     storage.close();
   });
 
-  it('supports incremental cards_cache upsert/delete, local snapshot, sync cursor/config, kv, and clearAll', async () => {
-    const storage = createTestStorage('cache-kv');
-
-    const row1: MaterializedCardRow = {
-      id: 'c1',
-      deck_id: 'd1',
-      note_id: 'n1',
-      layout_id: 'l1',
-      due: 1000,
-      schedule: {
-        due: 1000,
-        stability: 1,
-        difficulty: 5,
-        scheduled_days: 1,
-        learning_steps: 0,
-        reps: 1,
-        lapses: 0,
-        state: 2,
-      },
-    };
-    const row2: MaterializedCardRow = { ...row1, id: 'c2', due: 2000 };
-
-    await storage.upsertMaterializedCards([row1, row2]);
-    expect(await storage.loadMaterializedCards()).toHaveLength(2);
-
-    await storage.upsertMaterializedCards([{ ...row1, due: 5000 }]);
-    await storage.deleteMaterializedCards(['c2']);
-    const remaining = await storage.loadMaterializedCards();
-    expect(remaining).toHaveLength(1);
-    expect(remaining[0]?.id).toBe('c1');
-    expect(remaining[0]?.due).toBe(5000);
+  it('round-trips the local snapshot, sync cursor/config and kv, and clearAll empties them', async () => {
+    const storage = createTestStorage('kv');
 
     // Sync cursor, sync config, kv, and local snapshot round-trip
     const cursor = { ...createInitialSyncCursor('col-1'), lastPushedSeq: 5 };
@@ -185,12 +155,104 @@ describe('DexieStorage v2 unit tests (fake-indexeddb)', () => {
     expect(loadedSnap?.snapshot.watermarks).toEqual({ 'dev-a': 5 });
 
     await storage.clearAll();
-    expect(await storage.loadMaterializedCards()).toHaveLength(0);
     expect(await storage.getLocalSnapshot()).toBeUndefined();
     expect(await storage.getSyncCursor()).toBeUndefined();
     expect(await storage.getSyncConfig()).toBeUndefined();
 
     storage.close();
+  });
+});
+
+/** The stores of the v3 schema, as the builds before P5 declare them. */
+const V3_STORES = {
+  events: 'id, [device+seq], hlc, type, card_id, local_seq',
+  cards_cache: 'id, deck_id, due',
+  meta: 'key',
+  media: 'hash',
+  snapshots: 'key',
+  kv: 'key',
+  backups: 'backup_id, created_at',
+  backup_blobs: 'id',
+};
+
+describe('v4: the unread card cache is emptied (P5)', () => {
+  const cacheRow = { id: 'c1', deck_id: 'd1', note_id: 'n1', layout_id: 'l1', due: 1000 };
+
+  it('upgrades a v3 database without touching events, snapshot or kv', async () => {
+    const slug = `upgrade-v4-${Date.now()}`;
+    const dbName = `flashcards-db-${slug}`;
+    createdDbs.push(dbName);
+
+    // A v3 database as a pre-P5 build leaves it: two events, a snapshot, a filled card cache.
+    const v3 = new Dexie(dbName);
+    v3.version(3).stores(V3_STORES);
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', 1_760_000_000_000));
+    const ev1 = factory.create(
+      'PreferencesChanged',
+      { preferences: { day_start_hour: 4 } },
+      1_760_000_000_000,
+    );
+    const ev2 = factory.create(
+      'PreferencesChanged',
+      { preferences: { day_start_hour: 5 } },
+      1_760_000_001_000,
+    );
+    await v3.table('events').bulkPut([
+      { ...ev1, local_seq: 1 },
+      { ...ev2, local_seq: 2 },
+    ]);
+    await v3.table('kv').put({ key: '__local_seq_counter', value: 2 });
+    const snapshot = serializeCollectionState(applyEvents(createEmptyState(), [ev1]), {
+      'dev-a': 1,
+    });
+    await v3
+      .table('snapshots')
+      .put({ key: 'latest', value: { snapshot, localSeq: 1, savedAt: 7 } });
+    await v3.table('cards_cache').bulkPut([cacheRow, { ...cacheRow, id: 'c2' }]);
+    v3.close();
+
+    const storage = new DexieStorage(slug);
+    expect((await storage.getAllEvents()).map((e) => e.id)).toEqual([ev1.id, ev2.id]);
+    expect(await storage.getMaxLocalSeq()).toBe(2);
+    const snap = await storage.getLocalSnapshot();
+    expect(snap?.localSeq).toBe(1);
+    expect(snap?.snapshot.watermarks).toEqual({ 'dev-a': 1 });
+    const delta = await storage.getEventsAfterLocalSeq(1);
+    expect(delta.events.map((e) => e.id)).toEqual([ev2.id]);
+
+    // New events keep counting from the stored local_seq.
+    const ev3 = factory.create(
+      'PreferencesChanged',
+      { preferences: { day_start_hour: 6 } },
+      1_760_000_002_000,
+    );
+    await storage.appendEvents([ev3]);
+    expect((await storage.getEventsAfterLocalSeq(2)).maxLocalSeq).toBe(3);
+    storage.close();
+
+    const raw = await new Dexie(dbName).open();
+    expect(raw.verno).toBe(4);
+    expect(await raw.table('cards_cache').count()).toBe(0);
+    raw.close();
+  });
+
+  it('lets a stale tab on a v3 build still open the upgraded database and write its cache', async () => {
+    const storage = createTestStorage('stale-tab');
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', 1_760_000_000_000));
+    const ev = factory.create('PreferencesChanged', { preferences: {} }, 1_760_000_000_000);
+    await storage.appendEvents([ev]);
+    storage.close();
+
+    // A PWA tab not yet reloaded onto this build declares v3; Dexie opens the v4 database anyway.
+    const stale = new Dexie(storage.dbName);
+    stale.version(3).stores(V3_STORES);
+    await stale.open();
+    // Dexie stores version n as IndexedDB version n * 10.
+    expect(stale.backendDB().version).toBe(40);
+    await stale.table('cards_cache').put(cacheRow);
+    expect(await stale.table('cards_cache').count()).toBe(1);
+    expect(await stale.table('events').count()).toBe(1);
+    stale.close();
   });
 });
 
