@@ -63,6 +63,12 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
   // Where the closing quote fell: spaces after it are not content, so they go (C17).
   let quoteEnd = -1;
   let inQuotes = false;
+  // Where the current field's opening quote is, and an opening quote that turned out not to be
+  // one: it never closed, or text follows its closing quote (C1). That quote is read again as a
+  // plain character, so a lone `"` (say one closed by a curly `”`) no longer swallows the rows
+  // after it, and `"philopon", methamphetamine` keeps its quotes in a TSV.
+  let quoteStart = -1;
+  let literalQuoteAt = -1;
   const endField = () => {
     if (quoteEnd >= 0) field = field.slice(0, quoteEnd) + field.slice(quoteEnd).trimEnd();
     row.push(field);
@@ -70,6 +76,18 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
     field = '';
     fieldQuoted = false;
     quoteEnd = -1;
+    quoteStart = -1;
+  };
+  /** Reparses the field from its opening quote, as plain text. Returns where to resume. */
+  const unquote = (): number => {
+    const at = quoteStart;
+    literalQuoteAt = at;
+    field = '';
+    fieldQuoted = false;
+    quoteEnd = -1;
+    quoteStart = -1;
+    inQuotes = false;
+    return at - 1;
   };
   const endRow = () => {
     endField();
@@ -79,7 +97,12 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
     rowQuoted = [];
   };
 
-  for (let i = 0; i < input.length; i++) {
+  for (let i = 0; ; i++) {
+    if (i >= input.length) {
+      if (!inQuotes) break;
+      i = unquote();
+      continue;
+    }
     const ch = input[i];
     if (ch === undefined) continue;
     if (inQuotes) {
@@ -95,9 +118,10 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
         field += ch;
       }
     } else {
-      if (ch === '"' && field.length === 0) {
+      if (ch === '"' && field.length === 0 && i !== literalQuoteAt) {
         inQuotes = true;
         fieldQuoted = true;
+        quoteStart = i;
       } else if (ch === delimiter) {
         endField();
       } else if (ch === '\r') {
@@ -105,6 +129,8 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
         endRow();
       } else if (ch === '\n') {
         endRow();
+      } else if (quoteEnd >= 0 && !/\s/.test(ch)) {
+        i = unquote();
       } else {
         field += ch;
       }
