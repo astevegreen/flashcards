@@ -395,24 +395,6 @@ export function AppProvider({
       buildWatermarks(metaRef.current.deviceId, metaRef.current.seq, initialSyncCursor),
     ),
   );
-  const syncRuntime = (
-    <LazySyncRuntime
-      shell={syncController}
-      platform={platform}
-      stateRef={stateRef}
-      metaRef={metaRef}
-      factoryRef={factoryRef}
-      {...(initialSyncConfig !== undefined ? { initialSyncConfig } : {})}
-      {...(initialSyncCursor !== undefined ? { initialSyncCursor } : {})}
-      enqueuePersist={enqueuePersist}
-      lastLocalSnapshotCountRef={lastLocalSnapshotCountRef}
-      {...(startedAtMs !== undefined ? { startedAtMs } : {})}
-      onStateMutated={handleRemoteStateMutated}
-      onReplaceState={handleReplaceState}
-      syncState={syncState}
-      setSyncState={setSyncState}
-    />
-  );
 
   const emitEvents = useCallback(
     (events: readonly KnownEvent[]) => {
@@ -516,6 +498,27 @@ export function AppProvider({
   const backfillDoneRef = useRef(false);
   const emitEventsRef = useRef(emitEvents);
   emitEventsRef.current = emitEvents;
+  // After `emitEventsRef`: SyncRuntime also hosts the launch-time starter-deck upgrade.
+  const syncRuntime = (
+    <LazySyncRuntime
+      emitEventsRef={emitEventsRef}
+      shell={syncController}
+      platform={platform}
+      stateRef={stateRef}
+      metaRef={metaRef}
+      factoryRef={factoryRef}
+      {...(initialSyncConfig !== undefined ? { initialSyncConfig } : {})}
+      {...(initialSyncCursor !== undefined ? { initialSyncCursor } : {})}
+      enqueuePersist={enqueuePersist}
+      lastLocalSnapshotCountRef={lastLocalSnapshotCountRef}
+      {...(startedAtMs !== undefined ? { startedAtMs } : {})}
+      onStateMutated={handleRemoteStateMutated}
+      onReplaceState={handleReplaceState}
+      syncState={syncState}
+      setSyncState={setSyncState}
+    />
+  );
+
   useEffect(() => {
     if (!backfillReady || backfillDoneRef.current) return;
     backfillDoneRef.current = true;

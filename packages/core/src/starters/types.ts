@@ -52,3 +52,10 @@ export interface StarterDeckContent {
   slug: string;
   notes: StarterNote[];
 }
+
+/**
+ * The gloss each reworded starter note showed in 1.0.0, before the 1.1.0 gloss overrides:
+ * `{ [deckSlug]: { [noteKey]: gloss } }` (generated, see `glossesBeforeOverrides` in
+ * scripts/starters/lib.mjs). Read only by the starter-deck upgrade.
+ */
+export type StarterLegacyGlosses = Readonly<Record<string, Readonly<Record<string, string>>>>;

@@ -61,6 +61,10 @@
       "types": "./src/starters/index.ts",
       "default": "./src/starters/index.ts"
     },
+    "./starter-upgrade": {
+      "types": "./src/starters/upgrade.ts",
+      "default": "./src/starters/upgrade.ts"
+    },
     "./snapshot": {
       "types": "./src/events/snapshot.ts",
       "default": "./src/events/snapshot.ts"
