@@ -24,7 +24,7 @@ const USAGE =
 function readPrivateKey(file) {
   let privateKey;
   try {
-    // NOSONAR: the owner names their own key file, and nothing read from it is printed.
+    // Suppressed below: the owner names their own key file, and nothing read from it is printed.
     const pem = readFileSync(file); // NOSONAR (jssecurity:S8707)
     privateKey = createPrivateKey(pem);
   } catch (err) {
