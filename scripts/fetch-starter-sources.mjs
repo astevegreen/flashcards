@@ -22,12 +22,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  canonicalLexemeJson,
-  compareLexemeIds,
-  normalizeLexeme,
-  parseNiklList,
-} from './starters/lib.mjs';
+import { fetchLexeme } from './starters/lexeme-cache.mjs';
+import { compareLexemeIds, parseNiklList } from './starters/lib.mjs';
 import { NIKL_VOCAB, UNICODE_LICENSE, UNIHAN, USER_AGENT, WIKIDATA } from './starters/sources.mjs';
 import { unzipSync } from 'fflate';
 
@@ -130,40 +126,6 @@ async function discoverLexemes(niklText) {
     .map(([id, revision]) => ({ id, revision }));
 }
 
-/** Checks one lexeme revision against its pin; returns the pin with its normalized sha256. */
-function verifyLexeme(pin, buf) {
-  const normalized = normalizeLexeme(JSON.parse(buf.toString('utf8')), pin.id);
-  if (normalized.revision !== pin.revision) {
-    throw new Error(`${pin.id}: got revision ${normalized.revision}, pinned ${pin.revision}`);
-  }
-  const hash = sha256Hex(canonicalLexemeJson(normalized));
-  if (pin.sha256 && hash !== pin.sha256) {
-    throw new Error(`${pin.id}@${pin.revision}: normalized sha256 ${hash} ≠ pinned ${pin.sha256}`);
-  }
-  return { ...pin, sha256: hash };
-}
-
-/**
- * Like fetchPinned: a cached revision that no longer verifies is downloaded again, and a download
- * is written to the cache only after it verifies, so the cache never holds an unverified file.
- */
-async function fetchLexeme(pin, dir, force) {
-  const dest = join(dir, 'wikidata', `${pin.id}-r${pin.revision}.json`);
-  if (!force && existsSync(dest)) {
-    try {
-      return verifyLexeme(pin, readFileSync(dest));
-    } catch (err) {
-      console.warn(
-        `! ${pin.id}: cached copy failed verification, downloading again (${err.message})`,
-      );
-    }
-  }
-  const buf = await download(WIKIDATA.entityDataUrl(pin.id, pin.revision));
-  const verified = verifyLexeme(pin, buf);
-  writeFileSync(dest, buf);
-  return verified;
-}
-
 /** Fetches pinned lexeme revisions a few at a time (Wikimedia asks clients to stay gentle). */
 async function fetchLexemes(pins, dir, force) {
   const out = new Array(pins.length);
@@ -171,7 +133,9 @@ async function fetchLexemes(pins, dir, force) {
   const worker = async () => {
     while (next < pins.length) {
       const i = next++;
-      out[i] = await fetchLexeme(pins[i], dir, force);
+      out[i] = await fetchLexeme(pins[i], dir, force, (pin) =>
+        download(WIKIDATA.entityDataUrl(pin.id, pin.revision)),
+      );
     }
   };
   await Promise.all([worker(), worker(), worker()]);

@@ -12,7 +12,8 @@
  *       Tiny attributed dev/CI fixtures (default out: apps/web/public/packs/). Never needs network.
  *       `--check` rebuilds into a temporary folder and fails unless every file in the out folder
  *       matches the rebuild (no file missing, extra or different; `.gz` files are compared after
- *       decompression, since zlib builds differ); it writes nothing.
+ *       decompression and packs.json without `compressed_bytes`, since zlib builds differ, and
+ *       each `compressed_bytes` must match its committed file); it writes nothing.
  *   node scripts/fetch-upstream-packs.mjs && node scripts/build-packs.mjs --full
  *       [--input <upstream-dir>] [--out <dir>] [--base-url <https-url>] [--skip-jmdict] [--no-char-files]
  *       Real packs from upstream open data (default input: .cache/upstream-open-data/, default out:
@@ -1802,15 +1803,41 @@ function listFiles(dir, root = dir) {
 }
 
 /**
- * A file's content for the check: gzip output differs between zlib builds (Node versions, CPU
- * paths), so a `.gz` file is compared by what it decompresses to; every other file byte for byte.
+ * A file's content for the check. gzip output differs between zlib builds (Node versions, CPU
+ * paths), so a `.gz` file is compared by what it decompresses to, and `packs.json` without its
+ * `compressed_bytes` (checked against the folder's own `.gz` files instead, see catalogProblems).
+ * Every other file is compared byte for byte.
  */
 function checkedContent(file) {
   const bytes = readFileSync(file);
-  return file.endsWith('.gz') ? gunzipSync(bytes) : bytes;
+  if (file.endsWith('.gz')) return gunzipSync(bytes);
+  if (file.endsWith('packs.json')) {
+    const catalog = JSON.parse(bytes.toString('utf8'));
+    return Buffer.from(
+      JSON.stringify(catalog, (k, v) => (k === 'compressed_bytes' ? undefined : v)),
+    );
+  }
+  return bytes;
 }
 
-/** Problems that keep `actualDir` from being an identical copy of `expectedDir`. */
+/** Each pack's `compressed_bytes` in `dir`/packs.json must be the size of its file in `dir`. */
+function catalogProblems(dir) {
+  const path = join(dir, 'packs.json');
+  if (!existsSync(path)) return [];
+  const problems = [];
+  for (const pack of JSON.parse(readFileSync(path, 'utf8')).packs ?? []) {
+    const file = join(dir, String(pack.url).split('/').pop());
+    const size = existsSync(file) ? readFileSync(file).byteLength : undefined;
+    if (size !== pack.compressed_bytes) {
+      problems.push(
+        `packs.json: ${pack.id} compressed_bytes ${pack.compressed_bytes}, file has ${size}`,
+      );
+    }
+  }
+  return problems;
+}
+
+/** Problems that keep `actualDir` from matching `expectedDir` (see checkedContent). */
 function treeDifferences(expectedDir, actualDir) {
   const expected = listFiles(expectedDir);
   const actual = new Set(listFiles(actualDir));
@@ -1825,7 +1852,7 @@ function treeDifferences(expectedDir, actualDir) {
     actual.delete(file);
   }
   for (const file of actual) problems.push(`not produced by a rebuild: ${file}`);
-  return problems;
+  return [...problems, ...catalogProblems(actualDir)];
 }
 
 async function checkStarterPacks({ outDir, urlPrefix, sharding }) {
