@@ -25,12 +25,13 @@ export async function remoteWithSnapshot(t0: number, deck: DeckCreatedPayload) {
     currentTotalEvents: 1,
     snapshotThreshold: 1,
     nowMs: () => t0 + 10,
-    getLocalEventsAfterSeq: async (after) => events.filter((e) => e.seq > after),
-    buildSnapshotState: async () => ({
-      state: serializeCollectionState(stateB, { 'dev-b': 1 }),
-      totalEvents: getTotalAppliedEventCount(stateB),
-      watermarks: { 'dev-b': 1 },
-    }),
+    getLocalEventsAfterSeq: (after) => Promise.resolve(events.filter((e) => e.seq > after)),
+    buildSnapshotState: () =>
+      Promise.resolve({
+        state: serializeCollectionState(stateB, { 'dev-b': 1 }),
+        totalEvents: getTotalAppliedEventCount(stateB),
+        watermarks: { 'dev-b': 1 },
+      }),
   });
   expect([...transport.files.keys()].some((p) => p.startsWith(snapshotsPrefix()))).toBe(true);
   return transport;
