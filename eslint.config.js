@@ -7,7 +7,8 @@ import tseslint from 'typescript-eslint';
 // files when the full set was turned on (review finding T3, 25 Nov 2026). Each listed rule is off
 // in that file only; new files and every other rule are checked in full. Fixing a file means
 // deleting its rule (or its line) here; never add a file or a rule to this list.
-const REACT_COMPILER_BASELINE = {
+// tools/eslint-baseline.test.mjs pins its size, so it can only shrink.
+export const REACT_COMPILER_BASELINE = {
   'FlashcardsApp.tsx': ['refs'],
   'backups/AutoBackupRuntime.tsx': ['refs'],
   'backups/BackupsPanel.tsx': ['refs', 'set-state-in-effect'],
@@ -87,7 +88,8 @@ export default tseslint.config(
   },
   // Type-aware promise rules for every TypeScript file: a promise must be awaited, handled, or
   // marked fire-and-forget with `void`, and never passed where a void callback or a condition is
-  // expected. Each file is typed by the tsconfig that typechecks it (src, tests, e2e).
+  // expected. Each file is typed by the tsconfig that typechecks it (src, tests, e2e). A new
+  // TypeScript file must sit inside one of these tsconfigs' `include`, or lint fails to parse it.
   {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {

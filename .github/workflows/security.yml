@@ -5,8 +5,8 @@ name: Security
 # yet: a newly published advisory for an untouched dependency would otherwise block every merge.
 #   - dependency-review: fails a pull request that adds or upgrades a dependency with a known
 #     vulnerability of any severity (the action's default; licences are not checked).
-#   - audit: `pnpm audit` over the whole lockfile, also weekly so a new advisory surfaces between
-#     pull requests.
+#   - audit: `pnpm audit --audit-level=moderate` over the whole lockfile, also weekly so a new
+#     advisory surfaces between pull requests.
 #   - codeql: CodeQL for the TypeScript/JavaScript sources and the workflows themselves. Rust,
 #     Kotlin/Java and Swift need their native builds and are left out.
 
@@ -54,9 +54,10 @@ jobs:
         with:
           node-version: 24
 
-      # Reads pnpm-lock.yaml only; no install needed. Fails on an advisory of any severity.
+      # Reads pnpm-lock.yaml only; no install needed. Fails on a moderate, high or critical
+      # advisory; low ones are listed but do not fail, so the job stays a signal worth reading.
       - name: pnpm audit
-        run: pnpm audit
+        run: pnpm audit --audit-level=moderate
 
   codeql:
     runs-on: ubuntu-latest
