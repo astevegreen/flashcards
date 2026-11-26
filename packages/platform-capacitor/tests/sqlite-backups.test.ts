@@ -1,8 +1,8 @@
 import type { StoredBackupInfo } from '@flash/platform';
-import initSqlJs from 'sql.js';
 import { describe, expect, it } from 'vitest';
 import { CapacitorSqliteStorage, type SqliteDriver } from '../src/storage/sqlite-storage.ts';
 import { InMemorySqliteDriver } from './support/in-memory-sqlite-driver.ts';
+import { sqlJsDriver } from './support/sql-js-driver.ts';
 
 /** Mirrors `SNAPSHOT_CHUNK_CHARS` in sqlite-storage.ts. */
 const SNAPSHOT_CHUNK_CHARS = 512 * 1024;
@@ -20,25 +20,6 @@ function info(id: string, createdAt: number): StoredBackupInfo {
     media_hashes: ['ab'.repeat(32)],
     media_included: true,
     size_bytes: 3,
-  };
-}
-
-/** A real SQLite engine (sql.js) behind the driver, so the SQL itself is exercised. */
-async function sqlJsDriver(): Promise<SqliteDriver> {
-  const SQL = await initSqlJs();
-  const db = new SQL.Database();
-  return {
-    execute: async (sql, params = []) => {
-      db.run(sql, params as never);
-    },
-    query: async <T>(sql: string, params: readonly unknown[] = []) => {
-      const stmt = db.prepare(sql);
-      stmt.bind(params as never);
-      const rows: T[] = [];
-      while (stmt.step()) rows.push(stmt.getAsObject() as T);
-      stmt.free();
-      return rows;
-    },
   };
 }
 
@@ -190,6 +171,7 @@ function failingOnChunk(
       await driver.execute(sql, params);
     },
     query: (sql, params) => driver.query(sql, params),
+    executeBatch: (statements) => driver.executeBatch(statements),
   };
 }
 
@@ -243,6 +225,7 @@ describe.each([
         }
         return driver.query(sql, params);
       },
+      executeBatch: (statements) => driver.executeBatch(statements),
     });
     expect(await storage.getLocalSnapshot()).toBeUndefined();
   });

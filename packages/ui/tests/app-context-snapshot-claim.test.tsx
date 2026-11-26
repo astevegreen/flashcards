@@ -19,8 +19,19 @@ afterEach(async () => {
 });
 
 describe('a local edit whose snapshot write fails gives the counter back (R10)', () => {
-  it('lets the next edit take the snapshot instead of waiting another 200 events', async () => {
+  it.each([
+    ['appendEvents then setDeviceMeta', false],
+    ['appendEventsWithMeta (one transaction)', true],
+  ])('lets the next edit take the snapshot after a failed %s', async (_path, withMeta) => {
     const storage = createMemoryStorage();
+    if (withMeta) {
+      const appendedWithMeta: unknown[] = [];
+      storage.appendEventsWithMeta = async (events) => {
+        if (storage.failAppend) throw storage.failAppend;
+        appendedWithMeta.push(events);
+      };
+      storage.appendEvents = () => Promise.reject(new Error('the one-transaction path is used'));
+    }
     const saved: unknown[] = [];
     storage.setLocalSnapshot = async (s) => {
       saved.push(s);
@@ -47,18 +58,22 @@ describe('a local edit whose snapshot write fails gives the counter back (R10)',
       await flush();
     };
 
-    // Due, but the snapshot code is not loaded yet: this edit only loads it.
+    // Due: the first time, this edit may only load the snapshot code; the next one snapshots.
     await emit(LOCAL_SNAPSHOT_EVERY_EVENTS);
-    expect(saved).toHaveLength(0);
+    await emit(1);
+    expect(saved.length).toBeGreaterThan(0);
+    const before = saved.length;
 
+    // Due again, and its write fails: no snapshot is saved.
     vi.spyOn(console, 'error').mockImplementation(() => {});
     storage.failAppend = new Error('QuotaExceededError');
-    await emit(1);
+    await emit(LOCAL_SNAPSHOT_EVERY_EVENTS);
     expect(m.app().persistFailed).toBe(true);
-    expect(saved).toHaveLength(0);
+    expect(saved).toHaveLength(before);
 
+    // The claim came back, so the very next edit takes it.
     storage.failAppend = undefined;
     await emit(1);
-    expect(saved).toHaveLength(1);
+    expect(saved).toHaveLength(before + 1);
   });
 });

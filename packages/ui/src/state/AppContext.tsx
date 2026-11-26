@@ -430,10 +430,15 @@ export function AppProvider({
       }
 
       void enqueuePersist(async () => {
+        const storage = platform.storage;
         try {
-          await platform.storage.appendEvents(events);
-          await platform.storage.setDeviceMeta(nextMeta);
-          if (snapshot) await saveLocalSnapshot(platform.storage, startedAtMs, snapshot);
+          if (storage.appendEventsWithMeta) {
+            await storage.appendEventsWithMeta(events, nextMeta);
+          } else {
+            await storage.appendEvents(events);
+            await storage.setDeviceMeta(nextMeta);
+          }
+          if (snapshot) await saveLocalSnapshot(storage, startedAtMs, snapshot);
         } catch (err) {
           releaseSnapshot?.();
           throw err;

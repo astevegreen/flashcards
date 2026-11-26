@@ -2,7 +2,11 @@
  * Pure TypeScript in-memory SQLite-table emulator for Node/Vitest tests (N9: test-only, never a
  * production fallback). It understands exactly the statements `CapacitorSqliteStorage` issues.
  */
-import type { SqliteDriver, StoredEventDbRow } from '../../src/storage/sqlite-storage.ts';
+import type {
+  SqlStatement,
+  SqliteDriver,
+  StoredEventDbRow,
+} from '../../src/storage/sqlite-storage.ts';
 
 /** A bound SQL parameter as text (strings as they are, anything else `String`-ed). */
 function paramText(value: unknown, fallback: string): string {
@@ -23,6 +27,25 @@ export class InMemorySqliteDriver implements SqliteDriver {
   private backupChunks = new Map<string, string>();
   /** `local_snapshot_chunks`, keyed by `${gen}\u0000${idx}`. */
   private snapshotChunks = new Map<string, string>();
+
+  /** All or nothing: on a failure every table goes back to how it was before the batch. */
+  async executeBatch(statements: readonly SqlStatement[]): Promise<void> {
+    const saved = {
+      events: [...this.events],
+      nextLocalSeq: this.nextLocalSeq,
+      media: new Map(this.media),
+      kv: new Map(this.kv),
+      backups: new Map(this.backups),
+      backupChunks: new Map(this.backupChunks),
+      snapshotChunks: new Map(this.snapshotChunks),
+    };
+    try {
+      for (const { sql, params } of statements) await this.execute(sql, params);
+    } catch (err) {
+      Object.assign(this, saved);
+      throw err;
+    }
+  }
 
   async execute(sql: string, params: readonly unknown[] = []): Promise<void> {
     const norm = sql.trim().replace(/\s+/g, ' ');
