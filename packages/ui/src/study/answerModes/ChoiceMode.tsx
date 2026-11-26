@@ -1,38 +1,51 @@
 import { generateChoiceOptions } from '@flash/core/choice';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RichText } from '../../components/RichText.tsx';
-import { useApp } from '../../state/AppContext.tsx';
-import { CardFieldValue, RevealedBackSteps } from './CardFieldValue.tsx';
+import type { Layout, Note } from '@flash/core';
+import { FrontFields, RevealedAnswer } from './AnswerShell.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
-import { cardTextFitClass } from '../fitText.ts';
 
-function ChoiceModeView({
-  state,
-  card,
-  note,
-  deck,
-  layout,
-  fieldMetaByKey,
-  populatedRevealSteps,
-  revealStep,
-  isRevealed,
-  isFullyRevealed,
-  hideFrontRuby,
-  pinyinToneColors,
-  studyDayIndex,
-  onEvaluateAndReveal,
-}: AnswerModeRenderProps) {
-  const { stateVersion } = useApp();
+/** What a choice question depends on besides the distractor pool (§11 nit). */
+export function choiceQuestionKey(
+  cardId: string,
+  studyDayIndex: number,
+  note: Pick<Note, 'fields'>,
+  layout: Pick<Layout, 'answer_field' | 'reveal_steps' | 'ruby_display'>,
+): string {
+  return JSON.stringify([
+    cardId,
+    studyDayIndex,
+    note.fields,
+    layout.answer_field ?? null,
+    layout.reveal_steps[0] ?? [],
+    layout.ruby_display ?? null,
+  ]);
+}
+
+function ChoiceModeView(props: AnswerModeRenderProps) {
+  const {
+    state,
+    card,
+    note,
+    layout,
+    isRevealed,
+    pinyinToneColors,
+    studyDayIndex,
+    onEvaluateAndReveal,
+  } = props;
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
 
   useEffect(() => {
     setSelectedOptionId(null);
   }, [card.id]);
 
+  // Rebuild the options only when this card's own question changes: a sync that lands
+  // mid-question adds or edits other notes and would otherwise reshuffle the distractors.
+  const questionKey = choiceQuestionKey(card.id, studyDayIndex, note, layout);
   const question = useMemo(
     () => generateChoiceOptions(state, card, studyDayIndex),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, stateVersion, card.id, studyDayIndex],
+    [questionKey],
   );
 
   const handleSelectOption = useCallback(
@@ -82,33 +95,7 @@ function ChoiceModeView({
 
   return (
     <>
-      <div className="flex w-full max-w-2xl flex-col items-center gap-3 pt-4">
-        {layout.front_fields.map((fieldKey, idx) => {
-          const value = note.fields[fieldKey];
-          if (!value) return null;
-          const meta = fieldMetaByKey.get(fieldKey);
-          return (
-            <div
-              key={fieldKey}
-              data-testid={`front-field-${fieldKey}`}
-              className={
-                idx === 0
-                  ? `whitespace-pre-wrap font-semibold tracking-tight ${cardTextFitClass(value, 'answer', layout.ruby_display)}`
-                  : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail', layout.ruby_display)}`
-              }
-            >
-              <CardFieldValue
-                fieldKey={fieldKey}
-                value={value}
-                meta={meta}
-                fallbackLang={deck.language}
-                hideRuby={hideFrontRuby}
-                pinyinToneColors={pinyinToneColors}
-              />
-            </div>
-          );
-        })}
-      </div>
+      <FrontFields {...props} fit="answer" />
 
       {question.options.length >= 2 ? (
         <div
@@ -179,18 +166,7 @@ function ChoiceModeView({
         </div>
       )}
 
-      {isRevealed && (
-        <RevealedBackSteps
-          populatedRevealSteps={populatedRevealSteps}
-          revealStep={revealStep}
-          isFullyRevealed={isFullyRevealed}
-          fields={note.fields}
-          tags={note.tags}
-          fieldMetaByKey={fieldMetaByKey}
-          fallbackLang={deck.language}
-          pinyinToneColors={pinyinToneColors}
-        />
-      )}
+      <RevealedAnswer {...props} />
     </>
   );
 }

@@ -1,26 +1,13 @@
 import { Suspense } from 'react';
 import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
-import { CardFieldValue, RevealedBackSteps } from './CardFieldValue.tsx';
+import { FrontFields, RevealedAnswer } from './AnswerShell.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
-import { cardTextFitClass } from '../fitText.ts';
 
 const LazyTypedAnswerPanel = lazyWithRetry(() => import('./TypedAnswerPanel.tsx'));
 
-function TypedModeView({
-  card,
-  note,
-  deck,
-  layout,
-  noteType,
-  fieldMetaByKey,
-  populatedRevealSteps,
-  revealStep,
-  isRevealed,
-  isFullyRevealed,
-  hideFrontRuby,
-  pinyinToneColors,
-  onEvaluateAndReveal,
-}: AnswerModeRenderProps) {
+function TypedModeView(props: AnswerModeRenderProps) {
+  const { card, note, deck, layout, noteType, fieldMetaByKey, isRevealed, onEvaluateAndReveal } =
+    props;
   const step0 = layout.reveal_steps[0] ?? [];
   const nonMediaStep0 = step0.filter((k) => {
     const f = noteType?.fields.find((nf) => nf.key === k);
@@ -43,33 +30,7 @@ function TypedModeView({
 
   return (
     <>
-      <div className="flex w-full max-w-2xl flex-col items-center gap-3 pt-4">
-        {layout.front_fields.map((fieldKey, idx) => {
-          const value = note.fields[fieldKey];
-          if (!value) return null;
-          const meta = fieldMetaByKey.get(fieldKey);
-          return (
-            <div
-              key={fieldKey}
-              data-testid={`front-field-${fieldKey}`}
-              className={
-                idx === 0
-                  ? `whitespace-pre-wrap font-semibold tracking-tight ${cardTextFitClass(value, 'answer', layout.ruby_display)}`
-                  : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail', layout.ruby_display)}`
-              }
-            >
-              <CardFieldValue
-                fieldKey={fieldKey}
-                value={value}
-                meta={meta}
-                fallbackLang={deck.language}
-                hideRuby={hideFrontRuby}
-                pinyinToneColors={pinyinToneColors}
-              />
-            </div>
-          );
-        })}
-      </div>
+      <FrontFields {...props} fit="answer" />
 
       <Suspense
         fallback={<div className="text-xs text-[var(--muted)]">Loading typed matcher…</div>}
@@ -85,18 +46,7 @@ function TypedModeView({
         />
       </Suspense>
 
-      {isRevealed && (
-        <RevealedBackSteps
-          populatedRevealSteps={populatedRevealSteps}
-          revealStep={revealStep}
-          isFullyRevealed={isFullyRevealed}
-          fields={note.fields}
-          tags={note.tags}
-          fieldMetaByKey={fieldMetaByKey}
-          fallbackLang={deck.language}
-          pinyinToneColors={pinyinToneColors}
-        />
-      )}
+      <RevealedAnswer {...props} />
     </>
   );
 }

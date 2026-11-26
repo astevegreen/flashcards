@@ -1,21 +1,10 @@
 import { resolveCardAudioTarget } from '@flash/core';
 import { useApp } from '../../state/AppContext.tsx';
-import { RevealedBackSteps } from './CardFieldValue.tsx';
+import { RevealedAnswer } from './AnswerShell.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 
-function ListenModeView({
-  note,
-  deck,
-  layout,
-  noteType,
-  fieldMetaByKey,
-  populatedRevealSteps,
-  revealStep,
-  isRevealed,
-  isFullyRevealed,
-  pinyinToneColors,
-  onSpeak,
-}: AnswerModeRenderProps) {
+function ListenModeView(props: AnswerModeRenderProps) {
+  const { note, deck, layout, noteType, onSpeak } = props;
   const { audio } = useApp();
   const target = resolveCardAudioTarget(note, layout, noteType, deck);
   const audioAvailable = audio.canPlayAnyAudio(target);
@@ -60,19 +49,7 @@ function ListenModeView({
         )}
       </div>
 
-      {isRevealed && (
-        <RevealedBackSteps
-          populatedRevealSteps={populatedRevealSteps}
-          revealStep={revealStep}
-          isFullyRevealed={isFullyRevealed}
-          fields={note.fields}
-          tags={note.tags}
-          fieldMetaByKey={fieldMetaByKey}
-          fallbackLang={deck.language}
-          pinyinToneColors={pinyinToneColors}
-          extraFrontFields={layout.front_fields}
-        />
-      )}
+      <RevealedAnswer {...props} showFrontFields />
     </>
   );
 }
