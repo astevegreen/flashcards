@@ -20,7 +20,6 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -30,6 +29,7 @@ import {
   parseNiklList,
 } from './starters/lib.mjs';
 import { NIKL_VOCAB, UNICODE_LICENSE, UNIHAN, USER_AGENT, WIKIDATA } from './starters/sources.mjs';
+import { unzipSync } from 'fflate';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -81,8 +81,6 @@ async function fetchPinned(source, dir, force) {
 const UNIHAN_TABLES = [UNIHAN.readingsFile, UNIHAN.variantsFile];
 
 function extractUnihanTables(zip, dir) {
-  const require = createRequire(join(REPO_ROOT, 'packages', 'core', 'package.json'));
-  const { unzipSync } = require('fflate');
   const files = unzipSync(zip, { filter: (f) => UNIHAN_TABLES.includes(f.name.split('/').pop()) });
   for (const table of UNIHAN_TABLES) {
     const entry = Object.entries(files).find(([name]) => name.split('/').pop() === table);

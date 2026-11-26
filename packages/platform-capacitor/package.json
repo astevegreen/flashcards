@@ -34,5 +34,10 @@
     "@flash/core": "workspace:*",
     "@flash/platform": "workspace:*",
     "@flash/platform-web": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "sql.js": "^1.17.0",
+    "vitest": "^5.1.1"
   }
 }

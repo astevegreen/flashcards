@@ -28,9 +28,9 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { unzipSync } from 'fflate';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -90,8 +90,6 @@ function prepareManualKrdict(opts, sources) {
   const list = () => readdirSync(dir, { recursive: true }).map(String);
   const zips = list().filter((f) => /\.zip$/i.test(f));
   if (zips.length > 0) {
-    const require = createRequire(join(REPO_ROOT, 'packages', 'core', 'package.json'));
-    const { unzipSync } = require('fflate');
     for (const zip of zips) {
       const files = unzipSync(readFileSync(join(dir, zip)), {
         filter: (f) => /\.xml$/i.test(f.name) && !f.name.includes('..'),
@@ -149,8 +147,6 @@ function prepareManualExtraKoreanPack(opts, sources, cfg) {
   const list = () => readdirSync(dir, { recursive: true }).map(String);
   const zips = list().filter((f) => /\.zip$/i.test(f));
   if (zips.length > 0) {
-    const require = createRequire(join(REPO_ROOT, 'packages', 'core', 'package.json'));
-    const { unzipSync } = require('fflate');
     for (const zip of zips) {
       const files = unzipSync(readFileSync(join(dir, zip)), {
         filter: (f) => cfg.fileRe.test(f.name) && !f.name.includes('..'),
@@ -274,8 +270,6 @@ async function main() {
   const unihanDir = join(opts.dir, 'unihan');
   const wanted = ['Unihan_Readings.txt', 'Unihan_IRGSources.txt', 'Unihan_Variants.txt'];
   if (opts.force || wanted.some((f) => !existsSync(join(unihanDir, f)))) {
-    const require = createRequire(join(REPO_ROOT, 'packages', 'core', 'package.json'));
-    const { unzipSync } = require('fflate');
     const files = unzipSync(readFileSync(join(rawDir, 'Unihan.zip')), {
       filter: (f) => wanted.includes(f.name.split('/').pop()),
     });
