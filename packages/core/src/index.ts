@@ -7,6 +7,7 @@ export { compareHlc, createHlcState, formatHlc, tickHlc, type HlcState } from '.
 export * from './hlc-merge.ts';
 export * from './model/types.ts';
 export * from './model/presets.ts';
+export * from './model/deck-note-type.ts';
 export * from './model/optional-cards.ts';
 export * from './model/note-fields.ts';
 export * from './events/types.ts';
@@ -74,6 +75,7 @@ export * from './audio/tts.ts';
 export * from './samples/decks.ts';
 export * from './languages/active-languages.ts';
 export * from './languages/pack-languages.ts';
+export * from './languages/guess-script.ts';
 export * from './sync/types.ts';
 // Note: csv, flashpkg, and sync are also exported via subpath exports (`@flash/core/csv`,
 // `@flash/core/flashpkg`, `@flash/core/sync`) to keep initial study-screen bundles lean (§8),

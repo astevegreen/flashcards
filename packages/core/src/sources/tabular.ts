@@ -1,3 +1,4 @@
+import { guessLanguageFromText } from '../languages/guess-script.ts';
 import { isStrictHttpsUrl } from '@flash/content-schema';
 import type { CollectionState, EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
@@ -267,6 +268,7 @@ export function parseImageCellValue(
 export function inferPresetNoteTypeId(
   headers: readonly string[],
   fallbackNoteTypeId: string = BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+  rows: readonly (readonly string[])[] = [],
 ): { noteTypeId: string; language: string } {
   const norms = new Set(headers.map((h) => h.trim().toLowerCase()));
   if (norms.has('eumhun') || norms.has('eumhun (음훈)') || norms.has('character')) {
@@ -282,7 +284,13 @@ export function inferPresetNoteTypeId(
     return { noteTypeId: BUILTIN_NOTE_TYPE_IDS.GRAMMAR, language: 'ko' };
   }
   if (norms.has('sentence') || norms.has('translation')) {
-    return { noteTypeId: BUILTIN_NOTE_TYPE_IDS.SENTENCE, language: 'en' };
+    // The Sentence type fits any language, so the sentences themselves say which one (C8).
+    const col = headers.findIndex((h) => h.trim().toLowerCase() === 'sentence');
+    const sample = col >= 0 ? rows.map((r) => r[col] ?? '') : [];
+    return {
+      noteTypeId: BUILTIN_NOTE_TYPE_IDS.SENTENCE,
+      language: guessLanguageFromText(sample) ?? 'en',
+    };
   }
   if (norms.has('reading')) {
     return { noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_JA, language: 'ja' };

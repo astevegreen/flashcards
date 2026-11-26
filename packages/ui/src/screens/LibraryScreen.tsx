@@ -18,6 +18,7 @@ import {
   type NoteType,
   type Page,
   type SpeakTiming,
+  deckNoteType,
 } from '@flash/core';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import { Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
@@ -1201,7 +1202,7 @@ export function LibraryScreen({
         {isExpanded && (
           <DeckOptionsPanel
             deck={deck}
-            noteType={state.noteTypes.get(deck.note_type_id)}
+            noteType={deckNoteType(state, deck)}
             onUpdateSettings={updateDeckSettings}
             onOpenDeckExport={openDeckExport}
             onArchiveDeck={handleArchiveDeck}

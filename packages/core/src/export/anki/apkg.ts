@@ -1,3 +1,4 @@
+import { deckNoteType } from '../../model/deck-note-type.ts';
 import {
   getEnabledLayoutsForDeck,
   isCardSuspended,
@@ -574,7 +575,7 @@ export function planAnkiApkgExport(
   const models = new Map<string, ModelBuild>();
   for (const deck of decks) {
     if (models.has(deck.note_type_id)) continue;
-    const noteType = state.noteTypes.get(deck.note_type_id);
+    const noteType = deckNoteType(state, deck);
     if (!noteType) continue;
     const sameType = decks.filter((d) => d.note_type_id === noteType.id);
     const notes = sameType.flatMap((d) => notesByDeck.get(d.id) ?? []);

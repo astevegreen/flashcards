@@ -312,11 +312,12 @@ function resolveDeckShape(
   state: CollectionState,
   source: CloudFileRow,
   existingDeck: Deck | undefined,
-  headers: readonly string[] | undefined,
+  grid: readonly (readonly string[])[],
 ): { noteType: NoteType; language: string } {
   const inferred = inferPresetNoteTypeId(
-    headers ? [...headers] : [],
+    grid[0] ? [...grid[0]] : [],
     source.noteTypeId ?? BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+    grid.slice(1),
   );
   const noteType = resolveNoteType(
     state,
@@ -386,7 +387,7 @@ async function pullTable<
   const fileId = p.idOf(source);
   const deckId = cloudFileDeckId(p.prefix, fileId, source.deckId);
   const existingDeck = state.decks.get(deckId);
-  const { noteType, language } = resolveDeckShape(state, source, existingDeck, grid[0]);
+  const { noteType, language } = resolveDeckShape(state, source, existingDeck, grid);
   const columnMap = resolveColumnMap(source, opts, existingDeck?.source);
 
   // Read-only, so rows are matched by their first field (like a linked local `.xlsx`).

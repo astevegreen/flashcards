@@ -2,6 +2,7 @@ import type { CollectionState, EventFactory, KnownEvent } from '@flash/core';
 import type { ColumnTarget } from '@flash/core/import-mapping';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import type { EntitlementState, PlatformServices } from '@flash/platform';
+import { describeImportWarnings } from './importWarnings.ts';
 import { putMediaListTracked } from '../state/recentMedia.ts';
 
 /**
@@ -93,5 +94,5 @@ export async function importFlashpkgBytes(
   assertCanAddDecks(ctx, Math.max(0, result.decksImported - result.upgradedDecks));
   await putMediaListTracked(ctx.platform.storage, result.extractedMedia);
   if (result.events.length > 0) ctx.emitEvents(result.events);
-  return `Imported "${result.manifest.name}" (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.pagesImported} page(s), ${result.upgradedDecks} upgraded).`;
+  return `Imported "${result.manifest.name}" (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.pagesImported} page(s), ${result.upgradedDecks} upgraded).${describeImportWarnings(result.warnings)}`;
 }

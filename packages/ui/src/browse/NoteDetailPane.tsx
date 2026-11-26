@@ -7,6 +7,7 @@ import {
   type CardStateKind,
   type Note,
   type NoteTypeField,
+  deckNoteType,
 } from '@flash/core';
 import { RichText } from '../components/RichText.tsx';
 import { useApp } from '../state/AppContext.tsx';
@@ -68,7 +69,7 @@ export interface NoteDetailPaneProps {
 export function NoteDetailPane({ note, onEdit }: Readonly<NoteDetailPaneProps>) {
   const { state } = useApp();
   const deck = state.decks.get(note.deck_id);
-  const noteType = deck ? state.noteTypes.get(deck.note_type_id) : undefined;
+  const noteType = deckNoteType(state, deck);
   const fields: NoteTypeField[] =
     noteType?.fields ??
     Object.keys(note.fields).map((key) => ({

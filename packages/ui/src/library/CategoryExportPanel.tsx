@@ -62,6 +62,7 @@ export function CategoryExportPanel({
   const { platform, state, stateVersion } = useApp();
   const [tag, setTag] = useState('');
   const [deckChoice, setDeckChoice] = useState('');
+  const [forOtherApps, setForOtherApps] = useState(false);
 
   const categories = useMemo(
     () => listCategories(state),
@@ -93,7 +94,11 @@ export function CategoryExportPanel({
     try {
       const { exportCsv } = await import('@flash/core/csv');
       const noteIds = categoryNoteIds(state, selectedTag, csvDeckOrOnly.id);
-      const result = exportCsv(state, { deckId: csvDeckOrOnly.id, noteIds });
+      const result = exportCsv(state, {
+        deckId: csvDeckOrOnly.id,
+        noteIds,
+        ...(forOtherApps ? { stripRichText: true } : {}),
+      });
       const file = `${slugify(csvDeckOrOnly.name, 'deck')}-${tagSlug}.csv`;
       await platform.files.downloadFile(file, encodeUtf8(result.text), 'text/csv');
       onStatus(`Exported ${notesText(result.noteCount)} in #${selectedTag} to ${file}.`);
@@ -186,6 +191,18 @@ export function CategoryExportPanel({
           >
             Export CSV
           </button>
+          <label
+            className="flex items-center gap-1 text-xs"
+            title="Plain text for Excel, Sheets or Numbers: drops formatting marks and stops cells running as formulas"
+          >
+            <input
+              type="checkbox"
+              data-testid="category-export-for-other-apps"
+              checked={forOtherApps}
+              onChange={(e) => setForOtherApps(e.target.checked)}
+            />
+            For other apps
+          </label>
           <button
             type="button"
             data-testid="category-export-flashpkg"

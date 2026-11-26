@@ -16,6 +16,7 @@ import {
   type NoteType,
   type ReviewRating,
   type StudyOrder,
+  deckNoteType,
 } from '@flash/core';
 import {
   Suspense,
@@ -160,7 +161,7 @@ function resolveCardContext(state: CollectionState, card: Card | undefined): Stu
     note: state.notes.get(card.note_id),
     deck,
     layout: state.layouts.get(card.layout_id),
-    noteType: deck ? state.noteTypes.get(deck.note_type_id) : undefined,
+    noteType: deckNoteType(state, deck),
   };
 }
 
@@ -1218,7 +1219,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         <Suspense fallback={null}>
           <LazyNoteEditDialog
             note={editingNote}
-            noteType={state.noteTypes.get(editingDeck?.note_type_id ?? '')}
+            noteType={deckNoteType(state, editingDeck)}
             {...(editingDeck?.source === undefined ? {} : { deckSource: editingDeck.source })}
             onSave={(note, fields, tags) => updateNote(note, fields, tags)}
             onClose={() => setEditingNote(null)}

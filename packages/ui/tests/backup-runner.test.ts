@@ -27,6 +27,9 @@ import {
   type RestoreContext,
 } from '../src/backups/backupRunner.ts';
 
+/** CPU-heavy test (14 backups, 4 restores): about 3.5 s alone, past the 5 s default when busy. */
+const HEAVY_TEST_TIMEOUT_MS = 30_000;
+
 // fake-indexeddb keeps every database in memory for this file only.
 const opened: DexieStorage[] = [];
 afterEach(() => {
@@ -180,28 +183,32 @@ describe('rolling backups on a device', () => {
     ]);
   });
 
-  it('keeps pre-restore snapshots outside the rolling 14 and never prunes the one restored', async () => {
-    const { storage, ctx } = setup();
-    vi.useFakeTimers({ toFake: ['Date'] });
-    let now = Date.UTC(2026, 10, 1, 9);
-    for (let i = 0; i < 14; i++) {
-      vi.setSystemTime(now);
-      await takeBackup(ctx, 'manual');
-      now += DAY;
-    }
-    const store = await storage.openBackupStore();
-    const oldest = (await store.list()).at(-1);
-    if (!oldest) throw new Error('setup failed');
-    const bytes = await store.getBytes(oldest.backup_id);
-    for (let i = 0; i < 4; i++) {
-      vi.setSystemTime(now + i * 1000);
-      await applyRestore(ctx, prepareRestore(ctx, bytes ?? new Uint8Array()).read);
-    }
-    const kept = await store.list();
-    expect(kept.filter((b) => b.reason === 'manual')).toHaveLength(14);
-    expect(kept.filter((b) => b.reason === 'pre-restore')).toHaveLength(3);
-    expect(kept.some((b) => b.backup_id === oldest.backup_id)).toBe(true);
-  });
+  it(
+    'keeps pre-restore snapshots outside the rolling 14 and never prunes the one restored',
+    async () => {
+      const { storage, ctx } = setup();
+      vi.useFakeTimers({ toFake: ['Date'] });
+      let now = Date.UTC(2026, 10, 1, 9);
+      for (let i = 0; i < 14; i++) {
+        vi.setSystemTime(now);
+        await takeBackup(ctx, 'manual');
+        now += DAY;
+      }
+      const store = await storage.openBackupStore();
+      const oldest = (await store.list()).at(-1);
+      if (!oldest) throw new Error('setup failed');
+      const bytes = await store.getBytes(oldest.backup_id);
+      for (let i = 0; i < 4; i++) {
+        vi.setSystemTime(now + i * 1000);
+        await applyRestore(ctx, prepareRestore(ctx, bytes ?? new Uint8Array()).read);
+      }
+      const kept = await store.list();
+      expect(kept.filter((b) => b.reason === 'manual')).toHaveLength(14);
+      expect(kept.filter((b) => b.reason === 'pre-restore')).toHaveLength(3);
+      expect(kept.some((b) => b.backup_id === oldest.backup_id)).toBe(true);
+    },
+    HEAVY_TEST_TIMEOUT_MS,
+  );
 
   it('skips a snapshot on low storage, records why, and leaves the collection alone', async () => {
     const { storage, ctx, state } = setup();

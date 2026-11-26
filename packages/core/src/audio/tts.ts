@@ -1,3 +1,4 @@
+import { noteTypeForDeck } from '../model/deck-note-type.ts';
 import { noteField } from '../model/note-fields.ts';
 import type { Deck, Layout, Note, NoteType, RubyDisplay, SpeakTiming } from '../model/types.ts';
 import { stripCloze } from '../parsers/cloze.ts';
@@ -200,9 +201,10 @@ export interface CardAudioTarget {
 export function resolveCardAudioTarget(
   note: Note,
   layout: Layout,
-  noteType: NoteType | undefined,
+  deckNoteType: NoteType | undefined,
   deck: Deck,
 ): CardAudioTarget {
+  const noteType = deckNoteType ? noteTypeForDeck(deckNoteType, deck.language) : undefined;
   // 1. Check attached audio fields (`kind === 'audio'` or fallback `'audio'` key)
   let attachedMediaHash: string | undefined;
   if (noteType) {

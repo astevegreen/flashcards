@@ -7,6 +7,7 @@ import {
   type Note,
   type Page,
   type ReviewRating,
+  deckNoteType,
 } from '@flash/core';
 import { isStrictHttpsUrl } from '@flash/core/sources';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -167,7 +168,7 @@ function InlineCardsWidget({
   const safeIndex = index % notes.length;
   const note = notes[safeIndex];
   if (!note) return null;
-  const noteType = state.noteTypes.get(deck.note_type_id);
+  const noteType = deckNoteType(state, deck);
   const frontKey = noteType?.fields[0]?.key ?? Object.keys(note.fields)[0] ?? '';
   const backKey =
     noteType?.fields.find(

@@ -5,6 +5,7 @@
  * falls back gracefully when a deck has fewer than 4 distinct answers.
  */
 
+import { deckNoteType } from '../model/deck-note-type.ts';
 import type { CollectionState } from '../events/replay.ts';
 import { noteField } from '../model/note-fields.ts';
 import type { Card, RubyDisplay } from '../model/types.ts';
@@ -57,7 +58,7 @@ export function generateChoiceOptions(
   const note = state.notes.get(card.note_id);
   const deck = state.decks.get(card.deck_id);
   const layout = state.layouts.get(card.layout_id);
-  const noteType = deck ? state.noteTypes.get(deck.note_type_id) : undefined;
+  const noteType = deckNoteType(state, deck);
 
   const step0 = layout?.reveal_steps[0] ?? [];
   const nonMediaStep0 = step0.filter((k) => {

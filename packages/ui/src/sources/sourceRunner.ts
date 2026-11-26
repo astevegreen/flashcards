@@ -670,6 +670,7 @@ export async function refreshSingleGoogleSource(
   const inferred = inferPresetNoteTypeId(
     grid.values[0] ?? [],
     source.noteTypeId ?? BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+    grid.values.slice(1),
   );
   const noteType = resolveNoteType(
     state,
@@ -1210,6 +1211,7 @@ export async function scanSingleLocalFolder(
       const inferred = inferPresetNoteTypeId(
         grid[0] ?? [],
         cached?.noteTypeId ?? BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+        grid.slice(1),
       );
       const noteType = resolveNoteType(
         state,

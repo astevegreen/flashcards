@@ -1,4 +1,5 @@
 import type { Card, CollectionState } from '@flash/core';
+import { deckNoteType } from '@flash/core';
 import {
   extractDrawableCharacters,
   resolveDrawingMode,
@@ -19,7 +20,7 @@ function collectDrawCharacters(
     const deck = state.decks.get(c.deck_id);
     const layout = state.layouts.get(c.layout_id);
     if (!note || !deck || !layout) continue;
-    const noteType = state.noteTypes.get(deck.note_type_id);
+    const noteType = deckNoteType(state, deck);
     const key = layout.answer_field ?? layout.reveal_steps[0]?.[0] ?? 'word';
     const lang = noteType?.fields.find((f) => f.key === key)?.lang ?? deck.language;
     if (resolveDrawingMode(state.preferences, lang) !== 'graded') continue;

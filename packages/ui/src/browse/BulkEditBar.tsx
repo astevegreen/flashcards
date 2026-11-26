@@ -58,6 +58,7 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
   const [removeTag, setRemoveTag] = useState('');
   const [moveDeckId, setMoveDeckId] = useState('');
   const [forAnki, setForAnki] = useState(false);
+  const [forOtherApps, setForOtherApps] = useState(false);
   const [showFindReplace, setShowFindReplace] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
@@ -143,6 +144,7 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
       deckId: info.onlyDeck,
       noteIds,
       includeArchived: showingArchived,
+      ...(forOtherApps ? { stripRichText: true } : {}),
     });
     const slug =
       (deck?.name ?? 'deck')
@@ -227,9 +229,27 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
             type="checkbox"
             data-testid="bulk-export-for-anki"
             checked={forAnki}
-            onChange={(e) => setForAnki(e.target.checked)}
+            onChange={(e) => {
+              setForAnki(e.target.checked);
+              if (e.target.checked) setForOtherApps(false);
+            }}
           />
           For Anki
+        </label>
+        <label
+          className="flex items-center gap-1 text-xs"
+          title="Plain text for Excel, Sheets or Numbers: drops formatting marks and stops cells running as formulas"
+        >
+          <input
+            type="checkbox"
+            data-testid="bulk-export-for-other-apps"
+            checked={forOtherApps}
+            onChange={(e) => {
+              setForOtherApps(e.target.checked);
+              if (e.target.checked) setForAnki(false);
+            }}
+          />
+          For other apps
         </label>
       </div>
 

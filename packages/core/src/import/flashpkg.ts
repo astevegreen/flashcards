@@ -89,12 +89,21 @@ export interface FlashpkgImportResult {
   pagesImported: number;
   upgradedDecks: number;
   extractedMedia: ExtractedPackageMedia[];
-  warnings: Array<PageNormalizeWarning | FlashpkgLayoutWarning>;
+  warnings: Array<PageNormalizeWarning | FlashpkgLayoutWarning | FlashpkgNoteWarning>;
 }
 
 /** A layout's `required_field` that the import dropped (see `model/optional-cards.ts`). */
 export interface FlashpkgLayoutWarning {
   code: 'layout_required_field_dropped';
+  message: string;
+}
+
+/**
+ * A deck file problem the import worked around: two records with one `id` (the first is kept),
+ * or records whose `fields` match none of the note type's field keys (they import blank).
+ */
+export interface FlashpkgNoteWarning {
+  code: 'duplicate_note_id' | 'unknown_field_keys';
   message: string;
 }
 
@@ -539,7 +548,7 @@ export function importFlashpkg(
 
   const events: KnownEvent[] = [];
   const extractedMedia: ExtractedPackageMedia[] = [];
-  const warnings: Array<PageNormalizeWarning | FlashpkgLayoutWarning> = [];
+  const warnings: Array<PageNormalizeWarning | FlashpkgLayoutWarning | FlashpkgNoteWarning> = [];
   const packageNoteTypeFields = new Map<string, { key: string }[]>();
   let firstImportedNoteTypeId: string | undefined;
 
@@ -734,6 +743,16 @@ export function importFlashpkg(
       .filter((l) => l.length > 0);
 
     const seenNoteIds = new Set<string>();
+    const seenRecordIds = new Set<string>();
+    const duplicateLines: number[] = [];
+    let blankFieldRecords = 0;
+    const fieldKeys = new Set(
+      (
+        packageNoteTypeFields.get(deckEntry.note_type_id) ??
+        state.noteTypes.get(deckEntry.note_type_id)?.fields ??
+        []
+      ).map((f) => f.key),
+    );
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -754,6 +773,16 @@ export function importFlashpkg(
         );
       }
       const rec = noteValidation.data;
+      // A second record with the same id would overwrite the first one: keep the first (C9).
+      if (seenRecordIds.has(rec.id)) {
+        duplicateLines.push(i + 1);
+        continue;
+      }
+      seenRecordIds.add(rec.id);
+      const recKeys = Object.keys(rec.fields);
+      if (fieldKeys.size > 0 && recKeys.length > 0 && !recKeys.some((k) => fieldKeys.has(k))) {
+        blankFieldRecords += 1;
+      }
       const recTags = normalizeTagList(rec.tags);
 
       // Upgrade-safe note matching: find existing note in targetDeck by source_key, else derive deterministically
@@ -802,6 +831,20 @@ export function importFlashpkg(
         );
       }
       notesImported += 1;
+    }
+    if (duplicateLines.length > 0) {
+      const shown = duplicateLines.slice(0, 5).join(', ');
+      const more = duplicateLines.length > 5 ? ` and ${duplicateLines.length - 5} more` : '';
+      warnings.push({
+        code: 'duplicate_note_id',
+        message: `Deck "${deckEntry.name}": ${duplicateLines.length} note(s) reuse an id already in the file, so the first one was kept (line ${shown}${more} of "${deckEntry.file}").`,
+      });
+    }
+    if (blankFieldRecords > 0) {
+      warnings.push({
+        code: 'unknown_field_keys',
+        message: `Deck "${deckEntry.name}": ${blankFieldRecords} note(s) have no field the note type knows (expected keys like ${[...fieldKeys].slice(0, 3).join(', ')}), so they import blank.`,
+      });
     }
 
     // Soft-archive notes removed in an upgraded package version when requested (preserves reviews)
