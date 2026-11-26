@@ -56,6 +56,49 @@ describe('MediaAdded / MediaRemoved converge in any delivery order (D20)', () =>
     expect(observe(reversed)).toEqual(observe(inOrder));
   });
 
+  it('a snapshot from before the TTS registers still converges with a full replay', () => {
+    const t0 = Date.UTC(2026, 10, 25, 9, 0, 0);
+    const a = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const b = createEventFactory('dev-b', 0, createHlcState('dev-b', t0));
+    const c = createEventFactory('dev-c', 0, createHlcState('dev-c', t0));
+    const hash = HASHES[0] ?? '';
+    const add = (f: typeof a, at: number, key: string) =>
+      f.create(
+        'MediaAdded',
+        {
+          media: {
+            hash,
+            ext: 'mp3',
+            mime: 'audio/mpeg',
+            size: 1,
+            tts_key: `k-${key}`,
+            tts_lang_key: `l-${key}`,
+          },
+        },
+        at,
+      );
+    const oldest = add(a, t0, 'old');
+    const newest = add(b, t0 + 3_000, 'new');
+    // From an offline device, delivered after the snapshot: older than `newest`.
+    const lateAdd = add(c, t0 + 1_000, 'mid');
+    const lateRemoval = c.create('MediaRemoved', { hash }, t0 + 2_000);
+
+    const serialized = JSON.parse(
+      JSON.stringify(serializeCollectionState(replayChunked([oldest, newest], 2))),
+    ) as ReturnType<typeof serializeCollectionState>;
+    // What a build before the per-field registers wrote.
+    serialized.fieldHlcs = Object.fromEntries(
+      Object.entries(serialized.fieldHlcs).filter(([k]) => !/:tts_(lang_)?key$/.test(k)),
+    );
+    const hydrated = deserializeCollectionState(serialized);
+    applyEvents(hydrated, [lateAdd]);
+    applyEvents(hydrated, [lateRemoval]);
+
+    const full = replayChunked([oldest, newest, lateAdd, lateRemoval], 1);
+    expect(observe(hydrated)).toEqual(observe(full));
+    expect(hydrated.media.get(hash)?.tts_key).toBe('k-new');
+  });
+
   it('replay, snapshots and worker patches all agree under any interleaving', () => {
     const opArb = fc.record({
       remove: fc.boolean(),
