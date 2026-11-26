@@ -48,15 +48,18 @@ function privateKeyTarget(out) {
         'Choose a folder outside it, such as an offline drive.',
     );
   }
-  if (lstatSync(target, { throwIfNoEntry: false })) {
+  // NOSONAR notes in this script: it writes where the owner's --out says, after the checks here,
+  // and icacls gets that path as one argument with no shell.
+  const taken = lstatSync(target, { throwIfNoEntry: false }); // NOSONAR (jssecurity:S8707)
+  if (taken) {
     throw new Error(`Refusing to overwrite ${target}. Choose a new file name.`);
   }
   return target;
 }
 
 function runSystemTool(name, args) {
-  const exe = join(process.env['SystemRoot'] ?? 'C:\\Windows', 'System32', name);
-  const result = spawnSync(exe, args, { encoding: 'utf8', windowsHide: true });
+  const exe = join(process.env['SystemRoot'] ?? String.raw`C:\Windows`, 'System32', name);
+  const result = spawnSync(exe, args, { encoding: 'utf8', windowsHide: true }); // NOSONAR (jssecurity:S8705)
   if (result.status !== 0) throw new Error(`${name} failed`);
   return result.stdout;
 }
@@ -93,11 +96,12 @@ function main() {
   );
 
   // Create the file empty (`wx` never overwrites) and restrict it before the key goes in.
-  writeFileSync(target, '', { flag: 'wx', mode: 0o600 });
+  writeFileSync(target, '', { flag: 'wx', mode: 0o600 }); // NOSONAR (jssecurity:S8707)
   let restricted;
   try {
     restricted = restrictToOwner(target);
-    writeFileSync(target, privateKey.export({ type: 'pkcs8', format: 'pem' }), { flag: 'r+' });
+    const pem = privateKey.export({ type: 'pkcs8', format: 'pem' });
+    writeFileSync(target, pem, { flag: 'r+' }); // NOSONAR (jssecurity:S8707)
   } catch (err) {
     unlinkSync(target);
     throw err;

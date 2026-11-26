@@ -24,7 +24,9 @@ const USAGE =
 function readPrivateKey(file) {
   let privateKey;
   try {
-    privateKey = createPrivateKey(readFileSync(file));
+    // NOSONAR: the owner names their own key file, and nothing read from it is printed.
+    const pem = readFileSync(file); // NOSONAR (jssecurity:S8707)
+    privateKey = createPrivateKey(pem);
   } catch (err) {
     throw new Error(
       `Cannot read a private key from the --key file (${err?.code ?? 'unknown error'}).`,
