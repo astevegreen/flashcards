@@ -227,6 +227,8 @@ export interface AppProviderProps {
   initialSyncConfig?: SyncConfig;
   initialSyncCursor?: SyncCursorState;
   initialOAuthError?: string;
+  /** Receives `whenSaved`, so a tab handing the writer lock over saves queued writes first. */
+  exposeWhenSaved?: ((whenSaved: () => Promise<void>) => void) | undefined;
   children: ReactNode;
 }
 
@@ -238,6 +240,7 @@ export function AppProvider({
   initialSyncConfig,
   initialSyncCursor,
   initialOAuthError,
+  exposeWhenSaved,
   children,
 }: AppProviderProps) {
   // Both refs are set on the first render and only ever replaced (reset, hydrate), never cleared.
@@ -333,6 +336,7 @@ export function AppProvider({
     await mediaReAddsRef.current?.flush();
     await persistQueue.whenSaved();
   }, [persistQueue]);
+  useEffect(() => exposeWhenSaved?.(whenSaved), [exposeWhenSaved, whenSaved]);
 
   // Files an edit starts to use are added again (mediaReAdds.ts, lazy). A batch whose chunk failed
   // to load stays queued and is retried on the next edit or sync.

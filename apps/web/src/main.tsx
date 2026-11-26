@@ -11,15 +11,9 @@ import type { AuthSession, PlatformServices, SyncConfig, SyncProviderKind } from
 import { createWebPlatform, resolveDeviceFromUrl } from '@flash/platform-web';
 import { FlashcardsApp } from '@flash/ui';
 import { StrictMode } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import './styles.css';
-import {
-  holdWriterLock,
-  usableLocks,
-  waitUpTo,
-  type ReleaseLock,
-  type WriterLocks,
-} from './writer-lock.ts';
+import { holdWriter, usableLocks } from './writer-lock.ts';
 
 // Public OAuth Web Client ID & stateless token-helper Worker URL (never secret)
 const DEFAULT_GOOGLE_CLIENT_ID =
@@ -68,27 +62,6 @@ async function handleOAuthRedirect(
   }
   const session = await (await platform.getGoogleAuth()).handleRedirectCallback();
   return { session, sessionProvider: 'google_drive' };
-}
-
-/**
- * Holds the writer lock, or shows "open in another tab" until the user takes it over. Storage is
- * read only after this, so a takeover boots from the latest stored state. Then gives the lock up
- * when another tab asks (`writer-handoff.ts`, lazy with the screen in one chunk).
- */
-async function holdWriter(root: Root, locks: WriterLocks, storage: object, name: string) {
-  const yieldHere = (release?: ReleaseLock) =>
-    void import('./other-tab.tsx').then((m) => m.yieldWriter(storage, name, window, release));
-  const onLost = () => yieldHere();
-  let release = await holdWriterLock(locks, name, waitUpTo(500), onLost);
-  if (!release) {
-    const { OtherTab, takeOver } = await import('./other-tab.tsx');
-    release = await new Promise<ReleaseLock>((resolve) => {
-      const onUse = () => void takeOver(locks, name, onLost).then(resolve);
-      root.render(<OtherTab onUse={onUse} />);
-    });
-  }
-  const held = release;
-  new BroadcastChannel(`${name}:writer`).onmessage = (e) => e.data === 'take' && yieldHere(held);
 }
 
 async function boot(): Promise<void> {
@@ -183,8 +156,24 @@ async function boot(): Promise<void> {
   // single-window, and browsers without Web Locks write as before.
   const locks = usableLocks(navigator);
   const dbName = platform.storage.dbName;
+  let saved: (() => Promise<void>) | undefined;
   if (nativeRuntime === null && locks && dbName) {
-    await holdWriter(root, locks, platform.storage, dbName);
+    // The screen and the handoff are one lazy chunk; storage is read only after this, so a tab
+    // that takes over boots from the latest stored state.
+    const load = () => import('./other-tab.tsx');
+    await holdWriter({
+      locks,
+      name: dbName,
+      storage: platform.storage,
+      win: window,
+      load,
+      showWaiting: (onUse) =>
+        void load().then(
+          ({ OtherTab }) => root.render(<OtherTab onUse={onUse} />),
+          () => undefined,
+        ),
+      whenSaved: async () => saved?.(),
+    });
   }
 
   // Zero-overhead OAuth redirect callback check (only lazy-loads GoogleAuth if `?code=` / `?error=` is present)
@@ -348,6 +337,9 @@ async function boot(): Promise<void> {
         {...(syncConfig !== undefined ? { initialSyncConfig: syncConfig } : {})}
         {...(syncCursor !== undefined ? { initialSyncCursor: syncCursor } : {})}
         {...(initialOAuthError !== undefined ? { initialOAuthError } : {})}
+        exposeWhenSaved={(whenSaved) => {
+          saved = whenSaved;
+        }}
       />
     </StrictMode>,
   );

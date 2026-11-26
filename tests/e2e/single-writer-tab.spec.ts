@@ -80,3 +80,26 @@ test('a second tab waits, then "Use here instead" moves writing to it and back',
 
   await context.close();
 });
+
+test('a waiting tab takes over by itself when the writer tab closes', async ({ browser }) => {
+  const context = await browser.newContext();
+  const device = `/?device=${DEVICE}auto`;
+  const writer = await context.newPage();
+  await writer.goto(device);
+  await expect(writer.getByTestId('study-card')).toBeVisible();
+  await rateOne(writer);
+  const newAfterRating = Number(await writer.getByTestId('count-new').textContent());
+
+  const waiting = await context.newPage();
+  await waiting.goto(device);
+  await expect(waiting.getByTestId('other-tab')).toBeVisible();
+
+  await writer.close();
+
+  // No tap: the lock frees and the waiting tab boots, with the closed tab's review saved.
+  await expect(waiting.getByTestId('study-card')).toBeVisible();
+  await expect(waiting.getByTestId('count-new')).toHaveText(String(newAfterRating));
+  await rateOne(waiting);
+
+  await context.close();
+});

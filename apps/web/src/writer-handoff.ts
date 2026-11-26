@@ -1,14 +1,17 @@
-import { holdWriterLock, waitUpTo, type ReleaseLock, type WriterLocks } from './writer-lock.ts';
+import {
+  holdWriterLock,
+  type ReleaseLock,
+  type WriterLocks,
+  type WriterMessage,
+} from './writer-lock.ts';
 
 /**
- * Moving the writer lock between tabs (lazy: loaded only when a tab is asked to give it up, or
- * shows "open in another tab"). "Use here instead" asks the holder over a BroadcastChannel; the
- * holder stops writing, lets its started writes finish, then releases. A holder that doesn't
- * answer in time (frozen or crashed) has the lock stolen instead.
+ * Moving the writer lock between tabs (lazy: loaded when a tab is asked to give it up, or shows
+ * "open in another tab"). "Use here instead" asks the writer over a BroadcastChannel; the writer
+ * saves its queued writes, stops writing, lets started writes land, then releases, and the asking
+ * tab's waiting lock request gets the lock. A writer that stops answering (frozen or crashed) has
+ * the lock stolen instead.
  */
-
-/** The message a tab sends to ask the writer for the lock (the writer listens in `main.tsx`). */
-export const TAKE = 'take';
 
 /** Storage methods that only read. Every other method is a write and is blocked (fail closed). */
 const READS = new Set([
@@ -27,6 +30,9 @@ const READS = new Set([
 ]);
 
 export const BLOCKED_MESSAGE = 'Flashcards is open in another tab.';
+
+/** How often the asking tab repeats its request, and the writer says it is still handing over. */
+const PING_MS = 500;
 
 /** Makes every storage method that isn't a known read reject from now on. */
 export function blockWrites(storage: object): void {
@@ -65,55 +71,97 @@ export function writeBarrier(idb: IDBFactory, name: string): Promise<void> {
   });
 }
 
-let yielded = false;
+/** Storages already handed over (one handoff per page). */
+const yielded = new WeakSet<object>();
 
 /**
- * Stops this tab writing: storage writes reject, and the hide, focus and online events that start a
- * sync no longer reach the app. Once started writes have landed it closes the database, releases
- * the lock (when asked rather than stolen) and reloads onto the "open in another tab" screen.
+ * Hands the lock over. The hide, focus and online events that start a sync stop reaching the app,
+ * and the asking tab hears "yielding" until the page reloads. The app's queued writes (a rating
+ * already shown, the rest of an import) are saved first; then every storage write rejects, started
+ * writes land, the database closes (which also stops a backup store opened earlier), the lock is
+ * released and the tab reloads onto the "open in another tab" screen.
  */
 export async function yieldWriter(
   storage: object,
   dbName: string,
   win: Window,
-  release?: ReleaseLock,
+  release: ReleaseLock,
+  whenSaved?: () => Promise<void>,
 ): Promise<void> {
-  if (yielded) return;
-  yielded = true;
-  const close = (storage as { close?: () => void }).close?.bind(storage);
-  blockWrites(storage);
+  if (yielded.has(storage)) return;
+  yielded.add(storage);
+  const channel = new BroadcastChannel(`${dbName}:writer`);
+  const yielding: WriterMessage = { yielding: true };
+  channel.postMessage(yielding);
+  const beat = setInterval(() => channel.postMessage(yielding), PING_MS);
   for (const type of ['pagehide', 'visibilitychange', 'focus', 'online']) {
     win.addEventListener(type, (e) => e.stopImmediatePropagation(), true);
   }
+  // A write that failed stays failed; the rest are saved.
+  await whenSaved?.().catch(() => undefined);
+  const close = (storage as { close?: () => void }).close?.bind(storage);
+  blockWrites(storage);
   // A write that was already past its storage call gets one turn to open its transaction.
   await new Promise((r) => setTimeout(r, 0));
   await writeBarrier(win.indexedDB, dbName);
-  // Closing the database also stops a backup store handle opened before (same connection).
   close?.();
-  release?.();
+  release();
+  clearInterval(beat);
+  channel.close();
   win.location.reload();
 }
 
+/** Waits `ms`, or less when `signal` aborts. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
 /**
- * "Use here instead": asks the writer to hand over and waits for the lock; steals it when the
- * writer hasn't let go within `waitMs`.
+ * "Use here instead": asks the writer to hand over, repeating the request until this tab's waiting
+ * lock request wins (`won` aborts). While the writer answers "yielding" it keeps waiting, up to
+ * `maxMs`; a round of `roundMs` without an answer steals the lock (after cancelling the waiting
+ * request, `queued`). Resolves with the stolen lock, or null when the handoff won.
  */
 export async function takeOver(
   locks: WriterLocks,
   name: string,
+  self: string,
   onLost: () => void,
-  waitMs = 3000,
-): Promise<ReleaseLock> {
+  won: AbortSignal,
+  queued: AbortController,
+  roundMs = 3000,
+  maxMs = 120_000,
+): Promise<ReleaseLock | null> {
   const channel = new BroadcastChannel(`${name}:writer`);
-  channel.postMessage(TAKE);
-  channel.close();
-  const handed = await holdWriterLock(locks, name, waitUpTo(waitMs), onLost);
-  return (
-    handed ?? (await holdWriterLock(locks, name, { steal: true }, onLost)) ?? (() => undefined)
-  );
-}
-
-/** For tests: lets one module instance yield more than once. */
-export function resetYieldedForTests(): void {
-  yielded = false;
+  let answers = 0;
+  channel.onmessage = (e: MessageEvent<WriterMessage>) => {
+    if ((e.data as { yielding?: boolean } | null)?.yielding) answers++;
+  };
+  const take: WriterMessage = { take: self };
+  const ask = () => channel.postMessage(take);
+  ask();
+  const asking = setInterval(ask, PING_MS);
+  try {
+    for (let waited = 0; waited < maxMs; waited += roundMs) {
+      const before = answers;
+      await pause(roundMs, won);
+      if (won.aborted) return null;
+      if (answers === before) break;
+    }
+    queued.abort();
+    return await holdWriterLock(locks, name, { steal: true }, onLost);
+  } finally {
+    clearInterval(asking);
+    channel.close();
+  }
 }
