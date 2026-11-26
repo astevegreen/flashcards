@@ -10,13 +10,16 @@ import {
   askModel,
   buildPrompt,
   byLine,
+  DEEP_PATHS,
   diffStats,
   modelName,
+  newerFirst,
   parseReply,
   pickDepth,
   quotaFile,
   resetsAt,
 } from './agy.mjs';
+import { DEEP_PATHS as FLASHCARDS_DEEP_PATHS } from './rails.mjs';
 
 // Sample ids, as agy names them. Which models a review asks is tested in agy-models.test.mjs; these stand for any
 // model a quota file or an old report may still name.
@@ -404,4 +407,29 @@ test('when agy is missing or prints something that is not JSON, the reason is re
   assert.throws(() => parseReply({ status: 1, stdout: '', stderr: 'sign in first\nmore detail' }), {
     message: 'agy exited 1: sign in first',
   });
+});
+
+test("pickDepth's default high-risk paths are this repo's, not another repo's", () => {
+  assert.equal(DEEP_PATHS, FLASHCARDS_DEEP_PATHS);
+  assert.equal(
+    pickDepth({ kind: 'change', files: ['packages/core/src/sync/engine.ts'], lines: 1 }).depth,
+    'deep',
+  );
+  assert.equal(
+    pickDepth({ kind: 'change', files: ['packages/engine/src/a.ts'], lines: 1 }).depth,
+    'standard',
+  );
+});
+
+test('newerFirst orders versions number by number, newest first, with no locale', () => {
+  assert.deepEqual(['3.8', '10', '4', '4.5', '9'].sort(newerFirst), ['10', '9', '4.5', '4', '3.8']);
+  assert.deepEqual(['5-5', '6', '5-10', '5'].sort(newerFirst), ['6', '5-10', '5-5', '5']);
+  assert.equal(newerFirst('4', '4'), 0);
+  assert.ok(!/\.localeCompare\(/.test(readFileSync(new URL('./agy.mjs', import.meta.url), 'utf8')));
+});
+
+test("a renamed file's stats name both paths, so a move out of a high-risk path still counts", () => {
+  const diff = 'diff --git a/packages/core/src/sync/a.ts b/docs/a.ts\nrename from x\n';
+  assert.deepEqual(diffStats(diff).files, ['packages/core/src/sync/a.ts', 'docs/a.ts']);
+  assert.equal(pickDepth({ kind: 'change', ...diffStats(diff) }).depth, 'deep');
 });

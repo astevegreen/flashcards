@@ -93,10 +93,31 @@ export function comments(ghRun, n) {
     .map((c) => ({ author: { login: c.user?.login ?? '' }, body: c.body ?? '' }));
 }
 
-// An issue's number, title and body.
+// An issue's number, title, body and author.
 function issue(ghRun, n) {
   const i = JSON.parse(ghRun('api', `repos/${REPO}/issues/${n}`));
-  return { number: i.number, title: i.title ?? '', body: i.body ?? '' };
+  return {
+    number: i.number,
+    title: i.title ?? '',
+    body: i.body ?? '',
+    author: i.user?.login ?? '',
+  };
+}
+
+// Whether `login` may write to the repository: its owner, or a collaborator whose permission is write or more. The
+// repository is public, so anyone can open an issue and a "Closes #n" could hand agy a stranger's text as the task
+// spec. Anything else (no login, not a collaborator, gh failing) is untrusted: it fails closed. (TD keeps this in
+// tools/github-trust.mjs.)
+const WRITE = new Set(['admin', 'maintain', 'write']);
+export function trustedAuthor(ghRun, login) {
+  if (!login || !/^[A-Za-z0-9-]+(?:\[bot\])?$/.test(login)) return false;
+  if (login.toLowerCase() === REPO.split('/')[0].toLowerCase()) return true;
+  try {
+    const p = JSON.parse(ghRun('api', `repos/${REPO}/collaborators/${login}/permission`));
+    return WRITE.has(p.permission) || WRITE.has(p.role_name);
+  } catch {
+    return false;
+  }
 }
 
 // The login gh is signed in as: the account this script posts its audits under.
@@ -170,7 +191,12 @@ const skipped = (err) => `Gemini audit skipped: ${err.message}`;
 function prMaterial(pr, diff, ghRun) {
   const linked = /\b(?:closes|fixes|resolves)\s+#(\d+)/i.exec(pr.body ?? '')?.[1];
   const spec = linked
-    ? (({ number, title, body }) => `# #${number} ${title}\n\n${body}\n`)(issue(ghRun, linked))
+    ? (({ number, title, body, author }) =>
+        trustedAuthor(ghRun, author)
+          ? `# #${number} ${title}\n\n${body}\n`
+          : `# #${number}\n\nLeft out: the linked issue was written by ${author || 'an unknown author'}, who has no write access to the repository, so its title and body are not used as the task spec.\n`)(
+        issue(ghRun, linked),
+      )
     : 'No linked task spec (no "Closes #n" in the pull request).\n';
   const cut = diff.length > MAX_DIFF ? `${diff.slice(0, MAX_DIFF)}\n${CUT_LINE}\n` : diff;
   return `# Task spec\n\n${spec}\n# Pull request #${pr.number}\n\n${pr.body ?? ''}\n\n# Diff\n\n\`\`\`diff\n${cut}\`\`\`\n`;

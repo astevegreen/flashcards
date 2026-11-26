@@ -6,6 +6,7 @@ import { createHlcState } from '../src/hlc.ts';
 import { deriveNoteId } from '../src/ids.ts';
 import { planAnkiModel } from '../src/import/anki/model-plan.ts';
 import type { AnkiModel, AnkiNote } from '../src/import/anki/types.ts';
+import { noteField } from '../src/model/note-fields.ts';
 import type { Layout } from '../src/model/types.ts';
 import { generateChoiceOptions } from '../src/study/choice.ts';
 
@@ -186,12 +187,16 @@ describe('a `__proto__` field key from another device (§9)', () => {
     return [deck, noteType, layout, wire, settings];
   }
 
-  it('replays a string value without changing the note’s prototype or Object.prototype', () => {
+  // Assigning a string to `__proto__` is a no-op in JavaScript, so the note's prototype can't change
+  // here whatever replay does. What can break is the read: without `noteField`'s own-key check,
+  // `note.fields['__proto__']` is `Object.prototype`, and the speak field (`__proto__`) throws.
+  it('replays a string value, and reads `__proto__` as an empty field, never Object.prototype', () => {
     const state = replayAllEvents(syncedEvents('{"word":"school","__proto__":"x"}'));
     const note = state.notes.get(deriveNoteId('d1', 'k1'));
     if (!note) throw new Error('note missing');
     expect(note.fields['word']).toBe('school');
-    expect(Object.getPrototypeOf(note.fields)).toBe(Object.prototype);
+    expect(noteField(note, '__proto__')).toBeUndefined();
+    expect(noteField(note, 'word')).toBe('school');
     expect(state.cards.size).toBe(1);
 
     const card = [...state.cards.values()][0];
@@ -200,12 +205,21 @@ describe('a `__proto__` field key from another device (§9)', () => {
     if (!card || !layout || !deck) throw new Error('collection incomplete');
     const target = resolveCardAudioTarget(note, layout, state.noteTypes.get('nt-proto'), deck);
     expect(target.attachedMediaHash).toBeUndefined();
+    // The empty `__proto__` speak field passes to the first front field.
+    expect(target.sourceField).toBe('word');
+    expect(target.rawText).toBe('school');
   });
 
+  // An object value is what could replace a note's prototype (`fields.__proto__ = {…}`), so the
+  // payload check drops the event. Each check below fails if that check lets it through.
   it('drops an object value as malformed instead of making it the fields prototype', () => {
     const state = replayAllEvents(syncedEvents('{"word":"school","__proto__":{"polluted":"yes"}}'));
+    const inherited = [...state.notes.values()].map((n) => ({
+      proto: Object.getPrototypeOf(n.fields) === Object.prototype,
+      polluted: (n.fields as Record<string, unknown>)['polluted'],
+    }));
+    expect(inherited).toEqual([]);
     expect(state.unknownEvents.map((e) => e.type)).toEqual(['NoteUpserted']);
     expect(state.notes.size).toBe(0);
-    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
   });
 });
