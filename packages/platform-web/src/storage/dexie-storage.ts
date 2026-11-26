@@ -162,7 +162,19 @@ export class DexieStorage implements Storage {
 
   async appendEvents(events: readonly FlashEvent[]): Promise<void> {
     if (events.length === 0) return;
+    await this.db.transaction('rw', this.db.events, this.db.kv, () => this.insertEvents(events));
+  }
 
+  /** Events and the device meta that counts them in one IndexedDB transaction (D11). */
+  async appendEventsWithMeta(events: readonly FlashEvent[], meta: DeviceMeta): Promise<void> {
+    await this.db.transaction('rw', this.db.events, this.db.kv, this.db.meta, async () => {
+      await this.insertEvents(events);
+      await this.db.meta.put({ key: 'device', value: meta });
+    });
+  }
+
+  /** Inserts the events not stored yet. Runs inside a transaction over `events` and `kv`. */
+  private async insertEvents(events: readonly FlashEvent[]): Promise<void> {
     // Deduplicate within the incoming batch first
     const unique: FlashEvent[] = [];
     const seen = new Set<string>();
@@ -171,52 +183,51 @@ export class DexieStorage implements Storage {
       seen.add(ev.id);
       unique.push(ev);
     }
+    if (unique.length === 0) return;
 
-    await this.db.transaction('rw', this.db.events, this.db.kv, async () => {
-      const [existing, counterRow] = await Promise.all([
-        this.db.events.bulkGet(unique.map((ev) => ev.id)),
-        this.db.kv.get(LOCAL_SEQ_COUNTER_KEY),
-      ]);
-      const toInsert: FlashEvent[] = [];
-      for (let i = 0; i < unique.length; i++) {
-        const ev = unique[i];
-        if (ev && existing[i] === undefined) {
-          toInsert.push(ev);
-        }
+    const [existing, counterRow] = await Promise.all([
+      this.db.events.bulkGet(unique.map((ev) => ev.id)),
+      this.db.kv.get(LOCAL_SEQ_COUNTER_KEY),
+    ]);
+    const toInsert: FlashEvent[] = [];
+    for (let i = 0; i < unique.length; i++) {
+      const ev = unique[i];
+      if (ev && existing[i] === undefined) {
+        toInsert.push(ev);
       }
-      if (toInsert.length === 0) return;
+    }
+    if (toInsert.length === 0) return;
 
-      let counter = typeof counterRow?.value === 'number' ? counterRow.value : 0;
-      if (counter === 0) {
-        const lastByLocalSeq = await this.db.events.orderBy('local_seq').last();
-        if (typeof lastByLocalSeq?.local_seq === 'number') {
-          counter = lastByLocalSeq.local_seq;
-        }
+    let counter = typeof counterRow?.value === 'number' ? counterRow.value : 0;
+    if (counter === 0) {
+      const lastByLocalSeq = await this.db.events.orderBy('local_seq').last();
+      if (typeof lastByLocalSeq?.local_seq === 'number') {
+        counter = lastByLocalSeq.local_seq;
       }
+    }
 
-      const rows: StoredEventRow[] = toInsert.map((ev) => {
-        counter += 1;
-        const cardId = extractCardId(ev);
-        const extras = extractExtraFields(ev);
-        return {
-          id: ev.id,
-          device: ev.device,
-          seq: ev.seq,
-          hlc: ev.hlc,
-          type: ev.type,
-          v: ev.v,
-          payload: ev.payload,
-          local_seq: counter,
-          ...(cardId !== undefined ? { card_id: cardId } : {}),
-          ...(extras !== undefined ? { extra_fields: extras } : {}),
-        };
-      });
-
-      await Promise.all([
-        this.db.events.bulkPut(rows),
-        this.db.kv.put({ key: LOCAL_SEQ_COUNTER_KEY, value: counter }),
-      ]);
+    const rows: StoredEventRow[] = toInsert.map((ev) => {
+      counter += 1;
+      const cardId = extractCardId(ev);
+      const extras = extractExtraFields(ev);
+      return {
+        id: ev.id,
+        device: ev.device,
+        seq: ev.seq,
+        hlc: ev.hlc,
+        type: ev.type,
+        v: ev.v,
+        payload: ev.payload,
+        local_seq: counter,
+        ...(cardId !== undefined ? { card_id: cardId } : {}),
+        ...(extras !== undefined ? { extra_fields: extras } : {}),
+      };
     });
+
+    await Promise.all([
+      this.db.events.bulkPut(rows),
+      this.db.kv.put({ key: LOCAL_SEQ_COUNTER_KEY, value: counter }),
+    ]);
   }
 
   async getAllEvents(): Promise<FlashEvent[]> {

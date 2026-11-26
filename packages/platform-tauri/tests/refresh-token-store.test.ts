@@ -17,6 +17,9 @@ function sqliteDb(): TauriSqlPluginDatabase & { tables(): string[] } {
     }),
     select: async <T>(q: string, binds: unknown[] = []) =>
       prep(q).all(...(binds as string[])) as T[],
+    executeBatch: async () => {
+      throw new Error('not used by the refresh-token store');
+    },
     tables: () =>
       (
         db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{

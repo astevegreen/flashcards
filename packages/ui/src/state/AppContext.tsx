@@ -428,8 +428,13 @@ export function AppProvider({
       }
 
       void enqueuePersist(async () => {
-        await platform.storage.appendEvents(events);
-        await platform.storage.setDeviceMeta(nextMeta);
+        const storage = platform.storage;
+        if (storage.appendEventsWithMeta) {
+          await storage.appendEventsWithMeta(events, nextMeta);
+        } else {
+          await storage.appendEvents(events);
+          await storage.setDeviceMeta(nextMeta);
+        }
         if (snapshot) await saveLocalSnapshot(platform.storage, startedAtMs, snapshot);
       });
     },

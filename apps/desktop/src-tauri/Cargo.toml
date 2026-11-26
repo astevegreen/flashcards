@@ -32,12 +32,11 @@ plist = "1"
 # Already in the tree via tauri-plugin-sql (sqlx, bundled): `src/sqlite_hardening.rs` checks the
 # linked SQLite was compiled with SQLITE_SECURE_DELETE.
 libsqlite3-sys = "0.30"
-
-# iCloud Drive container lookup and on-demand downloads (`src/icloud.rs`).
-[dev-dependencies]
-# Same version and features tauri-plugin-sql already pulls in; opens a pool in a test.
+# Same version and features tauri-plugin-sql already pulls in: `src/sql_batch.rs` runs a batch in
+# one transaction on the plugin's pool, and tests open a pool directly.
 sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
 
+# iCloud Drive container lookup and on-demand downloads (`src/icloud.rs`).
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = "0.3"
