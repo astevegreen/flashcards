@@ -14,11 +14,6 @@ export class WebFiles implements Files {
         settled = true;
         resolve(val);
       };
-      const fail = (err: unknown): void => {
-        if (settled) return;
-        settled = true;
-        reject(err instanceof Error ? err : new Error(String(err)));
-      };
       // Not an async listener: a failed read must reject the pick, not leave it pending forever.
       input.addEventListener('change', () => {
         const file = input.files?.[0];
@@ -38,7 +33,7 @@ export class WebFiles implements Files {
               bytes: new Uint8Array(buf),
               ...(file.type ? { mime: file.type } : {}),
             }),
-          fail,
+          reject,
         );
       });
       input.addEventListener('cancel', () => done(null));
