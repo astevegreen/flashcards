@@ -7,6 +7,7 @@ import {
   deriveCardId,
   deriveNoteId,
   encodeUtf8,
+  SyncTransportError,
   type KnownEvent,
 } from '@flash/core';
 import { exportFlashpkg } from '@flash/core/flashpkg';
@@ -20,8 +21,10 @@ import type {
 } from '@flash/platform';
 import { describe, expect, it } from 'vitest';
 import {
+  createAndLinkGoogleSheetTemplate,
   linkAndScanLocalFolder,
   linkPickedGoogleFiles,
+  loadSourcesRegistry,
   refreshSingleGoogleSource,
   scanSingleLocalFolder,
 } from '../src/sources/sourceRunner.ts';
@@ -671,5 +674,104 @@ describe('sourceRunner — Google Sheets Card ID write-back (D9)', () => {
     // A normal (unforced) refresh must not short-circuit on the post-write modifiedTime.
     await refreshSingleGoogleSource(source, ctx);
     expect(meaning()).toBe('tree (edited)');
+  });
+});
+
+describe('sourceRunner — Google Sheets edge cases (C20)', () => {
+  function sheetCtx(client: Record<string, unknown>) {
+    const state = createEmptyState();
+    const factory = createEventFactory('dev-c20', 0, createHlcState('dev-c20', 9000));
+    const platform = {
+      storage: makeInMemoryStorage(),
+      getGoogleSourcesClient: async () => ({
+        getFileMetadata: async () => ({
+          id: 'sheet-c20',
+          name: 'C20 Sheet',
+          mimeType: 'application/vnd.google-apps.spreadsheet',
+          modifiedTime: '2026-11-25T10:00:00Z',
+          canEdit: true,
+        }),
+        exportDocAsMarkdown: async () => {
+          throw new Error('unused');
+        },
+        ...client,
+      }),
+    } as unknown as PlatformServices;
+    return {
+      platform,
+      getState: () => state,
+      getEventFactory: () => factory,
+      emitEvents: (events: readonly KnownEvent[]) => {
+        applyEvents(state, events);
+      },
+    };
+  }
+
+  it('keeps a template-created Sheet linked when its first pull fails', async () => {
+    const ctx = sheetCtx({
+      createSheetFromTemplate: async () => ({
+        fileId: 'sheet-c20',
+        title: 'New deck',
+        sheetTitle: 'Sheet1',
+        uri: 'https://docs.google.com/spreadsheets/d/sheet-c20/edit',
+      }),
+      readSheet: async () => {
+        throw new Error('Network down');
+      },
+      writeSheetCells: async () => {},
+    });
+    const res = await createAndLinkGoogleSheetTemplate(
+      { title: 'New deck', noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO, language: 'ko' },
+      ctx,
+    );
+    expect(res.error).toBe('Network down');
+    const saved = await loadSourcesRegistry(ctx.platform, ctx.getState());
+    expect(saved.googleSources.map((s) => [s.fileId, s.lastStatus, s.lastError])).toEqual([
+      ['sheet-c20', 'error', 'Network down'],
+    ]);
+  });
+
+  it('drops the race bookkeeping when write-back falls back to read-only', async () => {
+    let reads = 0;
+    const grid = (rows: string[][]) => ({
+      spreadsheetId: 'sheet-c20',
+      title: 'C20 Sheet',
+      sheetTitle: 'Sheet1',
+      modifiedTime: '2026-11-25T10:00:00Z',
+      readOnly: false,
+      embeddedImageRows: [],
+      values: rows,
+    });
+    const ctx = sheetCtx({
+      createSheetFromTemplate: async () => {
+        throw new Error('unused');
+      },
+      readSheet: async () => {
+        reads += 1;
+        // The second (pre-write) read sees another device's Card ID on row 2: a race.
+        return grid([
+          ['Word', 'Meaning', 'Card ID'],
+          ['나무', 'tree', 'kept-id'],
+          ['물', 'water', reads === 1 ? '' : 'other-device-id'],
+          ['불', 'fire', ''],
+        ]);
+      },
+      writeSheetCells: async () => {
+        throw new SyncTransportError('PERMISSION_DENIED', 'view only', 403);
+      },
+    });
+    const source = {
+      id: 'gsheet:sheet-c20',
+      kind: 'google_sheets' as const,
+      fileId: 'sheet-c20',
+      name: 'C20 Sheet',
+      uri: 'https://docs.google.com/spreadsheets/d/sheet-c20/edit',
+    };
+    const res = await refreshSingleGoogleSource(source, ctx, { force: true });
+    const codes = res.warnings.map((w) => w.code);
+    expect(codes).not.toContain('writeback_raced');
+    expect(codes.filter((c) => c === 'missing_card_id_readonly')).toHaveLength(2);
+    const words = [...ctx.getState().notes.values()].map((n) => n.fields['word']);
+    expect(words).toEqual(['나무']);
   });
 });
