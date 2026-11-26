@@ -468,7 +468,7 @@ const settingsField = fc.constantFrom<keyof DeckPresetSettingsShape>(
 );
 const valueFor = (field: keyof DeckPresetSettingsShape) =>
   field === 'target_retention'
-    ? fc.constantFrom(0.8, 0.85, 0.95)
+    ? fc.constantFrom(0.8, 0.85, 0.9, 0.95)
     : fc.integer({ min: 1, max: 400 });
 const edit = settingsField.chain((field) => valueFor(field).map((value) => ({ field, value })));
 
@@ -551,6 +551,23 @@ describe('presets across devices', () => {
         expect(state.decks.get(deckId)?.settings.max_reviews_per_day).toBe(200);
       }
     }
+  });
+
+  it('a retention edit back to the deck default is healed by one catch-up pass', () => {
+    // B's later edit sets 0.9, which the decks already run at, so B writes no FSRS version and
+    // A's 0.8 stays active until catch-up. Deck settings already agree; one pass fixes the params.
+    const { a, b, shared } = twoDevices();
+    const aEvents = editPreset(shared, a, 'p1', { settings: { target_retention: 0.8 } }, T0 + 100);
+    const bEvents = editPreset(shared, b, 'p1', { settings: { target_retention: 0.9 } }, T0 + 200);
+    const merged = [...shared, ...aEvents, ...bEvents];
+    const state = replayAllEvents(merged);
+    expect(getDeckPreset(state, KO)?.settings.target_retention).toBe(0.9);
+    for (const deckId of [KO, JA]) {
+      expect(state.decks.get(deckId)?.settings.target_retention).toBe(0.9);
+    }
+    const healed = [...merged, ...catchUp(merged, a, NOW)];
+    expect(membersMatch(healed, NOW + 1)).toBe(true);
+    expect(catchUp(healed, b, NOW + 1)).toEqual([]);
   });
 
   it('concurrent retention and weight copies keep both versions; reviews keep their own', () => {
