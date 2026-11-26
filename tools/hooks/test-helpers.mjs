@@ -6,12 +6,19 @@ import path from 'node:path';
 
 export const HOOKS = import.meta.dirname;
 
+// process.env without git's repository variables. Run from a git hook (pre-push runs the gate), these tests inherit
+// GIT_DIR and friends, and every throwaway repository's git call would then land in the real one.
+export const cleanEnv = (extra = {}) => ({
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))),
+  ...extra,
+});
+
 // Run a hook script with `input` as its stdin JSON, the way Claude Code does.
 export function runHook(script, input, { env = {} } = {}) {
   const r = spawnSync(process.execPath, [path.join(HOOKS, script)], {
     input: JSON.stringify(input),
     encoding: 'utf8',
-    env: { ...process.env, ...env },
+    env: cleanEnv(env),
     windowsHide: true,
   });
   let json = null;
@@ -24,7 +31,7 @@ export function runHook(script, input, { env = {} } = {}) {
 }
 
 export function sh(cmd, args, cwd) {
-  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', windowsHide: true });
+  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', windowsHide: true, env: cleanEnv() });
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')}: ${r.stderr}`);
   return r.stdout.trim();
 }

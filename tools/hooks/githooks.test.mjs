@@ -3,17 +3,18 @@
 // them the way it does for every agent and person (Claude Code, Antigravity, the owner).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { sh, tempRepo, writeFiles } from './test-helpers.mjs';
+import { cleanEnv, sh, tempRepo, writeFiles } from './test-helpers.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const HOOKS_DIR = path.join(ROOT, '.githooks');
 const INSTALL = path.join(ROOT, 'scripts', 'install-git-hooks.mjs');
 
-const git = (args, cwd) => spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
+const git = (args, cwd) =>
+  spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true, env: cleanEnv() });
 
 // A repository on main with a bare `origin` that already has main, and the real hooks switched on. It has no
 // node_modules, so pre-push skips `pnpm gate` and pre-commit skips Prettier unless a test adds a stand-in.
@@ -104,8 +105,33 @@ test('the prepare script points core.hooksPath at .githooks inside a checkout, a
     cwd: outside,
     encoding: 'utf8',
     windowsHide: true,
-    env: { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(outside) },
+    env: cleanEnv({ GIT_CEILING_DIRECTORIES: path.dirname(outside) }),
   });
   assert.equal(o.status, 0, o.stderr);
   assert.equal(o.stderr, '');
+});
+
+test('pre-push runs pnpm gate with no GIT_* repository variables, so the tool tests never touch the real repo', () => {
+  // Agents push from worktrees, where git hands its hooks an absolute GIT_DIR. The gate's tool tests run git in
+  // throwaway repositories; with GIT_DIR inherited, their `git config`, `add` and `commit` would hit this one.
+  const main = repoWithRemote();
+  const wt = path.join(realpathSync(mkdtempSync(path.join(os.tmpdir(), 'flash-hook-wt-'))), 'wt');
+  sh('git', ['worktree', 'add', '-q', '-b', 'feat/z', wt], main);
+  // A stand-in `pnpm` on PATH that records the repository variables the hook passes to the gate.
+  const bin = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'flash-hook-bin-')));
+  const out = path.join(bin, 'env.txt');
+  const outPosix = out.replaceAll(path.sep, '/');
+  writeFiles(bin, { pnpm: `#!/bin/sh\nenv | grep '^GIT_' > '${outPosix}'\nexit 0\n` });
+  chmodSync(path.join(bin, 'pnpm'), 0o755);
+  writeFiles(wt, { 'node_modules/.keep': '' });
+  const r = spawnSync('git', ['push', '-q', '-u', 'origin', 'feat/z'], {
+    cwd: wt,
+    encoding: 'utf8',
+    windowsHide: true,
+    env: cleanEnv({ PATH: `${bin}${path.delimiter}${process.env.PATH}` }),
+  });
+  assert.equal(r.status, 0, r.stderr);
+  const seen = readFileSync(out, 'utf8');
+  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR'])
+    assert.doesNotMatch(seen, new RegExp(`^${name}=`, 'm'), `${name} reached pnpm gate`);
 });

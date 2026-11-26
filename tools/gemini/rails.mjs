@@ -40,6 +40,10 @@ export const RAILS = [
   { test: oneOf('vitest.config.ts', 'playwright.config.ts'), what: "a test runner's config" },
   { test: oneOf('.sonarcloud.properties'), what: "SonarCloud's settings" },
   { test: oneOf('.prettierrc', '.prettierignore'), what: 'the Prettier config' },
+  {
+    test: oneOf('pnpm-workspace.yaml', '.npmrc'),
+    what: "pnpm's settings, which hold the minimum release age Dependabot relies on",
+  },
   { test: (f) => /^tsconfig[^/]*\.json$/.test(f), what: 'a root TypeScript config' },
   {
     test: oneOf('packages/core/tsconfig.json'),

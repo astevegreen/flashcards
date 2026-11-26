@@ -59,6 +59,8 @@ test('every rail the owner named counts, wherever in it the change is', () => {
     'playwright.config.ts',
     '.sonarcloud.properties',
     '.prettierrc',
+    'pnpm-workspace.yaml',
+    '.npmrc',
     '.prettierignore',
     'tsconfig.base.json',
     'tsconfig.e2e.json',
