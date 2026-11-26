@@ -1,5 +1,6 @@
 import { SyncTransportError } from '@flash/core';
 import type { GoogleDriveFileInfo, PickedFile } from '@flash/platform';
+import { readBodyCapped } from '../net/read-capped.ts';
 
 /**
  * Plain Google Drive files (`.csv` / `.tsv` / `.xlsx` / `.flashpkg`) for linked sources (§3.1).
@@ -46,45 +47,6 @@ interface DriveFileResponse {
 
 function tooLargeError(name: string): SyncTransportError {
   return new SyncTransportError('UNKNOWN', `"${name}" is larger than the 50 MB import limit.`);
-}
-
-/** Reads a fetch body, stopping as soon as it passes `maxBytes` (a lying header can't bypass it). */
-export async function readDriveBodyCapped(
-  res: Response,
-  maxBytes: number,
-  name: string,
-): Promise<Uint8Array> {
-  const declared = Number.parseInt(res.headers.get('content-length') ?? '', 10);
-  if (!Number.isNaN(declared) && declared > maxBytes) throw tooLargeError(name);
-  if (res.body && typeof res.body.getReader === 'function') {
-    const reader = res.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        total += value.byteLength;
-        if (total > maxBytes) {
-          await reader.cancel().catch(() => undefined);
-          throw tooLargeError(name);
-        }
-        chunks.push(value);
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    const out = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      out.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return out;
-  }
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  if (bytes.byteLength > maxBytes) throw tooLargeError(name);
-  return bytes;
 }
 
 /** `md5Checksum` changes only with the bytes; `version` and `modifiedTime` are fallbacks. */
@@ -166,6 +128,6 @@ export async function downloadDriveFileBytes(
       res.status,
     );
   }
-  const bytes = await readDriveBodyCapped(res, maxBytes, info.name);
+  const bytes = await readBodyCapped(res, maxBytes, { tooLarge: () => tooLargeError(info.name) });
   return { name: info.name, bytes, mime: info.mimeType, size: bytes.byteLength };
 }

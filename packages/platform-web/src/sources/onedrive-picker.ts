@@ -1,4 +1,5 @@
 import { compareCodeUnits, SyncTransportError } from '@flash/core';
+import { readBodyCapped } from '../net/read-capped.ts';
 import type {
   Auth,
   OneDriveBrowseItem,
@@ -194,10 +195,10 @@ export class GraphOneDriveFilePicker implements OneDriveFilePicker {
     }
     const res = await this.client.sendUnauthenticated(downloadUrl);
     if (!res.ok) throw await graphFailure(res, `download of "${name}"`);
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    if (bytes.byteLength > this.maxBytes) {
-      throw new SyncTransportError('UNKNOWN', `"${name}" is larger than the 50 MB import limit.`);
-    }
+    const bytes = await readBodyCapped(res, this.maxBytes, {
+      tooLarge: () =>
+        new SyncTransportError('UNKNOWN', `"${name}" is larger than the 50 MB import limit.`),
+    });
     const mime = MIME_BY_EXTENSION[extensionOf(name)];
     return { name, bytes, ...(mime ? { mime } : {}) };
   }

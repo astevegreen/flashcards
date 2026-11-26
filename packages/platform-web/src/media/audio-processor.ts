@@ -1,5 +1,6 @@
 import { assertSafeHttpsUrl, sha256Hex } from '@flash/core/sources';
 import type { ProcessedAudio } from '@flash/platform';
+import { readBodyCapped } from '../net/read-capped.ts';
 
 export const AUDIO_PROCESSOR_LIMITS = {
   maxBytes: 10 * 1024 * 1024, // 10 MiB synced blob cap (matches SYNC_MEDIA_LIMITS.maxMediaBlobBytes)
@@ -205,17 +206,12 @@ export async function fetchAndProcessHttpsAudio(
     throw new AudioProcessError(`Remote audio request failed (${res.status}) for "${safeUrl}".`);
   }
 
-  const contentLengthHeader = res.headers.get('content-length');
-  if (contentLengthHeader) {
-    const declared = Number.parseInt(contentLengthHeader, 10);
-    if (Number.isFinite(declared) && declared > maxBytes) {
-      throw new AudioProcessError(
-        `Remote audio exceeds max size (${declared} > ${maxBytes} bytes).`,
-      );
-    }
-  }
-
+  const bytes = await readBodyCapped(res, maxBytes, {
+    tooLarge: (declared) =>
+      new AudioProcessError(
+        `Remote audio exceeds max size (${declared ?? 'more than'} > ${maxBytes} bytes).`,
+      ),
+  });
   const contentType = res.headers.get('content-type') ?? '';
-  const buf = await res.arrayBuffer();
-  return processAudioBytes(new Uint8Array(buf), contentType, { maxBytes });
+  return processAudioBytes(bytes, contentType, { maxBytes });
 }

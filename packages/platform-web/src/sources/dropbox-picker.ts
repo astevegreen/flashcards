@@ -6,6 +6,7 @@ import type {
   DropboxFilePicker,
   PickedFile,
 } from '@flash/platform';
+import { readBodyCapped } from '../net/read-capped.ts';
 import { AuthorizedHttpClient } from '../sync/authorized-http.ts';
 import { dropboxFailure } from '../sync/dropbox-errors.ts';
 
@@ -304,13 +305,10 @@ export class DropboxAppFolderFilePicker implements DropboxFilePicker {
     });
     if (!res.ok) throw await dropboxFailure(res, `download of "${info.name}"`);
 
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    if (bytes.byteLength > this.maxBytes) {
-      throw new SyncTransportError(
-        'UNKNOWN',
-        `"${info.name}" is larger than the 50 MB import limit.`,
-      );
-    }
+    const bytes = await readBodyCapped(res, this.maxBytes, {
+      tooLarge: () =>
+        new SyncTransportError('UNKNOWN', `"${info.name}" is larger than the 50 MB import limit.`),
+    });
     const mime = MIME_BY_EXTENSION[extensionOf(info.name)];
     return {
       name: info.name,

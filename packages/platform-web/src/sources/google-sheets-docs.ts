@@ -8,6 +8,7 @@ import type {
   GoogleSourcesClient,
   PickedFile,
 } from '@flash/platform';
+import { readTextCapped } from '../net/read-capped.ts';
 import { downloadDriveFileBytes, fetchDriveFileInfo } from './google-drive-files.ts';
 import { createGoogleFetch, type GoogleFetch } from '../sync/google-http.ts';
 
@@ -345,14 +346,13 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
       );
     }
 
-    const buf = new Uint8Array(await exportRes.arrayBuffer());
-    if (buf.byteLength > MAX_DOC_MARKDOWN_BYTES) {
-      throw new SyncTransportError(
-        'UNKNOWN',
-        `Google Doc export exceeds ${MAX_DOC_MARKDOWN_BYTES} byte safety limit.`,
-      );
-    }
-    const markdown = new TextDecoder().decode(buf);
+    const markdown = await readTextCapped(exportRes, MAX_DOC_MARKDOWN_BYTES, {
+      tooLarge: () =>
+        new SyncTransportError(
+          'UNKNOWN',
+          `Google Doc export exceeds ${MAX_DOC_MARKDOWN_BYTES} byte safety limit.`,
+        ),
+    });
 
     return {
       fileId: meta.id,

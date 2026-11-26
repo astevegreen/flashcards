@@ -12,7 +12,11 @@ import type {
   StrokeCacheProgress,
   StrokeDataProvider,
 } from '@flash/platform';
+import { readTextCapped } from '../net/read-capped.ts';
 import type { DexiePackStorage } from '../packs/dexie-pack-storage.ts';
+
+/** One character's stroke JSON or KanjiVG SVG is a few KB; anything this big is not stroke data. */
+const MAX_STROKE_RESPONSE_BYTES = 1024 * 1024;
 
 export interface WebStrokeDataProviderOptions {
   packStorage: DexiePackStorage;
@@ -146,14 +150,16 @@ export class WebStrokeDataProvider implements StrokeDataProvider {
 
       let parsed: HanziStrokeData | null = null;
       const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
+      const text = await readTextCapped(res, MAX_STROKE_RESPONSE_BYTES, {
+        tooLarge: () => new Error('Stroke data response is too large.'),
+      });
       if (safeUrl.endsWith('.svg') || contentType.includes('svg')) {
-        const svgText = await res.text();
-        const converted = convertKanjivgSvgToHanziWriter(svgText);
+        const converted = convertKanjivgSvgToHanziWriter(text);
         if (isValidHanziStrokeData(converted)) {
           parsed = converted;
         }
       } else {
-        const json: unknown = await res.json();
+        const json: unknown = JSON.parse(text);
         if (isValidHanziStrokeData(json)) {
           parsed = { strokes: json.strokes, medians: json.medians };
         }

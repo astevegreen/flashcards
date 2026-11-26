@@ -1,5 +1,6 @@
 import { assertSafeHttpsUrl, sha256Hex } from '@flash/core/sources';
 import type { ImageProcessOptions, ProcessedImage } from '@flash/platform';
+import { readBodyCapped } from '../net/read-capped.ts';
 
 export const IMAGE_PROCESSOR_LIMITS = {
   maxInputBytes: 20 * 1024 * 1024, // 20 MiB raw input cap
@@ -274,18 +275,12 @@ export async function fetchAndProcessHttpsImage(
     throw new ImageProcessError(`Remote image request failed (${res.status}) for "${safeUrl}".`);
   }
 
-  const contentLengthHeader = res.headers.get('content-length');
-  if (contentLengthHeader) {
-    const declared = Number.parseInt(contentLengthHeader, 10);
-    if (Number.isFinite(declared) && declared > maxInputBytes) {
-      throw new ImageProcessError(
-        `Remote image exceeds max size (${declared} > ${maxInputBytes} bytes).`,
-      );
-    }
-  }
-
+  const bytes = await readBodyCapped(res, maxInputBytes, {
+    tooLarge: (declared) =>
+      new ImageProcessError(
+        `Remote image exceeds max size (${declared ?? 'more than'} > ${maxInputBytes} bytes).`,
+      ),
+  });
   const contentType = res.headers.get('content-type') ?? '';
-  const buf = await res.arrayBuffer();
-  const bytes = new Uint8Array(buf);
   return processImageBytes(bytes, contentType, opts);
 }
