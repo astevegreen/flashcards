@@ -1,16 +1,15 @@
 import {
-  applyEvents,
   BUILTIN_NOTE_TYPE_IDS,
   createEmptyState,
   createEventFactory,
   createHlcState,
   getTotalAppliedEventCount,
-  serializeCollectionState,
   type FlashEvent,
 } from '@flash/core';
-import { createInitialSyncCursor, runSync, snapshotsPrefix } from '@flash/core/sync';
+import { createInitialSyncCursor, runSync } from '@flash/core/sync';
 import { describe, expect, it } from 'vitest';
 import { memoryTransport } from './helpers/memory-transport.ts';
+import { remoteWithSnapshot } from './helpers/remote-snapshot.ts';
 import {
   claimLocalSnapshot,
   LOCAL_SNAPSHOT_EVERY_EVENTS,
@@ -49,31 +48,6 @@ async function remoteWithEvents(count = PULLED) {
       throw new Error('no snapshot expected');
     },
   });
-  return transport;
-}
-
-/** Another device has synced a snapshot holding one deck. */
-async function remoteWithSnapshot() {
-  const transport = memoryTransport();
-  const fb = createEventFactory('dev-b', 0, createHlcState('dev-b', T0));
-  const events = [fb.create('DeckCreated', deck(0), T0)];
-  const stateB = applyEvents(createEmptyState(), events);
-  await runSync({
-    transport,
-    deviceId: 'dev-b',
-    cursor: createInitialSyncCursor(),
-    localOwnSeq: 1,
-    currentTotalEvents: 1,
-    snapshotThreshold: 1,
-    nowMs: () => T0 + 10,
-    getLocalEventsAfterSeq: async (after) => events.filter((e) => e.seq > after),
-    buildSnapshotState: async () => ({
-      state: serializeCollectionState(stateB, { 'dev-b': 1 }),
-      totalEvents: getTotalAppliedEventCount(stateB),
-      watermarks: { 'dev-b': 1 },
-    }),
-  });
-  expect([...transport.files.keys()].some((p) => p.startsWith(snapshotsPrefix()))).toBe(true);
   return transport;
 }
 
@@ -215,7 +189,7 @@ describe('the sync path moves the shared snapshot counter when it decides (R10)'
   });
 
   it('hydrating a snapshot moves the counter when it decides, and its write never moves it back', async () => {
-    const { ctx, counter, snapshots, drain } = heldContext(await remoteWithSnapshot());
+    const { ctx, counter, snapshots, drain } = heldContext(await remoteWithSnapshot(T0, deck(0)));
     let hydratedTotal = -1;
     ctx.onReplaceState = (next) => {
       hydratedTotal = getTotalAppliedEventCount(next);
