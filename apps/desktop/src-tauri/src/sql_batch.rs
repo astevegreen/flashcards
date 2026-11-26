@@ -45,14 +45,14 @@ pub async fn execute_batch(
     let mut tx = pool.begin().await?;
     for statement in &statements {
         let mut query = sqlx::query(&statement.sql);
-        // Bound as tauri-plugin-sql's `execute` binds them, so a row reads back the same either way.
+        // Bound exactly as tauri-plugin-sql 2.6's `execute` binds them (wrapper.rs), so a row reads
+        // back the same either way: booleans, arrays and objects go in as the JSON value itself.
         for value in &statement.params {
             query = match value {
-                JsonValue::Null => query.bind(None::<String>),
+                JsonValue::Null => query.bind(None::<JsonValue>),
                 JsonValue::String(s) => query.bind(s.clone()),
                 JsonValue::Number(n) => query.bind(n.as_f64().unwrap_or_default()),
-                JsonValue::Bool(b) => query.bind(i64::from(*b)),
-                other => query.bind(other.to_string()),
+                other => query.bind(other.clone()),
             };
         }
         query.execute(&mut *tx).await?;
@@ -143,6 +143,22 @@ mod tests {
                 .get(0);
             assert_eq!(seq, 1);
             assert_eq!(count(&pool, "kv").await, 1);
+
+            // A boolean is stored as tauri-plugin-sql stores it: the JSON value.
+            let flag = vec![statement(
+                "INSERT INTO kv (key, value_json) VALUES (?, ?)",
+                vec![json!("flag"), json!(true)],
+            )];
+            execute_batch(&pool, flag).await.unwrap();
+            let mut plugin = sqlx::query("SELECT ?");
+            plugin = plugin.bind(json!(true));
+            let expected: String = plugin.fetch_one(&pool).await.unwrap().get(0);
+            let stored: String = sqlx::query("SELECT value_json FROM kv WHERE key = 'flag'")
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+                .get(0);
+            assert_eq!(stored, expected);
             pool.close().await;
         });
         let _ = std::fs::remove_dir_all(&dir);

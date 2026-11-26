@@ -33,8 +33,9 @@ plist = "1"
 # linked SQLite was compiled with SQLITE_SECURE_DELETE.
 libsqlite3-sys = "0.30"
 # Same version and features tauri-plugin-sql already pulls in: `src/sql_batch.rs` runs a batch in
-# one transaction on the plugin's pool, and tests open a pool directly.
-sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
+# one transaction on the plugin's pool (binding JSON values as the plugin does), and tests
+# open a pool directly.
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio", "json"] }
 
 # iCloud Drive container lookup and on-demand downloads (`src/icloud.rs`).
 [target.'cfg(target_os = "macos")'.dependencies]
