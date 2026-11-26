@@ -170,6 +170,13 @@ export function parseLicenseKey(rawKey: string): ParsedLicenseKey {
   if (signatureBytes.byteLength !== 64) {
     throw new Error('Invalid Ed25519 signature byte length (expected 64 bytes).');
   }
+  // One spelling per licence (S13): no `=` padding and no stray bits in the last character.
+  if (
+    base64UrlEncode(payloadBytes) !== payloadB64Url ||
+    base64UrlEncode(signatureBytes) !== signatureB64Url
+  ) {
+    throw new Error('License key is not in canonical base64url form.');
+  }
 
   const parsed = JSON.parse(decodeUtf8(payloadBytes)) as Record<string, unknown>;
   if (

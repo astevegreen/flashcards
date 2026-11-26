@@ -123,3 +123,27 @@ describe('DropboxOAuthWebAuth (PKCE, no Worker)', () => {
     storage.close();
   });
 });
+
+describe('Dropbox PKCE record expiry (S13)', () => {
+  it('refuses a callback whose PKCE record is older than PKCE_MAX_AGE_MS', async () => {
+    const storage = createStorage('expiry');
+    const { win, assigned } = createMockWindow('https://app.example.com/');
+    let clock = 1_750_000_000_000;
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
+    const auth = new DropboxOAuthWebAuth({
+      appKey: 'app-key',
+      storage,
+      fetchImpl,
+      windowImpl: win,
+      nowMs: () => clock,
+    });
+    await auth.signIn();
+    const state = new URL(assigned[0] ?? '').searchParams.get('state') ?? '';
+    clock += 31 * 60_000;
+    win.location.search = `?code=dbx-code&state=${encodeURIComponent(state)}`;
+    await expect(auth.handleRedirectCallback()).rejects.toThrow(/took too long/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(win.location.search).toBe('');
+    storage.close();
+  });
+});
