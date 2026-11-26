@@ -221,16 +221,6 @@ importers:
         version: 5.1.1(@types/node@24.19.2)(vite@8.3.8(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))
 
   apps/desktop:
-    dependencies:
-      '@flash/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@flash/platform':
-        specifier: workspace:*
-        version: link:../../packages/platform
-      '@flash/platform-tauri':
-        specifier: workspace:*
-        version: link:../../packages/platform-tauri
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2.12.6
@@ -280,15 +270,6 @@ importers:
       '@flash/capacitor-secure-storage':
         specifier: workspace:*
         version: link:../../packages/capacitor-secure-storage
-      '@flash/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@flash/platform':
-        specifier: workspace:*
-        version: link:../../packages/platform
-      '@flash/platform-capacitor':
-        specifier: workspace:*
-        version: link:../../packages/platform-capacitor
     devDependencies:
       '@capacitor/cli':
         specifier: ^8.6.2

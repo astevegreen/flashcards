@@ -11,11 +11,6 @@
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "typecheck": "node -e \"JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json','utf8'))\""
   },
-  "dependencies": {
-    "@flash/core": "workspace:*",
-    "@flash/platform": "workspace:*",
-    "@flash/platform-tauri": "workspace:*"
-  },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.6"
   }
