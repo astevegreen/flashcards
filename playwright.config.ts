@@ -37,7 +37,8 @@ export default defineConfig({
   // Several specs drive two pages plus replay Web Workers each; at Playwright's default
   // (half the logical cores) they starve each other locally and time out. 4 keeps runs stable.
   workers: process.env['CI'] ? 1 : 4,
-  reporter: 'list',
+  // The retry reporter prints (and on CI annotates) every test that needed a retry.
+  reporter: [['list'], ['./tests/e2e/reporters/retry-reporter.ts']],
   use: {
     baseURL: BASE_URL,
     trace: 'on-first-retry',

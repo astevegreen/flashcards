@@ -11,10 +11,11 @@ import { createHlcState } from '../src/hlc.ts';
 import { deriveCardId, deriveNoteId } from '../src/ids.ts';
 import { BUILTIN_NOTE_TYPE_IDS } from '../src/model/presets.ts';
 import type { ReviewRating } from '../src/model/types.ts';
+import { compareCodeUnits } from '../src/study/queue.ts';
 
 function canonicalSnapshot(state: CollectionState) {
   const decks = [...state.decks.values()]
-    .sort((a, b) => a.id.localeCompare(b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((d) => ({
       id: d.id,
       name: d.name,
@@ -22,21 +23,24 @@ function canonicalSnapshot(state: CollectionState) {
       initial_retention: d.initial_retention,
       source: d.source,
       archived: d.archived,
+      created_at: d.created_at,
     }));
 
   const notes = [...state.notes.values()]
-    .sort((a, b) => a.id.localeCompare(b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((n) => ({
       id: n.id,
       deck_id: n.deck_id,
-      fields: Object.fromEntries(Object.entries(n.fields).sort(([a], [b]) => a.localeCompare(b))),
+      fields: Object.fromEntries(
+        Object.entries(n.fields).sort(([a], [b]) => compareCodeUnits(a, b)),
+      ),
       tags: n.tags,
       archived: n.archived,
       created_order: n.created_order,
     }));
 
   const cards = [...state.cards.values()]
-    .sort((a, b) => a.id.localeCompare(b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((c) => ({
       id: c.id,
       note_id: c.note_id,
@@ -46,7 +50,7 @@ function canonicalSnapshot(state: CollectionState) {
     }));
 
   const pages = [...state.pages.values()]
-    .sort((a, b) => a.id.localeCompare(b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((p) => ({
       id: p.id,
       title: p.title,
@@ -58,8 +62,9 @@ function canonicalSnapshot(state: CollectionState) {
 }
 
 describe('Multi-device CRDT/event-log convergence (fast-check property test)', () => {
-  it('converges to identical decks, notes, cards, and FSRS schedules under arbitrary event interleaving & duplicates', () => {
+  it('converges to identical decks, notes, cards, and FSRS schedules under arbitrary event interleaving & duplicates, deck archives, re-created decks and note moves', () => {
     const deckId = 'deck-prop-1';
+    const deckIds = [deckId, 'deck-prop-2'] as const;
     const noteKeys = ['n1', 'n2', 'n3'];
     const layoutId = 'layout:vocab-ko:recognition';
 
@@ -122,6 +127,28 @@ describe('Multi-device CRDT/event-log convergence (fast-check property test)', (
         deviceIdx: fc.integer({ min: 0, max: 2 }),
         dt: fc.integer({ min: 1, max: 50_000 }),
       }),
+      fc.record({
+        kind: fc.constant('deckArchive' as const),
+        deviceIdx: fc.integer({ min: 0, max: 2 }),
+        deckIdx: fc.integer({ min: 0, max: 1 }),
+        archive: fc.boolean(),
+        dt: fc.integer({ min: 1, max: 50_000 }),
+      }),
+      // A starter or `.flashpkg` deck installed again on another device (D10).
+      fc.record({
+        kind: fc.constant('deckCreatedAgain' as const),
+        deviceIdx: fc.integer({ min: 0, max: 2 }),
+        deckIdx: fc.integer({ min: 0, max: 1 }),
+        name: fc.constantFrom('Again A', 'Again B'),
+        dt: fc.integer({ min: -5_000, max: 50_000 }),
+      }),
+      fc.record({
+        kind: fc.constant('noteMove' as const),
+        deviceIdx: fc.integer({ min: 0, max: 2 }),
+        noteIdx: fc.integer({ min: 0, max: 2 }),
+        deckIdx: fc.integer({ min: 0, max: 1 }),
+        dt: fc.integer({ min: 1, max: 50_000 }),
+      }),
     );
 
     fc.assert(
@@ -169,6 +196,20 @@ describe('Multi-device CRDT/event-log convergence (fast-check property test)', (
               ),
             );
           }
+
+          allEvents.push(
+            f1.create(
+              'DeckCreated',
+              {
+                deck_id: 'deck-prop-2',
+                name: 'Second Deck',
+                note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+                language: 'ko',
+                created_at: baseTime + 10,
+              },
+              baseTime + 10,
+            ),
+          );
 
           allEvents.push(
             f0.create(
@@ -285,6 +326,44 @@ describe('Multi-device CRDT/event-log convergence (fast-check property test)', (
               allEvents.push(
                 factory.create('PageRead', { page_id: 'page-prop-1', read_at: clock }, clock),
               );
+            } else if (act.kind === 'deckArchive') {
+              allEvents.push(
+                factory.create(
+                  'DeckSettingsChanged',
+                  { deck_id: deckIds[act.deckIdx] ?? deckId, archived: act.archive },
+                  clock,
+                ),
+              );
+            } else if (act.kind === 'deckCreatedAgain') {
+              allEvents.push(
+                factory.create(
+                  'DeckCreated',
+                  {
+                    deck_id: deckIds[act.deckIdx] ?? deckId,
+                    name: act.name,
+                    note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+                    language: 'ko',
+                    created_at: clock,
+                  },
+                  clock,
+                ),
+              );
+            } else if (act.kind === 'noteMove') {
+              // A note moved to another deck keeps its id (and its review history).
+              const key = noteKeys[act.noteIdx];
+              if (!key) continue;
+              allEvents.push(
+                factory.create(
+                  'NoteUpserted',
+                  {
+                    note_id: deriveNoteId(deckId, key),
+                    deck_id: deckIds[act.deckIdx] ?? deckId,
+                    source_key: key,
+                    fields: {},
+                  },
+                  clock,
+                ),
+              );
             }
           }
 
@@ -329,7 +408,7 @@ describe('Multi-device CRDT/event-log convergence (fast-check property test)', (
           expect(snap3).toEqual(snap1);
         },
       ),
-      { numRuns: 40 },
+      { numRuns: 60 },
     );
   });
 });

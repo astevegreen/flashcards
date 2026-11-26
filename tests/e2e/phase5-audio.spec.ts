@@ -55,6 +55,52 @@ async function getUnmutedAudioPlays(page: Page): Promise<RecordedAudioPlay[]> {
   );
 }
 
+/**
+ * Resolves once the browser has drawn two more frames, so React has committed (and run the
+ * effects of) every update already queued. The absence checks below wait for the event that
+ * would cause what must not happen, then for this, instead of sleeping a fixed time (§9).
+ */
+async function afterTwoFrames(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+}
+
+/**
+ * Resolves once every transaction the app already started on `storeName` has finished: a
+ * readwrite transaction only starts after the earlier transactions on the same store complete.
+ */
+async function afterEarlierDbTransactions(
+  page: Page,
+  dbName: string,
+  storeName: string,
+): Promise<void> {
+  await page.evaluate(
+    ([name, store]) =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open(name);
+        open.onerror = () => reject(open.error ?? new Error('open failed'));
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction(store, 'readwrite');
+          tx.objectStore(store).count();
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error ?? new Error('transaction failed'));
+          };
+        };
+      }),
+    [dbName, storeName] as const,
+  );
+}
+
 test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
   test('Attached audio upload, spoof rejection, 1.0x/0.75x playback, and 2-device offline sync', async ({
     browser,
@@ -243,17 +289,22 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
     await page.addInitScript(() => {
       const spoken: Array<{ text: string; lang: string; rate: number }> = [];
       (window as unknown as { __spokenCalls: typeof spoken }).__spokenCalls = spoken;
+      const voiceQueries = { count: 0 };
+      (window as unknown as { __voiceQueries: typeof voiceQueries }).__voiceQueries = voiceQueries;
       Object.defineProperty(window.speechSynthesis, 'getVoices', {
         configurable: true,
-        value: () => [
-          {
-            name: 'Google Remote Korean',
-            lang: 'ko-KR',
-            localService: false,
-            default: true,
-            voiceURI: 'remote-ko',
-          },
-        ],
+        value: () => {
+          voiceQueries.count += 1;
+          return [
+            {
+              name: 'Google Remote Korean',
+              lang: 'ko-KR',
+              localService: false,
+              default: true,
+              voiceURI: 'remote-ko',
+            },
+          ];
+        },
       });
       window.speechSynthesis.speak = (u: SpeechSynthesisUtterance) => {
         spoken.push({ text: u.text, lang: u.lang, rate: u.rate });
@@ -289,8 +340,17 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
     await page.getByLabel('Select deck to study').selectOption({ label: 'Korean Core + Hanja' });
 
     await context.setOffline(true);
+    const voiceQueries = () =>
+      page.evaluate(
+        () => (window as unknown as { __voiceQueries: { count: number } }).__voiceQueries.count,
+      );
+    const queriesBefore = await voiceQueries();
     await page.keyboard.press('r');
-    await page.waitForTimeout(200);
+    // The press reached device speech, which then reads the dismissed flag from storage: wait for
+    // that read and the render after it, then check the banner stayed away.
+    await expect.poll(voiceQueries).toBeGreaterThan(queriesBefore);
+    await afterEarlierDbTransactions(page, 'flashcards-db-p5offlinevoice', 'kv');
+    await afterTwoFrames(page);
     await expect(page.getByTestId('missing-voice-banner')).toHaveCount(0);
     await context.setOffline(false);
   });
@@ -403,7 +463,9 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
     });
     await koRow.getByRole('button', { name: 'Study' }).click();
     await expect(page.getByTestId('study-card')).toBeVisible();
-    await page.waitForTimeout(150);
+    // A front auto-speak starts in a layout effect when the card commits, and with no clip or
+    // cloud voice it reaches speechSynthesis.speak synchronously: two frames cover it.
+    await afterTwoFrames(page);
     const beforeFlip = await page.evaluate(
       () => ((window as unknown as { __spokenCalls?: unknown[] }).__spokenCalls ?? []).length,
     );
@@ -608,8 +670,9 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
       )
       .toBe(true);
 
-    // Give React time to commit MediaAdded / stateVersion updates; playback MUST NOT be paused!
-    await page.waitForTimeout(150);
+    // MediaAdded is applied before the clip plays: once React has committed that update (and the
+    // stateVersion re-render), playback MUST NOT have been paused.
+    await afterTwoFrames(page);
     const lastAudioEvent = await page.evaluate(() => {
       const evs = (
         window as unknown as {
@@ -632,7 +695,15 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
 
     // Warning banner appears (triggers AppProvider re-render)
     await expect(page.getByTestId('audio-warning-banner')).toBeVisible();
-    await page.waitForTimeout(150);
+    // Wait for the fallback utterance, then for any re-render the banner caused to commit.
+    await expect
+      .poll(async () =>
+        page.evaluate(() =>
+          (window as unknown as { __speechEvents: string[] }).__speechEvents.includes('speak'),
+        ),
+      )
+      .toBe(true);
+    await afterTwoFrames(page);
 
     // Fallback speechSynthesis utterance MUST NOT be cancelled by the warning banner re-render!
     const lastSpeechEvent = await page.evaluate(() => {
