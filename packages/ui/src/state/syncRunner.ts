@@ -17,7 +17,6 @@ import {
 import { createInitialSyncCursor, runSync } from '@flash/core/sync';
 import type {
   DeviceMeta,
-  MaterializedCardRow,
   PlatformServices,
   ReplayWorkerClient,
   SyncConfig,
@@ -25,7 +24,6 @@ import type {
   SyncTransport,
 } from '@flash/platform';
 import type { MutableRefObject } from 'react';
-import { cardToRow } from './cardRow.ts';
 import type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
 import { localSnapshotDue } from './localSnapshotCounter.ts';
 import { snapshotWriteAllowed } from './rebuildSignal.ts';
@@ -403,7 +401,6 @@ export async function runSyncCycle(
       ctx.pendingWorkerLocalEventsRef.current = [];
       ctx.onReplaceState(hydrated, nextMeta);
 
-      const allCardRows = [...hydrated.cards.values()].map((card) => cardToRow(card));
       const snapWatermarks = buildWatermarks(deviceId, nextMeta.seq, result.cursor);
       const localSnapPayload = serializeCollectionState(hydrated, snapWatermarks);
 
@@ -414,7 +411,6 @@ export async function runSyncCycle(
         // The hydrated state only reaches storage through this snapshot. When a rebuild keeps the
         // snapshot, the cursor must not move past it either: the next sync after reload pulls again.
         if (!(await snapshotWriteAllowed(ctx.platform.storage, ctx.startedAtMs))) return;
-        await ctx.platform.storage.saveMaterializedCards(allCardRows);
         await ctx.platform.storage.setDeviceMeta(nextMeta);
         await ctx.platform.storage.setSyncCursor(result.cursor);
         const maxLocalSeq = await ctx.platform.storage.getMaxLocalSeq();
@@ -426,14 +422,8 @@ export async function runSyncCycle(
         ctx.lastLocalSnapshotCountRef.current = getTotalAppliedEventCount(hydrated);
       });
     } else if (result.pulledEvents.length > 0) {
-      const diff = await applyRemoteEventsOffMainThread(ctx, result.pulledEvents, currentCursor);
+      await applyRemoteEventsOffMainThread(ctx, result.pulledEvents, currentCursor);
       ctx.onStateMutated(metaChanged ? nextMeta : undefined);
-
-      const changedRows: MaterializedCardRow[] = [];
-      for (const cardId of diff.changedCardIds) {
-        const card = ctx.stateRef.current.cards.get(cardId);
-        if (card) changedRows.push(cardToRow(card));
-      }
 
       const totalNow = getTotalAppliedEventCount(ctx.stateRef.current);
       const shouldSaveLocalSnapshot =
@@ -451,12 +441,6 @@ export async function runSyncCycle(
 
       void ctx.enqueuePersist(async () => {
         await ctx.platform.storage.appendEvents(result.pulledEvents);
-        if (changedRows.length > 0) {
-          await ctx.platform.storage.upsertMaterializedCards(changedRows);
-        }
-        if (diff.removedCardIds.length > 0) {
-          await ctx.platform.storage.deleteMaterializedCards(diff.removedCardIds);
-        }
         if (metaChanged) {
           await ctx.platform.storage.setDeviceMeta(nextMeta);
         }

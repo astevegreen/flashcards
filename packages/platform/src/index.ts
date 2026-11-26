@@ -1,5 +1,4 @@
 import type {
-  CardScheduleState,
   CollectionStatePatch,
   FlashEvent,
   HlcState,
@@ -67,15 +66,6 @@ export interface DeviceMeta {
   seeded?: boolean;
 }
 
-export interface MaterializedCardRow {
-  id: string;
-  deck_id: string;
-  note_id: string;
-  layout_id: string;
-  due: number;
-  schedule: CardScheduleState;
-}
-
 export interface MediaBlob {
   hash: string;
   mime: string;
@@ -107,10 +97,6 @@ export interface Storage {
   getMaxLocalSeq(): Promise<number>;
   getDeviceMeta(): Promise<DeviceMeta | undefined>;
   setDeviceMeta(meta: DeviceMeta): Promise<void>;
-  saveMaterializedCards(cards: readonly MaterializedCardRow[]): Promise<void>;
-  upsertMaterializedCards(cards: readonly MaterializedCardRow[]): Promise<void>;
-  deleteMaterializedCards(cardIds: readonly string[]): Promise<void>;
-  loadMaterializedCards(): Promise<MaterializedCardRow[]>;
   getSyncCursor(): Promise<SyncCursorState | undefined>;
   setSyncCursor(cursor: SyncCursorState): Promise<void>;
   getSyncConfig(): Promise<SyncConfig | undefined>;

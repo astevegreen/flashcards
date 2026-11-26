@@ -178,7 +178,6 @@ describe('check database on a device', () => {
     expect(await snapshotWriteAllowed(storage, undefined)).toBe(true);
     const saved = await storage.getLocalSnapshot();
     expect(saved?.snapshot.cards.some((c) => c.id === card.id)).toBe(true);
-    expect((await storage.loadMaterializedCards()).some((c) => c.id === card.id)).toBe(true);
   });
 
   it('reports a rebuild another tab saved over', async () => {

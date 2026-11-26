@@ -7,15 +7,9 @@ import {
   uuidv7,
   type CollectionState,
 } from '@flash/core';
-import type {
-  AuthSession,
-  MaterializedCardRow,
-  PlatformServices,
-  SyncConfig,
-  SyncProviderKind,
-} from '@flash/platform';
+import type { AuthSession, PlatformServices, SyncConfig, SyncProviderKind } from '@flash/platform';
 import { createWebPlatform, resolveDeviceFromUrl } from '@flash/platform-web';
-import { cardToRow, FlashcardsApp } from '@flash/ui';
+import { FlashcardsApp } from '@flash/ui';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
@@ -245,20 +239,7 @@ async function boot(): Promise<void> {
     initialState = deserializeCollectionState(localSnapshot.snapshot);
     const delta = await platform.storage.getEventsAfterLocalSeq(localSnapshot.localSeq);
     if (delta.events.length > 0) {
-      const diff = applyEventsWithDiff(initialState, delta.events);
-      const changedRows: MaterializedCardRow[] = [];
-      for (const cardId of diff.changedCardIds) {
-        const card = initialState.cards.get(cardId);
-        if (card) changedRows.push(cardToRow(card));
-      }
-      void Promise.all([
-        changedRows.length > 0
-          ? platform.storage.upsertMaterializedCards(changedRows)
-          : Promise.resolve(),
-        diff.removedCardIds.length > 0
-          ? platform.storage.deleteMaterializedCards(diff.removedCardIds)
-          : Promise.resolve(),
-      ]);
+      applyEventsWithDiff(initialState, delta.events);
     }
     if (resaveSnapshot) {
       void platform.storage.setLocalSnapshot({
@@ -291,10 +272,8 @@ async function boot(): Promise<void> {
 
     initialState = applyEvents(createEmptyState(), events);
 
-    // Asynchronously warm cards_cache and local snapshot for subsequent fast cold starts
+    // Save a local snapshot so later cold starts replay only the events after it
     if (events.length > 0) {
-      const rows = [...initialState.cards.values()].map((card) => cardToRow(card));
-      void platform.storage.saveMaterializedCards(rows);
       if (events.length >= 200 || replayedLog !== undefined) {
         // Capture maxLocalSeq synchronously before rendering so post-render mutations cannot race ahead
         const [maxLocalSeq, { serializeCollectionState }] = await Promise.all([

@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext, type Page, type Route } from '@playwright/test';
 import { PRODUCTION_CSP } from '../../apps/web/csp.ts';
+import { readStoredCards } from './helpers/stored-cards.ts';
 
 const DECK_NAME = 'Korean Core + Hanja';
 
@@ -42,8 +43,11 @@ const PASTED_NOTES = 60;
  * eligible reviews written.
  */
 async function seedReviewHistory(page: Page, deckId: string): Promise<number> {
+  const cards = (await readStoredCards(page, dbNameFor(page)))
+    .filter((c) => c.deck_id === deckId)
+    .map((c) => c.id);
   return page.evaluate(
-    async ({ dbName, deck }) => {
+    async ({ dbName, cards }) => {
       const DAY = 86_400_000;
       const REVIEWS_PER_CARD = 9;
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -57,10 +61,6 @@ async function seedReviewHistory(page: Page, deckId: string): Promise<number> {
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-      const cards = ((await getAll('cards_cache')) as { id: string; deck_id: string }[])
-        .filter((c) => c.deck_id === deck)
-        .map((c) => c.id)
-        .sort((a, b) => (a < b ? -1 : Number(a > b)));
       const kv = (await getAll('kv')) as { key: string; value: unknown }[];
       const counterRow = kv.find((r) => r.key === '__local_seq_counter');
       let localSeq = typeof counterRow?.value === 'number' ? counterRow.value : 0;
@@ -139,7 +139,7 @@ async function seedReviewHistory(page: Page, deckId: string): Promise<number> {
       db.close();
       return eligible;
     },
-    { dbName: dbNameFor(page), deck: deckId },
+    { dbName: dbNameFor(page), cards },
   );
 }
 
@@ -168,7 +168,7 @@ async function seedAndReload(page: Page): Promise<{ deckId: string; eligible: nu
           'deck_id'
         ] ?? '',
       );
-      const cards = await readStore<{ deck_id: string }>(page, 'cards_cache');
+      const cards = await readStoredCards(page, dbNameFor(page));
       return cards.filter((c) => deckId !== '' && c.deck_id === deckId).length;
     })
     .toBeGreaterThanOrEqual(PASTED_NOTES);

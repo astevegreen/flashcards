@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createAddDeviceUrlSource } from '../src/native/plugins.ts';
 import { createEventFactory, createHlcState } from '../../core/src/index.ts';
-import { createInitialSchedule } from '../../core/src/fsrs/scheduler.ts';
 import {
   CapacitorGoogleAuth,
   CapacitorMlKitInkRecognizer,
@@ -19,7 +18,7 @@ function pluginError(code: string, message: string): Error {
 }
 
 describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () => {
-  it('CapacitorSqliteStorage stores/queries events, local_seq, cards_cache, media & kv', async () => {
+  it('CapacitorSqliteStorage stores/queries events, local_seq, media & kv', async () => {
     const storage = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     const factory = createEventFactory('cap-ios-1', 0, createHlcState('cap-ios-1', 1000));
     const ev1 = factory.create(
@@ -61,20 +60,6 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
     const delta = await storage.getEventsAfterLocalSeq(1);
     expect(delta.events.length).toBe(1);
     expect(delta.maxLocalSeq).toBe(2);
-
-    await storage.saveMaterializedCards([
-      {
-        id: 'c1',
-        deck_id: 'd1',
-        note_id: 'n1',
-        layout_id: 'l1',
-        due: 5000,
-        schedule: createInitialSchedule(0),
-      },
-    ]);
-    expect((await storage.loadMaterializedCards()).length).toBe(1);
-    await storage.deleteMaterializedCards(['c1']);
-    expect((await storage.loadMaterializedCards()).length).toBe(0);
 
     await storage.putMedia({ hash: 'abc', mime: 'audio/mpeg', bytes: new Uint8Array([1, 2, 3]) });
     expect((await storage.getMedia('abc'))?.bytes).toEqual(new Uint8Array([1, 2, 3]));

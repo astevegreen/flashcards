@@ -35,7 +35,6 @@ import {
 import type {
   DeviceMeta,
   EntitlementState,
-  MaterializedCardRow,
   PlatformServices,
   SourcesRegistry,
   SyncConfig,
@@ -56,7 +55,6 @@ import {
   parseAddDeviceDeepLink,
   type AddDeviceLink,
 } from '../sync/addDeviceLink.ts';
-import { cardToRow } from './cardRow.ts';
 import { refreshThenRecheckStore } from './entitlementAtLaunch.ts';
 import { priorOfMediaEdits } from './mediaEditPrior.ts';
 import { createMediaReAddQueue, type MediaReAddQueue } from './mediaReAddQueue.ts';
@@ -396,7 +394,7 @@ export function AppProvider({
       const mediaPrior = priorOfMediaEdits(st, events);
       if (mediaPrior) mediaReAddsRef.current?.add({ prior: mediaPrior, events });
       void mediaReAddsRef.current?.flush();
-      const diff = applyEventsWithDiff(st, events);
+      applyEventsWithDiff(st, events);
       const nextMeta: DeviceMeta = {
         ...metaRef.current,
         seq: factory.getSeq(),
@@ -411,13 +409,6 @@ export function AppProvider({
         if (ev.type === 'ReviewRecorded') reviewCount += 1;
       }
       syncController.notifyLocalEvents(events, reviewCount);
-
-      const changedRows: MaterializedCardRow[] = [];
-      for (const cardId of diff.changedCardIds) {
-        const card = st.cards.get(cardId);
-        if (card) changedRows.push(cardToRow(card));
-      }
-      const removedIds = diff.removedCardIds;
 
       const totalNow = getTotalAppliedEventCount(st);
       let snapshot: SerializedSnapshot | undefined;
@@ -438,12 +429,6 @@ export function AppProvider({
 
       void enqueuePersist(async () => {
         await platform.storage.appendEvents(events);
-        if (changedRows.length > 0) {
-          await platform.storage.upsertMaterializedCards(changedRows);
-        }
-        if (removedIds.length > 0) {
-          await platform.storage.deleteMaterializedCards(removedIds);
-        }
         await platform.storage.setDeviceMeta(nextMeta);
         if (snapshot) await saveLocalSnapshot(platform.storage, startedAtMs, snapshot);
       });

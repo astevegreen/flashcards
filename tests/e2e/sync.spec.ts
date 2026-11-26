@@ -108,36 +108,35 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
     await koRowB.getByRole('button', { name: 'Options' }).click();
     await expect(koRowB.getByLabel('Target retention')).toHaveValue('0.85');
 
-    // Verify identical materialized card schedules in IndexedDB across Device A and Device B
-    const readCardsCache = async (p: typeof pageA, dbName: string) =>
+    // Both devices hold the same event log, so replay gives them the same card schedules.
+    const readEventIds = async (p: typeof pageA, dbName: string) =>
       p.evaluate(async (name) => {
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
           const req = indexedDB.open(name);
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-        const rows = await new Promise<Array<{ id: string; due: number; schedule: unknown }>>(
-          (resolve, reject) => {
-            const tx = db.transaction('cards_cache', 'readonly');
-            const req = tx.objectStore('cards_cache').getAll();
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-          },
-        );
+        const keys = await new Promise<IDBValidKey[]>((resolve, reject) => {
+          const tx = db.transaction('events', 'readonly');
+          const req = tx.objectStore('events').getAllKeys();
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
         db.close();
-        return rows.sort((a, b) => a.id.localeCompare(b.id));
+        // Keys come back in IndexedDB key order, the same on both devices.
+        return keys.map(String);
       }, dbName);
 
-    // Reload Device B and verify persistence + identical schedules
+    // Reload Device B and verify persistence + identical event logs
     await pageB.reload();
     await expect(pageB.getByTestId('study-card')).toBeVisible();
     await pageB.getByLabel('Select deck to study').selectOption({ label: 'Korean Core + Hanja' });
     await expect(pageB.getByTestId('count-new')).toHaveText(String(initialKoNew - 1));
 
-    const cardsA = await readCardsCache(pageA, 'flashcards-db-synca');
-    const cardsB = await readCardsCache(pageB, 'flashcards-db-syncb');
-    expect(cardsB.length).toBeGreaterThan(0);
-    expect(cardsB).toEqual(cardsA);
+    const eventsA = await readEventIds(pageA, 'flashcards-db-synca');
+    const eventsB = await readEventIds(pageB, 'flashcards-db-syncb');
+    expect(eventsB.length).toBeGreaterThan(0);
+    expect(eventsB).toEqual(eventsA);
 
     await context.close();
   });
