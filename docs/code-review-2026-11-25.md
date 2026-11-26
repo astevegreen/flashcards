@@ -4,11 +4,12 @@ A read-only review of the whole repo at commit `0ae9b0e`, plus the uncommitted `
 
 **How to read the tags:**
 
-- **✔** I re-read the code and confirmed the finding.
+- **✔** The finding is fixed and merged (see the burn-down note below). Older ✔ marks also meant that I re-read the code and confirmed the finding.
+- **(partly: …)** Only part of the finding is fixed. The text says what is left, and `docs/follow-ups.md` has an open item for it.
 - **CONFIRMED** The reviewer traced the path.
 - **PLAUSIBLE** The mechanism is real, but the trigger or the impact hasn't been seen.
 
-Burn-down (2026-11-26): ✔ now also marks the findings fixed in #57, #60–#64, #69–#75 and #79–#85. "(partly: …)" marks a finding that is only partly done. P5, D19 and S6 wait for the owner.
+Burn-down (2026-11-26): ✔ marks the findings fixed in #57, #60–#64, #69–#75 and #79–#85. P5, D19 and S6 wait for the owner.
 
 Nothing in `docs/follow-ups.md` is repeated here unless the code contradicts it.
 

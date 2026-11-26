@@ -566,6 +566,13 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [ ] `flash-cli audio --key-stdin` prints its prompt on stderr at a terminal. Check that it never echoes the key.
 - [ ] `apps/desktop/.cargo/config.toml` (the `SQLITE_SECURE_DELETE` build flag) needs a comment that says why it sits in `apps/desktop/` and not in `src-tauri`.
 
+### Left from partly fixed review items (D11, S4, P3, §9)
+
+- [ ] D11 (review): two tabs of one device can still write at once and reuse `(device, seq)`, and the SQLite storages still append events and meta without one transaction (`native/plugins.ts`). Add `appendEventsWithMeta` in one transaction, or rebuild seq from `max(seq)` at boot.
+- [ ] S4 (review): UI components still read `note.fields[key]` directly. Route them through `noteField`.
+- [ ] P3 (review): a sync tick that changes `syncState` still re-renders every `useApp()` consumer. Move `syncState` out of the context value.
+- [ ] §9 Native (review): event SQL runs only against `InMemorySqliteDriver`, never real SQLite. Run it against sql.js or a device.
+
 ### Linked sources and refresh (#80, #72)
 
 - [ ] `markPermissionRequired` leaves an old `skipReason` in place.

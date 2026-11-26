@@ -1,6 +1,6 @@
 # ADR 0001: Phase 0 Assumption Spike Findings & Decisions
 
-- **Status:** Closed 2026-11-26: the harness in `spikes/phase0/` was removed; the shipped app superseded the live Track B runs, and the two KanjiVG conversions moved to `scripts/packs/fixtures/`.
+- **Status:** Closed 2026-11-26: the harness in `spikes/phase0/` was removed; the shipped app superseded the live Track B runs, and the two KanjiVG conversions moved to `scripts/packs/fixtures/`. The spike files were removed in #85; the evidence lives in git history (last commit that had `spikes/phase0`: `875f177`).
 - **Date:** 2026-11-20
 - **Source Blueprint:** [design_blueprint.md §15](file:///c:/Antigravity/Korean/docs/design_blueprint.md#L495-L503)
 
