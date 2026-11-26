@@ -24,8 +24,9 @@ function createDefaultWorker(): AnkiReaderWorkerLike {
 }
 
 /**
- * A read sends one stage message, then runs to the end in one go, so this bounds the whole read.
- * Generous on purpose (a large deck on a slow phone): it is there for a Worker that died silently.
+ * Bounds the wait for the Worker's `reading` stage message, sent once the Worker has loaded. The
+ * read then runs to the end in one go and sends nothing, so it has no idle limit: a large deck on a
+ * slow phone cannot be told from a dead Worker. Load and message errors still reject during it.
  */
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60_000;
 
@@ -82,7 +83,8 @@ export class WebAnkiPackageReader implements AnkiPackageReader {
       worker.onmessage = (ev) => {
         const msg = ev.data;
         if (msg.type === 'stage') {
-          watch.touch();
+          // The read runs from here to `done` without a message: silence is not a hang.
+          watch.quiet();
           options?.onStage?.(msg.stage);
           return;
         }

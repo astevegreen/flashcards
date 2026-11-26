@@ -25,7 +25,11 @@ import type {
 } from '@flash/platform';
 import type { MutableRefObject } from 'react';
 import type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
-import { localSnapshotDue } from './localSnapshotCounter.ts';
+import {
+  claimLocalSnapshot,
+  localSnapshotDue,
+  SYNC_PULL_SNAPSHOT_EVENTS,
+} from './localSnapshotCounter.ts';
 import { snapshotWriteAllowed } from './rebuildSignal.ts';
 import { isNavigatorOnline } from './syncShell.ts';
 
@@ -403,6 +407,11 @@ export async function runSyncCycle(
 
       const snapWatermarks = buildWatermarks(deviceId, nextMeta.seq, result.cursor);
       const localSnapPayload = serializeCollectionState(hydrated, snapWatermarks);
+      // Moved now, when the snapshot is decided, not after its queued write: an edit queued
+      // meanwhile may take its own snapshot, and the write must not move the counter back below it
+      // (R10). Not given back on failure: the hydrated state reaches storage only through this
+      // snapshot, so the persist queue keeps the write and runs it again (retryFailed).
+      claimLocalSnapshot(ctx.lastLocalSnapshotCountRef, getTotalAppliedEventCount(hydrated));
 
       void ctx.enqueuePersist(async () => {
         if (result.pulledEvents.length > 0) {
@@ -419,16 +428,19 @@ export async function runSyncCycle(
           localSeq: maxLocalSeq,
           savedAt: Date.now(),
         });
-        ctx.lastLocalSnapshotCountRef.current = getTotalAppliedEventCount(hydrated);
       });
     } else if (result.pulledEvents.length > 0) {
       await applyRemoteEventsOffMainThread(ctx, result.pulledEvents, currentCursor);
       ctx.onStateMutated(metaChanged ? nextMeta : undefined);
 
       const totalNow = getTotalAppliedEventCount(ctx.stateRef.current);
+      // A large pull snapshots even when the counter isn't due yet, on purpose: those events are
+      // all new to this device (so it is never a second snapshot of the same events), they arrive
+      // in one batch the next boot would otherwise replay, and the claim below moves the counter
+      // with it, so the next edit doesn't snapshot them again.
       const shouldSaveLocalSnapshot =
         localSnapshotDue(ctx.lastLocalSnapshotCountRef, totalNow) ||
-        result.pulledEvents.length >= 100;
+        result.pulledEvents.length >= SYNC_PULL_SNAPSHOT_EVENTS;
       const localSnapPayload = shouldSaveLocalSnapshot
         ? serializeCollectionState(
             ctx.stateRef.current,
@@ -436,25 +448,34 @@ export async function runSyncCycle(
           )
         : null;
       // Moved when the snapshot is decided, as a local edit does, so an edit queued before this
-      // write runs doesn't take a second snapshot of the same events (R10).
-      if (localSnapPayload) ctx.lastLocalSnapshotCountRef.current = totalNow;
+      // write runs doesn't take a second snapshot of the same events (R10); given back if the
+      // write fails, so the next snapshot isn't up to 200 events late. A write a Check rebuild
+      // refuses keeps it: this tab can write no snapshot again until it reloads.
+      const releaseSnapshot = localSnapPayload
+        ? claimLocalSnapshot(ctx.lastLocalSnapshotCountRef, totalNow)
+        : undefined;
 
       void ctx.enqueuePersist(async () => {
-        await ctx.platform.storage.appendEvents(result.pulledEvents);
-        if (metaChanged) {
-          await ctx.platform.storage.setDeviceMeta(nextMeta);
-        }
-        await ctx.platform.storage.setSyncCursor(result.cursor);
-        if (
-          localSnapPayload &&
-          (await snapshotWriteAllowed(ctx.platform.storage, ctx.startedAtMs))
-        ) {
-          const maxLocalSeq = await ctx.platform.storage.getMaxLocalSeq();
-          await ctx.platform.storage.setLocalSnapshot({
-            snapshot: localSnapPayload,
-            localSeq: maxLocalSeq,
-            savedAt: Date.now(),
-          });
+        try {
+          await ctx.platform.storage.appendEvents(result.pulledEvents);
+          if (metaChanged) {
+            await ctx.platform.storage.setDeviceMeta(nextMeta);
+          }
+          await ctx.platform.storage.setSyncCursor(result.cursor);
+          if (
+            localSnapPayload &&
+            (await snapshotWriteAllowed(ctx.platform.storage, ctx.startedAtMs))
+          ) {
+            const maxLocalSeq = await ctx.platform.storage.getMaxLocalSeq();
+            await ctx.platform.storage.setLocalSnapshot({
+              snapshot: localSnapPayload,
+              localSeq: maxLocalSeq,
+              savedAt: Date.now(),
+            });
+          }
+        } catch (err) {
+          releaseSnapshot?.();
+          throw err;
         }
       });
     } else {

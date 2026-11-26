@@ -56,6 +56,21 @@ function restoreMediaAddRecords(state: CollectionState): void {
  * `media:<hash>:<field>` register. Each gets the entry's add register: the key came from an add no
  * newer than that, so a late older add cannot overwrite it, and a removal older than the newest
  * add keeps it, which is what a full replay does whenever the newest add carried the key.
+ *
+ * This is an approximation, and no exact answer exists. A full replay sets the register to the
+ * HLC T of the newest add of this hash that carried the field. The snapshot keeps neither the adds
+ * nor T: only `media:<hash>:added` (the newest add, A >= T) and the `tts:key:<key>` index
+ * register, which builds before D20 also moved on adds that merely inherited the key, so even when
+ * it points at this hash it only lies somewhere between T and A. The value itself came from the last add *applied* (delivery order, the
+ * bug D20 fixed), so it may not even be the key a full replay picks. Using A is deterministic (the
+ * same snapshot always hydrates the same way) and differs from a full replay only when A > T,
+ * that is, a newer add of the hash came without the key, and then only for an event that arrives
+ * after hydration with an HLC between T and A:
+ * - an older add carrying another key, which a full replay would let win, is ignored here;
+ * - a removal, which a full replay would let drop the key while the newer add keeps the file,
+ *   leaves the key here.
+ * Both keep a key the device already had, so no audio is lost; a Check database rebuild from the
+ * full event log converges. Finding T exactly would need the events below the snapshot watermark.
  */
 function restoreMediaFieldRecords(state: CollectionState): void {
   for (const [hash, entry] of state.media) {
@@ -440,9 +455,8 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
   }
 
   const fieldHlcs = new Map<string, string>(Object.entries(serialized.fieldHlcs));
-  // Snapshots from builds that predate card suspension carry those events as unknown. The events
-  // themselves are shared, not deep-cloned (P9): replay and the folds only read them, and the
-  // serialized snapshot is a fresh parse or a stored copy that nothing else holds.
+  // Snapshots from builds that predate card suspension carry those events as unknown. The folds
+  // only read them; the ones still unknown afterwards are copied below (once, after every fold).
   const unknownEvents = foldSuspensionEventsFromUnknown(fieldHlcs, serialized.unknownEvents);
   const noteArchivedState = new Map<string, boolean>(Object.entries(serialized.noteArchivedState));
 
@@ -518,10 +532,12 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
   if (serialized.formatVersion < 2) restoreMediaAddRecords(state);
   restoreMediaFieldRecords(state);
   // Snapshots from builds that predate `NoteTagsAdded` carry those events as unknown.
+  // The retained events are copies: the same serialized snapshot can hydrate twice (a backup read
+  // returns both, a storage stub hands out one object), and no live state may alias it.
   state.unknownEvents = foldMediaRemovedFromUnknown(
     state,
     foldSourceUnlinkedFromUnknown(state, foldTagAddEventsFromUnknown(state, unknownEvents)),
-  );
+  ).map((ev) => cloneJsonValue(ev));
   // ...and those that hydrated a newer snapshot keep the add registers but may have rewritten
   // `note.tags` without the adds: re-derive every such note so hydration equals a full replay.
   canonicalizeAllTagAddNotes(state);

@@ -62,7 +62,7 @@ describe('Worker requests always settle (C25)', () => {
     expect(worker.terminated).toBe(1);
   });
 
-  it('Anki reader: a Worker that goes silent times out, and a stage message resets the clock', async () => {
+  it('Anki reader: a Worker that goes silent before its stage message times out', async () => {
     vi.useFakeTimers();
     const worker = new SilentWorker<AnkiReadResponse>();
     const read = new WebAnkiPackageReader(() => worker as AnkiReaderWorkerLike, {
@@ -73,11 +73,25 @@ describe('Worker requests always settle (C25)', () => {
       (e: unknown) => (e as Error).message,
     );
     vi.advanceTimersByTime(900);
-    worker.emit({ type: 'stage', stage: 'reading' });
-    vi.advanceTimersByTime(900);
     expect(worker.terminated).toBe(0);
-    vi.advanceTimersByTime(200);
+    vi.advanceTimersByTime(100);
     expect(await outcome).toMatch(/stopped responding/);
+    expect(worker.terminated).toBe(1);
+  });
+
+  it('Anki reader: the read itself has no idle limit, and errors during it still reject', async () => {
+    vi.useFakeTimers();
+    const worker = new SilentWorker<AnkiReadResponse>();
+    const read = new WebAnkiPackageReader(() => worker as AnkiReaderWorkerLike, {
+      idleTimeoutMs: 1_000,
+    }).read(new Uint8Array([1]));
+    worker.emit({ type: 'stage', stage: 'reading' });
+    // A large deck on a slow phone sends nothing until it is done.
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(worker.terminated).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    worker.onmessageerror?.({} as MessageEvent);
+    await expect(read).rejects.toThrow(/could not be read/);
     expect(worker.terminated).toBe(1);
   });
 
