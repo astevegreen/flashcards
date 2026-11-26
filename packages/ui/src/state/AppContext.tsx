@@ -521,7 +521,11 @@ export function AppProvider({
       void (async () => {
         try {
           const saved = await platform.storage.getKv<SourcesRegistry>('linked_sources_v1');
-          if (!hasLinkedSources(saved, stateRef.current)) return;
+          if (!hasLinkedSources(saved)) {
+            // Decks synced from another device can carry sources Sources never saved here.
+            const { hasSyncedLinkedSource } = await import('../sources/hasSyncedLinkedSource.ts');
+            if (!hasSyncedLinkedSource(stateRef.current)) return;
+          }
           const { refreshAllSources } = await import('../sources/sourceRunner.ts');
           await refreshAllSources(
             {

@@ -7,8 +7,3 @@ export function hasTraversalSegment(path: string): boolean {
   if (path.includes('\0')) return true;
   return path.split(/[/\\]/).includes('..');
 }
-
-/** True when a path has a `.` segment (`a/./b`, `./a`), with `/` or `\` as the separator. */
-export function hasDotSegment(path: string): boolean {
-  return path.split(/[/\\]/).includes('.');
-}

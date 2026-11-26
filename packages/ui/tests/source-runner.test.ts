@@ -29,6 +29,7 @@ import {
   refreshSingleGoogleDriveFileSource,
 } from '../src/sources/googleDriveFileSource.ts';
 import { hasLinkedSources } from '../src/sources/hasLinkedSources.ts';
+import { hasSyncedLinkedSource } from '../src/sources/hasSyncedLinkedSource.ts';
 import {
   applyLinkedFileReconciliation,
   createAndLinkGoogleSheetTemplate,
@@ -1032,18 +1033,23 @@ describe('launch check for linked sources (hasAny)', () => {
   });
 
   it.each(CLOUD_CASES)(
-    'is true with no saved registry when a synced $name deck carries its source',
+    'hasSyncedLinkedSource is true when a synced $name deck carries its source',
     async (c) => {
       const { state, ctx } = cloudSetup(c);
-      expect(hasLinkedSources(undefined, state)).toBe(false);
+      expect(hasSyncedLinkedSource(state)).toBe(false);
       const { source } = await c.link(FILE, ctx);
-      // Another device: it synced the deck but never opened Sources, so nothing is saved.
-      expect(hasLinkedSources(undefined, state)).toBe(true);
-      expect(hasLinkedSources(createEmptySourcesRegistry(), state)).toBe(true);
+      // Another device synced the deck but never opened Sources: its registry is empty, and
+      // loading it rebuilds the row from the deck, so the launch check must refresh.
+      expect(hasSyncedLinkedSource(state)).toBe(true);
+      const fresh = await loadSourcesRegistry(
+        { ...ctx.platform, storage: makeInMemoryStorage() },
+        state,
+      );
+      expect(hasLinkedSources(fresh)).toBe(true);
       const deck = state.decks.get(source.deckId ?? '');
       if (!deck) throw new Error('missing deck');
       deck.archived = true;
-      expect(hasLinkedSources(undefined, state)).toBe(false);
+      expect(hasSyncedLinkedSource(state)).toBe(false);
     },
   );
 });
