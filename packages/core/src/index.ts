@@ -20,6 +20,7 @@ export {
   createEventFactory,
   createMutationCollector,
   getActiveFsrsParamsVersion,
+  getActiveReviews,
   getEnabledLayoutsForDeck,
   getTotalAppliedEventCount,
   getVariantsForNoteLayout,

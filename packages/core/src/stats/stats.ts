@@ -1,5 +1,5 @@
 import {
-  compareReviewRecords,
+  getActiveReviews,
   getActiveFsrsParamsVersion,
   isCardSuspended,
   resolveDeckFsrsConfig,
@@ -233,13 +233,6 @@ export function classifyCardMaturity(
   return isMatureSchedule(schedule) ? 'mature' : 'young';
 }
 
-/** Active (non-undone) reviews of a card in deterministic replay order. */
-function activeReviews(state: CollectionState, cardId: string): ReviewRecord[] {
-  const all = state.reviewsByCard.get(cardId);
-  if (!all || all.length === 0) return [];
-  return all.filter((r) => !state.undoneReviewIds.has(r.review_id)).sort(compareReviewRecords);
-}
-
 /** Resolves the decks and cards a filter covers, in deterministic id order. */
 export function resolveStatsScope(
   state: CollectionState,
@@ -450,7 +443,7 @@ function tallyCard(
 
   addCardToForecast(state, card, tzOffsetMinutes, calendar, acc);
 
-  const reviews = activeReviews(state, card.id);
+  const reviews = getActiveReviews(state, card.id);
   if (reviews.length === 0) return;
   // Only replay cards reviewed in the retention window.
   if (tallyCardReviews(reviews, calendar, acc)) {

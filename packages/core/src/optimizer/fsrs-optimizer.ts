@@ -6,6 +6,7 @@ import {
 } from 'ts-fsrs/models/fsrs-6';
 import {
   compareReviewRecords,
+  getActiveReviews,
   getActiveFsrsParamsVersion,
   resolveDeckFsrsConfig,
   type CollectionState,
@@ -92,11 +93,6 @@ export interface RetentionEstimate {
   log_loss: number;
 }
 
-function activeReviewsFor(state: CollectionState, cardId: string): ReviewRecord[] {
-  const all = state.reviewsByCard.get(cardId) ?? [];
-  return all.filter((r) => !state.undoneReviewIds.has(r.review_id)).sort(compareReviewRecords);
-}
-
 function toHistory(cardId: string, reviews: readonly ReviewRecord[], dayStartHour: number) {
   const out: OptimizerReview[] = [];
   let prevDay: number | undefined;
@@ -146,7 +142,7 @@ export function collectPooledOptimizerDataset(
       state.preferences.day_start_hour,
     );
     for (const cardId of state.cardIdsByDeck.get(deckId) ?? []) {
-      const reviews = activeReviewsFor(state, cardId);
+      const reviews = getActiveReviews(state, cardId);
       if (reviews.length > 0) perCard.push({ cardId, reviews, dayStartHour });
     }
   }

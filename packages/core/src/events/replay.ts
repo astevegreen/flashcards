@@ -397,6 +397,13 @@ export function getEnabledLayoutsForDeck(state: CollectionState, deck: Deck): La
   return matching;
 }
 
+/** A card's active (not undone) reviews, in replay order `(reviewed_at, hlc, review_id)`. */
+export function getActiveReviews(state: CollectionState, cardId: string): ReviewRecord[] {
+  const all = state.reviewsByCard.get(cardId);
+  if (!all || all.length === 0) return [];
+  return all.filter((r) => !state.undoneReviewIds.has(r.review_id)).sort(compareReviewRecords);
+}
+
 /**
  * Replays a single card's schedule deterministically from its active reviews.
  * Runs in < 1 ms for incremental UI updates on rate / undo.
@@ -405,10 +412,7 @@ export function replaySingleCard(state: CollectionState, cardId: string): Card |
   const card = state.cards.get(cardId);
   if (!card) return undefined;
 
-  const allReviews = state.reviewsByCard.get(cardId) ?? [];
-  const active = allReviews
-    .filter((r) => !state.undoneReviewIds.has(r.review_id))
-    .sort(compareReviewRecords);
+  const active = getActiveReviews(state, cardId);
 
   let schedule = createInitialSchedule(0);
   let lastReviewedAt: number | undefined;

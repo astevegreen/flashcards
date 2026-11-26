@@ -1,5 +1,6 @@
 import {
   compareReviewRecords,
+  getActiveReviews,
   resolveDeckFsrsConfig,
   type CollectionState,
 } from '../../events/replay.ts';
@@ -103,11 +104,7 @@ function clockAt(nowMs: number, tz: number, hour: number): AnkiSchedulingClock {
 }
 
 /** The card's active reviews in replay order. */
-export function activeReviews(state: CollectionState, cardId: string): ReviewRecord[] {
-  return (state.reviewsByCard.get(cardId) ?? [])
-    .filter((r) => !state.undoneReviewIds.has(r.review_id))
-    .sort(compareReviewRecords);
-}
+export const activeReviews = getActiveReviews;
 
 /** Revlog `ivl` for the state a review left the card in. */
 function revlogIvl(after: CardScheduleState, reviewedAt: number): number {
