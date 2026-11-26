@@ -56,3 +56,27 @@ export function checkAddDeviceCollection(
   if (current.collectionId === undefined) return 'pending';
   return current.collectionId === expected.collectionId ? 'match' : 'mismatch';
 }
+
+/** How the new device reaches the same collection, after "It then …" / "the new device …". */
+export function addDeviceJoinPhrase(provider: AddDeviceProvider, label: string): string {
+  if (provider === 'icloud') return 'uses the same Apple ID';
+  // A folder has no account: the user's own sync client shares it (C21).
+  if (provider === 'local_folder') return 'opens the same shared folder';
+  return `signs in to the same ${label} account`;
+}
+
+/** True for a `localhost` / loopback link (a dev server), which no other device can open (C21). */
+export function isLoopbackAddress(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host === '[::1]' ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
+  );
+}

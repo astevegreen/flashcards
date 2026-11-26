@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { isShareableCollectionId, type AddDeviceProvider } from './addDeviceLink.ts';
 import {
+  addDeviceJoinPhrase,
   buildAddDeviceDeepLink,
   buildAddDeviceUrl,
   isAddDeviceProvider,
+  isLoopbackAddress,
 } from './addDeviceLinkShare.ts';
 import { QrCodeSvg } from './QrCodeSvg.tsx';
 import { syncProviderInfo } from './syncProviders.ts';
@@ -106,8 +108,7 @@ function AddDeviceBody({
   }
   const base = addDeviceLinkBase();
   const native = base === undefined && isNativeShell();
-  const account =
-    provider === 'icloud' ? 'uses the same Apple ID' : `signs in to the same ${info.label} account`;
+  const account = addDeviceJoinPhrase(provider, info.label);
   if (base === undefined && !native) {
     return (
       <p data-testid="add-device-instructions" className={NOTE_CLASS}>
@@ -133,6 +134,7 @@ function AddDeviceBody({
       </>
     );
   }
+  const url = buildAddDeviceUrl(base, { provider, collectionId });
   return (
     <>
       <p className={NOTE_CLASS}>
@@ -140,10 +142,12 @@ function AddDeviceBody({
         device to use {info.label} and this collection. It contains no passwords or keys: the new
         device {account} by itself.
       </p>
-      <ShareLink
-        url={buildAddDeviceUrl(base, { provider, collectionId })}
-        providerLabel={info.label}
-      />
+      {isLoopbackAddress(url) && (
+        <p data-testid="add-device-loopback-note" className={NOTE_CLASS}>
+          This is a local address: other devices can't open it.
+        </p>
+      )}
+      <ShareLink url={url} providerLabel={info.label} />
     </>
   );
 }
