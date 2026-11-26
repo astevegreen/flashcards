@@ -81,24 +81,37 @@ export const DEEP_PATHS = [
 // Argon, whose usage is too small (owner, 19 Nov 2026). Never Sonnet: the Claude reviewer already covers that family.
 // When none of them is available the audit can't run, and the pull request retries (P2).
 
-// Each file a unified diff changes, with its added and removed lines (without the leading + or -).
+// Each file a unified diff changes, with its added and removed lines (without the leading + or -). A rename or copy
+// also carries `from`, the old path: from its `rename from` / `copy from` line, else the `a/` path of the header.
 export function diffFiles(diff) {
   const files = [];
-  for (const line of String(diff).split('\n')) {
-    const head = /^diff --git a\/.+? b\/(.+)$/.exec(line);
-    if (head) files.push({ file: head[1], changed: [] });
+  for (const raw of String(diff).split('\n')) {
+    const line = raw.replace(/\r$/, '');
+    const head = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+    const moved = /^(?:rename|copy) from (.+)$/.exec(line);
+    if (head) {
+      const entry = { file: head[2], changed: [] };
+      if (head[1] !== head[2]) entry.from = head[1];
+      files.push(entry);
+    } else if (moved && files.length && !files.at(-1).changed.length) files.at(-1).from = moved[1];
     else if (files.length && /^[+-]/.test(line) && !/^(\+\+\+|---) /.test(line))
       files.at(-1).changed.push(line.slice(1));
   }
   return files;
 }
 
-// The rails a diff touches: [{ file, what }], empty when it touches none.
+// The rails a diff touches: [{ file, what }], empty when it touches none. Both sides of a rename count: moving a rail
+// out of its folder (.githooks/pre-push to docs/) removes it, so it is audited like any other change to it.
 export function railHits(diff) {
   const hits = [];
-  for (const { file } of diffFiles(diff)) {
-    const rail = RAILS.find((r) => r.test(file));
-    if (rail) hits.push({ file, what: rail.what });
+  for (const { file, from } of diffFiles(diff)) {
+    for (const path of from === undefined ? [file] : [from, file]) {
+      const rail = RAILS.find((r) => r.test(path));
+      if (rail) {
+        hits.push({ file: path, what: rail.what });
+        break;
+      }
+    }
   }
   return hits;
 }
@@ -114,6 +127,11 @@ export function findings(response) {
   }
   return out;
 }
+
+// Whether a review is the clean answer the prompt asks for when nothing is wrong: "No findings.", maybe bold or
+// quoted. A review with no tagged line that says anything else is unreadable, not clean (decide retries it).
+export const saysNoFindings = (response) =>
+  /^["'*_`\s]*no findings\.?["'*_`\s]*$/i.test(String(response ?? ''));
 
 // The rail audit's answer: its first "LOOSENS: yes|no" line, and the reason after it. loosens is null when the
 // answer says neither.
@@ -136,8 +154,9 @@ export function railAnswer(response) {
 //   merge: no agy blocker and no loosened rail; the notes go on the pull request and hold nothing
 //   fix:   agy found blockers; one fix pass, then audit again (blockers left after it: held)
 //   hold:  the rail audit says the change loosens a rail, or gave no clear answer: held for the owner
-//   retry: agy's review or the rail audit could not run; the pull request waits for it and retries by itself,
-//          never for the owner (P2), and never merges unaudited
+//   retry: agy's review or the rail audit could not run, or the review can't be read (no tagged line and not
+//          "No findings."); the pull request waits for it and retries by itself, never for the owner (P2), and
+//          never merges unaudited
 export function decide({ review, rail = null, hits = [] }) {
   const { blockers, notes } = review.ok ? findings(review.response) : { blockers: [], notes: [] };
   const where = hits.map((h) => h.file).join(', ');
@@ -171,6 +190,13 @@ export function decide({ review, rail = null, hits = [] }) {
       blockers,
       notes,
       why: `agy's second look could not run (${review.error}); the pull request waits for it and retries by itself`,
+    };
+  if (!blockers.length && !notes.length && !saysNoFindings(review.response))
+    return {
+      verdict: 'retry',
+      blockers,
+      notes,
+      why: `agy's second look has no [blocker] or [note] line and is not "No findings.", so it can't be read; the pull request retries by itself`,
     };
   if (blockers.length)
     return { verdict: 'fix', blockers, notes, why: `agy found ${blockers.length} blocker(s)` };

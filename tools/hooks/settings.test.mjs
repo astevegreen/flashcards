@@ -6,6 +6,8 @@ import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const read = (file) => readFileSync(path.join(ROOT, file), 'utf8');
+// The lowest any coverage threshold in vitest.config.ts may go (follow-ups: "a floor (≥ 50) on each threshold").
+const COVERAGE_FLOOR = 50;
 
 function settings() {
   try {
@@ -198,6 +200,10 @@ test("CI's required verify check aggregates checks, never skips, and checks runs
   const pkg = JSON.parse(read('package.json'));
   assert.equal(pkg.scripts.coverage, `${pkg.scripts.test} --coverage`);
   const vitestConfig = read('vitest.config.ts');
-  for (const metric of ['statements', 'branches', 'functions', 'lines'])
-    assert.match(vitestConfig, new RegExp(`thresholds: \\{[^}]*\\b${metric}: \\d+`), metric);
+  // Each threshold has a floor: a present but near-zero number would keep the step and drop the check.
+  for (const metric of ['statements', 'branches', 'functions', 'lines']) {
+    const m = new RegExp(`thresholds: \\{[^}]*\\b${metric}: (\\d+)`).exec(vitestConfig);
+    assert.ok(m, metric);
+    assert.ok(Number(m[1]) >= COVERAGE_FLOOR, `${metric}: ${m[1]} is under ${COVERAGE_FLOOR}`);
+  }
 });

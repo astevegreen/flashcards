@@ -1,5 +1,13 @@
 # Built into the bundled SQLite that tauri-plugin-sql (sqlx) links (N9): every pooled
 # connection then starts with `secure_delete = ON`. See src-tauri/src/sqlite_hardening.rs.
-# Covers cargo runs from apps/desktop (tauri CLI) and from src-tauri (cargo test).
+#
+# Why here and not in src-tauri/.cargo: cargo reads config from the directory it runs in and that
+# directory's parents, never from the directory of the Cargo.toml it builds (--manifest-path does
+# not move it). Cargo runs from two places: apps/desktop, where pnpm starts the tauri CLI and
+# `pnpm check` runs `cargo check --manifest-path src-tauri/Cargo.toml`; and src-tauri, where CI runs
+# `cargo test` (.github/workflows/desktop.yml). apps/desktop is the nearest directory both read, so
+# a src-tauri/.cargo/config.toml would be skipped by `pnpm check`. It stays out of the repository root so
+# it applies to this crate alone. A cargo run from elsewhere (the root, with --manifest-path) misses
+# it: lib.rs logs a warning at launch, and sqlite_hardening's tests fail.
 [env]
 LIBSQLITE3_FLAGS = { value = "SQLITE_SECURE_DELETE", force = true }
