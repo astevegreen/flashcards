@@ -66,9 +66,17 @@ export async function openCapacitorSqliteDriver(dbName = 'flashcards'): Promise<
   await db.query('PRAGMA secure_delete = ON;');
   return {
     execute: async (sql, params) => {
-      // `transaction: false`: each statement runs on its own; `CapacitorSqliteStorage` opens no
-      // transactions, so a multi-statement write is not atomic.
+      // `transaction: false`: a single statement, atomic on its own. Writes that must land
+      // together go through `executeBatch`.
       await db.run(sql, params ? [...params] : [], false);
+    },
+    executeBatch: async (statements) => {
+      // `transaction: true`: the plugin runs the whole set between BEGIN and COMMIT on its one
+      // connection, and rolls it back when a statement fails (D11).
+      await db.executeSet(
+        statements.map((s) => ({ statement: s.sql, values: [...s.params] })),
+        true,
+      );
     },
     query: async <T = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
       const res = await db.query(sql, params ? [...params] : []);

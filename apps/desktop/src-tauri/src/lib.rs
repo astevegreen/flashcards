@@ -4,11 +4,13 @@
 //! (`@flash/platform-tauri/native`); this crate only registers the plugins it calls:
 //! SQLite storage, filesystem + watcher, dialogs, `flashcards://` deep links, the system
 //! browser opener, Rust-side HTTP (OAuth token exchange) and the loopback OAuth server.
-//! The only app-defined commands are the OS keychain accessors in `secure_store` and the
-//! iCloud Drive file I/O in `icloud` (macOS; elsewhere it reports iCloud as unavailable).
+//! The only app-defined commands are the OS keychain accessors in `secure_store`, the
+//! iCloud Drive file I/O in `icloud` (macOS; elsewhere it reports iCloud as unavailable), and the
+//! one-transaction SQL batch in `sql_batch` (over tauri-plugin-sql's pool).
 
 mod icloud;
 mod secure_store;
+mod sql_batch;
 mod sqlite_hardening;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -49,6 +51,7 @@ pub fn run() {
             icloud::icloud_list_files,
             icloud::icloud_read_file,
             icloud::icloud_write_file,
+            sql_batch::sql_execute_batch,
         ])
         .setup(|app| {
             // Installers register the scheme on Windows/Linux; dev and portable runs need it at runtime.

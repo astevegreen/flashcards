@@ -10,5 +10,6 @@ export function memoryTauriDb(): TauriSqlPluginDatabase {
       return { rowsAffected: 0 };
     },
     select: (sql, params) => driver.query(sql, params),
+    executeBatch: (statements) => driver.executeBatch(statements),
   };
 }

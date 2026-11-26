@@ -58,6 +58,13 @@ export function asSqlPluginDatabase(db: Database): TauriSqlPluginDatabase {
     },
     select: async <T = Record<string, unknown>>(query: string, bindValues?: unknown[]) =>
       db.select<T[]>(query, bindValues),
+    // App command over the plugin's pool (apps/desktop/src-tauri/src/sql_batch.rs).
+    executeBatch: async (statements) => {
+      await invoke('sql_execute_batch', {
+        db: db.path,
+        statements: statements.map((s) => ({ sql: s.sql, params: [...s.params] })),
+      });
+    },
   };
 }
 
