@@ -60,6 +60,7 @@ import { buildWatermarks, createSyncShell, initialSyncUiState } from './syncShel
 import type { SyncUiState } from './useSyncController.ts';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
+import { localSnapshotDue } from './localSnapshotCounter.ts';
 import { putMediaTracked } from './recentMedia.ts';
 import {
   cardToRow,
@@ -172,8 +173,6 @@ const LazySyncRuntime = lazyWithRetry(
   () => import('./SyncRuntime.tsx').then((m) => ({ default: m.SyncRuntime })),
   { quiet: true },
 );
-
-const LOCAL_SNAPSHOT_INTERVAL = 200;
 
 const DEFAULT_PERSONAL_ENTITLEMENT: EntitlementState = {
   unlocked: true,
@@ -406,7 +405,7 @@ export function AppProvider({
 
       const totalNow = getTotalAppliedEventCount(st);
       let snapshot: SerializedSnapshot | undefined;
-      if (totalNow - lastLocalSnapshotCountRef.current >= LOCAL_SNAPSHOT_INTERVAL) {
+      if (localSnapshotDue(lastLocalSnapshotCountRef, totalNow)) {
         if (snapshotModule) {
           // Serialized now, with the watermarks read now, so a later edit applied before this
           // write runs can't end up in a snapshot whose localSeq predates it (D18).

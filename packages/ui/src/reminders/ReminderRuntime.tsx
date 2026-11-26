@@ -6,6 +6,7 @@ import {
   onReminderConfigChange,
   type StudyReminderConfig,
 } from './reminderConfig.ts';
+import { createQuietTimer, type QuietTimer } from './quietTimer.ts';
 import { rescheduleNativeReminders } from './reminderScheduling.ts';
 
 /** Quiet period after the last change before native reminders are rescheduled. */
@@ -21,7 +22,11 @@ export const BADGE_CHANGE_DEBOUNCE_MS = 2_000;
 const localTzOffsetAt = (ms: number) => -new Date(ms).getTimezoneOffset();
 
 /** Web badge: the due count once today's reminder time has passed (0 before it, or when off). */
-function webBadgeCount(config: StudyReminderConfig, state: CollectionState, nowMs: number): number {
+export function webBadgeCount(
+  config: StudyReminderConfig,
+  state: CollectionState,
+  nowMs: number,
+): number {
   if (!config.enabled) return 0;
   const reminderAt = new Date(nowMs);
   reminderAt.setHours(config.hour, config.minute, 0, 0);
@@ -100,14 +105,22 @@ export function ReminderRuntime({ onBadgeChange }: ReminderRuntimeProps) {
   }, [config, isNative, onBadgeChange]);
 
   // Web: after a change, once the collection has been quiet for a moment.
+  const badgeTimerRef = useRef<QuietTimer | null>(null);
   useEffect(() => {
-    if (isNative || !config?.enabled || stateVersion === 0) return undefined;
-    const timer = window.setTimeout(
+    if (isNative || !config?.enabled) return undefined;
+    const timer = createQuietTimer(
       () => onBadgeChange(webBadgeCount(config, stateRef.current, Date.now())),
       BADGE_CHANGE_DEBOUNCE_MS,
     );
-    return () => window.clearTimeout(timer);
-  }, [config, isNative, onBadgeChange, stateVersion]);
+    badgeTimerRef.current = timer;
+    return () => {
+      timer.cancel();
+      badgeTimerRef.current = null;
+    };
+  }, [config, isNative, onBadgeChange]);
+  useEffect(() => {
+    if (stateVersion !== 0) badgeTimerRef.current?.trigger();
+  }, [stateVersion]);
 
   return null;
 }

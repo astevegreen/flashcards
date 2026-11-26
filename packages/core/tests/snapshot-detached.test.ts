@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyEvents, createEventFactory, replayAllEvents } from '../src/events/replay.ts';
-import { serializeCollectionState } from '../src/events/snapshot.ts';
+import { deserializeCollectionState, serializeCollectionState } from '../src/events/snapshot.ts';
 import type { FlashEvent } from '../src/events/types.ts';
 import { createHlcState } from '../src/hlc.ts';
 import { deriveNoteId } from '../src/ids.ts';
@@ -71,5 +71,44 @@ describe('a serialized snapshot is detached from the live state', () => {
 
     expect(state.notes.get(noteId)?.fields['meaning']).toBe('school');
     expect(JSON.stringify(snapshot)).toBe(before);
+  });
+});
+
+/**
+ * P9: hydrating no longer deep-clones the retained (unknown) events. Each hydration still gets its
+ * own array, so an event appended to one state never shows up in another or in the snapshot.
+ */
+describe('hydrating a snapshot twice', () => {
+  it('gives each state its own retained-events array', () => {
+    const f = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const future = {
+      ...f.create(
+        'DeckCreated',
+        { deck_id: 'd1', name: 'D', note_type_id: 'x', language: 'ko' },
+        t0,
+      ),
+      type: 'FutureEvent',
+      payload: { x: 1 },
+    } as unknown as FlashEvent;
+    const snapshot = serializeCollectionState(replayAllEvents([future]), { 'dev-a': 1 });
+    expect(snapshot.unknownEvents).toHaveLength(1);
+
+    const a = deserializeCollectionState(snapshot);
+    const b = deserializeCollectionState(snapshot);
+    expect(a.unknownEvents).not.toBe(b.unknownEvents);
+    expect(a.unknownEvents).not.toBe(snapshot.unknownEvents);
+    const later = {
+      ...f.create(
+        'DeckCreated',
+        { deck_id: 'd2', name: 'E', note_type_id: 'x', language: 'ko' },
+        t0 + 1,
+      ),
+      type: 'FutureEvent',
+      payload: { x: 2 },
+    } as unknown as FlashEvent;
+    applyEvents(a, [later]);
+    expect(a.unknownEvents).toHaveLength(2);
+    expect(b.unknownEvents).toHaveLength(1);
+    expect(snapshot.unknownEvents).toHaveLength(1);
   });
 });

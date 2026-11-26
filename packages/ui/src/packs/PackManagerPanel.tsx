@@ -6,16 +6,21 @@ import type {
   PackInstallProgress,
 } from '@flash/platform';
 import { isPackForActiveLanguages } from '@flash/core';
+import { PACK_SECURITY_LIMITS } from '@flash/core/dictionary';
+import { tooLargeMessage } from '../components/pickedFileLimit.ts';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { ShowAllLanguagesSwitch, useShowAllLanguages } from './ShowAllLanguagesSwitch.tsx';
 
 /**
- * A picked pack may be gzip (capped at 50 MB) or plain JSON (capped at 150 MB uncompressed,
- * `PACK_SECURITY_LIMITS`), so the larger cap applies before the file is read.
+ * A picked pack may be gzip or plain JSON, so the larger of the two caps (uncompressed) applies
+ * before the file is read (P8).
  */
-const MAX_PACK_PICK_BYTES = 150 * 1024 * 1024;
+const MAX_PACK_PICK_BYTES = Math.max(
+  PACK_SECURITY_LIMITS.maxCompressedBytes,
+  PACK_SECURITY_LIMITS.maxUncompressedBytes,
+);
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -196,8 +201,9 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
         maxBytes: MAX_PACK_PICK_BYTES,
       });
       if (!picked) return;
-      if (picked.tooLarge) {
-        setError(`"${picked.name}" is too large for a dictionary pack (the limit is 150 MB).`);
+      const tooLarge = tooLargeMessage(picked, MAX_PACK_PICK_BYTES, 'for a dictionary pack');
+      if (tooLarge) {
+        setError(tooLarge);
         return;
       }
       setBusyPackId('local-import');

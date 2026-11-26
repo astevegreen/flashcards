@@ -35,6 +35,7 @@ export class CountingMap<K, V> extends Map<K, V> {
 export function buildLargeCollection(
   cards: number,
   dueToday: number,
+  reviewLimit = REVIEW_LIMIT,
 ): {
   state: CollectionState;
   reviews: CountingMap<string, ReviewRecord[]>;
@@ -55,7 +56,7 @@ export function buildLargeCollection(
     ),
     factory.create(
       'DeckSettingsChanged',
-      { deck_id: deckId, settings: { max_reviews_per_day: REVIEW_LIMIT } },
+      { deck_id: deckId, settings: { max_reviews_per_day: reviewLimit } },
       NOW - 400 * DAY,
     ),
   ];

@@ -8,6 +8,7 @@ import {
 import type { StoredBackupInfo } from '@flash/platform';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { tooLargeMessage } from '../components/pickedFileLimit.ts';
 import {
   applyRestore,
   listSyncFolderBackups,
@@ -229,9 +230,12 @@ export function BackupsPanel() {
         maxBytes: BACKUP_ARCHIVE_LIMITS.maxCompressedBytes,
       });
       if (!picked) return;
-      if (picked.tooLarge) {
-        throw new Error(`"${picked.name}" is too large to restore (the limit is 300 MB).`);
-      }
+      const tooLarge = tooLargeMessage(
+        picked,
+        BACKUP_ARCHIVE_LIMITS.maxCompressedBytes,
+        'to restore',
+      );
+      if (tooLarge) throw new Error(tooLarge);
       try {
         await preview(picked.name, picked.bytes);
       } catch (err) {

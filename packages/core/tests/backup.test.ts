@@ -195,6 +195,27 @@ describe('backup archive', () => {
     expect((await packBackupAsyncWith(daily.bytes, loadNothing)).missingMedia).toBe(1);
   });
 
+  it('writes a full backup that finds no media as a daily one, as before', async () => {
+    const { state } = buildCollection();
+    const built = await buildBackupAsync(state, {
+      backupId: 'b-empty',
+      kind: 'full',
+      reason: 'auto',
+      nowMs: T0,
+      deviceId: 'dev-a',
+    });
+    for (const loadMedia of [loadNothing, undefined]) {
+      const packed = await packBackupAsync(built, {
+        withMedia: true,
+        ...(loadMedia ? { loadMedia } : {}),
+      });
+      expect(packed.manifest).toMatchObject({ kind: 'daily', media_included: false });
+      expect(readBackupArchive(packed.bytes).manifest).toEqual(packed.manifest);
+    }
+    const full = await packBackupAsync(built, { withMedia: true, loadMedia: loadPng });
+    expect(full.manifest).toMatchObject({ kind: 'full', media_included: true });
+  });
+
   it('rejects a plain .flashpkg and damaged archives', () => {
     const { state } = buildCollection();
     expect(() => readBackupArchive(exportFlashpkg(state))).toThrow(BackupArchiveError);

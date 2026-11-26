@@ -9,15 +9,17 @@ import type {
   AnkiSkippedReviews,
   importAnkiPackage,
 } from '@flash/core/anki';
+import { ANKI_IMPORT_LIMITS } from '@flash/core/anki';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import { useEffect, useRef, useState } from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
 import { useApp } from '../state/AppContext.tsx';
 import { ANKI_IMPORT_PANEL_HEIGHT } from './anki-import-layout.ts';
 import { putMediaListTracked } from '../state/recentMedia.ts';
+import { tooLargeMessage } from '../components/pickedFileLimit.ts';
 
-/** Matches `ANKI_IMPORT_LIMITS.maxCompressedBytes`: a bigger .apkg would be refused after reading it. */
-const MAX_APKG_PICK_BYTES = 300 * 1024 * 1024;
+/** A bigger .apkg would be refused after reading it, so the picker doesn't read it at all (P8). */
+const MAX_APKG_PICK_BYTES = ANKI_IMPORT_LIMITS.maxCompressedBytes;
 
 const MAX_LISTED_WARNINGS = 5;
 
@@ -326,8 +328,9 @@ export function AnkiImportPanel({
         maxBytes: MAX_APKG_PICK_BYTES,
       });
       if (!picked) return;
-      if (picked.tooLarge) {
-        fail(`"${picked.name}" is too large to import (the limit is 300 MB).`);
+      const tooLarge = tooLargeMessage(picked, MAX_APKG_PICK_BYTES, 'to import');
+      if (tooLarge) {
+        fail(tooLarge);
         return;
       }
       await prepareSafely(picked.bytes);

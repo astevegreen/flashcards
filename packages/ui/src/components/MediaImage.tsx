@@ -16,6 +16,19 @@ const MEDIA_URI_RE = /^media:([0-9a-f]{64})$/i;
 export const MISSING_MEDIA_RETRY_MS = 5_000;
 
 /**
+ * How long to wait before reading `hash` again: 0 to read now (a new hash, or the last look was
+ * over {@link MISSING_MEDIA_RETRY_MS} ago), else the rest of the interval since it was found missing.
+ */
+export function missingMediaRetryDelay(
+  missing: { hash: string; atMs: number } | null,
+  hash: string,
+  nowMs: number,
+): number {
+  if (missing?.hash !== hash) return 0;
+  return Math.max(0, missing.atMs + MISSING_MEDIA_RETRY_MS - nowMs);
+}
+
+/**
  * Safe declarative image renderer (§13 + Option 1 CSP `img-src 'self' blob: data:`).
  * Resolves `media:<sha256>` from IndexedDB into a ref-cleaned `ObjectURL` that works 100% offline.
  * Blocks unsafe schemes (`javascript:`, `data:`, `http:`) and never triggers external network requests.
@@ -100,7 +113,7 @@ export function MediaImage({ src, alt = '', className = '' }: MediaImageProps) {
         });
 
     // Still missing: keep showing that, and look again only once the retry interval has passed.
-    const waitMs = missing ? missing.atMs + MISSING_MEDIA_RETRY_MS - Date.now() : 0;
+    const waitMs = missingMediaRetryDelay(missing, hash, Date.now());
     if (waitMs > 0) {
       const timer = window.setTimeout(() => void load(), waitMs);
       return () => {

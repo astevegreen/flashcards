@@ -289,9 +289,12 @@ export async function packBackupStream(
       packedMedia += 1;
     }
   }
-  const manifest: BackupManifest = loadMedia
-    ? { ...built.manifest, media_included: packedMedia > 0 }
-    : { ...built.manifest, kind: 'daily', media_included: false };
+  // A full snapshot that ended up holding no media is written as a daily one, as before: the
+  // weekly full backup is then tried again (`chooseBackupKind` looks for a full one with media).
+  const manifest: BackupManifest =
+    packedMedia > 0
+      ? { ...built.manifest, media_included: true }
+      : { ...built.manifest, kind: 'daily', media_included: false };
   await zip.add(BACKUP_MANIFEST_PATH, encodeUtf8(JSON.stringify(manifest, null, 2)), false);
   await zip.finish();
   return { manifest };

@@ -1,15 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { buildStudyQueue } from '../src/study/queue.ts';
-import {
-  buildLargeCollection,
-  NOW,
-  REVIEW_LIMIT,
-  REVIEWED_TODAY,
-} from './helpers/large-collection.ts';
+import { buildLargeCollection, NOW, REVIEWED_TODAY } from './helpers/large-collection.ts';
 
 /**
  * P2's bound, on a collection small enough for every `pnpm test` (2k cards). The 20k-card timings
- * against the 16 ms target are a bench: `pnpm bench` (`packages/core/bench/study-queue.bench.ts`).
+ * against the 16 ms target are a bench: `pnpm bench` (`packages/core/bench/study-queue.perf.ts`).
  */
 const CARDS = 2_000;
 
@@ -26,10 +21,13 @@ describe('study queue on a large collection (P2)', () => {
   });
 
   it('still counts the reviews done today against the daily limit when every card is due', () => {
-    const { state, reviews } = buildLargeCollection(CARDS, CARDS);
+    // A limit below the 1,900 cards due, so it binds: the 100 reviews done today use up part of
+    // it (999 - 100). Skipping them, as a broken P2 shortcut would, gives 999.
+    const limit = 999;
+    const { state, reviews } = buildLargeCollection(CARDS, CARDS, limit);
     reviews.gets = 0;
     const result = buildStudyQueue(state, { nowMs: NOW, tzOffsetMinutes: 0 });
-    expect(result.counts.due).toBe(Math.min(REVIEW_LIMIT, CARDS) - REVIEWED_TODAY);
+    expect(result.counts.due).toBe(limit - REVIEWED_TODAY);
     expect(reviews.gets).toBeLessThanOrEqual(REVIEWED_TODAY * 2);
   });
 });
