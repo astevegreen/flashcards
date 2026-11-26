@@ -169,9 +169,8 @@ async function boot(): Promise<void> {
   // One writer per browser profile, before anything reads or writes storage. Native shells are
   // single-window, and browsers without Web Locks write as before.
   if (nativeRuntime === null && 'locks' in navigator) {
-    await waitForWriterLock(root, `flashcards-db${resolved.slug ? `-${resolved.slug}` : ''}`, () =>
-      stopWriting(platform.storage, window),
-    );
+    const dbName = resolved.slug ? 'flashcards-db-' + resolved.slug : 'flashcards-db';
+    await waitForWriterLock(root, dbName, () => stopWriting(platform.storage, window));
   }
 
   // Zero-overhead OAuth redirect callback check (only lazy-loads GoogleAuth if `?code=` / `?error=` is present)

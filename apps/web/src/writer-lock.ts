@@ -30,8 +30,10 @@ export function holdWriterLock(
   return new Promise((resolve) => {
     let held = false;
     const signal = steal ? undefined : AbortSignal.timeout?.(waitMs);
+    let options: { steal?: boolean; signal?: AbortSignal; ifAvailable?: boolean } = { steal };
+    if (!steal) options = signal ? { signal } : { ifAvailable: true };
     locks
-      .request(name, steal ? { steal } : signal ? { signal } : { ifAvailable: true }, (lock) => {
+      .request(name, options, (lock) => {
         held = lock !== null;
         resolve(held);
         // A promise that never settles keeps the lock until the page closes.
