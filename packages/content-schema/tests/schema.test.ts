@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getPackageJsonSchemas,
+  isSafeRelativePackPath,
   LayoutDefSchema,
   NoteTypeDefSchema,
   validateFamilyCatalog,
@@ -115,5 +116,29 @@ describe('@flash/content-schema', () => {
     expect(layout.success).toBe(false);
     const json = JSON.stringify(getPackageJsonSchemas()['note_type']);
     expect(json).toContain('constructor|__proto__');
+  });
+
+  it('rejects `..` path segments but not names that contain two dots (§11 nit)', () => {
+    expect(isSafeRelativePackPath('/packs/a..b.json')).toBe(true);
+    expect(isSafeRelativePackPath('/packs/v1..2/index.json')).toBe(true);
+    expect(isSafeRelativePackPath('/packs/../secret.json')).toBe(false);
+    expect(isSafeRelativePackPath('/packs/%2e%2E/secret.json')).toBe(false);
+    expect(isSafeRelativePackPath('/packs/.%2e/secret.json')).toBe(false);
+    expect(isSafeRelativePackPath('/packs/..')).toBe(false);
+    // Everything the old any-`..` check rejected stays rejected.
+    for (const raw of [
+      '/packs/..%2fsecret.json',
+      '/packs/%2e%2e%2fsecret.json',
+      '/packs/%2E%2E',
+      '/packs/a%2fb.json',
+      '/packs/a%5Cb.json',
+      '/packs/..?x',
+      '/packs/..#x',
+      '/packs/x?..',
+      '/packs/..;/secret.json',
+      '/packs/a../b.json',
+    ]) {
+      expect(isSafeRelativePackPath(raw), raw).toBe(false);
+    }
   });
 });

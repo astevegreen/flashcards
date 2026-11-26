@@ -3,13 +3,8 @@ import type { PendingXlsxReconciliation, SourcesRegistry } from '@flash/platform
 import { Suspense, useEffect, useState } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
-import {
-  downloadGoogleDriveFile,
-  linkedGoogleDriveDeck,
-  linkGoogleDriveFile,
-  readGoogleDriveTable,
-  type PickedDriveFile,
-} from './googleDriveFileSource.ts';
+import type { PickedDriveFile } from './googleDriveFileSource.ts';
+import { linkedFileDeck } from './linkedFileDeck.ts';
 import type { LinkedFileMappingChoice } from './LinkedFileMapping.tsx';
 
 const LazyLinkedFileMapping = lazyWithRetry(() => import('./LinkedFileMapping.tsx'), {
@@ -71,6 +66,8 @@ export default function GoogleDriveFileLinkPanel({
     setStep({ kind: 'loading' });
     void (async () => {
       try {
+        // Through sourceRunner, so the Drive source shares its lazy chunk (no extra preload entry).
+        const { downloadGoogleDriveFile, readGoogleDriveTable } = await import('./sourceRunner.ts');
         const picked = await downloadGoogleDriveFile(platform, file.id);
         const grid = await readGoogleDriveTable(platform, picked);
         if (!cancelled) setStep({ kind: 'mapping', grid });
@@ -89,7 +86,8 @@ export default function GoogleDriveFileLinkPanel({
   const next = () => setIndex((i) => i + 1);
 
   const link = async (choice?: LinkedFileMappingChoice) => {
-    const isNewDeck = file.format === 'flashpkg' || !linkedGoogleDriveDeck(state, file.id);
+    const isNewDeck =
+      file.format === 'flashpkg' || !linkedFileDeck(state, 'google_drive_file', file.id);
     if (isNewDeck) {
       const gate = canCreateOrImportDeck(activeDeckCount(state), entitlement);
       if (!gate.allowed) {
@@ -100,6 +98,7 @@ export default function GoogleDriveFileLinkPanel({
     setBusy(true);
     onErrorMessage(null);
     try {
+      const { linkGoogleDriveFile } = await import('./sourceRunner.ts');
       const res = await linkGoogleDriveFile(
         file,
         { platform, getState: () => state, getEventFactory, emitEvents, entitlement },
@@ -196,7 +195,7 @@ export default function GoogleDriveFileLinkPanel({
               key={file.id}
               fileName={file.name}
               grid={step.grid}
-              existingDeck={linkedGoogleDriveDeck(state, file.id)}
+              existingDeck={linkedFileDeck(state, 'google_drive_file', file.id)}
               busy={busy}
               testIdPrefix="gdrive"
               cancelLabel="Skip"

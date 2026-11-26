@@ -253,8 +253,11 @@ export type FamilyCatalog = z.infer<typeof FamilyCatalogSchema>;
 export function isSafeRelativePackPath(raw: string): boolean {
   if (!raw || hasWhitespaceOrControlChar(raw)) return false;
   if (!raw.startsWith('/') || raw.startsWith('//')) return false;
-  if (raw.includes('\\') || raw.includes('..') || raw.includes(':')) return false;
-  return true;
+  // Encoded separators could hide a segment boundary, so they are rejected outright.
+  if (raw.includes('\\') || raw.includes(':') || /%2f|%5c/i.test(raw)) return false;
+  // `..` (also as `%2e`) may only sit inside a name, as in `a..b.json`: never at the start or end
+  // of a segment, or next to `?` or `#`. No looser than the old any-`..` check otherwise.
+  return !/(?:^|[/?#])\.\.|\.\.(?:$|[/?#])/.test(raw.replaceAll(/%2e/gi, '.'));
 }
 
 export function isSafePackUrl(raw: string, allowRelative = false): boolean {

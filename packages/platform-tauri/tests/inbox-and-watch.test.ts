@@ -97,3 +97,41 @@ describe('folder watcher start failure (N8)', () => {
     expect(unwatch).toHaveBeenCalled();
   });
 });
+
+describe('folder paths reject `..` segments, not names with two dots (§11 nit)', () => {
+  async function pickedWatcher(files: Map<string, Uint8Array>) {
+    const watcher = new TauriLocalFolderWatcher({
+      storage: new TauriSqliteStorage(memoryTauriDb()),
+      bridge: memoryBridge(files, true),
+    });
+    const picked = await watcher.pickFolder();
+    return { watcher, id: picked?.id ?? '' };
+  }
+
+  it('reads a file whose name has two dots, and refuses traversal with either separator', async () => {
+    const files = new Map([['/notes/decks/a..b.csv', text('ok')]]);
+    const { watcher, id } = await pickedWatcher(files);
+    expect(new TextDecoder().decode(await watcher.readFileBytes(id, 'decks/a..b.csv'))).toBe('ok');
+    expect(new TextDecoder().decode(await watcher.readFileBytes(id, 'decks\\a..b.csv'))).toBe('ok');
+    for (const rel of [
+      '../secret.csv',
+      'decks/../../secret.csv',
+      '..\\secret.csv',
+      'decks\\..\\..\\x',
+      'decks/..\\x',
+    ]) {
+      await expect(watcher.readFileBytes(id, rel)).rejects.toThrow(/Unsafe relative path/);
+    }
+  });
+
+  it('resolves media next to the deck file, and returns null for traversal', async () => {
+    const files = new Map([['/notes/decks/img..1.png', new Uint8Array([1, 2])]]);
+    const { watcher, id } = await pickedWatcher(files);
+    const media = await watcher.readRelativeMedia(id, 'decks/words.csv', 'img..1.png');
+    expect(media?.bytes).toEqual(new Uint8Array([1, 2]));
+    expect(media?.mime).toBe('image/png');
+    for (const rel of ['../x.png', '..\\x.png', 'a/..\\..\\x.png', 'C:/x.png']) {
+      expect(await watcher.readRelativeMedia(id, 'decks/words.csv', rel)).toBeNull();
+    }
+  });
+});
