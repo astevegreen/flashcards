@@ -118,10 +118,10 @@ Only Chromium Playwright with faked endpoints has covered these.
 
 These live in code ported from Terminal Dusk, so fix them when the four agy copies are brought to one version:
 
-- [ ] `tools/gemini/rails.mjs` `findings()`/`decide()`: a review whose tags don't start a line ("Blocker:", "**blocker**") reads as no findings and merges. Return `retry` when no tagged line is found and the answer is not "No findings."
-- [ ] `railHits` reads only the `b/` path of `diff --git`, so renaming a rail out of its folder (say `.githooks/pre-push` to `docs/`) skips the rail audit. Check the `a/` path too.
-- [ ] `tools/gemini-audit.mjs` puts a linked issue's body into agy's material without checking its author. Port Terminal Dusk's `github-trust.mjs` filter.
-- [ ] `tools/gemini/agy.mjs`: `DEEP_PATHS` defaults to Terminal Dusk's paths (the audit passes Flashcards' list, so there is no effect today), and `newerFirst` uses `localeCompare` (pinned to `en`, tooling only). Fix both or comment why.
+- [x] `tools/gemini/rails.mjs` `findings()`/`decide()`: a review whose tags don't start a line ("Blocker:", "**blocker**") reads as no findings and merges. Return `retry` when no tagged line is found and the answer is not "No findings." Done in #94: an answer with no tagged line that is not "No findings." now retries.
+- [x] `railHits` reads only the `b/` path of `diff --git`, so renaming a rail out of its folder (say `.githooks/pre-push` to `docs/`) skips the rail audit. Check the `a/` path too. Done in #94: `railHits` checks the `a/` path of a rename too.
+- [x] `tools/gemini-audit.mjs` puts a linked issue's body into agy's material without checking its author. Port Terminal Dusk's `github-trust.mjs` filter. Done in #94: a linked issue is trusted only from the owner and write, maintain or admin collaborators.
+- [x] `tools/gemini/agy.mjs`: `DEEP_PATHS` defaults to Terminal Dusk's paths (the audit passes Flashcards' list, so there is no effect today), and `newerFirst` uses `localeCompare` (pinned to `en`, tooling only). Fix both or comment why. Done in #94: both fixed.
 - [ ] The prepare script's shared `core.hooksPath` reaches every worktree, including a branch cut before `.githooks/` existed, which then runs no hooks. Fine once those branches merge main.
 
 ### Final review nits from the Phase 14 batch (PR #9), resolved 2026-11-22
@@ -558,30 +558,31 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [ ] A token-helper reply with no token now returns 502, so web Google shows "helper unavailable" with tap-to-renew instead of AUTH_REQUIRED. Check that this is the wording we want.
 - [ ] The 50 MB cap on Sheets `values.get` JSON is tighter than the same data as CSV.
 - [ ] Behaviour changes to keep in mind: the 401 refresh no longer counts as an attempt for OneDrive and Dropbox (up to `maxAttempts + 1` requests), Google no longer retries 501, and the Dropbox picker's network-error text changed.
-- [ ] The native Dropbox and Microsoft auths keep their own `inFlightRefresh` (`dropbox-native-auth.ts`, `microsoft-native-auth.ts`). Move them onto `TokenRefresher`.
+- [x] The native Dropbox and Microsoft auths keep their own `inFlightRefresh` (`dropbox-native-auth.ts`, `microsoft-native-auth.ts`). Move them onto `TokenRefresher`. Done in #97: both moved onto `TokenRefresher`.
 - [ ] The Google Drive, Dropbox and OneDrive transport `read()`s still load the whole file into memory.
 - [ ] Run one real desktop sign-in per provider. The shared loopback helper (`platform-tauri/src/native/loopback-sign-in.ts`) has only mocks so far.
 - [ ] Picker deep link: require the `state` nonce once the hosted `picker.js` has been live a while. A callback with no `state` is still accepted (`native-picker-bridge.ts`).
 - [ ] Add `http://127.0.0.1` as a "Mobile and desktop" redirect URI on the Entra app, then switch `microsoft-loopback.ts` to `127.0.0.1` (review N8).
 - [ ] `flash-cli audio --key-stdin` prints its prompt on stderr at a terminal. Check that it never echoes the key.
-- [ ] `apps/desktop/.cargo/config.toml` (the `SQLITE_SECURE_DELETE` build flag) needs a comment that says why it sits in `apps/desktop/` and not in `src-tauri`.
+- [x] `apps/desktop/.cargo/config.toml` (the `SQLITE_SECURE_DELETE` build flag) needs a comment that says why it sits in `apps/desktop/` and not in `src-tauri`. Done in #94: the comment says why it sits in `apps/desktop/`.
 
 ### Left from partly fixed review items (D11, S4, P3, §9)
 
-- [ ] D11 (review): two tabs of one device can still write at once and reuse `(device, seq)`, and the SQLite storages still append events and meta without one transaction (`native/plugins.ts`). Add `appendEventsWithMeta` in one transaction, or rebuild seq from `max(seq)` at boot.
+- [x] D11 (review): the SQLite storages now append events and meta in one transaction. Done in #95.
+- [ ] D11 (review), still open: two tabs of one browser profile can write at once and reuse `(device, seq)`. See "Decisions needed (follow-ups batch, 2026-11-26)".
 - [ ] S4 (review): UI components still read `note.fields[key]` directly. Route them through `noteField`.
 - [ ] P3 (review): a sync tick that changes `syncState` still re-renders every `useApp()` consumer. Move `syncState` out of the context value.
-- [ ] §9 Native (review): event SQL runs only against `InMemorySqliteDriver`, never real SQLite. Run it against sql.js or a device.
+- [x] §9 Native (review): event SQL runs only against `InMemorySqliteDriver`, never real SQLite. Run it against sql.js or a device. Done in #95: event SQL now also runs against sql.js and `node:sqlite`.
 
 ### Linked sources and refresh (#80, #72)
 
-- [ ] `markPermissionRequired` leaves an old `skipReason` in place.
-- [ ] `applyCloudFileReconciliation` looks up the row outside `withSourcesLock`. It is harmless today, because it looks the row up again inside the lock.
-- [ ] The new row-routing tests cover OneDrive and Dropbox only, not the Drive branch.
-- [ ] Relinking without access leaves the row at `error`, not `permission_required`, until the next refresh.
-- [ ] "Refresh all" still skips Google Sheets and Docs with no message while Google is disconnected. The Drive row message could apply to them too.
-- [ ] A device that has synced linked decks but never opened Sources doesn't refresh them at launch. The launch check reads only the saved registry (`sources/hasLinkedSources.ts`).
-- [ ] Local-folder `.xlsx` scans skip `canParseXlsx` (`sourceRunner.ts` ~1946).
+- [x] `markPermissionRequired` leaves an old `skipReason` in place. Done in #97: linked sources and refresh.
+- [x] `applyCloudFileReconciliation` looks up the row outside `withSourcesLock`. It is harmless today, because it looks the row up again inside the lock. Done in #97: linked sources and refresh.
+- [x] The new row-routing tests cover OneDrive and Dropbox only, not the Drive branch. Done in #97: linked sources and refresh.
+- [x] Relinking without access leaves the row at `error`, not `permission_required`, until the next refresh. Done in #97: linked sources and refresh.
+- [x] "Refresh all" still skips Google Sheets and Docs with no message while Google is disconnected. The Drive row message could apply to them too. Done in #97: linked sources and refresh.
+- [x] A device that has synced linked decks but never opened Sources doesn't refresh them at launch. The launch check reads only the saved registry (`sources/hasLinkedSources.ts`). Done in #97: linked sources and refresh.
+- [x] Local-folder `.xlsx` scans skip `canParseXlsx` (`sourceRunner.ts` ~1946). Done in #97: linked sources and refresh.
 
 ### Import, CSV and zip (#72, #85)
 
@@ -591,18 +592,18 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [ ] A cell that holds only spaces inside quotes still reads as empty, so it doesn't round-trip.
 - [ ] The Bring my cards preview still trims quoted padded cells, because its grid has no quote flags. The import keeps them.
 - [ ] The Card ID write-back still doesn't quote outer spaces, unlike `exportCsv`. Changing it would start preserving spaces in cells that were unquoted before.
-- [ ] `scripts/packs/zip-entry.mjs` doesn't reject `:` in entry names.
-- [ ] The Dropbox transport and picker accept `.` segments, while OneDrive rejects them.
+- [x] `scripts/packs/zip-entry.mjs` doesn't reject `:` in entry names. Done in #94: `:` in entry names is rejected.
+- [x] The Dropbox transport and picker accept `.` segments, while OneDrive rejects them. Done in #97: `.` segments are rejected.
 - [ ] The NUL check in Tauri `readRelativeMedia` is tested only through its helper (`hasTraversalSegment`).
 
 ### Sync, replay and snapshots (#75, #82, #83)
 
-- [ ] TTS-key restore approximation when a snapshot has no registers (`events/snapshot.ts` ~58).
-- [ ] The Anki reader's idle timeout also runs during the read itself. Use `quiet()` there.
-- [ ] The hydrate branch (`syncRunner.ts` ~441) still moves the snapshot counter after its queued write.
-- [ ] The counter moves even when the persist later skips the write, so the next snapshot can be up to 200 events late.
-- [ ] A sync that pulls 100 or more events snapshots regardless of the counter.
-- [ ] Retained `unknownEvents` are shared objects between the serialized input and the live state.
+- [x] TTS-key restore approximation when a snapshot has no registers (`events/snapshot.ts` ~58). Done in #96: documented, behaviour unchanged; bounds are in the `snapshot.ts` comment.
+- [x] The Anki reader's idle timeout also runs during the read itself. Use `quiet()` there. Done in #96: the read uses `quiet()`.
+- [x] The hydrate branch (`syncRunner.ts` ~441) still moves the snapshot counter after its queued write. Done in #96: branch counter fixed.
+- [x] The counter moves even when the persist later skips the write, so the next snapshot can be up to 200 events late. Done in #96: the claim is given back when persist skips.
+- [x] A sync that pulls 100 or more events snapshots regardless of the counter. Done in #96: kept on purpose as `SYNC_PULL_SNAPSHOT_EVENTS`.
+- [x] Retained `unknownEvents` are shared objects between the serialized input and the live state. Done in #96: they are copied now.
 - [ ] Starter upgrade (#83): an unsynced edit of a still-old-text field loses to the upgrade.
 - [ ] Starter upgrade (#83): the `SyncRuntime` hook wiring is not render-tested.
 - [ ] Starter upgrade (#83): `legacySeed` builds the old decks with today's seeding code, so a seeding change can drift from what older builds wrote.
@@ -610,14 +611,14 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 
 ### Packs, backups and memory (#82, #85)
 
-- [ ] A `full` backup with `withMedia` and no `loadMedia` loader silently writes a `daily` manifest.
+- [x] A `full` backup with `withMedia` and no `loadMedia` loader silently writes a `daily` manifest. Done in #96: it now throws.
 - [ ] `.gz` packs between 50 and 150 MB are read whole before the codec refuses them.
 - [ ] The pack codec's uncompressed cap relies on fflate's `ondata` throw alone.
 - [ ] The DictionaryPanel presence index costs k × N.
 - [ ] The picker `maxBytes` caps are unverified on Capacitor (`readData: false` path).
 - [x] `loadMaterializedCards` is kept, but nothing reads that table at boot. Removed in #89 with the cache (P5).
 - [ ] The `--full` pack build (`publish-packs.yml`) is not reached by any gate.
-- [ ] `pnpm bench` is missing from AGENTS.md "Commands".
+- [x] `pnpm bench` is missing from AGENTS.md "Commands". Done in #94: added to AGENTS.md "Commands".
 
 ### Study screen and accessibility (#81)
 
@@ -632,11 +633,11 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [ ] Decide whether the Security jobs (`security.yml`) become required checks. That needs a `dependency-review` that tolerates a skip, because it runs only on pull requests.
 - [ ] CodeQL covers JavaScript, TypeScript and Actions only. Add Rust, Kotlin and Swift to `desktop.yml` and `native.yml` if wanted.
 - [ ] Watch the first Gradle Dependabot PRs on the Capacitor project: `cap sync` rewrites `capacitor.build.gradle` and `capacitor.settings.gradle`.
-- [ ] The string-value `__proto__` test and the `({}).polluted` check can't fail.
+- [x] The string-value `__proto__` test and the `({}).polluted` check can't fail. Done in #94: the check can fail now.
 - [ ] `phase5-audio.spec.ts` ~351: polling `getVoices` can pass before the key press reaches `speak`.
 - [ ] The front auto-speak absence check waits only two frames.
-- [ ] The `flash-cli mcp` child-process test has no explicit timeout or kill.
-- [ ] The retry reporter doesn't escape `%` in `::warning` messages, and has no automated test.
+- [x] The `flash-cli mcp` child-process test has no explicit timeout or kill. Done in #94: explicit timeout and kill.
+- [x] The retry reporter doesn't escape `%` in `::warning` messages, and has no automated test. Done in #94: `%` is escaped; the S4624 nested template literal followed in this batch.
 - [x] The 26 MiB snapshot fixture is heavy: moved to "Left over from wave 3" (#90) below.
 - [ ] `sw-picker.spec.ts` matches the exact regex text of the denylist.
 - [ ] The `listFolderDecks` coverage (hide archived, name and id order) was dropped with the function.
@@ -671,8 +672,18 @@ The audit (`docs/Audit.md`, untracked in the main checkout) was about the plan f
 - [ ] #88: fullwidth lookalikes (＝, ＋) are not guarded.
 - [ ] #89: `tests/e2e/sync.spec.ts` now compares event ids only, not each device's derived schedules. Add a state-level check (replay the stored logs, or read in-app state through a test hook).
 - [ ] #90: shrink or lazily build the 26 MiB D12 snapshot fixture in `sync-engine.test.ts`, then the coverage-only 15 s `testTimeout` could go back toward 5 s.
-- [ ] #90: fake `Date` as well as timers in the web badge test (`packages/ui/tests/effect-wiring.test.tsx` ~39). Wait for a ready signal rather than `flush(5)` in the P3 render test. Put a floor (≥ 50) on each threshold in `tools/hooks/settings.test.mjs`. `apps/*` shell code sits in the coverage denominator.
+- [x] #90: put a floor (≥ 50) on each threshold in `tools/hooks/settings.test.mjs`. Done in #94.
+- [ ] #90: fake `Date` as well as timers in the web badge test (`packages/ui/tests/effect-wiring.test.tsx` ~39). Wait for a ready signal rather than `flush(5)` in the P3 render test. `apps/*` shell code sits in the coverage denominator.
 - [ ] #90: `pnpm gate` runs plain `pnpm test`, so parallel branches can each pass and together drop under the coverage thresholds (like the bundle budget). Run `pnpm coverage` after merging main.
+
+### Left over from the follow-ups batch (#94–#97)
+
+- [ ] `tools/gemini/rails.mjs`: a review with one tagged `[note]` line plus an untagged mid-line "Blocker: …" still reads as notes-only. Could also retry when an untagged line matches `blocker` (#94 review).
+- [ ] Capacitor `executeSet(set, true)` rollback is unverified on a real Android or iOS device (#95).
+- [ ] The Tauri `sql_execute_batch` command is unverified inside a running desktop app. Only the Rust function and the TypeScript side over `node:sqlite` are tested (#95).
+- [ ] The native Dropbox and Microsoft auths on `TokenRefresher` are unverified on a device (#97).
+- [ ] The launch refresh for synced linked decks is unverified in a two-device `?device=a` / `?device=b` session (#97).
+- [ ] The Anki read with no idle limit is unverified on a large `.apkg` on a slow phone (#96).
 
 ## Decisions needed (burn-down, 2026-11-26)
 
@@ -700,3 +711,12 @@ Each default below stays shipped until the owner decides.
 - [ ] **Tauri store builds accept licence keys whenever a public key is set (#87).** Only Capacitor checks `VITE_STORE_LICENSE_KEYS`. Recommend gating Tauri store builds the same way if a Mac App Store or Microsoft Store build ever ships.
 - [ ] **Rotating the licence key locks out every key already issued (#87).** Recommend never rotating unless the private key leaks. If it does, ship the old public key alongside the new one for a transition.
 - [ ] **An unguarded grammar entry like `-(으)ㄴ` may still show as `#NAME?` in Excel (#88, not verified).** It is in the "for other apps" CSV. Recommend checking once in Excel; if so, guard every leading `-` in that export too (the `'` prefix is invisible in Excel).
+
+## Decisions needed (follow-ups batch, 2026-11-26)
+
+Each default below stays shipped until the owner decides.
+
+- [ ] **Two tabs of one browser profile can still write at once and reuse `(device, seq)` (#95 left this open).** Renumbering seq in storage is not enough, because each tab keeps only its own events in memory. Fix: one writer per profile via Web Locks. Owner choice: what the second tab shows. Recommend an "already open in another tab" screen with a "Use here instead" button.
+- [ ] **While Google is disconnected, linked Google Sheets and Docs rows now show "Connect Google to refresh this file." (permission needed)** instead of keeping their last state silently (#97). With the new launch refresh, a device that synced Sheets decks but never connected Google shows this after its first launch. Recommend keep.
+- [ ] **agy's linked-issue filter trusts only the owner and write, maintain or admin collaborators; triage is untrusted (#94).** Recommend keep.
+- [ ] **An agy review with no tagged line now retries rather than holds (#94).** Recommend keep.

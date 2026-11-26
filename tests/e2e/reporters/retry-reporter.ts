@@ -42,10 +42,11 @@ export default class RetryReporter implements Reporter {
     }
     const summary = process.env['GITHUB_STEP_SUMMARY'];
     if (summary) {
-      const table = rows.map(
-        (row) =>
-          `| ${row.outcome} | ${row.attempts} | ${row.title.replaceAll('|', String.raw`\|`).replaceAll(/\r?\n/g, ' ')} |`,
-      );
+      const escapedPipe = String.raw`\|`;
+      const table = rows.map((row) => {
+        const title = row.title.replaceAll('|', escapedPipe).replaceAll(/\r?\n/g, ' ');
+        return `| ${row.outcome} | ${row.attempts} | ${title} |`;
+      });
       appendFileSync(
         summary,
         [
