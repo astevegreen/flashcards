@@ -569,7 +569,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 ### Left from partly fixed review items (D11, S4, P3, §9)
 
 - [x] D11 (review): the SQLite storages now append events and meta in one transaction. Done in #95.
-- [ ] D11 (review), still open: two tabs of one browser profile can write at once and reuse `(device, seq)`. See "Decisions needed (follow-ups batch, 2026-11-26)".
+- [ ] D11 (review), still open: two tabs of one browser profile can write at once and reuse `(device, seq)`. **To build** (owner, 2026-11-26): one writer per profile via Web Locks; a second tab shows an "already open in another tab" screen with a "Use here instead" button.
 - [ ] S4 (review): UI components still read `note.fields[key]` directly. Route them through `noteField`.
 - [ ] P3 (review): a sync tick that changes `syncState` still re-renders every `useApp()` consumer. Move `syncState` out of the context value.
 - [x] §9 Native (review): event SQL runs only against `InMemorySqliteDriver`, never real SQLite. Run it against sql.js or a device. Done in #95: event SQL now also runs against sql.js and `node:sqlite`.
@@ -714,9 +714,9 @@ Each default below stays shipped until the owner decides.
 
 ## Decisions needed (follow-ups batch, 2026-11-26)
 
-Each default below stays shipped until the owner decides.
+The owner accepted every recommendation on 2026-11-26.
 
-- [ ] **Two tabs of one browser profile can still write at once and reuse `(device, seq)` (#95 left this open).** Renumbering seq in storage is not enough, because each tab keeps only its own events in memory. Fix: one writer per profile via Web Locks. Owner choice: what the second tab shows. Recommend an "already open in another tab" screen with a "Use here instead" button.
-- [ ] **While Google is disconnected, linked Google Sheets and Docs rows now show "Connect Google to refresh this file." (permission needed)** instead of keeping their last state silently (#97). With the new launch refresh, a device that synced Sheets decks but never connected Google shows this after its first launch. Recommend keep.
-- [ ] **agy's linked-issue filter trusts only the owner and write, maintain or admin collaborators; triage is untrusted (#94).** Recommend keep.
-- [ ] **An agy review with no tagged line now retries rather than holds (#94).** Recommend keep.
+- [x] **Two tabs of one browser profile can still write at once and reuse `(device, seq)` (#95 left this open).** Renumbering seq in storage is not enough, because each tab keeps only its own events in memory. Fix: one writer per profile via Web Locks. Owner choice: what the second tab shows. Recommend an "already open in another tab" screen with a "Use here instead" button. Decided 2026-11-26: build it (**To build**, see D11).
+- [x] **While Google is disconnected, linked Google Sheets and Docs rows now show "Connect Google to refresh this file." (permission needed)** instead of keeping their last state silently (#97). With the new launch refresh, a device that synced Sheets decks but never connected Google shows this after its first launch. Recommend keep. Decided 2026-11-26: keep.
+- [x] **agy's linked-issue filter trusts only the owner and write, maintain or admin collaborators; triage is untrusted (#94).** Recommend keep. Decided 2026-11-26: keep.
+- [x] **An agy review with no tagged line now retries rather than holds (#94).** Recommend keep. Decided 2026-11-26: keep.
