@@ -41,6 +41,30 @@ export default tseslint.config(
       ],
     },
   },
+  // Type-aware promise rules for every TypeScript file: a promise must be awaited, handled, or
+  // marked fire-and-forget with `void`, and never passed where a void callback or a condition is
+  // expected. Each file is typed by the tsconfig that typechecks it (src, tests, e2e).
+  {
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      parserOptions: {
+        project: [
+          './apps/*/tsconfig.json',
+          './apps/*/tsconfig.test.json',
+          './packages/*/tsconfig.json',
+          './packages/*/tsconfig.test.json',
+          './tools/*/tsconfig.json',
+          './tools/*/tsconfig.test.json',
+          './tsconfig.e2e.json',
+        ],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+    },
+  },
   // Hard architectural boundary: packages/core must be 100% pure TypeScript
   {
     files: ['packages/core/src/**/*.ts'],
@@ -117,10 +141,83 @@ export default tseslint.config(
     plugins: {
       'react-hooks': reactHooks,
     },
+    // The plugin's full recommended set (rules of hooks plus the React Compiler checks), with
+    // exhaustive-deps kept at its recommended warn.
     rules: {
+      ...reactHooks.configs['recommended-latest'].rules,
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
     },
+  },
+  // Baseline for the React Compiler checks above: each rule is off only in the files where it
+  // already fired when the full set was turned on (review finding T3, 25 Nov 2026), so new files
+  // and every other rule are checked in full. Fixing a file means deleting it from its list here;
+  // never add a file to these lists.
+  {
+    files: ['packages/ui/src/screens/BrowseScreen.tsx'],
+    rules: { 'react-hooks/incompatible-library': 'off' },
+  },
+  {
+    files: ['packages/ui/src/screens/StudyScreen.tsx'],
+    rules: { 'react-hooks/preserve-manual-memoization': 'off' },
+  },
+  {
+    files: [
+      'packages/ui/src/browse/DuplicateFinderPanel.tsx',
+      'packages/ui/src/browse/NoteDetailPane.tsx',
+      'packages/ui/src/components/CoursesPanel.tsx',
+      'packages/ui/src/dictionary/DictionaryPanel.tsx',
+      'packages/ui/src/layout/ShellNotices.tsx',
+      'packages/ui/src/pages/PageViewer.tsx',
+      'packages/ui/src/screens/LibraryScreen.tsx',
+      'packages/ui/src/screens/StatsScreen.tsx',
+      'packages/ui/src/screens/StudyScreen.tsx',
+      'packages/ui/src/study/CustomStudySection.tsx',
+      'packages/ui/src/study/StudyFilterPanel.tsx',
+      'packages/ui/src/study/StudySetsSection.tsx',
+    ],
+    rules: { 'react-hooks/purity': 'off' },
+  },
+  {
+    files: [
+      'packages/ui/src/FlashcardsApp.tsx',
+      'packages/ui/src/backups/AutoBackupRuntime.tsx',
+      'packages/ui/src/backups/BackupsPanel.tsx',
+      'packages/ui/src/check/CheckPanel.tsx',
+      'packages/ui/src/components/NoteEditDialog.tsx',
+      'packages/ui/src/drawing/DrawLookupPanel.tsx',
+      'packages/ui/src/drawing/DrawQuizPanel.tsx',
+      'packages/ui/src/drawing/PointerInkCanvas.tsx',
+      'packages/ui/src/import/AnkiImportPanel.tsx',
+      'packages/ui/src/state/AppContext.tsx',
+      'packages/ui/src/state/useSyncController.ts',
+    ],
+    rules: { 'react-hooks/refs': 'off' },
+  },
+  {
+    files: [
+      'packages/ui/src/backups/BackupsPanel.tsx',
+      'packages/ui/src/browse/FindReplacePanel.tsx',
+      'packages/ui/src/components/MediaImage.tsx',
+      'packages/ui/src/components/NoteEditDialog.tsx',
+      'packages/ui/src/components/SourcesPanel.tsx',
+      'packages/ui/src/dictionary/DictionaryPanel.tsx',
+      'packages/ui/src/drawing/DrawLookupPanel.tsx',
+      'packages/ui/src/drawing/DrawQuizPanel.tsx',
+      'packages/ui/src/library/DeckOrganizationPanel.tsx',
+      'packages/ui/src/library/ImportExportPanel.tsx',
+      'packages/ui/src/packs/PackManagerPanel.tsx',
+      'packages/ui/src/screens/LibraryScreen.tsx',
+      'packages/ui/src/screens/SettingsScreen.tsx',
+      'packages/ui/src/screens/StudyScreen.tsx',
+      'packages/ui/src/sources/CloudFilePickerPanel.tsx',
+      'packages/ui/src/sources/GoogleDriveFileLinkPanel.tsx',
+      'packages/ui/src/study/answerModes/ChoiceMode.tsx',
+      'packages/ui/src/study/answerModes/ClozeMode.tsx',
+      'packages/ui/src/study/answerModes/DrawMode.tsx',
+      'packages/ui/src/study/answerModes/TypedAnswerPanel.tsx',
+    ],
+    rules: { 'react-hooks/set-state-in-effect': 'off' },
   },
   // Node scripts, Cloudflare Worker, and config files
   {
@@ -130,11 +227,20 @@ export default tseslint.config(
       'tools/**/*.{ts,js,mjs}',
       '*.config.{js,ts}',
       'tests/**/*.ts',
-      'apps/token-helper/**/*.ts',
+      'apps/token-helper/tests/**/*.ts',
     ],
     languageOptions: {
       globals: {
         ...globals.node,
+      },
+    },
+  },
+  // The token helper itself runs as a Cloudflare Worker (no Node globals); its tests run in Node.
+  {
+    files: ['apps/token-helper/src/**/*.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.serviceworker,
       },
     },
   },
