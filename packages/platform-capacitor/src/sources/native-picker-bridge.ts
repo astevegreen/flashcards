@@ -1,7 +1,22 @@
 import type { GooglePickedFile, NativePickerBridge } from '@flash/platform';
+import { deepLinkQueryParam } from '../native/deep-links.ts';
 
 export interface SystemBrowserLauncher {
-  openAndAwaitDeepLink(opts: { url: string; callbackScheme: string }): Promise<string>;
+  /**
+   * Opens `url` and resolves with the first `<callbackScheme>://picker-callback` deep link that
+   * carries `state` (S10); callbacks with another `state` are ignored.
+   */
+  openAndAwaitDeepLink(opts: {
+    url: string;
+    callbackScheme: string;
+    state?: string;
+  }): Promise<string>;
+}
+
+/** A fresh per-pick nonce: 128 random bits as hex. */
+function pickerStateNonce(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -30,12 +45,15 @@ export class CapacitorNativePickerBridge implements NativePickerBridge {
     }
     const callbackScheme = opts.callbackScheme ?? 'flashcards';
     const url = new URL(opts.pickerPageUrl);
+    // `picker.html` echoes `state` back, so a deep link that this pick did not start is refused.
+    const state = pickerStateNonce();
     // Pass short-lived token & Picker config via URL fragment (never logged in server access logs)
     const frag = new URLSearchParams({
       access_token: opts.accessToken,
       app_id: opts.appId,
       api_key: opts.apiKey,
       callback: `${callbackScheme}://picker-callback`,
+      state,
       // `picker.html` lists plain .csv/.tsv/.xlsx/.flashpkg files too; an older page ignores it.
       ...(opts.mode === 'drive_files' ? { mode: 'drive_files' } : {}),
     });
@@ -44,7 +62,11 @@ export class CapacitorNativePickerBridge implements NativePickerBridge {
     const callbackUrl = await this.launcher.openAndAwaitDeepLink({
       url: url.toString(),
       callbackScheme,
+      state,
     });
+    if (deepLinkQueryParam(callbackUrl, 'state') !== state) {
+      throw new Error('Picker callback did not come from this request.');
+    }
     return this.parseDeepLinkCallback(callbackUrl);
   }
 

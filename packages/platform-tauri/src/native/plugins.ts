@@ -30,7 +30,7 @@ import {
 import { openUrl } from '@tauri-apps/plugin-opener';
 import Database from '@tauri-apps/plugin-sql';
 import type { Files, PickedFile } from '@flash/platform';
-import type { SystemBrowserLauncher } from '@flash/platform-capacitor';
+import { isPickerCallback, type SystemBrowserLauncher } from '@flash/platform-capacitor';
 import type { SecureSecretBackend } from '../auth/refresh-token-store.ts';
 import type { TauriLoopbackOAuthPlugin } from '../auth/tauri-google-auth.ts';
 import type { DesktopNotificationBridge } from '../reminders/desktop-reminders.ts';
@@ -249,13 +249,13 @@ export function createSystemBrowserLauncher(): SystemBrowserLauncher {
   // Opening the picker again while an earlier one is still waiting replaces the earlier one (N6).
   const latestAttempt = createLatestAttempt();
   return {
-    openAndAwaitDeepLink: ({ url, callbackScheme }) =>
+    openAndAwaitDeepLink: ({ url, callbackScheme, state }) =>
       latestAttempt((signal) => {
-        const prefix = `${callbackScheme}://picker-callback`;
         return awaitBrowserCallback({
           subscribe: (cb) => onOpenUrl((urls) => urls.forEach(cb)),
           open: () => openUrl(url),
-          accept: (u) => u.startsWith(prefix),
+          // Exact host, not a prefix (`picker-callback.evil`), and this pick's `state` (S10).
+          accept: (u) => isPickerCallback(u, callbackScheme, state),
           timeoutMs: PICKER_CALLBACK_TIMEOUT_MS,
           signal,
           label: 'Choosing files in Google Drive',

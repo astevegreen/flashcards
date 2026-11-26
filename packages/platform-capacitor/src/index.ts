@@ -53,6 +53,7 @@ export {
   type SqliteDriver,
 } from './storage/sqlite-storage.ts';
 export { ICloudDriveSyncTransport, type ICloudDocumentPlugin } from './sync/icloud-transport.ts';
+export { isPickerCallback } from './native/deep-links.ts';
 export { createSecureKvRouting, type SecureKvRouting } from './secure/secure-kv-storage.ts';
 export {
   adaptSecureStoragePlugin,

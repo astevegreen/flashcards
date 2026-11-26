@@ -139,7 +139,7 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
     expect(await auth.getValidAccessToken({ forceRefresh: true })).toBe('native-tok-2');
 
     const bridge = new CapacitorNativePickerBridge({
-      openAndAwaitDeepLink: async ({ url }) => {
+      openAndAwaitDeepLink: async ({ url, state }) => {
         expect(url).toContain('https://flashcards.example/picker.html#');
         const filesJson = encodeURIComponent(
           JSON.stringify([
@@ -150,7 +150,7 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
             },
           ]),
         );
-        return `flashcards://picker-callback?files=${filesJson}`;
+        return `flashcards://picker-callback?files=${filesJson}&state=${state ?? ''}`;
       },
     });
     const picked = await bridge.openSystemBrowserPicker({

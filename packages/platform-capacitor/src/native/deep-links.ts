@@ -40,6 +40,27 @@ export function isAppDeepLink(url: string, scheme: string, host: string): boolea
   return next === '' || AUTHORITY_END.has(next);
 }
 
+/**
+ * The value of query parameter `name` in a deep-link URL, read as plain text (see the note above on
+ * `new URL(...)`), or `null` when it is absent.
+ */
+export function deepLinkQueryParam(url: string, name: string): string | null {
+  const q = url.indexOf('?');
+  if (q < 0) return null;
+  const hash = url.indexOf('#', q);
+  return new URLSearchParams(url.slice(q + 1, hash < 0 ? undefined : hash)).get(name);
+}
+
+/**
+ * True when `url` is the Picker callback for one request (S10): the exact `<scheme>://picker-callback`
+ * host and, when `state` is given, the same `state` nonce echoed back by `picker.html`. A callback
+ * from another (or a forged) pick is ignored rather than accepted.
+ */
+export function isPickerCallback(url: string, scheme: string, state?: string): boolean {
+  if (!isAppDeepLink(url, scheme, PICKER_CALLBACK_HOST)) return false;
+  return state === undefined || deepLinkQueryParam(url, 'state') === state;
+}
+
 /** `flashcards://oauth/<provider>` and nothing else (no query, fragment or extra segments). */
 const NATIVE_OAUTH_REDIRECT = /^flashcards:\/\/oauth\/[a-z0-9-]+$/;
 
