@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { buildStrokeLookupIndex, type StrokeLookupIndex } from '@flash/core/drawing';
 import type { InstalledPackInfo } from '@flash/platform';
 import { describe, expect, it } from 'vitest';
@@ -160,7 +161,6 @@ describe('WebStrokeRecognizer caches its indexes by pack install (P6)', () => {
 
 describe('DexiePackStorage.deckStrokesVersion (P6)', () => {
   it('changes when a cached character is re-cached, not only when one is added', async () => {
-    await import('fake-indexeddb/auto');
     const { DexiePackStorage } = await import('../src/packs/dexie-pack-storage.ts');
     const storage = new DexiePackStorage(`strokes-version-${Date.now()}`);
     const data = (medians: number[][][]) => ({ strokes: [], medians });
