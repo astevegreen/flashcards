@@ -235,6 +235,9 @@ export interface SyncFileInfo {
  * - `write(…, { ifAbsent: true })` over an existing file → `ALREADY_EXISTS` (never a silent
  *   success; any other failure, such as a full drive, must throw);
  * - expired or revoked sign-in → `AUTH_REQUIRED`; throttling → `RATE_LIMITED`.
+ * HTTP transports refresh the token once after a 401 and retry 429 / 5xx with backoff before
+ * throwing; a provider's own throttling reply (Google's 403 `rateLimitExceeded`) is
+ * `RATE_LIMITED`, never `PERMISSION_DENIED`, so throttled users aren't told to reconnect.
  * `list(prefix)` returns every file whose path starts with `prefix` (a missing folder lists as
  * empty), in code-unit order. `packages/platform-web/tests/helpers/sync-transport-contract.ts`
  * is the shared conformance suite.

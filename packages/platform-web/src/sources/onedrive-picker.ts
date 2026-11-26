@@ -1,4 +1,6 @@
 import { compareCodeUnits, SyncTransportError } from '@flash/core';
+import { readBodyCapped } from '../net/read-capped.ts';
+import { INTERACTIVE_MAX_RETRY_AFTER_MS } from '../sync/authorized-http.ts';
 import type {
   Auth,
   OneDriveBrowseItem,
@@ -108,6 +110,8 @@ export class GraphOneDriveFilePicker implements OneDriveFilePicker {
       ...(options.graphBaseUrl ? { graphBaseUrl: options.graphBaseUrl } : {}),
       ...(options.sleep ? { sleep: options.sleep } : {}),
       maxAttempts: 3,
+      // A user is waiting on the picker: fail a long Retry-After fast.
+      maxRetryAfterMs: INTERACTIVE_MAX_RETRY_AFTER_MS,
     });
     this.maxBytes = options.maxBytes ?? MAX_PICK_BYTES;
   }
@@ -194,10 +198,10 @@ export class GraphOneDriveFilePicker implements OneDriveFilePicker {
     }
     const res = await this.client.sendUnauthenticated(downloadUrl);
     if (!res.ok) throw await graphFailure(res, `download of "${name}"`);
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    if (bytes.byteLength > this.maxBytes) {
-      throw new SyncTransportError('UNKNOWN', `"${name}" is larger than the 50 MB import limit.`);
-    }
+    const bytes = await readBodyCapped(res, this.maxBytes, {
+      tooLarge: () =>
+        new SyncTransportError('UNKNOWN', `"${name}" is larger than the 50 MB import limit.`),
+    });
     const mime = MIME_BY_EXTENSION[extensionOf(name)];
     return { name, bytes, ...(mime ? { mime } : {}) };
   }
