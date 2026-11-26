@@ -55,6 +55,11 @@ export interface EnrichPackageAudioResult {
   reusedCount: number;
   skippedCount: number;
   totalMediaCount: number;
+  /**
+   * Set when a synthesis request failed (C28). Synthesis stops there, but every clip generated
+   * before it is kept in `bytes`, so a rerun only pays for the notes still missing audio.
+   */
+  failure?: { noteId: string; message: string };
 }
 
 function decodeBase64Bytes(base64: string): Uint8Array {
@@ -95,10 +100,11 @@ async function defaultSynthesize(
 
   if (input.provider === 'google') {
     const resolved = resolveCanonicalVoiceId('google', normLang, input.voiceOverride);
-    const endpoint = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(key)}`;
+    // The key goes in a header, not `?key=`, so it stays out of URLs and proxy logs (S11).
+    const endpoint = 'https://texttospeech.googleapis.com/v1/text:synthesize';
     const res = await fetchImpl(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key },
       body: JSON.stringify({
         input: { text: input.text },
         voice: resolved.voiceName
@@ -176,6 +182,7 @@ export async function enrichPackageWithAudio(
   let generatedCount = 0;
   let reusedCount = 0;
   let skippedCount = 0;
+  let failure: EnrichPackageAudioResult['failure'];
 
   // Deduplicate identical (normalizedText, voiceId) syntheses within one batch run
   const sessionClipCache = new Map<string, string>();
@@ -221,15 +228,22 @@ export async function enrichPackageWithAudio(
     if (hash && mediaBlobs.has(hash)) {
       reusedCount += 1;
     } else {
-      const clip = await synth({
-        text: target.normalizedText,
-        lang: target.lang,
-        bcp47Lang: target.bcp47Lang,
-        provider: options.provider,
-        ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
-        ...(options.azureRegion !== undefined ? { azureRegion: options.azureRegion } : {}),
-        ...(voiceOverride !== undefined ? { voiceOverride } : {}),
-      });
+      let clip: SynthesizedClip;
+      try {
+        clip = await synth({
+          text: target.normalizedText,
+          lang: target.lang,
+          bcp47Lang: target.bcp47Lang,
+          provider: options.provider,
+          ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
+          ...(options.azureRegion !== undefined ? { azureRegion: options.azureRegion } : {}),
+          ...(voiceOverride !== undefined ? { voiceOverride } : {}),
+        });
+      } catch (err) {
+        // Keep the clips already paid for (C28): stop here and still write the package.
+        failure = { noteId: note.id, message: err instanceof Error ? err.message : String(err) };
+        break;
+      }
       hash = sha256Hex(clip.bytes).toLowerCase();
       mediaBlobs.set(hash, clip.bytes);
       sessionClipCache.set(ttsKey, hash);
@@ -290,6 +304,7 @@ export async function enrichPackageWithAudio(
     reusedCount,
     skippedCount,
     totalMediaCount: mediaBlobs.size,
+    ...(failure ? { failure } : {}),
   };
 }
 

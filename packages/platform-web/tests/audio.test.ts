@@ -266,7 +266,7 @@ describe('BYO Cloud TTS Providers (Google & Azure)', () => {
     const fakeFetch: typeof fetch = async (input, init) => {
       const url = String(input);
       calls.push({ url, ...(init ? { init } : {}) });
-      if (url.includes('BAD_SECRET_KEY')) {
+      if (new Headers(init?.headers).get('X-Goog-Api-Key') === 'BAD_SECRET_KEY') {
         return new Response(`API key BAD_SECRET_KEY invalid`, { status: 403 });
       }
       return new Response(JSON.stringify({ audioContent: sampleMp3B64 }), {
@@ -294,6 +294,9 @@ describe('BYO Cloud TTS Providers (Google & Azure)', () => {
     expect(reqBody.input.text).toBe('안녕하세요');
     expect(reqBody.voice).toEqual({ languageCode: 'ko-KR', name: 'ko-KR-Neural2-A' });
     expect(reqBody.audioConfig).toEqual({ audioEncoding: 'MP3', speakingRate: 1.0 });
+    // S11: the key travels in a header, never in the URL.
+    expect(calls[0]?.url).toBe('https://texttospeech.googleapis.com/v1/text:synthesize');
+    expect(new Headers(calls[0]?.init?.headers).get('X-Goog-Api-Key')).toBe('AIzaTestSecretKey123');
 
     // Error redaction check
     const badProvider = new GoogleCloudTtsProvider({

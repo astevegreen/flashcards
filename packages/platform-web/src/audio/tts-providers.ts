@@ -99,7 +99,8 @@ export class GoogleCloudTtsProvider implements TtsProvider {
       opts?.voiceOverride ?? this.voices[norm],
     );
 
-    const endpoint = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(this.apiKey)}`;
+    // The key goes in a header, not `?key=`, so it stays out of URLs and request logs (S11).
+    const endpoint = 'https://texttospeech.googleapis.com/v1/text:synthesize';
     const body = {
       input: { text: trimmed },
       voice: resolved.voiceName
@@ -115,7 +116,7 @@ export class GoogleCloudTtsProvider implements TtsProvider {
     try {
       res = await this.fetchImpl(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.apiKey },
         body: JSON.stringify(body),
         ...(opts?.signal ? { signal: opts.signal as AbortSignal } : {}),
       });
