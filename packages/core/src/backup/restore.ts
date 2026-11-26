@@ -9,7 +9,7 @@ import type {
   Page,
   ReviewRecord,
 } from '../model/types.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 import { getDeckDescription } from '../decks/description.ts';
 import { getDeckOrganization, getDeckOrganizationHistory, type DeckPreset } from '../decks/fold.ts';
 import { FLASH_NAMESPACE_UUID, uuidv5 } from '../ids.ts';

@@ -40,6 +40,7 @@ import {
   type UnknownEvent,
 } from './types.ts';
 import { isApplicableEvent } from './validate.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 export interface PendingDeckPatch {
   name?: string;
@@ -1510,11 +1511,6 @@ function applyDrawingModePreferences(ctx: ApplyEventContext, pref: PreferencesPa
   return changed;
 }
 
-function compareRawKeys(a: string, b: string): number {
-  if (a === b) return 0;
-  return a < b ? -1 : 1;
-}
-
 /** Per-language Settings > Languages choices; returns true when any entry was applied. */
 function applyLanguageChoicePreferences(ctx: ApplyEventContext, pref: PreferencesPatch): boolean {
   const { state, hlc, collector } = ctx;
@@ -1523,7 +1519,7 @@ function applyLanguageChoicePreferences(ctx: ApplyEventContext, pref: Preference
   // Keys are normalized (`ja-JP` -> `ja`) before the LWW check, so aliases share one register.
   // Aliases inside one event resolve deterministically: the code-unit-last raw key wins.
   const byCode = new Map<string, boolean>();
-  const entries = Object.entries(pref.languages).sort(([a], [b]) => compareRawKeys(a, b));
+  const entries = Object.entries(pref.languages).sort(([a], [b]) => compareCodeUnits(a, b));
   for (const [rawKey, on] of entries) {
     const code = normalizeLanguage(rawKey);
     if (code && typeof on === 'boolean') byCode.set(code, on);

@@ -1,4 +1,4 @@
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 import type { FlashEvent } from './types.ts';
 
 /**

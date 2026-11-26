@@ -28,6 +28,7 @@ import {
 import { compareHlc } from '../hlc.ts';
 import { SERIALIZED_STATE_FORMAT_VERSION } from './snapshot-format.ts';
 import type { UnknownEvent } from './types.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 export { SERIALIZED_STATE_FORMAT_VERSION, snapshotLacksMediaRecords } from './snapshot-format.ts';
 
@@ -96,10 +97,6 @@ export interface SerializedCollectionState {
   pendingPagePatches: Record<string, PendingPagePatch>;
 }
 
-function cmpStr(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
 function cloneJsonValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -132,17 +129,17 @@ export function serializeCollectionState(
   }
 
   const sortedWatermarks: Record<string, number> = {};
-  for (const dev of Object.keys(mergedWatermarks).sort(cmpStr)) {
+  for (const dev of Object.keys(mergedWatermarks).sort(compareCodeUnits)) {
     const val = mergedWatermarks[dev];
     if (val !== undefined) sortedWatermarks[dev] = val;
   }
 
   const noteTypes = [...state.noteTypes.values()]
-    .sort((a, b) => cmpStr(a.id, b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((nt) => ({ ...nt, fields: nt.fields.map((f) => ({ ...f })) }));
 
   const layouts = [...state.layouts.values()]
-    .sort((a, b) => cmpStr(a.id, b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((l) => ({
       ...l,
       front_fields: [...l.front_fields],
@@ -150,7 +147,7 @@ export function serializeCollectionState(
     }));
 
   const decks = [...state.decks.values()]
-    .sort((a, b) => cmpStr(a.id, b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((d) => ({
       ...d,
       settings: {
@@ -163,7 +160,7 @@ export function serializeCollectionState(
     }));
 
   const notes = [...state.notes.values()]
-    .sort((a, b) => cmpStr(a.id, b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((n) => ({
       ...n,
       fields: { ...n.fields },
@@ -172,24 +169,24 @@ export function serializeCollectionState(
     }));
 
   const cards = [...state.cards.values()]
-    .sort((a, b) => cmpStr(a.id, b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((c) => ({
       ...c,
       schedule: { ...c.schedule },
     }));
 
   const reviewsByCard: Record<string, ReviewRecord[]> = {};
-  for (const cardId of [...state.reviewsByCard.keys()].sort(cmpStr)) {
+  for (const cardId of [...state.reviewsByCard.keys()].sort(compareCodeUnits)) {
     const list = state.reviewsByCard.get(cardId);
     if (list && list.length > 0) {
       reviewsByCard[cardId] = list.map((r) => ({ ...r }));
     }
   }
 
-  const undoneReviewIds = [...state.undoneReviewIds].sort(cmpStr);
+  const undoneReviewIds = [...state.undoneReviewIds].sort(compareCodeUnits);
 
   const deckFsrsParams: Record<string, DeckFSRSParamsVersion[]> = {};
-  for (const deckId of [...state.deckFsrsParams.keys()].sort(cmpStr)) {
+  for (const deckId of [...state.deckFsrsParams.keys()].sort(compareCodeUnits)) {
     const list = state.deckFsrsParams.get(deckId);
     if (list && list.length > 0) {
       deckFsrsParams[deckId] = list.map((v) => ({
@@ -203,7 +200,7 @@ export function serializeCollectionState(
   }
 
   const pages = [...state.pages.values()]
-    .sort((a, b) => cmpStr(a.id, b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((p) => ({
       ...p,
       tags: [...p.tags],
@@ -211,42 +208,42 @@ export function serializeCollectionState(
     }));
 
   const courses = [...state.courses.values()]
-    .sort((a, b) => cmpStr(a.id, b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((c) => ({
       ...c,
       items: c.items.map((item) => ({ ...item })),
     }));
 
   const media = [...state.media.values()]
-    .sort((a, b) => cmpStr(a.hash, b.hash))
+    .sort((a, b) => compareCodeUnits(a.hash, b.hash))
     .map((m) => ({ ...m }));
 
   const ttsMediaByKey: Record<string, string> = {};
-  for (const k of [...state.ttsMediaByKey.keys()].sort(cmpStr)) {
+  for (const k of [...state.ttsMediaByKey.keys()].sort(compareCodeUnits)) {
     const v = state.ttsMediaByKey.get(k);
     if (v !== undefined) ttsMediaByKey[k] = v;
   }
 
   const ttsMediaByLangKey: Record<string, string> = {};
-  for (const k of [...state.ttsMediaByLangKey.keys()].sort(cmpStr)) {
+  for (const k of [...state.ttsMediaByLangKey.keys()].sort(compareCodeUnits)) {
     const v = state.ttsMediaByLangKey.get(k);
     if (v !== undefined) ttsMediaByLangKey[k] = v;
   }
 
   const fieldHlcs: Record<string, string> = {};
-  for (const k of [...state.fieldHlcs.keys()].sort(cmpStr)) {
+  for (const k of [...state.fieldHlcs.keys()].sort(compareCodeUnits)) {
     const v = state.fieldHlcs.get(k);
     if (v !== undefined) fieldHlcs[k] = v;
   }
 
   const noteArchivedState: Record<string, boolean> = {};
-  for (const k of [...state.noteArchivedState.keys()].sort(cmpStr)) {
+  for (const k of [...state.noteArchivedState.keys()].sort(compareCodeUnits)) {
     const v = state.noteArchivedState.get(k);
     if (v !== undefined) noteArchivedState[k] = v;
   }
 
   const pendingDeckPatches: Record<string, PendingDeckPatch> = {};
-  for (const k of [...state.pendingDeckPatches.keys()].sort(cmpStr)) {
+  for (const k of [...state.pendingDeckPatches.keys()].sort(compareCodeUnits)) {
     const v = state.pendingDeckPatches.get(k);
     if (v !== undefined) {
       pendingDeckPatches[k] = {
@@ -263,7 +260,7 @@ export function serializeCollectionState(
   }
 
   const pendingPagePatches: Record<string, PendingPagePatch> = {};
-  for (const k of [...state.pendingPagePatches.keys()].sort(cmpStr)) {
+  for (const k of [...state.pendingPagePatches.keys()].sort(compareCodeUnits)) {
     const v = state.pendingPagePatches.get(k);
     if (v !== undefined) {
       pendingPagePatches[k] = {
@@ -276,7 +273,7 @@ export function serializeCollectionState(
   const sortedTtsVoices = state.preferences.tts_voices
     ? Object.fromEntries(
         Object.keys(state.preferences.tts_voices)
-          .sort(cmpStr)
+          .sort(compareCodeUnits)
           .map((k) => [k, state.preferences.tts_voices?.[k] ?? '']),
       )
     : undefined;
@@ -284,7 +281,7 @@ export function serializeCollectionState(
   const sortedDrawingModes = state.preferences.drawing_modes
     ? Object.fromEntries(
         Object.keys(state.preferences.drawing_modes)
-          .sort(cmpStr)
+          .sort(compareCodeUnits)
           .map((k) => [k, state.preferences.drawing_modes?.[k] ?? 'off']),
       )
     : undefined;
@@ -292,7 +289,7 @@ export function serializeCollectionState(
   const sortedLanguages = state.preferences.languages
     ? Object.fromEntries(
         Object.keys(state.preferences.languages)
-          .sort(cmpStr)
+          .sort(compareCodeUnits)
           .map((k) => [k, state.preferences.languages?.[k] === true]),
       )
     : undefined;

@@ -9,7 +9,7 @@ import {
   type CardFilterContext,
   type PerformanceCriterion,
 } from './filter.ts';
-import { compareCodeUnits } from './queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /*
  * The parts of the Phase 9 filter model only Browse, Stats and the filter panels use: built-in

@@ -14,6 +14,7 @@ import {
 import { splitTagCell } from '../import/tag-cell.ts';
 import { computeNoteContentHash } from './content-hash.ts';
 import { sha256String } from './hash.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 export type TabularWarningCode =
   | 'unknown_header'
@@ -729,7 +730,7 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
       continue;
     }
 
-    const tags = [...tagSet].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const tags = [...tagSet].sort(compareCodeUnits);
     const fingerprint = computeTabularRowFingerprint(row, headerMap.roles);
 
     let noteId: string;

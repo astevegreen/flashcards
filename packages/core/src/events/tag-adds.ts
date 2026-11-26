@@ -1,6 +1,6 @@
 import { compareHlc } from '../hlc.ts';
 import type { Note } from '../model/types.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 import type { CollectionState } from './replay.ts';
 
 /**

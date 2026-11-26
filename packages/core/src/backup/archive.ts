@@ -14,7 +14,7 @@ import { exportFlashpkgFiles } from '../import/flashpkg.ts';
 import { safeMediaMimeForExt } from '../import/media-types.ts';
 import { safeUnzip, type ArchiveLimits } from '../import/safe-unzip.ts';
 import { sha256Hex } from '../sources/hash.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Rolling backups (automatic dated snapshots of the whole collection).

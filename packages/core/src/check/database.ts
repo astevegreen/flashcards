@@ -7,7 +7,7 @@ import {
 import { serializeCollectionState, type SerializedCollectionState } from '../events/snapshot.ts';
 import type { FlashEvent } from '../events/types.ts';
 import { compareHlc } from '../hlc.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Check database: rebuild the collection from the event log (the truth) and compare it with the

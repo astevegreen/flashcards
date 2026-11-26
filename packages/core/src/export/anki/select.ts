@@ -1,5 +1,6 @@
 import type { CollectionState } from '../../events/replay.ts';
 import type { Note } from '../../model/types.ts';
+import { compareCodeUnits } from '../../compare.ts';
 
 /**
  * Small helpers kept inside the lazy `@flash/core/anki-export` entry. They mirror
@@ -13,12 +14,6 @@ export interface NoteSelection {
   includeArchived?: boolean;
 }
 
-/** Code-unit order (not localeCompare), like the rest of the collection's sorting. */
-export function cmpCodeUnits(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
-}
-
 /** The deck's notes to export, in the deck's note order (same rule as `exportCsv`). */
 export function selectDeckNotes(state: CollectionState, options: NoteSelection): Note[] {
   const wanted = options.noteIds ? new Set(options.noteIds) : null;
@@ -29,7 +24,7 @@ export function selectDeckNotes(state: CollectionState, options: NoteSelection):
     if (wanted && !wanted.has(note.id)) continue;
     notes.push(note);
   }
-  return notes.sort((a, b) => a.created_order - b.created_order || cmpCodeUnits(a.id, b.id));
+  return notes.sort((a, b) => a.created_order - b.created_order || compareCodeUnits(a.id, b.id));
 }
 
 /**

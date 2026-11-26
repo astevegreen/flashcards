@@ -9,6 +9,7 @@ import {
   normalizeCardFilter,
   type CategoryCriterion,
 } from './filter.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /** Largest single "extra new cards today" raise. */
 export const MAX_EXTRA_NEW_CARDS = 9999;
@@ -30,18 +31,12 @@ export interface NewCardRaise {
   categories?: CategoryCriterion;
 }
 
-/** Code-unit order (not localeCompare): identical on every device. */
-function cmpStr(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
-}
-
 function canonicalKey(r: NewCardRaise): string {
   return JSON.stringify([
     r.extra,
     r.raisedAt,
     r.tz ?? null,
-    r.deckIds ? [...r.deckIds].sort(cmpStr) : null,
+    r.deckIds ? [...r.deckIds].sort(compareCodeUnits) : null,
     r.categories ?? null,
   ]);
 }
@@ -85,7 +80,7 @@ export function listNewCardRaises(state: CollectionState): NewCardRaise[] {
       byId.set(r.id, r);
     }
   }
-  return [...byId.values()].sort((a, b) => a.raisedAt - b.raisedAt || cmpStr(a.id, b.id));
+  return [...byId.values()].sort((a, b) => a.raisedAt - b.raisedAt || compareCodeUnits(a.id, b.id));
 }
 
 /** True when `raise` counts on the study day `todayIndex` for a deck with rollover `dayStart`. */

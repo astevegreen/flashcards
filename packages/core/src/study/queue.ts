@@ -21,6 +21,9 @@ import {
   listNewCardRaises,
   type NewCardRaise,
 } from './new-card-raises.ts';
+import { compareCodeUnits } from '../compare.ts';
+
+export { compareCodeUnits };
 
 export interface StudyQueueOptions {
   deckId?: string;
@@ -330,15 +333,6 @@ function collectEligibleCards(
 /** Earliest due first, then card id. */
 function compareByDue(a: Card, b: Card): number {
   return a.schedule.due - b.schedule.due || (a.id < b.id ? -1 : 1);
-}
-
-/**
- * Code-unit string order (not localeCompare): queues and lists must be identical on every device
- * and locale. The shared comparator for sorting names and ids.
- */
-export function compareCodeUnits(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
 }
 
 /** Remaining quota of one extra-new-cards raise while a queue is built. */

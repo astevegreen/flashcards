@@ -1,4 +1,5 @@
 import {
+  compareCodeUnits,
   createBulkEvents,
   encodeUtf8,
   listMoveTargetDecks,
@@ -18,12 +19,6 @@ const LazyFindReplacePanel = lazyWithRetry(
   () => import('./FindReplacePanel.tsx').then((m) => ({ default: m.FindReplacePanel })),
   { closeWith: 'onClose' },
 );
-
-/** Code-unit order (not localeCompare), like the rest of the collection's sorting. */
-function cmpStr(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
-}
 
 export interface BulkEditBarProps {
   /** Selected note ids (already limited to the visible list). */
@@ -86,11 +81,11 @@ export function BulkEditBar({ noteIds, showingArchived, onClear }: BulkEditBarPr
       ? listMoveTargetDecks(state, onlyNoteType)
           .map((id) => state.decks.get(id))
           .filter((d) => d !== undefined)
-          .sort((a, b) => cmpStr(a.name, b.name))
+          .sort((a, b) => compareCodeUnits(a.name, b.name))
       : [];
     const [onlyDeck] = deckIds.size === 1 ? [...deckIds] : [];
     return {
-      tags: [...tags.entries()].sort((a, b) => cmpStr(a[0], b[0])),
+      tags: [...tags.entries()].sort((a, b) => compareCodeUnits(a[0], b[0])),
       moveTargets,
       onlyDeck,
       mixedNoteTypes: noteTypeIds.size > 1,

@@ -19,6 +19,7 @@ import {
   type DeckFolder,
   type DeckPreset,
 } from './fold.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 export * from './fold.ts';
 
@@ -37,13 +38,8 @@ export * from './fold.ts';
  * Library opens.
  */
 
-function cmpStr(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
-}
-
 function byNameThenId<T extends { id: string; name: string }>(a: T, b: T): number {
-  return cmpStr(a.name, b.name) || cmpStr(a.id, b.id);
+  return compareCodeUnits(a.name, b.name) || compareCodeUnits(a.id, b.id);
 }
 
 /** Live presets sorted by name (code-unit order) then id. */
@@ -62,7 +58,7 @@ export function listPresetDeckIds(state: CollectionState, presetId: string): str
   for (const [deckId, id] of getDeckOrganization(state).presetByDeck) {
     if (id === presetId && state.decks.has(deckId)) out.push(deckId);
   }
-  return out.sort(cmpStr);
+  return out.sort(compareCodeUnits);
 }
 
 /** The live folder a deck is in, if any. */
@@ -184,7 +180,7 @@ export function buildPresetSettingsPayloads(
   fields?: readonly PresetField[],
 ): DeckSettingsChangedPayload[] {
   const out: DeckSettingsChangedPayload[] = [];
-  for (const deckId of [...deckIds].sort(cmpStr)) {
+  for (const deckId of [...deckIds].sort(compareCodeUnits)) {
     const own = state.decks.get(deckId)?.settings;
     if (!own) continue;
     const settings: Partial<DeckPresetSettings> = {};
@@ -220,7 +216,7 @@ export function buildPresetParamsPayloads(
 ): DeckFSRSParamsChangedPayload[] {
   const fields = options.fields ?? ALL_PRESET_FIELDS;
   const out: DeckFSRSParamsChangedPayload[] = [];
-  for (const deckId of [...deckIds].sort(cmpStr)) {
+  for (const deckId of [...deckIds].sort(compareCodeUnits)) {
     if (!state.decks.has(deckId)) continue;
     const current = resolveDeckFsrsConfig(state, deckId, nowMs);
     const retention = fields.includes('target_retention')

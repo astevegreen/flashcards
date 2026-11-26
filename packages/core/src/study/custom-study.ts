@@ -22,6 +22,7 @@ import {
 } from './filter.ts';
 import { compareSeededRandom, compareSourceOrder } from './card-order.ts';
 import { resolveDayStartHour, type StudyCounts, type StudyQueueResult } from './queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Phase 9 Study Sets and custom study (blueprint §15 Phase 9), all derived from the event log.
@@ -42,11 +43,6 @@ export const MAX_REVIEW_AHEAD_DAYS = 365;
 export { MAX_EXTRA_NEW_CARDS } from './new-card-raises.ts';
 
 const MS_PER_DAY = 86_400_000;
-
-function cmpStr(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
-}
 
 /** The set stored under `key`, created on first use. */
 function setFor<K>(map: Map<K, Set<string>>, key: K): Set<string> {
@@ -85,7 +81,7 @@ function nonEmptyString(value: unknown): string | undefined {
 
 /** Total order on events used for LWW: HLC first, event id as the tiebreak. */
 function compareEventOrder(a: UnknownEvent, b: UnknownEvent): number {
-  return compareHlc(a.hlc, b.hlc) || cmpStr(a.id, b.id);
+  return compareHlc(a.hlc, b.hlc) || compareCodeUnits(a.id, b.id);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -213,7 +209,7 @@ export function listStudySets(state: CollectionState): StudySet[] {
     const set = liveStudySet(id, r);
     if (set) out.push(set);
   }
-  out.sort((a, b) => cmpStr(a.name, b.name) || cmpStr(a.id, b.id));
+  out.sort((a, b) => compareCodeUnits(a.name, b.name) || compareCodeUnits(a.id, b.id));
   return out;
 }
 
@@ -282,7 +278,9 @@ export function getPracticeRecords(
 
 export function comparePracticeRecords(a: PracticeRecord, b: PracticeRecord): number {
   return (
-    a.practicedAt - b.practicedAt || compareHlc(a.hlc, b.hlc) || cmpStr(a.practiceId, b.practiceId)
+    a.practicedAt - b.practicedAt ||
+    compareHlc(a.hlc, b.hlc) ||
+    compareCodeUnits(a.practiceId, b.practiceId)
   );
 }
 
@@ -368,7 +366,7 @@ export function sortPracticeCards(
   if (order === 'hardest') return out.sort(compareHardestCards);
   if (order === 'random') return out.sort(compareSeededRandom(`practice:${seed}`));
   const bySource = compareSourceOrder(state);
-  return out.sort((a, b) => cmpStr(a.deck_id, b.deck_id) || bySource(a, b));
+  return out.sort((a, b) => compareCodeUnits(a.deck_id, b.deck_id) || bySource(a, b));
 }
 
 export interface PracticeQueueResult extends StudyQueueResult {
@@ -489,7 +487,8 @@ export function buildReviewAheadQueue(
       aheadSelectionReviewedToday(state, reviewedToday, options, allowed),
     );
   }
-  const byDue = (a: Card, b: Card) => a.schedule.due - b.schedule.due || cmpStr(a.id, b.id);
+  const byDue = (a: Card, b: Card) =>
+    a.schedule.due - b.schedule.due || compareCodeUnits(a.id, b.id);
   sort.learning.sort(byDue);
   sort.reviews.sort(byDue);
 

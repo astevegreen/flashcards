@@ -25,7 +25,7 @@ import { decodeUtf8 } from '../utf8-decode.ts';
 import type { Deck, Note, SourceRef } from '../model/types.ts';
 import { computeNoteContentHash } from '../sources/content-hash.ts';
 import { sha256Hex } from '../sources/hash.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 import { normalizeTagList } from '../tags/index.ts';
 import {
   safeUnzip,

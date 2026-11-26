@@ -1,6 +1,7 @@
 import type { CollectionState } from '../events/replay.ts';
 import type { DeckSettingsChangedPayload } from '../events/types.ts';
 import type { Card, NewCardOrder, StudyOrder } from '../model/types.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Study method and card order (Study screen session options, Settings defaults). Every order here
@@ -36,7 +37,7 @@ function compareLayouts(a: string, b: string): number {
   const aIsRec = a.includes('recognition') ? 0 : 1;
   const bIsRec = b.includes('recognition') ? 0 : 1;
   if (aIsRec !== bIsRec) return aIsRec - bIsRec;
-  return a < b ? -1 : 1;
+  return compareCodeUnits(a, b);
 }
 
 /** Source order: by note.created_order, then layout order (Recognition before Production), then variant, then id. */

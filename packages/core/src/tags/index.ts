@@ -1,6 +1,7 @@
 import type { CollectionState } from '../events/replay.ts';
 import type { NoteUpsertedPayload } from '../events/types.ts';
 import type { Note } from '../model/types.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Categories (Phase 9): a category is a note tag. Tags are compared by their {@link tagKey}
@@ -96,11 +97,6 @@ export interface TagCollectionSummary {
   unnormalizedNoteCount: number;
 }
 
-function cmpStr(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
-}
-
 function increment<K>(map: Map<K, number>, key: K): void {
   map.set(key, (map.get(key) ?? 0) + 1);
 }
@@ -110,7 +106,7 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
 }
 
 function sortedNotes(state: CollectionState): Note[] {
-  return [...state.notes.values()].sort((a, b) => cmpStr(a.id, b.id));
+  return [...state.notes.values()].sort((a, b) => compareCodeUnits(a.id, b.id));
 }
 
 /**
@@ -158,7 +154,7 @@ export function summarizeTags(state: CollectionState): TagCollectionSummary {
       if (parts.length > 1) summary.parentKey = parts.slice(0, -1).join(TAG_HIERARCHY_SEPARATOR);
       return summary;
     })
-    .sort((a, b) => cmpStr(a.key, b.key));
+    .sort((a, b) => compareCodeUnits(a.key, b.key));
 
   return { tags, unnormalizedNoteCount };
 }
@@ -202,14 +198,14 @@ function tagLabel(key: string, depth: number, pool: SpellingPool): string {
   let label = key;
   let best = -1;
   for (const [spelling, n] of pool.get(key) ?? []) {
-    if (n > best || (n === best && cmpStr(spelling, label) < 0)) {
+    if (n > best || (n === best && compareCodeUnits(spelling, label) < 0)) {
       label = spelling;
       best = n;
     }
   }
   if (best >= 0) return label;
   const child = [...pool.entries()].find(([k]) => isTagInSubtree(k, key));
-  const childSpelling = child ? [...child[1].keys()].sort(cmpStr)[0] : undefined;
+  const childSpelling = child ? [...child[1].keys()].sort(compareCodeUnits)[0] : undefined;
   if (!childSpelling) return label;
   return childSpelling.split(TAG_HIERARCHY_SEPARATOR).slice(0, depth).join(TAG_HIERARCHY_SEPARATOR);
 }
@@ -314,7 +310,7 @@ export function resolveTagOperation(
         .map(tagKey)
         .filter((k) => k.length > 0),
     ),
-  ].sort(cmpStr);
+  ].sort(compareCodeUnits);
   if (sources.length === 0) return { error: { code: 'no_source' } };
 
   const resolved = op.kind === 'delete' ? { target: undefined } : resolveTarget(op, sources);
@@ -324,7 +320,7 @@ export function resolveTagOperation(
   const bySpecificity = [...sources].sort(
     (a, b) =>
       b.split(TAG_HIERARCHY_SEPARATOR).length - a.split(TAG_HIERARCHY_SEPARATOR).length ||
-      cmpStr(a, b),
+      compareCodeUnits(a, b),
   );
   return { sources: bySpecificity, target: resolved.target };
 }

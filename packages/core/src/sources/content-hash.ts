@@ -1,11 +1,8 @@
 import { sha256String } from './hash.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 // Content hashes for imports and sources, kept apart from `hash.ts` (which Study needs for TTS
 // cache keys) so they stay out of the initial study-screen chunk (§8).
-
-function cmpStr(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
 
 /**
  * Computes a deterministic canonical content hash for a note's fields and tags.
@@ -15,7 +12,7 @@ export function computeNoteContentHash(
   fields: Readonly<Record<string, string>>,
   tags: readonly string[],
 ): string {
-  const keys = Object.keys(fields).sort(cmpStr);
+  const keys = Object.keys(fields).sort(compareCodeUnits);
   const parts: string[] = ['F:'];
   for (const key of keys) {
     const val = fields[key];
@@ -23,7 +20,7 @@ export function computeNoteContentHash(
     parts.push(`${key.length}:${key}=${val.length}:${val};`);
   }
   const normalizedTags = [...new Set(tags.map((t) => t.trim()).filter((t) => t.length > 0))].sort(
-    cmpStr,
+    compareCodeUnits,
   );
   parts.push('T:');
   for (const tag of normalizedTags) {
@@ -43,7 +40,7 @@ export function computePageContentHash(page: {
 }): string {
   const normalizedTags = [
     ...new Set(page.tags.map((t) => t.trim()).filter((t) => t.length > 0)),
-  ].sort(cmpStr);
+  ].sort(compareCodeUnits);
   const canonical = [
     `title:${page.title.length}:${page.title}`,
     `lang:${page.lang ?? ''}`,

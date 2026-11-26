@@ -28,7 +28,7 @@ import {
   type AnkiCardScheduling,
   type AnkiRevlogDraft,
 } from './scheduling.ts';
-import { cmpCodeUnits as compareCodeUnits } from './select.ts';
+import { compareCodeUnits } from '../../compare.ts';
 
 /**
  * `.apkg` export (notes, media, tags, and by default review history and scheduling). Core plans the SQLite rows; the platform

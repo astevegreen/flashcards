@@ -12,6 +12,7 @@
  */
 
 import type { DictionaryDirection } from './types.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 const S_BASE = 0xac00;
 const S_LAST = 0xd7a3;
@@ -621,7 +622,7 @@ export function deinflectKorean(word: string, opts: DeinflectOptions = {}): Kore
 
   return [...best]
     .map(([lemma, steps]) => ({ lemma, steps }))
-    .sort((a, b) => a.steps - b.steps || cmp(a.lemma, b.lemma))
+    .sort((a, b) => a.steps - b.steps || compareCodeUnits(a.lemma, b.lemma))
     .slice(0, maxCandidates);
 }
 
@@ -791,17 +792,16 @@ function parseRomanChunk(chunk: string): RomanizationCandidate[] {
     const list = [...found]
       .map(([hangul, cost]) => ({ hangul, cost }))
       .sort(
-        (a, b) => a.cost - b.cost || a.hangul.length - b.hangul.length || cmp(a.hangul, b.hangul),
+        (a, b) =>
+          a.cost - b.cost ||
+          a.hangul.length - b.hangul.length ||
+          compareCodeUnits(a.hangul, b.hangul),
       )
       .slice(0, MAX_ROM_PARSES);
     memo.set(i, list);
     return list;
   };
   return parseFrom(0);
-}
-
-function cmp(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /** RR writes pronunciation (`먹었어요` → `meogeosseoyo`); move initials back into finals to recover spellings. */
@@ -843,7 +843,7 @@ export function romanizationToHangul(input: string, maxResults = 24): Romanizati
       for (const b of parsed) next.push({ hangul: a.hangul + b.hangul, cost: a.cost + b.cost });
     }
     combos = next
-      .sort((a, b) => a.cost - b.cost || cmp(a.hangul, b.hangul))
+      .sort((a, b) => a.cost - b.cost || compareCodeUnits(a.hangul, b.hangul))
       .slice(0, MAX_ROM_PARSES);
   }
   const best = new Map<string, number>();
@@ -856,7 +856,7 @@ export function romanizationToHangul(input: string, maxResults = 24): Romanizati
   }
   return [...best]
     .map(([hangul, cost]) => ({ hangul, cost }))
-    .sort((a, b) => a.cost - b.cost || cmp(a.hangul, b.hangul))
+    .sort((a, b) => a.cost - b.cost || compareCodeUnits(a.hangul, b.hangul))
     .slice(0, maxResults);
 }
 

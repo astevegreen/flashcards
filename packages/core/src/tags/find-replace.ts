@@ -2,6 +2,7 @@ import type { CollectionState } from '../events/replay.ts';
 import type { NoteUpsertedPayload } from '../events/types.ts';
 import type { Note, NoteType, NoteTypeField } from '../model/types.ts';
 import { isLinkedDeck } from './bulk.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Find and replace across notes (Browse bulk edit). A pure planner: it turns a selection of
@@ -50,11 +51,6 @@ export interface FindReplacePlan {
 const SEARCHABLE_KINDS = new Set(['text', 'reading', 'rich']);
 /** A media reference, kept whole (same shape as `events/media-refs.ts`). */
 const MEDIA_REF = /media:[0-9a-f]{64}/gi;
-
-function cmpStr(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
-}
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
@@ -150,7 +146,7 @@ function selectedNotes(state: CollectionState, noteIds: Iterable<string>): Note[
     const note = state.notes.get(id);
     if (note) out.push(note);
   }
-  return out.sort((a, b) => cmpStr(a.id, b.id));
+  return out.sort((a, b) => compareCodeUnits(a.id, b.id));
 }
 
 function noteTypeOf(state: CollectionState, note: Note): NoteType | undefined {
@@ -241,7 +237,9 @@ export function planFindReplaceUndo(
     restoredCount += 1;
   }
   const payloads: NoteUpsertedPayload[] = [];
-  for (const [noteId, fields] of [...byNote.entries()].sort((a, b) => cmpStr(a[0], b[0]))) {
+  for (const [noteId, fields] of [...byNote.entries()].sort((a, b) =>
+    compareCodeUnits(a[0], b[0]),
+  )) {
     const note = state.notes.get(noteId);
     if (!note) continue;
     payloads.push({ note_id: note.id, deck_id: note.deck_id, source_key: note.source_key, fields });

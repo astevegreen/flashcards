@@ -23,7 +23,7 @@ import {
 } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { DEFAULT_DECK_SETTINGS, type Deck } from '../model/types.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 import { clipFSRS6Parameters, migrateFSRS6Parameters } from 'ts-fsrs/models/fsrs-6';
 
 /**

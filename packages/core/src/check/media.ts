@@ -1,6 +1,6 @@
 import { forEachMediaRef } from '../events/media-refs.ts';
 import type { CollectionState } from '../events/replay.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Check media: which media files the collection stores but nothing uses, and which ones notes or
