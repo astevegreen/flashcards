@@ -29,7 +29,8 @@ Before the cache was removed, the same bench timed the cache itself (runs 1 to 3
 The threshold was under about 300 ms on this desktop. Phones run about 3 to 5 times slower, so that is roughly 1.5 s or less on a mid-range phone.
 
 - **The snapshot boot passes: 149 ms median here** (114 to 150 ms in 6 of 7 runs), roughly 0.45 to 0.75 s on a phone.
-- **Replay alone passes: 141 ms median.** The full boot's extra time is the storage read, and fake-indexeddb is only a stand-in for a browser's IndexedDB.
+- **Replay alone passes: 141 ms median.**
+- **The no-snapshot boot fails: 504 ms median**, over the 300 ms bar. That is the first launch, or the first after a rebuild drops the snapshot. Most of its extra time is the storage read (261 ms), and fake-indexeddb is only a stand-in for a browser's IndexedDB. This is accepted: the cache could not have shortened it (next point), and every later launch takes the 149 ms snapshot boot.
 - **Reading the cache at boot would not help.** It holds only card schedules, so a boot still needs the snapshot or a replay to rebuild notes, decks, review history and stats. The local snapshot already is the materialized state that blueprint §191 describes.
 
 **Decision: stop writing the cache.** Each local edit and each sync pull no longer upserts card rows. A full boot or a sync hydrate no longer rewrites all 5,000 rows. On Capacitor the cache took one bridge call per row.

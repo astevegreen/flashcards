@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { compareCodeUnits } from '../../../packages/core/src/compare.ts';
 import { replayAllEvents } from '../../../packages/core/src/events/replay.ts';
 import type { FlashEvent } from '../../../packages/core/src/events/types.ts';
 
@@ -29,8 +30,8 @@ export async function readStoredCards(
   // The storage-only columns off, in log (hlc) order, as `DexieStorage.getAllEvents` returns them.
   const events = rows
     .map(({ card_id: _c, local_seq: _l, ...event }) => event as FlashEvent)
-    .sort((a, b) => (a.hlc < b.hlc ? -1 : Number(a.hlc > b.hlc)));
+    .sort((a, b) => compareCodeUnits(a.hlc, b.hlc));
   return [...replayAllEvents(events).cards.values()]
     .map((c) => ({ id: c.id, deck_id: c.deck_id }))
-    .sort((a, b) => (a.id < b.id ? -1 : Number(a.id > b.id)));
+    .sort((a, b) => compareCodeUnits(a.id, b.id));
 }
