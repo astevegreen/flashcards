@@ -50,6 +50,8 @@ export async function bootNativePlatform(
       ...common,
       ...nonEmpty('googleClientId', settings.googleClientId),
       ...nonEmpty('googleIosClientId', envString('VITE_GOOGLE_IOS_CLIENT_ID')),
+      // Licence keys stay off on store builds unless the owner opts in (App Store 3.1.1).
+      allowLicenseKeys: envString('VITE_STORE_LICENSE_KEYS') === 'true',
     });
   }
   const { bootTauriPlatform } = await import('@flash/platform-tauri/native');

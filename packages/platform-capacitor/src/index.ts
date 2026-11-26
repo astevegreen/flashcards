@@ -81,6 +81,8 @@ export interface CreateCapacitorPlatformOptions {
   licensePublicKeyHex?: string;
   /** Verifies licence-key signatures; the native boot passes WebCrypto's Ed25519. */
   licenseCryptoProvider?: Ed25519CryptoProvider;
+  /** Accept licence keys on this store build (off by default; an owner decision). */
+  allowLicenseKeys?: boolean;
   iCloudPlugin?: ICloudDocumentPlugin;
   isPersonalBuild?: boolean;
   createDriveTransport?: (auth: Auth) => Promise<SyncTransport>;
@@ -132,6 +134,7 @@ export function createCapacitorPlatform(options: CreateCapacitorPlatformOptions)
     ...(options.billingPlugin ? { billingPlugin: options.billingPlugin } : {}),
     ...(options.licensePublicKeyHex ? { publicKeyHex: options.licensePublicKeyHex } : {}),
     ...(options.licenseCryptoProvider ? { cryptoProvider: options.licenseCryptoProvider } : {}),
+    allowLicenseKeys: options.allowLicenseKeys ?? false,
   });
   const syncTransport: SyncTransport = {
     list: async () => [],

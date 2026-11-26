@@ -12,6 +12,7 @@ import {
   CapacitorStorePurchase,
   createCapacitorPlatform,
 } from '../src/index.ts';
+import { STORE_LICENSE_KEYS_OFF_REASON } from '../src/purchase/store-purchase.ts';
 import { InMemorySqliteDriver } from './support/in-memory-sqlite-driver.ts';
 
 function hex(bytes: Uint8Array): string {
@@ -71,18 +72,28 @@ describe('licence public key (S12)', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('store build: no key warns and refuses keys with a clear reason', async () => {
+  it('store build with licence keys allowed: no key warns and refuses keys with a clear reason', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const purchase = new CapacitorStorePurchase({
       storage: new CapacitorSqliteStorage(new InMemorySqliteDriver()),
       cryptoProvider: webCryptoEd25519Provider,
+      allowLicenseKeys: true,
     });
     expect(warn).toHaveBeenCalledTimes(1);
     const res = await purchase.activateLicenseKey((await signedLicence()).key);
     expect(res.reason).toBe(LICENSE_PUBLIC_KEY_MISSING_REASON);
   });
 
-  it('Capacitor passes the key and crypto provider through, so a phone can activate a key', async () => {
+  it('a normal IAP store build (licence keys off) does not warn about a missing key', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    new CapacitorStorePurchase({
+      storage: new CapacitorSqliteStorage(new InMemorySqliteDriver()),
+      cryptoProvider: webCryptoEd25519Provider,
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('Capacitor store builds refuse licence keys by default, even with a key and provider', async () => {
     const { key, publicKeyHex } = await signedLicence();
     const platform = createCapacitorPlatform({
       deviceId: 'phone',
@@ -90,6 +101,23 @@ describe('licence public key (S12)', () => {
       isPersonalBuild: false,
       licensePublicKeyHex: publicKeyHex,
       licenseCryptoProvider: webCryptoEd25519Provider,
+    });
+    const purchase = (await platform.getPurchase?.()) as CapacitorStorePurchase;
+    const res = await purchase.activateLicenseKey(key);
+    expect(res.valid).toBe(false);
+    expect(res.reason).toBe(STORE_LICENSE_KEYS_OFF_REASON);
+    expect(res.entitlement.unlocked).toBe(false);
+  });
+
+  it('with licence keys allowed, Capacitor passes the key and provider through so a phone can activate', async () => {
+    const { key, publicKeyHex } = await signedLicence();
+    const platform = createCapacitorPlatform({
+      deviceId: 'phone',
+      storage: new CapacitorSqliteStorage(new InMemorySqliteDriver()),
+      isPersonalBuild: false,
+      licensePublicKeyHex: publicKeyHex,
+      licenseCryptoProvider: webCryptoEd25519Provider,
+      allowLicenseKeys: true,
     });
     const purchase = (await platform.getPurchase?.()) as CapacitorStorePurchase;
     const res = await purchase.activateLicenseKey(key);

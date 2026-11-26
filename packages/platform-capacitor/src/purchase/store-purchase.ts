@@ -76,6 +76,10 @@ function isStoreUnlock(cached: CachedStoreEntitlement): boolean {
   return cached.via ? cached.via === 'store' : cached.transactionId === RESTORED_TRANSACTION_ID;
 }
 
+/** Why a store build refuses licence keys while `allowLicenseKeys` is off (the default). */
+export const STORE_LICENSE_KEYS_OFF_REASON =
+  'Licence keys are not accepted in the App Store / Google Play build; unlock it through the store.';
+
 /**
  * StoreKit 2 / Google Play Billing non-consumable `unlock_full` adapter (§12.1, §15 Phase 8).
  * Caches verified purchase entitlement on-device so full unlock works 100% offline.
@@ -86,6 +90,7 @@ export class CapacitorStorePurchase implements Purchase {
   private readonly billingPlugin?: StoreBillingPlugin;
   private readonly publicKeyHex: string | undefined;
   private readonly cryptoProvider?: Ed25519CryptoProvider;
+  private readonly allowLicenseKeys: boolean;
 
   constructor(options: {
     storage: Storage;
@@ -93,13 +98,22 @@ export class CapacitorStorePurchase implements Purchase {
     billingPlugin?: StoreBillingPlugin;
     publicKeyHex?: string;
     cryptoProvider?: Ed25519CryptoProvider;
+    /**
+     * Lets a licence key bought outside the App Store / Play unlock this store build. Off by
+     * default: store rules (App Store guideline 3.1.1) restrict that, so it is the owner's call.
+     */
+    allowLicenseKeys?: boolean;
   }) {
     this.storage = options.storage;
     this.isPersonalBuild = options.isPersonalBuild ?? false;
     if (options.billingPlugin) this.billingPlugin = options.billingPlugin;
     this.publicKeyHex = usableLicensePublicKey(options.publicKeyHex);
     if (options.cryptoProvider) this.cryptoProvider = options.cryptoProvider;
-    if (!this.publicKeyHex && !this.isPersonalBuild) warnLicensePublicKeyMissing();
+    this.allowLicenseKeys = options.allowLicenseKeys ?? false;
+    // Only a build that offers licence keys needs the key; the normal IAP build stays quiet.
+    if (this.allowLicenseKeys && !this.publicKeyHex && !this.isPersonalBuild) {
+      warnLicensePublicKeyMissing();
+    }
   }
 
   async getEntitlement(): Promise<EntitlementState> {
@@ -196,6 +210,13 @@ export class CapacitorStorePurchase implements Purchase {
   async activateLicenseKey(
     rawKey: string,
   ): Promise<LicenseVerifyResult & { entitlement: EntitlementState }> {
+    if (!this.allowLicenseKeys) {
+      return {
+        valid: false,
+        reason: STORE_LICENSE_KEYS_OFF_REASON,
+        entitlement: await this.getEntitlement(),
+      };
+    }
     if (!this.publicKeyHex || !this.cryptoProvider) {
       return {
         valid: false,

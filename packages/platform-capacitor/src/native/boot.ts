@@ -57,6 +57,11 @@ export interface CapacitorBootConfig {
   dropboxAppKey?: string;
   /** Ed25519 public key (hex) for offline licence keys (S12, `VITE_LICENSE_PUBLIC_KEY`). */
   licensePublicKeyHex?: string;
+  /**
+   * Accept licence keys bought outside the stores on this store build. Off unless the build sets
+   * `VITE_STORE_LICENSE_KEYS=true`: store rules restrict it, so it is the owner's decision.
+   */
+  allowLicenseKeys?: boolean;
 }
 
 /** Memoizes an async loader; a failed attempt is forgotten so the next call retries. */
@@ -136,6 +141,7 @@ export async function bootCapacitorPlatform(
     billingPlugin: createStoreBillingPlugin(),
     ...(config.licensePublicKeyHex ? { licensePublicKeyHex: config.licensePublicKeyHex } : {}),
     licenseCryptoProvider: webCryptoEd25519Provider,
+    allowLicenseKeys: config.allowLicenseKeys === true,
     ...(platformName === 'ios' ? { iCloudPlugin: createICloudDocumentPlugin() } : {}),
     isPersonalBuild: config.isPersonalBuild,
     ...(config.packCatalogUrl ? { packCatalogUrl: config.packCatalogUrl } : {}),
