@@ -9,7 +9,7 @@ A read-only review of the whole repo at commit `0ae9b0e`, plus the uncommitted `
 - **CONFIRMED** The reviewer traced the path.
 - **PLAUSIBLE** The mechanism is real, but the trigger or the impact hasn't been seen.
 
-Burn-down (2026-11-26): ✔ marks the findings fixed in #57, #60–#64, #69–#75 and #79–#85. P5, D19 and S6 wait for the owner.
+Burn-down (2026-11-26): ✔ marks the findings fixed in #57, #60–#64, #69–#75 and #79–#85. P5 and D19 are settled (#89, accepted and documented), and S6 is partly fixed (#88).
 
 Nothing in `docs/follow-ups.md` is repeated here unless the code contradicts it.
 
@@ -176,7 +176,7 @@ These are ranked by user impact. The IDs point to the full entries below.
 **D19 [Medium] A moved note's reviews replay under the new deck's FSRS params** — `packages/core/src/events/replay.ts:432-437`, `:319`
 
 - **The bug:** `fsrs_params_version` numbers are per deck, but they are resolved against `card.deck_id`, the deck the note is in now. Moving a note silently reschedules its cards.
-- **Next step:** decide the intended behaviour.
+- **Decision:** accepted 2026-11-26, as in Anki. A card follows the settings of the deck it is in. Documented in `docs/design_blueprint.md` (§4.1).
 - PLAUSIBLE.
 
 **D20 [Low] ✔ Smaller convergence issues**
@@ -213,7 +213,7 @@ These are ranked by user impact. The IDs point to the full entries below.
 - **Measured:** the time grows quadratically. 20k spaces after `<a` take 137 ms, and a 1 MB input would take minutes. The input comes from `.flashpkg` and Google Docs.
 - **Fix:** use `\s[^<>]*` and an `indexOf` scan, or cap the page size first.
 
-**S6 [Medium] CSV export allows formula injection** — `packages/core/src/import/csv-export.ts:69`, `export/anki/select.ts:40`, `sources/tabular.ts:1039`
+**S6 [Medium] CSV export allows formula injection** (partly: the "for other apps" CSV is guarded (#88). The default CSV is unguarded by design, the Anki CSV still has unguarded GUID, note type, deck and tag columns, and no screen offers the "for other apps" CSV yet; `docs/follow-ups.md` has open items) — `packages/core/src/import/csv-export.ts:69`, `export/anki/select.ts:40`, `sources/tabular.ts:1039`
 
 - **The bug:** cells starting with `=`, `+`, `-` or `@` export as is, so `=HYPERLINK(...)` runs when the file is opened in Excel.
 - **Trade-off:** Korean grammar entries like `-(으)ㄴ` legitimately start with `-`.
@@ -331,9 +331,9 @@ These are ranked by user impact. The IDs point to the full entries below.
 
 - **P1 [High] ✔ The bundle budget is exhausted**: 159.70 / 160 KB. `.size-limit.json` matches only `index-*.js` and reports 121 KB, so its "Size" line undercounts; the real gate is `scripts/check-no-fonts.mjs`. Before the next feature, either buy back headroom (moving any `core-runtime` module that the first paint doesn't need, or splitting AppContext) or get the owner's OK for a raise.
 - **P2 [Medium] ✔ Each rating rebuilds the whole queue during render** (`StudyScreen.tsx:356-360`). `collectTodayActivity` walks every review of every card (`core/src/study/queue.ts:193-213`); skipping cards whose `last_reviewed_at` predates today's rollover removes most of the work. Measure with a 20k-card fixture against the 16 ms target.
-- **P3 [Medium] The context value is rebuilt on every provider render.** `useSyncController` returns a new object each time, and `emitEvents` depends on it, so every sync tick re-renders every `useApp()` consumer (`state/useSyncController.ts:596-611`, `AppContext.tsx:449`, `:1073-1128`). (partly: a sync tick that changes nothing keeps the old state object (#69). A tick that changes `syncState` still re-renders every consumer, and there is no render-count test)
+- **P3 [Medium] The context value is rebuilt on every provider render.** `useSyncController` returns a new object each time, and `emitEvents` depends on it, so every sync tick re-renders every `useApp()` consumer (`state/useSyncController.ts:596-611`, `AppContext.tsx:449`, `:1073-1128`). (partly: a sync tick that changes nothing keeps the old state object (#69). A tick that changes `syncState` still re-renders every consumer. The render-count test is in (#90))
 - **P4 [Medium] ✔ A new FSRS scheduler is built for each replayed review** (`fsrs/scheduler.ts:99`, `replay.ts:431-438`, `stats/stats.ts:433`). Cache one per `(deck, params_version)`.
-- **P5 [Medium] The materialized card cache is write-only.** `loadMaterializedCards` and `getEventsForCard` have no production caller, but every persist writes the cache (`dexie-storage.ts:283-304`). Read it at boot (blueprint §191) or stop writing it.
+- **P5 [Medium] ✔ The materialized card cache is write-only.** `loadMaterializedCards` and `getEventsForCard` have no production caller, but every persist writes the cache (`dexie-storage.ts:283-304`). Read it at boot (blueprint §191) or stop writing it. (Done: the cache is no longer written, and `loadMaterializedCards` is gone (#89). Boot at 50k reviews: `docs/perf-boot-50k.md`)
 - **P6 [Medium] ✔ The stroke recognizer reloads its whole index on every call**, and for Korean the whole Hanja dictionary too (`drawing/web-stroke-recognizer.ts:124-157`). Cache them by `installedAt`.
 - **P7 [Medium] ✔ Find and replace runs the user's regex over every selected note on each keystroke** (`browse/FindReplacePanel.tsx:85-98`). Debounce it, and run the full plan only on Apply.
 - **P8 [Medium] ✔ Unbounded reads into memory:**
@@ -403,7 +403,7 @@ These are ranked by user impact. The IDs point to the full entries below.
   - `UndoEntry.deckId` (written, never read)
   - `!this.createAudioElement` (`web-audio-player.ts:82`)
   - the inert `studyDayIndex` memo (`StudyScreen.tsx:446-457`)
-- **X4 Unused API surface:** (partly: the dead subpaths, exports and `getEvents` are gone (#85). `loadMaterializedCards` stays (see P5), and knip still lists 60 values and 121 types exported only for their own file)
+- **X4 Unused API surface:** (partly: the dead subpaths, exports and `getEvents` are gone (#85). `loadMaterializedCards` is removed with the cache (#89), and knip still lists 60 values and 121 types exported only for their own file)
   - 11 `platform-web` `package.json` subpath exports have no importer: `./sync-drive`, `./sync-local-folder`, `./auth-google`, `./replay-worker`, `./sources-google`, `./sources-local`, `./sources-http`, `./media-image`, `./media-audio`, `./audio-tts`, `./sync-dropbox`. `sources/google-index.ts` exists only for one of them.
   - `Auth.needsInteractiveRenew`/`renewInteractively`, `Storage.getEventsForCard`, `loadMaterializedCards` and `getEvents(sinceHlc)` have no production caller.
   - `ui/src/index.ts` re-exports five symbols that nothing imports.
@@ -450,7 +450,7 @@ These are ranked by user impact. The IDs point to the full entries below.
 - **✔ `.flashpkg`:**
   - import into a collection that already has `preset:*` types or colliding deck ids;
   - the file-count, size and media-hash rejections (tested only for Anki).
-- **UI state:** (partly: the key, edit and gesture tests are in (#81). `rateCard`, `undoLastReview`, `redoLastUndo` and `emitEvents` with a failed persist still have no tests; they wait for `happy-dom`)
+- **UI state:** (partly: the key, edit and gesture tests are in (#81). `rateCard`, `undoLastReview`, `redoLastUndo` and `emitEvents` with a failed persist are tested too (#90))
   - `rateCard`/`undoLastReview`/`redoLastUndo` have no unit tests;
   - `emitEvents` with a failed persist;
   - which fields `NoteEditDialog` sends on save;
@@ -470,7 +470,7 @@ These are ranked by user impact. The IDs point to the full entries below.
   - `backup-runner.test.ts:269-295` races real timers;
   - `phase5-audio.spec.ts:293`, `:406`, `:610`, `:633` sleep, then assert absence;
   - CI `retries: 2` hides flakes, and no reporter shows which tests needed a retry.
-- **Coverage and the uncommitted fix:** `vitest.config.ts` has no coverage threshold. Nothing tests the `free()`-throws path of the uncommitted change (the change itself is correct). (partly: the `free()`-throws path is tested (#70). There is still no coverage threshold; it waits for `@vitest/coverage-v8`)
+- **Coverage and the uncommitted fix:** `vitest.config.ts` has no coverage threshold. Nothing tests the `free()`-throws path of the uncommitted change (the change itself is correct). (partly: the `free()`-throws path is tested (#70). The coverage threshold is in (#90))
 
 ## 10. Accessibility and UX safety
 

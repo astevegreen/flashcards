@@ -111,7 +111,7 @@ Only Chromium Playwright with faked endpoints has covered these.
 - [x] `packages/core/tests/deck-organization.test.ts` "two devices' concurrent edits reach every member deck" fails on main too with seed -751377563, path "20:1:9:9" (counterexample: A sets `max_reviews_per_day` 1, B sets 200, no weights): a deck's settings don't match the merged preset. Find the merge-order bug, then pin the seed as a regression case. Fixed: an edit skipped its deck copy where the deck already held the new value (200 is the default), so A's concurrent copy won on the decks while B won on the preset. Edits now always copy the fields they change; the case is pinned in the same file.
 - [x] P6: with no stroke pack installed, the recognizer's cache key is the deck-stroke count, so re-caching a character with corrected strokes keeps the old index until reload. Key it by count plus latest `updatedAt`. Fixed in #82: with no stroke pack the key is the count plus the latest deck-stroke write (a kv row that `putSingleStroke` keeps current), tested with the fake and with real Dexie.
 - [x] P4: no test pins that a shared ts-fsrs scheduler stays deterministic with `enable_fuzz: true` (same inputs in a different call order give the same output). Add one before the next ts-fsrs upgrade. Added in #82: a shared scheduler with `enable_fuzz: true` gives the same results whatever the call order.
-- [ ] P3: only `keepSyncStateIfUnchanged` is tested; a render-count test of `useApp()` consumers on an unchanged sync tick would cover the wiring.
+- [x] P3: only `keepSyncStateIfUnchanged` is tested; a render-count test of `useApp()` consumers on an unchanged sync tick would cover the wiring. Added in #90.
 - [x] The P2 and P4 perf tests log timings but assert none, and replay 20k cards on every `pnpm test`. Shrink them or move the timings to a bench script. Done in #82: `pnpm test` now checks a read-count bound on 2k cards, and the 20k-card timings run in `pnpm bench` (`vitest.bench.config.ts`).
 
 ### Agent tooling: agy merge-gate gaps (agy's notes on PR #65, 2026-11-25)
@@ -408,7 +408,7 @@ Defaults picked while building the checks. Each stays shipped until the owner de
 - [ ] **What counts as used:** any `media:<sha256>` anywhere in notes (archived ones too), pages, decks, note types, layouts, courses and options. Spoken-audio caches are never offered for removal.
 - [ ] **Backups win over cleanup:** a file a kept backup lists stays on the device after removal from the collection, until that backup rolls off.
 - [ ] **Sync folder:** removed files stay in the sync folder (no delete in the transport). A device that downloads the history before the removal may store the file again; Check media there removes it.
-- [ ] **Rebuild from history:** offered only after a full rebuild finds differences. It rewrites this device's local snapshot and cards cache and reloads, without touching the event log or other devices. No automatic check runs at launch. The reload waits for this tab's queued writes. Other open tabs of the same device show a "Reload now" prompt instead of reloading, so an open draft is not lost, and from then on they stop syncing and their edits write no snapshot over the rebuild. The rebuild and the compare run in steps, so the screen keeps responding.
+- [ ] **Rebuild from history:** offered only after a full rebuild finds differences. It rewrites this device's local snapshot and reloads, without touching the event log or other devices. No automatic check runs at launch. The reload waits for this tab's queued writes. Other open tabs of the same device show a "Reload now" prompt instead of reloading, so an open draft is not lost, and from then on they stop syncing and their edits write no snapshot over the rebuild. The rebuild and the compare run in steps, so the screen keeps responding.
 - [ ] **Re-add on edit:** every edit that starts using a `media:` file emits one `MediaAdded` for it, even when the file is still listed (one small event per newly used file). If the code for it or a stored-file lookup fails, that re-add waits and is tried again on the next edit or sync, three tries at most; after that Check media's "Add back to the collection" covers the file.
 - [ ] **Snapshots from before media removal:** the collection snapshot format is now version 2. A version 1 snapshot with media is not used to start a new device from the cloud (the segments are replayed instead), and at launch this device replays its own log instead when the log is complete. Otherwise the version 1 snapshot is used, and saved again as version 2 right away so later launches don't read the whole log first. Loading it gives an add record at its newest change for each file: a removal decided after the add but before that snapshot, arriving late, then keeps the file here while a full replay drops it (the safe side: nothing a note uses is lost).
 
@@ -615,7 +615,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [ ] The pack codec's uncompressed cap relies on fflate's `ondata` throw alone.
 - [ ] The DictionaryPanel presence index costs k × N.
 - [ ] The picker `maxBytes` caps are unverified on Capacitor (`readData: false` path).
-- [ ] `loadMaterializedCards` is kept, but nothing reads that table at boot. See P5 in the review and the decision below.
+- [x] `loadMaterializedCards` is kept, but nothing reads that table at boot. Removed in #89 with the cache (P5).
 - [ ] The `--full` pack build (`publish-packs.yml`) is not reached by any gate.
 - [ ] `pnpm bench` is missing from AGENTS.md "Commands".
 
@@ -637,11 +637,11 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [ ] The front auto-speak absence check waits only two frames.
 - [ ] The `flash-cli mcp` child-process test has no explicit timeout or kill.
 - [ ] The retry reporter doesn't escape `%` in `::warning` messages, and has no automated test.
-- [ ] The 26 MiB snapshot fixture is heavy. Shrink it or build it lazily.
+- [x] The 26 MiB snapshot fixture is heavy: moved to "Left over from wave 3" (#90) below.
 - [ ] `sw-picker.spec.ts` matches the exact regex text of the denylist.
 - [ ] The `listFolderDecks` coverage (hide archived, name and id order) was dropped with the function.
-- [ ] UI render tests still to write once `happy-dom` is in: `rateCard`, `undoLastReview`, `redoLastUndo`, `emitEvents` with a failed persist, the P3 render-count test, and the effect wiring in `ReminderRuntime`, `MediaImage` and Browse (see the decision below).
-- [ ] A coverage threshold in `vitest.config.ts`, once `@vitest/coverage-v8` is in.
+- [x] UI render tests still to write once `happy-dom` is in: `rateCard`, `undoLastReview`, `redoLastUndo`, `emitEvents` with a failed persist, the P3 render-count test, and the effect wiring in `ReminderRuntime`, `MediaImage` and Browse (see the decision below). Done in #90: 16 render tests.
+- [x] A coverage threshold in `vitest.config.ts`, once `@vitest/coverage-v8` is in. Done in #90: 63/54/54/64, checked by `pnpm coverage` in CI.
 
 ### Left over from the dead-code pass (#85)
 
@@ -650,21 +650,40 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [ ] Moving the shared SQLite code out of `@flash/platform-capacitor` needs a new workspace package. `platform-tauri` also takes `isPickerCallback`, `SystemBrowserLauncher` and `ICloudDocumentPlugin` from it.
 - [ ] Owner chores: delete `C:\Antigravity\Korean-w9-base` and `C:\Antigravity\Korean-w9-main` (locked `node_modules`), and the empty untracked `packages\ui\src\utils` in the main checkout.
 
+### Left over from wave 3 (#87–#90)
+
+- [ ] #88 S6: the Export for Anki CSV leaves the GUID, note type, deck and tags columns unguarded. Try Anki's `#deck:` and `#notetype:` file headers for the deck and note type (check that Anki creates a missing deck), then record the remaining tag and GUID risk.
+- [ ] #88: the Anki path could entity-encode every leading `-` and drop the Hangul heuristic there.
+- [ ] #88: import an exported CSV into real Anki once, to check that `&#61;` and the like show as `=` and don't affect Anki's duplicate check or sort field.
+- [ ] #88: S6 stays partly fixed until a UI offers the "for other apps" CSV (`stripRichText: true`). The default CSV (Browse bar, category panel) is round-trip and unguarded by design. Fullwidth lookalikes (＝, ＋) are not guarded.
+- [ ] #89: `tests/e2e/sync.spec.ts` now compares event ids only, not each device's derived schedules. Add a state-level check (replay the stored logs, or read in-app state through a test hook).
+- [ ] #90: shrink or lazily build the 26 MiB D12 snapshot fixture in `sync-engine.test.ts`, then the coverage-only 15 s `testTimeout` could go back toward 5 s.
+- [ ] #90: fake `Date` as well as timers in the web badge test (`packages/ui/tests/effect-wiring.test.tsx` ~39). Wait for a ready signal rather than `flush(5)` in the P3 render test. Put a floor (≥ 50) on each threshold in `tools/hooks/settings.test.mjs`. `apps/*` shell code sits in the coverage denominator.
+- [ ] #90: `pnpm gate` runs plain `pnpm test`, so parallel branches can each pass and together drop under the coverage thresholds (like the bundle budget). Run `pnpm coverage` after merging main.
+
 ## Decisions needed (burn-down, 2026-11-26)
+
+The owner accepted every recommendation on 2026-11-26.
+
+- [x] **Add `happy-dom` as a dev dependency for UI render tests.** Recommend yes. It unblocks the §9 `rateCard`, undo, redo and failed-persist tests, the P3 render-count test, and the effect wiring of #82 and #83. Done (#90).
+- [x] **Add `@vitest/coverage-v8` and set a coverage threshold.** Recommend yes. Done (#90).
+- [x] **Starter-deck upgrade defaults (#83).** The deck description is replaced unless the user wrote or cleared one. Notes is cleared when it equals either the 1.0.0 or the 1.1.0 credit. The upgrade runs silently, with no notice and no undo entry. Archived starter notes are upgraded too. Recommend keep all four. Decided 2026-11-26: keep.
+- [x] **Starter upgrade does not rewrite `source.package_version` (#83).** The release lives in the `StarterDeckUpgraded` event, and no screen shows a native deck's version. Recommend keep. Decided 2026-11-26: keep.
+- [x] **Accepted limitation (#83).** A device on an older build ignores `fields_only` and can bake the upgrade's `deck_id` into its snapshots. A concurrent move can then stay lost there, and on devices that bootstrap from that snapshot. Recommend accept. Decided 2026-11-26: accept.
+- [ ] **Generate the Ed25519 licence key and set `VITE_LICENSE_PUBLIC_KEY`.** Keep the private key safe. Until then, licence keys are refused, with a warning where they are offered. Tooling done (#87): the owner generates the key and sets `VITE_LICENSE_PUBLIC_KEY`, see `docs/licensing.md`.
+- [x] **CSV tag backslash escaping (#72).** `exportCsv` writes the tag `a,b` as `a\,b`, so Flashcards Deluxe or Excel show the backslash. Recommend accept; the other way breaks the tested `daily; topik-1` import. Decided 2026-11-26: keep.
+- [x] **Licence keys bought outside the stores stay off for store builds (#74).** Decided: in-app purchase only. Keep `VITE_STORE_LICENSE_KEYS` off and keep this recorded, because App Store guideline 3.1.1 restricts key unlocks. Already decided: keep.
+- [x] **Screen-reader live region wording (#81).** It names the event only ("Next card.", "Answer shown."), not the card's text. Recommend keep, and add the front text only if screen-reader users ask. Decided 2026-11-26: keep.
+- [x] **Reminder badge lag and media retry (#82).** The web badge lags up to 2 s after a rating (`BADGE_CHANGE_DEBOUNCE_MS`), and a missing image is retried at most every 5 s (`MISSING_MEDIA_RETRY_MS`). Recommend keep both. Decided 2026-11-26: keep.
+- [x] **A full backup that finds no media keeps the `daily` manifest (#82).** Pinned by a test. Recommend keep. Decided 2026-11-26: keep.
+- [x] **P5 (review): the materialized card cache is write-only.** Every persist writes it and nothing reads it. Recommend measuring boot at 50k reviews first: if replay is fast enough, stop writing the cache; if not, read it at boot. Done (#89): boot at 50k reviews stays fast without the cache (`docs/perf-boot-50k.md`).
+- [x] **D19 (review): a moved note's reviews replay under the new deck's FSRS params.** Recommend accept and document it. A card follows the settings of the deck it is in, as in Anki. Accepted and documented in `docs/design_blueprint.md` (§4.1).
+- [x] **S6 (review): CSV export allows formula injection.** Recommend prefixing `'` to cells that start with `=`, `+`, `-` or `@` only in the "for other apps" export, and skipping `-` followed by a Hangul letter, so grammar entries like `-(으)ㄴ` stay as they are. Partly done (#88); see "Left over from wave 3".
+
+## Decisions needed (wave 3, 2026-11-26)
 
 Each default below stays shipped until the owner decides.
 
-- [ ] **Add `happy-dom` as a dev dependency for UI render tests.** Recommend yes. It unblocks the §9 `rateCard`, undo, redo and failed-persist tests, the P3 render-count test, and the effect wiring of #82 and #83.
-- [ ] **Add `@vitest/coverage-v8` and set a coverage threshold.** Recommend yes.
-- [ ] **Starter-deck upgrade defaults (#83).** The deck description is replaced unless the user wrote or cleared one. Notes is cleared when it equals either the 1.0.0 or the 1.1.0 credit. The upgrade runs silently, with no notice and no undo entry. Archived starter notes are upgraded too. Recommend keep all four.
-- [ ] **Starter upgrade does not rewrite `source.package_version` (#83).** The release lives in the `StarterDeckUpgraded` event, and no screen shows a native deck's version. Recommend keep.
-- [ ] **Accepted limitation (#83).** A device on an older build ignores `fields_only` and can bake the upgrade's `deck_id` into its snapshots. A concurrent move can then stay lost there, and on devices that bootstrap from that snapshot. Recommend accept.
-- [ ] **Generate the Ed25519 licence key and set `VITE_LICENSE_PUBLIC_KEY`.** Keep the private key safe. Until then, licence keys are refused, with a warning where they are offered.
-- [ ] **CSV tag backslash escaping (#72).** `exportCsv` writes the tag `a,b` as `a\,b`, so Flashcards Deluxe or Excel show the backslash. Recommend accept; the other way breaks the tested `daily; topik-1` import.
-- [ ] **Licence keys bought outside the stores stay off for store builds (#74).** Decided: in-app purchase only. Keep `VITE_STORE_LICENSE_KEYS` off and keep this recorded, because App Store guideline 3.1.1 restricts key unlocks.
-- [ ] **Screen-reader live region wording (#81).** It names the event only ("Next card.", "Answer shown."), not the card's text. Recommend keep, and add the front text only if screen-reader users ask.
-- [ ] **Reminder badge lag and media retry (#82).** The web badge lags up to 2 s after a rating (`BADGE_CHANGE_DEBOUNCE_MS`), and a missing image is retried at most every 5 s (`MISSING_MEDIA_RETRY_MS`). Recommend keep both.
-- [ ] **A full backup that finds no media keeps the `daily` manifest (#82).** Pinned by a test. Recommend keep.
-- [ ] **P5 (review): the materialized card cache is write-only.** Every persist writes it and nothing reads it. Recommend measuring boot at 50k reviews first: if replay is fast enough, stop writing the cache; if not, read it at boot.
-- [ ] **D19 (review): a moved note's reviews replay under the new deck's FSRS params.** Recommend accept and document it. A card follows the settings of the deck it is in, as in Anki.
-- [ ] **S6 (review): CSV export allows formula injection.** Recommend prefixing `'` to cells that start with `=`, `+`, `-` or `@` only in the "for other apps" export, and skipping `-` followed by a Hangul letter, so grammar entries like `-(으)ㄴ` stay as they are.
+- [ ] **Tauri store builds accept licence keys whenever a public key is set (#87).** Only Capacitor checks `VITE_STORE_LICENSE_KEYS`. Recommend gating Tauri store builds the same way if a Mac App Store or Microsoft Store build ever ships.
+- [ ] **Rotating the licence key locks out every key already issued (#87).** Recommend never rotating unless the private key leaks. If it does, ship the old public key alongside the new one for a transition.
+- [ ] **An unguarded grammar entry like `-(으)ㄴ` may still show as `#NAME?` in Excel (#88, not verified).** It is in the "for other apps" CSV. Recommend checking once in Excel; if so, guard every leading `-` in that export too (the `'` prefix is invisible in Excel).
