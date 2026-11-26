@@ -1,5 +1,6 @@
-import { Unzip, UnzipInflate, UnzipPassThrough } from 'fflate';
+import { strFromU8, Unzip, UnzipInflate, UnzipPassThrough } from 'fflate';
 import type { FlateError, UnzipFile } from 'fflate';
+import { centralDirectoryNameRecords } from './zip-entries.ts';
 
 /**
  * Streaming zip extraction for untrusted archives (`.flashpkg`, Anki `.apkg`; §13).
@@ -58,6 +59,9 @@ interface UnzipRun {
   readonly limits: ArchiveLimits;
   readonly errors: ArchiveErrorFactory;
   readonly extracted: Map<string, Uint8Array>;
+  /** Entry names in local-header order, as `fflate` read them. */
+  readonly names: string[];
+  readonly seenNames: Set<string>;
   fileCount: number;
   declaredTotal: number;
   actualTotal: number;
@@ -69,6 +73,12 @@ function checkEntryHeader(run: UnzipRun, name: string, declaredSize: number | un
   const { limits, errors } = run;
   const reason = unsafeArchivePathReason(name);
   if (reason) throw errors.security(reason);
+  // Two entries with one name: which one wins depends on the reader, so refuse both (C18).
+  if (run.seenNames.has(name)) {
+    throw errors.security(`Duplicate entry name rejected in archive: "${name}"`);
+  }
+  run.names.push(name);
+  run.seenNames.add(name);
   run.fileCount += 1;
   if (run.fileCount > limits.maxFiles) {
     throw errors.security(`Archive exceeds maximum file count (${limits.maxFiles}).`);
@@ -167,6 +177,22 @@ function pushAll(unzipper: Unzip, run: UnzipRun, archiveBytes: Uint8Array, label
 }
 
 /**
+ * Format detection lists names from the central directory while extraction streams the local
+ * headers. Refuses an archive where the two disagree, so what was detected is what gets imported
+ * (C18). An archive without a readable central directory has nothing to disagree with.
+ */
+function checkCentralDirectory(run: UnzipRun, archiveBytes: Uint8Array): void {
+  const central = centralDirectoryNameRecords(archiveBytes, run.limits.maxFiles + 1);
+  if (!central) return;
+  const matches =
+    central.length === run.names.length &&
+    central.every((record, i) => strFromU8(record.bytes, !record.utf8) === run.names[i]);
+  if (!matches) {
+    throw run.errors.security(`Archive's central directory doesn't match its entries.`);
+  }
+}
+
+/**
  * Extracts every entry of `archiveBytes` into memory, aborting mid-stream as soon as any cap is
  * crossed, so zip bombs with spoofed headers stop before exhausting memory.
  */
@@ -187,6 +213,8 @@ export function safeUnzip(
     limits,
     errors,
     extracted: new Map(),
+    names: [],
+    seenNames: new Set(),
     fileCount: 0,
     declaredTotal: 0,
     actualTotal: 0,
@@ -196,5 +224,6 @@ export function safeUnzip(
   unzipper.register(UnzipInflate);
   unzipper.register(UnzipPassThrough);
   pushAll(unzipper, run, archiveBytes, label);
+  checkCentralDirectory(run, archiveBytes);
   return run.extracted;
 }

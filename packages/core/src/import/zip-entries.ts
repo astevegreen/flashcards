@@ -49,21 +49,41 @@ function readName(bytes: Uint8Array, start: number, length: number): string | un
   return decodeUtf8(bytes.subarray(start, start + length));
 }
 
-function centralDirectoryNames(bytes: Uint8Array, maxEntries: number): string[] | undefined {
+/** One central directory record's raw name. */
+export interface CentralDirectoryName {
+  bytes: Uint8Array;
+  /** General-purpose flag bit 11: the name is UTF-8 (else CP437, which readers take as Latin-1). */
+  utf8: boolean;
+}
+
+/**
+ * Raw entry names from the central directory (in directory order), or `undefined` when there is
+ * no readable one. `safeUnzip` checks these against the local headers it extracts (C18).
+ */
+export function centralDirectoryNameRecords(
+  bytes: Uint8Array,
+  maxEntries: number,
+): CentralDirectoryName[] | undefined {
   const eocd = findEocd(bytes);
   if (eocd === -1) return undefined;
   const count = u16(bytes, eocd + 10);
   let at = u32(bytes, eocd + 16);
-  const names: string[] = [];
+  const names: CentralDirectoryName[] = [];
   for (let i = 0; i < count && names.length < maxEntries; i++) {
     if (at + 46 > bytes.length || u32(bytes, at) !== CENTRAL_SIGNATURE) return undefined;
     const nameLength = u16(bytes, at + 28);
-    const name = readName(bytes, at + 46, nameLength);
-    if (name === undefined) return undefined;
-    names.push(name);
+    if (nameLength === 0 || at + 46 + nameLength > bytes.length) return undefined;
+    names.push({
+      bytes: bytes.subarray(at + 46, at + 46 + nameLength),
+      utf8: (u16(bytes, at + 8) & 0x800) !== 0,
+    });
     at += 46 + nameLength + u16(bytes, at + 30) + u16(bytes, at + 32);
   }
   return names;
+}
+
+function centralDirectoryNames(bytes: Uint8Array, maxEntries: number): string[] | undefined {
+  return centralDirectoryNameRecords(bytes, maxEntries)?.map((n) => decodeUtf8(n.bytes));
 }
 
 function localHeaderNames(bytes: Uint8Array, maxEntries: number): string[] {
