@@ -395,27 +395,6 @@ export function AppProvider({
       buildWatermarks(metaRef.current.deviceId, metaRef.current.seq, initialSyncCursor),
     ),
   );
-  // Set once `emitEvents` exists (below); read later by effects and SyncRuntime's starter upgrade.
-  const emitEventsRef = useRef<(events: readonly KnownEvent[]) => void>(() => {});
-  const syncRuntime = (
-    <LazySyncRuntime
-      emitEventsRef={emitEventsRef}
-      shell={syncController}
-      platform={platform}
-      stateRef={stateRef}
-      metaRef={metaRef}
-      factoryRef={factoryRef}
-      {...(initialSyncConfig !== undefined ? { initialSyncConfig } : {})}
-      {...(initialSyncCursor !== undefined ? { initialSyncCursor } : {})}
-      enqueuePersist={enqueuePersist}
-      lastLocalSnapshotCountRef={lastLocalSnapshotCountRef}
-      {...(startedAtMs !== undefined ? { startedAtMs } : {})}
-      onStateMutated={handleRemoteStateMutated}
-      onReplaceState={handleReplaceState}
-      syncState={syncState}
-      setSyncState={setSyncState}
-    />
-  );
 
   const emitEvents = useCallback(
     (events: readonly KnownEvent[]) => {
@@ -517,7 +496,29 @@ export function AppProvider({
   const [launchedAtMs] = useState(() => Date.now());
   const backfillReady = isLeechBackfillReady(syncState, launchedAtMs);
   const backfillDoneRef = useRef(false);
+  const emitEventsRef = useRef(emitEvents);
   emitEventsRef.current = emitEvents;
+  // After `emitEventsRef`: SyncRuntime also hosts the launch-time starter-deck upgrade.
+  const syncRuntime = (
+    <LazySyncRuntime
+      emitEventsRef={emitEventsRef}
+      shell={syncController}
+      platform={platform}
+      stateRef={stateRef}
+      metaRef={metaRef}
+      factoryRef={factoryRef}
+      {...(initialSyncConfig !== undefined ? { initialSyncConfig } : {})}
+      {...(initialSyncCursor !== undefined ? { initialSyncCursor } : {})}
+      enqueuePersist={enqueuePersist}
+      lastLocalSnapshotCountRef={lastLocalSnapshotCountRef}
+      {...(startedAtMs !== undefined ? { startedAtMs } : {})}
+      onStateMutated={handleRemoteStateMutated}
+      onReplaceState={handleReplaceState}
+      syncState={syncState}
+      setSyncState={setSyncState}
+    />
+  );
+
   useEffect(() => {
     if (!backfillReady || backfillDoneRef.current) return;
     backfillDoneRef.current = true;
