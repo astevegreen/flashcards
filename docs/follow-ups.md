@@ -106,6 +106,14 @@ Only Chromium Playwright with faked endpoints has covered these.
 - [x] `packs/_headers` was dead in both places `scripts/build-packs.mjs` wrote it (the app's `public/packs` and the CDN's `dist-static/packs`), because Cloudflare Pages applies only the root `_headers`. The packs CDN gets its CORS headers from the root `_headers` that `publish-packs.yml` writes, and the app loads its own packs from the same origin. The file and its generator are removed.
 - [ ] The byte-identical starter-deck rebuild is checked only where the upstream cache exists. Run `node scripts/build-starter-decks.mjs --check` before changing the generated decks.
 
+### Perf batch notes (PR #69, P2-P7 of the 2026-11-25 review)
+
+- [ ] `packages/core/tests/deck-organization.test.ts` "two devices' concurrent edits reach every member deck" fails on main too with seed -751377563, path "20:1:9:9" (counterexample: A sets `max_reviews_per_day` 1, B sets 200, no weights): a deck's settings don't match the merged preset. Find the merge-order bug, then pin the seed as a regression case.
+- [ ] P6: with no stroke pack installed, the recognizer's cache key is the deck-stroke count, so re-caching a character with corrected strokes keeps the old index until reload. Key it by count plus latest `updatedAt`.
+- [ ] P4: no test pins that a shared ts-fsrs scheduler stays deterministic with `enable_fuzz: true` (same inputs in a different call order give the same output). Add one before the next ts-fsrs upgrade.
+- [ ] P3: only `keepSyncStateIfUnchanged` is tested; a render-count test of `useApp()` consumers on an unchanged sync tick would cover the wiring.
+- [ ] The P2 and P4 perf tests log timings but assert none, and replay 20k cards on every `pnpm test`. Shrink them or move the timings to a bench script.
+
 ### Agent tooling: agy merge-gate gaps (agy's notes on PR #65, 2026-11-25)
 
 These live in code ported from Terminal Dusk, so fix them when the four agy copies are brought to one version:

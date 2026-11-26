@@ -92,15 +92,21 @@ export function FindReplacePanel({ noteIds, onClose }: Readonly<FindReplacePanel
   );
 
   // The live count and preview run the plan (the pattern over every selected note) once typing
-  // pauses, not on each keystroke (P7). Replace plans again from the current input.
-  const [plan, setPlan] = useState<FindReplacePlan | null>(null);
+  // pauses, not on each keystroke (P7). Replace plans again from the current input, so it stays
+  // enabled while the preview is behind the input and replaces what is typed, not the old preview.
+  const [planned, setPlanned] = useState<{
+    options: FindReplaceOptions;
+    plan: FindReplacePlan;
+  } | null>(null);
+  const plan = planned?.plan ?? null;
+  const previewBehind = planned?.options !== options;
   useEffect(() => {
     if (options.find.length === 0) {
-      setPlan(null);
+      setPlanned(null);
       return;
     }
     const timer = window.setTimeout(
-      () => setPlan(planFindReplace(state, noteIds, options)),
+      () => setPlanned({ options, plan: planFindReplace(state, noteIds, options) }),
       PREVIEW_DELAY_MS,
     );
     return () => window.clearTimeout(timer);
@@ -110,7 +116,7 @@ export function FindReplacePanel({ noteIds, onClose }: Readonly<FindReplacePanel
     e.preventDefault();
     if (options.find.length === 0) return;
     const current = planFindReplace(state, noteIds, options);
-    setPlan(current);
+    setPlanned({ options, plan: current });
     if (current.error || current.payloads.length === 0) return;
     const factory = getEventFactory();
     const nowMs = Date.now();
@@ -216,7 +222,10 @@ export function FindReplacePanel({ noteIds, onClose }: Readonly<FindReplacePanel
         <button
           type="submit"
           data-testid="find-replace-apply"
-          disabled={!plan || !!plan.error || plan.payloads.length === 0}
+          disabled={
+            find.length === 0 ||
+            (!previewBehind && (!plan || !!plan.error || plan.payloads.length === 0))
+          }
           className={buttonClass}
         >
           Replace

@@ -103,6 +103,38 @@ test.describe('Find and replace', () => {
     expect(await runs()).toBeLessThanOrEqual(beforeApply + 3);
   });
 
+  // P7: the preview waits for a pause in typing, so Replace must not wait for it or use it. Enter
+  // right after typing replaces what is typed: with no preview yet, and with a preview of older text.
+  test('Replace uses what is typed, before the preview catches up', async ({ page }) => {
+    await page.goto('/?device=findreplacefresh');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await openKoreanSelection(page);
+    await page.getByTestId('bulk-find-replace').click();
+    const panel = page.getByTestId('find-replace-panel');
+    const list = page.getByTestId('browse-list');
+
+    await panel.getByTestId('find-replace-find').fill('school');
+    await panel.getByTestId('find-replace-replace').fill('academy');
+    await panel.getByTestId('find-replace-replace').press('Enter');
+    await expect(panel.getByTestId('find-replace-message')).toHaveText(
+      'Replaced 1 match in 1 note.',
+    );
+    await expect(list).toContainText('academy');
+
+    await panel.getByTestId('find-replace-undo').click();
+    await expect(list).toContainText('school');
+    // Let the preview catch up with one replacement, then change it and press Enter at once.
+    await panel.getByTestId('find-replace-replace').fill('old college');
+    await expect(panel.getByTestId('find-replace-preview')).toContainText('old college');
+    await panel.getByTestId('find-replace-replace').fill('college');
+    await panel.getByTestId('find-replace-replace').press('Enter');
+    await expect(panel.getByTestId('find-replace-message')).toHaveText(
+      'Replaced 1 match in 1 note.',
+    );
+    await expect(list).toContainText('college');
+    await expect(list).not.toContainText('old college');
+  });
+
   test('fits a phone-width screen without sideways scrolling', async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto('/?device=findreplacephone');
