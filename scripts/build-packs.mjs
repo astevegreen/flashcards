@@ -8,8 +8,10 @@
  * `.github/workflows/publish-packs.yml` writes: Cloudflare Pages ignores `_headers` in a subfolder.)
  *
  * Usage:
- *   node scripts/build-packs.mjs --starter [--out <dir>] [--base-url <https-url>]
+ *   node scripts/build-packs.mjs --starter [--out <dir>] [--base-url <https-url>] [--check]
  *       Tiny attributed dev/CI fixtures (default out: apps/web/public/packs/). Never needs network.
+ *       `--check` rebuilds into a temporary folder and fails unless every file in the out folder is
+ *       byte-identical to the rebuild (no file missing, extra or different); it writes nothing.
  *   node scripts/fetch-upstream-packs.mjs && node scripts/build-packs.mjs --full
  *       [--input <upstream-dir>] [--out <dir>] [--base-url <https-url>] [--skip-jmdict] [--no-char-files]
  *       Real packs from upstream open data (default input: .cache/upstream-open-data/, default out:
@@ -28,12 +30,14 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 
@@ -1740,6 +1744,7 @@ const CLI_SWITCHES = {
   '--starter': (opts) => (opts.full = false),
   '--no-char-files': (opts) => (opts.charFiles = false),
   '--skip-jmdict': (opts) => (opts.jmdict = false),
+  '--check': (opts) => (opts.check = true),
 };
 
 /** Flags that take a value: how each applies it to the options. */
@@ -1767,6 +1772,7 @@ function parseCli(argv) {
     baseUrl: undefined,
     charFiles: true,
     jmdict: true,
+    check: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -1777,7 +1783,53 @@ function parseCli(argv) {
   if (opts.baseUrl !== undefined && !/^https:\/\/[^/\s]+/.test(opts.baseUrl)) {
     throw new Error(`--base-url must be an absolute https:// URL (got "${opts.baseUrl}")`);
   }
+  if (opts.check && opts.full) throw new Error('--check works only with --starter');
   return opts;
+}
+
+/** Every file under `dir`, as `/`-separated paths relative to it, sorted. */
+function listFiles(dir, root = dir) {
+  if (!existsSync(dir)) return [];
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listFiles(full, root));
+    else out.push(relative(root, full).split('\\').join('/'));
+  }
+  return out.sort();
+}
+
+/** Problems that keep `actualDir` from being a byte-identical copy of `expectedDir`. */
+function treeDifferences(expectedDir, actualDir) {
+  const expected = listFiles(expectedDir);
+  const actual = new Set(listFiles(actualDir));
+  const problems = [];
+  for (const file of expected) {
+    if (!actual.has(file)) problems.push(`missing: ${file}`);
+    else if (!readFileSync(join(expectedDir, file)).equals(readFileSync(join(actualDir, file)))) {
+      problems.push(`differs from a rebuild: ${file}`);
+    }
+    actual.delete(file);
+  }
+  for (const file of actual) problems.push(`not produced by a rebuild: ${file}`);
+  return problems;
+}
+
+async function checkStarterPacks({ outDir, urlPrefix, sharding }) {
+  const rebuilt = mkdtempSync(join(tmpdir(), 'starter-packs-'));
+  try {
+    await buildStarterPacks({ outDir: rebuilt, urlPrefix, sharding });
+    const problems = treeDifferences(rebuilt, outDir);
+    if (problems.length > 0) {
+      throw new Error(
+        `Starter packs in ${outDir} are stale; run node scripts/build-packs.mjs --starter:\n  ` +
+          problems.join('\n  '),
+      );
+    }
+    console.log(`Starter packs in ${outDir} match a fresh rebuild.`);
+  } finally {
+    rmSync(rebuilt, { recursive: true, force: true });
+  }
 }
 
 async function main() {
@@ -1793,11 +1845,12 @@ async function main() {
       sharding: opts.sharding,
     });
   } else {
-    await buildStarterPacks({
+    const starter = {
       outDir: opts.out ?? join(REPO_ROOT, 'apps', 'web', 'public', 'packs'),
       urlPrefix,
       sharding: opts.sharding,
-    });
+    };
+    await (opts.check ? checkStarterPacks(starter) : buildStarterPacks(starter));
   }
 }
 

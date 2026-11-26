@@ -16,7 +16,7 @@ Run from repository root using `pnpm`:
 - `pnpm test` — Vitest unit, golden, and `fast-check` property tests
 - `pnpm size` — enforce §8 bundle budget (`<= 160 KB` gzipped initial study-screen JS, 0 web fonts)
 - `pnpm test:e2e` — Playwright end-to-end tests (study, undo, import/export, offline, multi-device isolation)
-- `node scripts/build-packs.mjs --starter` — regenerate the tiny attributed dictionary/stroke fixtures in `apps/web/public/packs/` (used by dev, `pnpm test`, and `pnpm test:e2e`; never needs network)
+- `node scripts/build-packs.mjs --starter` — regenerate the tiny attributed dictionary/stroke fixtures in `apps/web/public/packs/` (used by dev, `pnpm test`, and `pnpm test:e2e`; never needs network); `--check` fails when the committed files differ from a rebuild (CI runs it)
 - `node scripts/fetch-starter-sources.mjs && node scripts/build-starter-decks.mjs` — download the pinned open data for the onboarding starter decks into the gitignored cache, then rebuild `packages/core/src/starters/generated/` deterministically and offline; `--check` verifies the committed output (see `content/starters/README.md`). Never hand-edit the generated decks.
 - `node scripts/fetch-upstream-packs.mjs && node scripts/build-packs.mjs --full` — download real upstream open data (Unihan, KANJIDIC2, JMdict, CC-CEDICT, KanjiVG, Make Me a Hanzi) into gitignored `.cache/upstream-open-data/` and build real packs into gitignored `dist-packs/`; `pnpm exec vitest run packages/platform-web/tests/full-packs-smoke.test.ts` then smoke-tests them (it is skipped when `dist-packs/` is absent). Never commit full packs; CI publishes them via `.github/workflows/publish-packs.yml`.
 
