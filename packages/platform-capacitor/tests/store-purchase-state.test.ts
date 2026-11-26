@@ -7,6 +7,7 @@ import {
   unacknowledgedPlayTokens,
   type StoreBillingPlugin,
 } from '../src/purchase/store-purchase.ts';
+import { InMemorySqliteDriver } from './support/in-memory-sqlite-driver.ts';
 
 describe('store purchases unlock only once they are complete (S8)', () => {
   it('a Play purchase still pending payment does not count', () => {
@@ -82,6 +83,9 @@ function storePurchase(storage: CapacitorSqliteStorage, plugin: StoreBillingPlug
   return new CapacitorStorePurchase({
     storage,
     billingPlugin: plugin,
+    // Any well-formed key that is not the old placeholder; the fake provider accepts every signature.
+    publicKeyHex: 'ab'.repeat(32),
+    allowLicenseKeys: true,
     cryptoProvider: { verify: async () => true },
   });
 }
@@ -99,7 +103,7 @@ const LICENCE_KEY = encodeLicenseKey(
 
 describe('the store is asked again at launch (S8)', () => {
   it('a refunded store purchase locks at the next launch', async () => {
-    const storage = new CapacitorSqliteStorage();
+    const storage = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     const store = fakeStore(['unlock_full']);
     expect((await storePurchase(storage, store.plugin).purchaseUnlock()).unlocked).toBe(true);
 
@@ -112,7 +116,7 @@ describe('the store is asked again at launch (S8)', () => {
   });
 
   it('a store check that fails (offline) keeps the unlock', async () => {
-    const storage = new CapacitorSqliteStorage();
+    const storage = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     const store = fakeStore(['unlock_full']);
     await storePurchase(storage, store.plugin).purchaseUnlock();
 
@@ -123,7 +127,7 @@ describe('the store is asked again at launch (S8)', () => {
   });
 
   it('a purchase the store still lists stays unlocked', async () => {
-    const storage = new CapacitorSqliteStorage();
+    const storage = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     const store = fakeStore(['unlock_full']);
     await storePurchase(storage, store.plugin).purchaseUnlock();
 
@@ -133,7 +137,7 @@ describe('the store is asked again at launch (S8)', () => {
   });
 
   it('a purchase the store lists on a fresh install unlocks without tapping Restore', async () => {
-    const storage = new CapacitorSqliteStorage();
+    const storage = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     const store = fakeStore(['unlock_full']);
     const ent = await storePurchase(storage, store.plugin).recheckStore();
     expect(ent.unlocked).toBe(true);
@@ -141,7 +145,7 @@ describe('the store is asked again at launch (S8)', () => {
   });
 
   it('a licence key stays unlocked and the store is not asked about it', async () => {
-    const storage = new CapacitorSqliteStorage();
+    const storage = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     const store = fakeStore([]);
     const activated = await storePurchase(storage, store.plugin).activateLicenseKey(LICENCE_KEY);
     expect(activated.valid).toBe(true);
@@ -155,7 +159,7 @@ describe('the store is asked again at launch (S8)', () => {
   });
 
   it('Restore Purchases does not turn a licence key into a store unlock', async () => {
-    const storage = new CapacitorSqliteStorage();
+    const storage = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     const store = fakeStore(['unlock_full']);
     const purchase = storePurchase(storage, store.plugin);
     await purchase.activateLicenseKey(LICENCE_KEY);
@@ -168,7 +172,7 @@ describe('the store is asked again at launch (S8)', () => {
   });
 
   it('an unlock saved before this change: a restored one is re-checked, a key is kept', async () => {
-    const restored = new CapacitorSqliteStorage();
+    const restored = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     await restored.setKv('capacitor_store_entitlement_v1', {
       unlocked: true,
       transactionId: 'restored-store-entitlement',
@@ -177,7 +181,7 @@ describe('the store is asked again at launch (S8)', () => {
     const store = fakeStore([]);
     expect((await storePurchase(restored, store.plugin).recheckStore()).unlocked).toBe(false);
 
-    const keyed = new CapacitorSqliteStorage();
+    const keyed = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     await keyed.setKv('capacitor_store_entitlement_v1', {
       unlocked: true,
       transactionId: 'KEY-7',
@@ -191,7 +195,7 @@ describe('the store is asked again at launch (S8)', () => {
   it('a personal build never asks the store', async () => {
     const store = fakeStore([]);
     const purchase = new CapacitorStorePurchase({
-      storage: new CapacitorSqliteStorage(),
+      storage: new CapacitorSqliteStorage(new InMemorySqliteDriver()),
       isPersonalBuild: true,
       billingPlugin: store.plugin,
     });

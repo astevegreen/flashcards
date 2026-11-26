@@ -9,6 +9,7 @@ import {
   resolveRefreshTokenStore,
 } from '../auth/refresh-token-store.ts';
 import { createTauriPlatform } from '../index.ts';
+import { scrubFreePagesOnce } from '../storage/scrub-once.ts';
 import {
   asSqlPluginDatabase,
   createDesktopFiles,
@@ -107,6 +108,15 @@ export async function bootTauriPlatform(config: TauriBootConfig): Promise<Platfo
     ...(await iCloudReady),
     // Only relevant when Google sign-in is configured at all.
     ...(oauthPlugin && secureStorageWarning ? { secureStorageWarning } : {}),
+  });
+
+  // After the Google token has moved to the keychain: rebuild the file once so rows deleted by
+  // older builds (before SQLite had secure_delete on) leave nothing in free pages (N9).
+  await scrubFreePagesOnce({
+    storage: native.storage,
+    vacuum: async () => {
+      await sqlDb.execute('VACUUM');
+    },
   });
 
   const microsoftClientId = config.microsoftClientId;

@@ -1,4 +1,4 @@
-/* global window, document, URLSearchParams, gapi, google */
+/* global window, document, history, URLSearchParams, gapi, google */
 (function () {
   var statusEl = document.getElementById('status');
   var openBtn = document.getElementById('open-btn');
@@ -7,6 +7,12 @@
   var appId = params.get('app_id') || '';
   var apiKey = params.get('api_key') || '';
   var callback = params.get('callback') || 'flashcards://picker-callback';
+  // Echoed back so the app accepts only the callback of the pick it started (S10).
+  var state = params.get('state') || '';
+  // Drop the `#access_token=…` fragment from the address bar and browser history (S10).
+  if (window.location.hash && history.replaceState) {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
   // `mode=drive_files` (Link from Google Drive) also lists plain spreadsheet/package files.
   // Keep the list in sync with GOOGLE_DRIVE_PICKER_MIME_TYPES (platform-web).
   var driveFiles = params.get('mode') === 'drive_files';
@@ -37,6 +43,7 @@
 
   function redirectWith(queryObj) {
     var q = new URLSearchParams(queryObj);
+    if (state) q.set('state', state);
     window.location.href = callback + '?' + q.toString();
   }
 

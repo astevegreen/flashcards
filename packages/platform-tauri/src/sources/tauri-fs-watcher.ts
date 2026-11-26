@@ -19,6 +19,8 @@ export interface TauriFsBridge {
   readFileBytes(absPath: string, maxBytes?: number): Promise<Uint8Array>;
   writeFileBytes(absPath: string, data: Uint8Array, opts?: { ifAbsent?: boolean }): Promise<void>;
   moveFile(fromPath: string, toPath: string): Promise<void>;
+  /** True when `absPath` exists. Without it, `Inbox/imported/` is listed to find a free name. */
+  pathExists?(absPath: string): Promise<boolean>;
   watchDirectory?(rootPath: string, onChange: (changedPaths: string[]) => void): () => void;
 }
 
@@ -206,11 +208,46 @@ export class TauriLocalFolderWatcher implements LocalFolderSourcesAdapter {
     const entry = map[folderId];
     if (!entry) return false;
     const cleanName = fileName.replace(/^Inbox\//i, '');
+    const destName = await this.freeImportedName(entry.path, cleanName);
+    if (!destName) return false;
     await this.bridge.moveFile(
       joinSafeRelative(entry.path, `Inbox/${cleanName}`),
-      joinSafeRelative(entry.path, `Inbox/imported/${cleanName}`),
+      joinSafeRelative(entry.path, `Inbox/imported/${destName}`),
     );
     return true;
+  }
+
+  /**
+   * A name in `Inbox/imported/` that no earlier import uses (N8): `name.csv`, then `name-1.csv`,
+   * `name-2.csv`, … as the web Local Folder adapter does. `undefined` after 99 tries.
+   */
+  private async freeImportedName(root: string, fileName: string): Promise<string | undefined> {
+    const bridge = this.bridge;
+    if (!bridge) return undefined;
+    let taken: (name: string) => Promise<boolean>;
+    if (bridge.pathExists) {
+      const pathExists = bridge.pathExists.bind(bridge);
+      taken = (name) => pathExists(joinSafeRelative(root, `Inbox/imported/${name}`));
+    } else {
+      const existing = new Set(
+        (await bridge.listDirectoryFiles(root))
+          .map((f) => f.relativePath.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase())
+          .filter((rel) => rel.startsWith('inbox/imported/')),
+      );
+      taken = async (name) => existing.has(`inbox/imported/${name}`.toLowerCase());
+    }
+    const dot = fileName.lastIndexOf('.');
+    for (let suffix = 0; suffix < 100; suffix++) {
+      let candidate = fileName;
+      if (suffix > 0) {
+        candidate =
+          dot > 0
+            ? `${fileName.slice(0, dot)}-${suffix}${fileName.slice(dot)}`
+            : `${fileName}-${suffix}`;
+      }
+      if (!(await taken(candidate))) return candidate;
+    }
+    return undefined;
   }
 
   async watchFolder(
