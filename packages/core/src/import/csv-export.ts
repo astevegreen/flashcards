@@ -2,7 +2,7 @@ import type { CollectionState } from '../events/replay.ts';
 import type { Note, NoteType } from '../model/types.ts';
 import { stripRichText as stripRichTextMarkup } from '../parsers/rich-text.ts';
 import { normalizeTagList } from '../tags/index.ts';
-import { escapeDelimitedCell } from './csv-cell.ts';
+import { escapeDelimitedCell, guardFormula } from './csv-cell.ts';
 import { uniqueRecordIds } from './record-ids.ts';
 
 export interface CsvExportOptions {
@@ -17,7 +17,8 @@ export interface CsvExportOptions {
   /**
    * Strip the field editor's rich-text markup (`{b:…}`, `{red:…}`) from the cells (default
    * `false`: kept as typed, like ruby and cloze, so the file imports back into this app intact).
-   * Strip it for a copy that other apps read, where the braces would show.
+   * Strip it for a copy that other apps read, where the braces would show. This "for other apps"
+   * mode also prefixes `'` to cells a spreadsheet would run as a formula (`csv-cell.ts`, S6).
    */
   stripRichText?: boolean;
 }
@@ -110,7 +111,10 @@ export function exportCsv(state: CollectionState, options: CsvExportOptions): Cs
     ...Array.from({ length: categoryColumns }, (_, i) => `Category ${i + 1}`),
   ];
 
-  const lines = [headers.map((h) => escapeCell(h, delimiter)).join(delimiter)];
+  const guard = options.stripRichText ? guardFormula : (cell: string) => cell;
+  const row = (cells: string[]) =>
+    cells.map((c) => escapeCell(guard(c), delimiter)).join(delimiter);
+  const lines = [row(headers)];
   const recordIds = uniqueRecordIds(notes);
   notes.forEach((note, idx) => {
     const tags = tagLists[idx] ?? [];
@@ -122,7 +126,7 @@ export function exportCsv(state: CollectionState, options: CsvExportOptions): Cs
       }),
       ...Array.from({ length: categoryColumns }, (_, i) => escapeTag(tags[i] ?? '')),
     ];
-    lines.push(cells.map((c) => escapeCell(c, delimiter)).join(delimiter));
+    lines.push(row(cells));
   });
 
   const body = lines.join('\r\n') + '\r\n';

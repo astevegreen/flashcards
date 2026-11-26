@@ -32,3 +32,27 @@ export function escapeDelimitedCell(
   }
   return value;
 }
+
+/**
+ * Spreadsheet formula injection (CSV injection, OWASP): Excel, LibreOffice and Sheets run a cell
+ * that starts with `=`, `+`, `-` or `@` as a formula, so `=HYPERLINK(…)` from an imported deck
+ * would run when an exported file is opened (S6). Only the "for other apps" exports guard cells;
+ * the app's own round-trip CSV keeps them as typed.
+ *
+ * The rule:
+ * - leading whitespace (space, tab, CR, LF) is skipped first, since spreadsheets trim it;
+ * - `=`, `+` or `@` then always trigger;
+ * - `-` triggers unless the first character after it that is not punctuation or whitespace is
+ *   Hangul (a letter or jamo), so grammar entries like `-(으)ㄴ`, `-는다` and `- 가` stay as they are.
+ */
+const FORMULA_START = /^\s*(?:[=+@]|-(?![\p{P}\s]*\p{Script=Hangul}))/u;
+
+/** True when a spreadsheet would read `value` as a formula (see the rule above). */
+export function startsLikeFormula(value: string): boolean {
+  return FORMULA_START.test(value);
+}
+
+/** `value` with a leading `'`, which spreadsheets read as "this cell is text", when it needs one. */
+export function guardFormula(value: string): string {
+  return startsLikeFormula(value) ? `'${value}` : value;
+}
