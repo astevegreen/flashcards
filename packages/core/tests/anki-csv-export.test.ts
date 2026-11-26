@@ -161,6 +161,18 @@ describe('Export for Anki CSV', () => {
     expect(row.startsWith('"#hash91",')).toBe(true);
   });
 
+  it('writes the first character of a formula-like field as an HTML entity (S6)', () => {
+    const formulaState = buildAnkiExportState();
+    const note = formulaState.notes.get('note-2');
+    if (!note) throw new Error('fixture');
+    const fields = { word: '=HYPERLINK(1)', meaning: '-1', image: '', audio: '', notes: '-(으)ㄴ' };
+    formulaState.notes.set('note-2', { ...note, fields });
+    const plan = planAnkiCsvExport(formulaState, { deckId: VOCAB_DECK, noteIds: ['note-2'] });
+    const line = plan.text.split('\r\n')[7] ?? '';
+    const row = parseDelimitedText(line, { delimiter: ',' }).headers;
+    expect(row.slice(3, 8)).toEqual(['&#61;HYPERLINK(1)', '&#45;1', '', '', '-(으)ㄴ']);
+  });
+
   it('only names media whose extension is on the importers allow-list', () => {
     expect([...ANKI_MEDIA_MIME_BY_EXT]).toEqual([...SAFE_MEDIA_MIME_BY_EXT]);
     const bad = buildAnkiExportState();
