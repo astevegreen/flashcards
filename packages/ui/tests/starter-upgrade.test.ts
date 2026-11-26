@@ -48,8 +48,8 @@ async function seeded110(): Promise<CollectionState> {
 
 function launchOn(state: CollectionState) {
   const factory = newFactory();
-  const emitted: KnownEvent[][] = [];
-  const emit = (events: KnownEvent[]) => {
+  const emitted: (readonly KnownEvent[])[] = [];
+  const emit = (events: readonly KnownEvent[]) => {
     emitted.push(events);
     applyEvents(state, events);
   };
