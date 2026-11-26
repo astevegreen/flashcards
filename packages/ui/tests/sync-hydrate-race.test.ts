@@ -1,17 +1,14 @@
 import {
-  applyEvents,
   BUILTIN_NOTE_TYPE_IDS,
   createEmptyState,
   createEventFactory,
   createHlcState,
-  getTotalAppliedEventCount,
-  serializeCollectionState,
   type CollectionState,
   type FlashEvent,
 } from '@flash/core';
-import { createInitialSyncCursor, runSync, snapshotsPrefix } from '@flash/core/sync';
+import { snapshotsPrefix } from '@flash/core/sync';
 import { describe, expect, it } from 'vitest';
-import { memoryTransport } from './helpers/memory-transport.ts';
+import { remoteWithSnapshot } from './helpers/remote-snapshot.ts';
 import { runSyncCycle, type SyncRunnerContext } from '../src/state/syncRunner.ts';
 import type { SyncUiState } from '../src/state/useSyncController.ts';
 
@@ -25,34 +22,9 @@ const deck = (deck_id: string) => ({
   created_at: T0,
 });
 
-/** Another device has synced a snapshot holding one deck. */
-async function remoteWithSnapshot() {
-  const transport = memoryTransport();
-  const fb = createEventFactory('dev-b', 0, createHlcState('dev-b', T0));
-  const events = [fb.create('DeckCreated', deck('d-remote'), T0)];
-  const stateB = applyEvents(createEmptyState(), events);
-  await runSync({
-    transport,
-    deviceId: 'dev-b',
-    cursor: createInitialSyncCursor(),
-    localOwnSeq: 1,
-    currentTotalEvents: 1,
-    snapshotThreshold: 1,
-    nowMs: () => T0 + 10,
-    getLocalEventsAfterSeq: async (after) => events.filter((e) => e.seq > after),
-    buildSnapshotState: async () => ({
-      state: serializeCollectionState(stateB, { 'dev-b': 1 }),
-      totalEvents: getTotalAppliedEventCount(stateB),
-      watermarks: { 'dev-b': 1 },
-    }),
-  });
-  expect([...transport.files.keys()].some((p) => p.startsWith(snapshotsPrefix()))).toBe(true);
-  return transport;
-}
-
 describe('a sync hydrating a snapshot keeps local ratings made while it ran (D20)', () => {
   it('replays an event made while the concurrent-local read was in flight', async () => {
-    const transport = await remoteWithSnapshot();
+    const transport = await remoteWithSnapshot(T0, deck('d-remote'));
     const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', T0 + 50));
     const stored: FlashEvent[] = [];
     const ref = <T>(current: T) => ({ current });
