@@ -144,13 +144,17 @@ async function forwardTokenRequest(
       origin,
     );
   }
+  // A 200 without a token is a broken upstream reply: never pass it on as a success (§11).
+  if (typeof raw.access_token !== 'string' || !raw.access_token) {
+    return jsonResponse({ error: 'invalid_upstream_response' }, 502, origin);
+  }
   return jsonResponse(
     {
       access_token: raw.access_token,
       ...(typeof raw.refresh_token === 'string' ? { refresh_token: raw.refresh_token } : {}),
-      expires_in: raw.expires_in,
-      scope: raw.scope,
-      token_type: raw.token_type,
+      ...(typeof raw.expires_in === 'number' ? { expires_in: raw.expires_in } : {}),
+      ...(typeof raw.scope === 'string' ? { scope: raw.scope } : {}),
+      ...(typeof raw.token_type === 'string' ? { token_type: raw.token_type } : {}),
     },
     200,
     origin,

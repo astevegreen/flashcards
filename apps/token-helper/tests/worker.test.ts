@@ -116,6 +116,20 @@ describe('@flash/token-helper stateless Cloudflare Worker', () => {
     });
   });
 
+  it('answers 502, not 200 with empty fields, when Google replies 200 without access_token', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ token_type: 'Bearer' }), { status: 200 }),
+    );
+    const req = new Request('https://worker.example/auth/refresh', {
+      method: 'POST',
+      headers: { Origin: 'http://localhost:5173', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: 'rt' }),
+    });
+    const res = await worker.fetch(req, TEST_ENV);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'invalid_upstream_response' });
+  });
+
   it('rejects malformed JSON payloads', async () => {
     const req = new Request('https://worker.example/auth/exchange', {
       method: 'POST',
