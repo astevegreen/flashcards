@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { geminiApi } from './gemini-api.mjs';
+import { DEEP_PATHS } from './rails.mjs';
 
 // Every model runs at high effort; agy names the effort in the model id.
 export const EFFORT = 'high';
@@ -27,7 +28,18 @@ export const HEAVY = ['argon', 'carbon', 'neon'];
 const family = (base) => base.replace(/^gemini-\d+(?:\.\d+)*-/, '');
 // A Gemini model at this effort, as agy lists it: gemini-<version>-<family>-<effort>.
 const LISTED = new RegExp(String.raw`^gemini-(\d+(?:\.\d+)*)-([a-z]+(?:-[a-z]+)*)-${EFFORT}$`);
-const newerFirst = (a, b) => b.localeCompare(a, 'en', { numeric: true });
+// Versions ("3.8", "5-5") newest first, number by number, so "10" is newer than "9". No localeCompare: it differs by
+// locale (AGENTS.md, deterministic sorting); a tie on every number falls back to a code-unit comparison.
+export function newerFirst(a, b) {
+  const nums = (v) => String(v).split(/[.-]/).map(Number);
+  const [x, y] = [nums(a), nums(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (y[i] ?? -1) - (x[i] ?? -1);
+    if (d) return d;
+  }
+  if (a === b) return 0;
+  return a < b ? 1 : -1;
+}
 
 // The model ids in what `agy models` prints: one "<id><tab><name>" line per model.
 export const parseModels = (stdout) => [...(stdout ?? '').matchAll(/^(\S+)\t/gm)].map((m) => m[1]);
@@ -119,16 +131,9 @@ export function modelName(model) {
 // A change of more than this many lines (added plus removed) gets a deep review wherever it is.
 export const LARGE = 300;
 
-// Where a mistake costs most: the rules, the host and server that keep hidden information hidden, the architecture
-// decisions, and the checks themselves. A change touching one gets the deep review.
-export const DEEP_PATHS = [
-  'packages/engine/',
-  'packages/host/',
-  'packages/server/',
-  'docs/architecture.md',
-  'tools/gates/',
-  'tools/hooks/',
-];
+// Where a mistake costs most in this repository: Flashcards' own list (rails.mjs, DEEP_PATHS), so a caller that
+// passes none still gets this repo's high-risk paths, never another repo's. A change touching one gets the deep review.
+export { DEEP_PATHS };
 
 // How deep a review must be, from what it reviews, with the reason in words for the report. The depth picks
 // the order the models are asked in (ORDERS), and is named with its reason in the report.
@@ -151,9 +156,12 @@ export function pickDepth({ kind, files = [], lines = 0 }, deepPaths = DEEP_PATH
   };
 }
 
-// The files a unified diff changes, and how many lines it adds or removes.
+// The files a unified diff changes, and how many lines it adds or removes. A renamed file counts by both paths, so
+// moving a file out of a high-risk path is still a change to that path.
 export function diffStats(diff) {
-  const files = [...diff.matchAll(/^diff --git a\/.+? b\/(.+)$/gm)].map((m) => m[1]);
+  const files = [...diff.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)].flatMap((m) =>
+    m[1] === m[2] ? [m[2]] : [m[1], m[2]],
+  );
   const lines = diff.split('\n').filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---) /.test(l)).length;
   return { files, lines };
 }

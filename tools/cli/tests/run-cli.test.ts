@@ -96,18 +96,35 @@ describe('runCli', () => {
 
 const bin = fileURLToPath(new URL('../bin/flash-cli.mjs', import.meta.url));
 
-/** Starts `flash-cli mcp` as a real process, writes `lines` to its stdin, then closes it. */
+/** How long the server may take to answer and exit before it is killed, and the test's own limit above it. */
+const MCP_KILL_AFTER_MS = 10_000;
+const MCP_TEST_TIMEOUT_MS = 20_000;
+
+/**
+ * Starts `flash-cli mcp` as a real process, writes `lines` to its stdin, then closes it. A server
+ * that has not exited after MCP_KILL_AFTER_MS is killed and the promise rejects, so a hung child
+ * fails the test instead of outliving it.
+ */
 function runMcpProcess(
   lines: readonly string[],
 ): Promise<{ code: number | null; responses: unknown[]; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [bin, 'mcp'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`flash-cli mcp did not exit within ${MCP_KILL_AFTER_MS} ms; killed it`));
+    }, MCP_KILL_AFTER_MS);
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
-    child.on('error', reject);
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      child.kill('SIGKILL');
+      reject(err);
+    });
     child.on('close', (code) => {
+      clearTimeout(timer);
       const responses = stdout
         .split('\n')
         .filter((line) => line.trim().length > 0)
@@ -119,45 +136,49 @@ function runMcpProcess(
 }
 
 describe('runMcpStdioServer (flash-cli mcp)', () => {
-  it('answers one JSON line per request, survives bad input, and exits 0 when stdin closes', async () => {
-    const { code, responses, stderr } = await runMcpProcess([
-      JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: { protocolVersion: '2025-06-18', capabilities: {} },
-      }),
-      JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
-      '',
-      '{"jsonrpc":"2.0","id":2,',
-      JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list' }),
-      JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'ping' }),
-      JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'no/such/method' }),
-      JSON.stringify({
-        jsonrpc: '2.0',
-        id: 6,
-        method: 'tools/call',
-        params: { name: 'list_decks' },
-      }),
-    ]);
-    expect(stderr).toBe('');
-    expect(code).toBe(0);
+  it(
+    'answers one JSON line per request, survives bad input, and exits 0 when stdin closes',
+    async () => {
+      const { code, responses, stderr } = await runMcpProcess([
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: '2025-06-18', capabilities: {} },
+        }),
+        JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+        '',
+        '{"jsonrpc":"2.0","id":2,',
+        JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list' }),
+        JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'ping' }),
+        JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'no/such/method' }),
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 6,
+          method: 'tools/call',
+          params: { name: 'list_decks' },
+        }),
+      ]);
+      expect(stderr).toBe('');
+      expect(code).toBe(0);
 
-    // The notification and the blank line get no reply; the cut-off line gets a parse error.
-    const ids = responses.map((r) => (r as { id: unknown }).id);
-    expect(ids).toEqual([1, null, 3, 4, 5, 6]);
-    const [init, parse, list, ping, unknown, call] = responses as Array<{
-      result?: Record<string, unknown>;
-      error?: { code: number };
-    }>;
-    expect(init?.result?.['serverInfo']).toMatchObject({ name: 'flashcards-local-mcp' });
-    expect(parse?.error?.code).toBe(-32700);
-    const tools = (list?.result?.['tools'] as Array<{ name: string }> | undefined) ?? [];
-    expect(tools.map((t) => t.name)).toContain('list_decks');
-    expect(ping?.result).toEqual({});
-    expect(unknown?.error?.code).toBe(-32601);
-    // No --mirror: the tool runs on an empty collection rather than failing the server.
-    expect(call?.error).toBeUndefined();
-    expect(call?.result).toBeDefined();
-  });
+      // The notification and the blank line get no reply; the cut-off line gets a parse error.
+      const ids = responses.map((r) => (r as { id: unknown }).id);
+      expect(ids).toEqual([1, null, 3, 4, 5, 6]);
+      const [init, parse, list, ping, unknown, call] = responses as Array<{
+        result?: Record<string, unknown>;
+        error?: { code: number };
+      }>;
+      expect(init?.result?.['serverInfo']).toMatchObject({ name: 'flashcards-local-mcp' });
+      expect(parse?.error?.code).toBe(-32700);
+      const tools = (list?.result?.['tools'] as Array<{ name: string }> | undefined) ?? [];
+      expect(tools.map((t) => t.name)).toContain('list_decks');
+      expect(ping?.result).toEqual({});
+      expect(unknown?.error?.code).toBe(-32601);
+      // No --mirror: the tool runs on an empty collection rather than failing the server.
+      expect(call?.error).toBeUndefined();
+      expect(call?.result).toBeDefined();
+    },
+    MCP_TEST_TIMEOUT_MS,
+  );
 });

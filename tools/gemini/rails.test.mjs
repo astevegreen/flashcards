@@ -154,6 +154,48 @@ test('findings reads blockers and notes, numbered, bulleted or bold, and ignores
   assert.deepEqual(findings('No findings.'), { blockers: [], notes: [] });
 });
 
+test('renaming or copying a rail out of its folder is a rail change: the old path counts too', () => {
+  const rename = (from, to) =>
+    [
+      `diff --git a/${from} b/${to}`,
+      'similarity index 100%',
+      `rename from ${from}`,
+      `rename to ${to}`,
+    ].join('\n');
+  assert.deepEqual(railHits(rename('.githooks/pre-push', 'docs/pre-push')), [
+    { file: '.githooks/pre-push', what: 'git hooks' },
+  ]);
+  assert.deepEqual(diffFiles(rename('.githooks/pre-push', 'docs/pre-push')), [
+    { file: 'docs/pre-push', from: '.githooks/pre-push', changed: [] },
+  ]);
+  const copy = rename('docs/x.md', '.github/workflows/x.yml').replaceAll('rename', 'copy');
+  assert.equal(railHits(copy).length, 1, 'a copy into a rail');
+  assert.equal(railHits(rename('AGENTS.md', 'docs/AGENTS.md')).length, 1);
+  assert.deepEqual(railHits(rename('docs/a.md', 'docs/b.md')), []);
+  const edited = diff('.githooks/pre-push', '+x').replace(' b/.githooks/', ' b/docs/');
+  assert.equal(railHits(edited).length, 1, 'the a/ path of the header alone');
+});
+
+test('an untagged review that is not "No findings." retries; it never reads as clean and merges', () => {
+  for (const response of [
+    'Blocker: packages/core/src/x.ts:3 imports node:fs',
+    '**blocker** a.ts:1 wrong',
+    'Looks good to me.',
+    '',
+    'No findings. But a.ts:1 is wrong.',
+  ]) {
+    const v = decide({ review: ok(response) });
+    assert.equal(v.verdict, 'retry', response);
+    assert.match(v.why, /can't be read/);
+    assert.equal(
+      decide({ review: ok(response), rail: ok('LOOSENS: no\nAdds a job.'), hits }).verdict,
+      'retry',
+    );
+  }
+  for (const response of ['No findings.', '**No findings.**', ' "no findings" \n'])
+    assert.equal(decide({ review: ok(response) }).verdict, 'merge', response);
+});
+
 test('railAnswer reads the first LOOSENS line, with or without bold, and the reason after it', () => {
   assert.deepEqual(railAnswer('**LOOSENS: yes**\nIt removes the e2e step from the gate job.'), {
     loosens: true,
