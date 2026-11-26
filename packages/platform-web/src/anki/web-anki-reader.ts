@@ -6,11 +6,13 @@ import {
   type AnkiReadRequest,
   type AnkiReadResponse,
 } from './anki-reader-protocol.ts';
+import { watchWorker } from '../workers/worker-watch.ts';
 
 /** Minimal Worker surface used here, so tests can pass a fake. */
 export interface AnkiReaderWorkerLike {
   onmessage: ((ev: MessageEvent<AnkiReadResponse>) => void) | null;
   onerror: ((ev: ErrorEvent) => void) | null;
+  onmessageerror?: ((ev: MessageEvent) => void) | null;
   postMessage(message: AnkiReadRequest, transfer?: Transferable[]): void;
   terminate(): void;
 }
@@ -20,6 +22,12 @@ function createDefaultWorker(): AnkiReaderWorkerLike {
     type: 'module',
   }) as unknown as AnkiReaderWorkerLike;
 }
+
+/**
+ * A read sends one stage message, then runs to the end in one go, so this bounds the whole read.
+ * Generous on purpose (a large deck on a slow phone): it is there for a Worker that died silently.
+ */
+const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60_000;
 
 const ERROR_CODES: ReadonlySet<string> = new Set([
   'not_apkg',
@@ -43,9 +51,14 @@ function toError(msg: { message: string; code?: string }): Error {
  */
 export class WebAnkiPackageReader implements AnkiPackageReader {
   private readonly createWorker: () => AnkiReaderWorkerLike;
+  private readonly idleTimeoutMs: number;
 
-  constructor(createWorker: () => AnkiReaderWorkerLike = createDefaultWorker) {
+  constructor(
+    createWorker: () => AnkiReaderWorkerLike = createDefaultWorker,
+    options?: { idleTimeoutMs?: number },
+  ) {
     this.createWorker = createWorker;
+    this.idleTimeoutMs = options?.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
   }
 
   read(
@@ -56,15 +69,20 @@ export class WebAnkiPackageReader implements AnkiPackageReader {
     },
   ): Promise<AnkiRawPackage> {
     const worker = this.createWorker();
-    const finish = () => {
-      worker.onmessage = null;
-      worker.onerror = null;
-      worker.terminate();
-    };
     return new Promise<AnkiRawPackage>((resolve, reject) => {
+      const finish = () => {
+        watch.stop();
+        worker.onmessage = null;
+        worker.terminate();
+      };
+      const watch = watchWorker(worker, 'Anki import', this.idleTimeoutMs, (err) => {
+        finish();
+        reject(err);
+      });
       worker.onmessage = (ev) => {
         const msg = ev.data;
         if (msg.type === 'stage') {
+          watch.touch();
           options?.onStage?.(msg.stage);
           return;
         }
@@ -72,14 +90,15 @@ export class WebAnkiPackageReader implements AnkiPackageReader {
         if (msg.type === 'done') resolve(msg.pkg);
         else reject(toError(msg));
       };
-      worker.onerror = (ev) => {
+      try {
+        worker.postMessage(
+          { type: 'read', bytes, includeReviewHistory: options?.includeReviewHistory === true },
+          transferableInput(bytes),
+        );
+      } catch (err) {
         finish();
-        reject(new Error(ev.message || 'The Anki import worker failed to load'));
-      };
-      worker.postMessage(
-        { type: 'read', bytes, includeReviewHistory: options?.includeReviewHistory === true },
-        transferableInput(bytes),
-      );
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 

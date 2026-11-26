@@ -32,5 +32,9 @@
     "@tauri-apps/plugin-notification": "^2.8.0",
     "@tauri-apps/plugin-opener": "^2.7.3",
     "@tauri-apps/plugin-sql": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "vitest": "^5.1.1"
   }
 }

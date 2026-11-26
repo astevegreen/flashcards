@@ -112,6 +112,8 @@ interface InputViewProps {
   error: boolean;
   onFile: (name: string, bytes: Uint8Array) => void;
   onTooLarge: (name: string) => void;
+  /** The chosen or dropped file could not be read (it moved, or lost permission). */
+  onReadError: (err: unknown) => void;
   onLink: (text: string) => void;
 }
 
@@ -121,6 +123,7 @@ function InputView({
   error,
   onFile,
   onTooLarge,
+  onReadError,
   onLink,
 }: Readonly<InputViewProps>) {
   const { platform } = useApp();
@@ -130,13 +133,15 @@ function InputView({
 
   const handlePick = async () => {
     // The limit is checked before the file is read, so a huge file never reaches memory.
-    const picked = await platform.files.pickFile({ maxBytes: MAX_IMPORT_BYTES });
+    const picked = await platform.files
+      .pickFile({ maxBytes: MAX_IMPORT_BYTES })
+      .catch((err: unknown) => void onReadError(err));
     if (!picked) return;
     if (picked.tooLarge) onTooLarge(picked.name);
     else onFile(picked.name, picked.bytes);
   };
 
-  const handleDrop = async (e: DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files[0];
@@ -145,7 +150,7 @@ function InputView({
       onTooLarge(file.name);
       return;
     }
-    onFile(file.name, new Uint8Array(await file.arrayBuffer()));
+    file.arrayBuffer().then((buf) => onFile(file.name, new Uint8Array(buf)), onReadError);
   };
 
   const handleSubmit = (e: SyntheticEvent) => {
@@ -164,7 +169,7 @@ function InputView({
           setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
-        onDrop={(e) => void handleDrop(e)}
+        onDrop={handleDrop}
         className={`flex flex-col items-center gap-2 rounded-xl border-2 border-dashed p-3 text-center text-xs ${dragging ? 'border-[var(--accent)] bg-[var(--surface-2)]' : 'border-[var(--border)]'}`}
       >
         <p className="font-medium">Drop a file here, or</p>
@@ -985,6 +990,7 @@ export function BringMyCardsPanel({ embedded = false }: Readonly<BringMyCardsPan
             error={route.kind === 'input' && route.tone === 'error'}
             onFile={(n, b) => void handleFile(n, b)}
             onTooLarge={(n) => fail(`"${n}" is too large to import here (the limit is 300 MB).`)}
+            onReadError={(err) => fail(`Could not read that file: ${describeImportError(err)}`)}
             onLink={(t) => void handleLink(t)}
           />
         )}

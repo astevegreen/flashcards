@@ -1,5 +1,6 @@
-# Weekly version updates for the workspace packages and the GitHub Actions the workflows use. Minor and
-# patch updates come grouped, one pull request per ecosystem; each major update gets its own. The 7-day
+# Weekly version updates for the workspace packages, the GitHub Actions the workflows use, and the
+# native shells' Rust (Tauri) and Gradle (Capacitor Android) dependencies. Minor and patch updates
+# come grouped, one pull request per ecosystem; each major update gets its own. The 7-day
 # cooldown keeps proposals older than a week, past pnpm's minimum release age, so pnpm installs every
 # version proposed. Security updates are not delayed.
 version: 2
@@ -19,6 +20,33 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # Tauri desktop shell (apps/desktop/src-tauri/Cargo.toml and Cargo.lock).
+  - package-ecosystem: cargo
+    directory: /apps/desktop/src-tauri
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # Capacitor Android shell and the secure-storage plugin. Capacitor's own Gradle files
+  # (capacitor.build.gradle, capacitor.settings.gradle) are rewritten by `cap sync`.
+  - package-ecosystem: gradle
+    directories:
+      - /apps/mobile/android
+      - /packages/capacitor-secure-storage/android
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
     cooldown:
       default-days: 7
     groups:

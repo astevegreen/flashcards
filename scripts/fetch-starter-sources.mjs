@@ -20,16 +20,12 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  canonicalLexemeJson,
-  compareLexemeIds,
-  normalizeLexeme,
-  parseNiklList,
-} from './starters/lib.mjs';
+import { fetchLexeme } from './starters/lexeme-cache.mjs';
+import { compareLexemeIds, parseNiklList } from './starters/lib.mjs';
 import { NIKL_VOCAB, UNICODE_LICENSE, UNIHAN, USER_AGENT, WIKIDATA } from './starters/sources.mjs';
+import { unzipSync } from 'fflate';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -81,8 +77,6 @@ async function fetchPinned(source, dir, force) {
 const UNIHAN_TABLES = [UNIHAN.readingsFile, UNIHAN.variantsFile];
 
 function extractUnihanTables(zip, dir) {
-  const require = createRequire(join(REPO_ROOT, 'packages', 'core', 'package.json'));
-  const { unzipSync } = require('fflate');
   const files = unzipSync(zip, { filter: (f) => UNIHAN_TABLES.includes(f.name.split('/').pop()) });
   for (const table of UNIHAN_TABLES) {
     const entry = Object.entries(files).find(([name]) => name.split('/').pop() === table);
@@ -132,25 +126,6 @@ async function discoverLexemes(niklText) {
     .map(([id, revision]) => ({ id, revision }));
 }
 
-async function fetchLexeme(pin, dir, force) {
-  const dest = join(dir, 'wikidata', `${pin.id}-r${pin.revision}.json`);
-  let buf;
-  if (!force && existsSync(dest)) buf = readFileSync(dest);
-  else {
-    buf = await download(WIKIDATA.entityDataUrl(pin.id, pin.revision));
-    writeFileSync(dest, buf);
-  }
-  const normalized = normalizeLexeme(JSON.parse(buf.toString('utf8')), pin.id);
-  if (normalized.revision !== pin.revision) {
-    throw new Error(`${pin.id}: got revision ${normalized.revision}, pinned ${pin.revision}`);
-  }
-  const hash = sha256Hex(canonicalLexemeJson(normalized));
-  if (pin.sha256 && hash !== pin.sha256) {
-    throw new Error(`${pin.id}@${pin.revision}: normalized sha256 ${hash} ≠ pinned ${pin.sha256}`);
-  }
-  return { ...pin, sha256: hash };
-}
-
 /** Fetches pinned lexeme revisions a few at a time (Wikimedia asks clients to stay gentle). */
 async function fetchLexemes(pins, dir, force) {
   const out = new Array(pins.length);
@@ -158,7 +133,9 @@ async function fetchLexemes(pins, dir, force) {
   const worker = async () => {
     while (next < pins.length) {
       const i = next++;
-      out[i] = await fetchLexeme(pins[i], dir, force);
+      out[i] = await fetchLexeme(pins[i], dir, force, (pin) =>
+        download(WIKIDATA.entityDataUrl(pin.id, pin.revision)),
+      );
     }
   };
   await Promise.all([worker(), worker(), worker()]);

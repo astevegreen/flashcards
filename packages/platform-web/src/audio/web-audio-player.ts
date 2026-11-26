@@ -120,7 +120,8 @@ export class WebAudioPlayer implements AudioPlayer {
       const gen = this.playGeneration;
       audio.muted = true;
       audio.src = this.silentUrl;
-      const playPromise = audio.play();
+      // Older WebViews return undefined from play(), so the promise check below is real.
+      const playPromise = audio.play() as Promise<void> | undefined;
       if (playPromise && typeof playPromise.then === 'function') {
         void playPromise
           .then(() => {
@@ -206,7 +207,7 @@ export class WebAudioPlayer implements AudioPlayer {
     applyPlaybackRate(audio, rate);
 
     try {
-      const p = audio.play();
+      const p = audio.play() as Promise<void> | undefined;
       if (p && typeof p.then === 'function') {
         return p.then(
           () => {
@@ -228,7 +229,10 @@ export class WebAudioPlayer implements AudioPlayer {
   async play(bytes: Uint8Array, mime: string, rate = 1.0, cacheHash?: string): Promise<void> {
     if (cacheHash) {
       this.preload(cacheHash, bytes, mime);
-      await this.playPreloaded(cacheHash, rate);
+      // A playback failure rejects, as it does without `cacheHash` (C25).
+      if (!(await this.playPreloaded(cacheHash, rate)) && this.audio) {
+        throw new Error('Audio playback failed');
+      }
       return;
     }
 
