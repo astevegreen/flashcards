@@ -26,6 +26,8 @@ import {
   legacyStarterFields,
   loadStarterLegacyGlosses,
   planStarterDeckUpgrade,
+  STARTER_UPGRADE_TARGET,
+  starterDeckVersion,
   starterDecksDueForUpgrade,
   type LegacyStarterVersion,
 } from '../src/starters/upgrade.ts';
@@ -186,20 +188,23 @@ describe('starter-deck upgrade', () => {
 
     const expected = Object.fromEntries(content.notes.map((n) => [n.key, n.fields]));
     expect(noteFields(state, slug)).toEqual(expected);
+    // The release is recorded beside the deck; its source register is left as seeded.
+    expect(starterDeckVersion(state, info)).toBe(info.version);
     expect(state.decks.get(starterDeckId(slug))?.source).toMatchObject({
       kind: 'native',
       package_id: `flash-starter:${slug}`,
-      package_version: info.version,
-      content_hash: info.contentHash,
+      package_version: '1.0.0',
     });
+    expect(events.some((e) => e.type === 'SourceLinked')).toBe(false);
     expect(getDeckDescription(state, starterDeckId(slug))).toBe(info.description);
-    // Only changed fields travel: never the unchanged front, reading or tags.
+    // Only changed fields travel (never the front, reading or tags), and never the note's deck.
     for (const ev of events) {
       if (ev.type !== 'NoteUpserted') continue;
       expect(Object.keys(ev.payload.fields).every((f) => f === 'meaning' || f === 'notes')).toBe(
         true,
       );
       expect(ev.payload.tags).toBeUndefined();
+      expect(ev.payload.fields_only).toBe(true);
     }
   });
 
@@ -323,6 +328,83 @@ describe('starter-deck upgrade', () => {
     expect(fields).toEqual(expected);
     expect(await upgrade(a, merged1)).toEqual([]);
     expect(await upgrade(b, merged2)).toEqual([]);
+  });
+
+  it('a note another device moved before the upgrade synced stays moved, in any order', async () => {
+    const slug = 'starter-zh-common';
+    const a = device('dev-a');
+    const b = device('dev-b');
+    const seed = await legacySeed(a, slug, '1.0.0');
+    const id = deriveNoteId(starterDeckId(slug), 'unihan:U+4E00');
+    const note = must(replay(seed).notes.get(id), 'note');
+    // B moves the note (offline); A upgrades later, before B's move reaches it.
+    const moveB = b.create(
+      'NoteUpserted',
+      { note_id: id, deck_id: 'deck-b', source_key: note.source_key, fields: {} },
+      tick(),
+    );
+    const upA = await upgrade(a, replay(seed));
+    for (const merged of [replay(seed, [moveB], upA), replay(seed, upA, [moveB])]) {
+      expect(merged.notes.get(id)).toMatchObject({ deck_id: 'deck-b', fields: { notes: '' } });
+      expect(merged.noteIdsByDeck.get('deck-b')?.has(id)).toBe(true);
+    }
+    // Even when the upgrade reaches a device before the note itself does.
+    const early = replay(upA, seed, [moveB]);
+    expect(early.notes.get(id)).toMatchObject({ deck_id: 'deck-b', fields: { notes: '' } });
+  });
+
+  it('a deck another device unlinked before the upgrade synced stays unlinked', async () => {
+    const slug = 'starter-ko-core';
+    const { info, content } = await deck(slug);
+    const a = device('dev-a');
+    const b = device('dev-b');
+    const seed = await legacySeed(a, slug, '1.0.0');
+    const unlinkB = b.create(
+      'SourceUnlinked',
+      { target_kind: 'deck', target_id: starterDeckId(slug) },
+      tick(),
+    );
+    const upA = await upgrade(a, replay(seed));
+    for (const merged of [replay(seed, [unlinkB], upA), replay(seed, upA, [unlinkB])]) {
+      expect(merged.decks.get(starterDeckId(slug))?.source).toBeUndefined();
+      expect(noteFields(merged, slug)).toEqual(
+        Object.fromEntries(content.notes.map((n) => [n.key, n.fields])),
+      );
+      expect(starterDeckVersion(merged, info)).toBeUndefined();
+      expect(await upgrade(b, merged)).toEqual([]);
+    }
+  });
+
+  it('never writes a description over one the user wrote or cleared', async () => {
+    const slug = 'starter-ko-core';
+    const deckId = starterDeckId(slug);
+    for (const text of ['My Korean deck', '']) {
+      const user = device('dev-a');
+      const seed = await legacySeed(user, slug, '1.0.0');
+      const own = user.create(
+        'DeckDescriptionChanged',
+        { deck_id: deckId, description: text },
+        tick(),
+      );
+      const state = replay(seed, [own]);
+      const events = await upgrade(user, state);
+      expect(events.some((e) => e.type === 'DeckDescriptionChanged')).toBe(false);
+      expect(events.some((e) => e.type === 'NoteUpserted')).toBe(true);
+      applyEvents(state, events);
+      expect(getDeckDescription(state, deckId)).toBe(text);
+    }
+  });
+
+  it('a later release it has no older values for gets no upgrade, not a stale stamp', async () => {
+    const { info, content, legacy } = await deck('starter-ko-core');
+    const state = replay(await legacySeed(device('dev-a'), info.slug, '1.0.0'));
+    const later = { ...info, version: '1.3.0' };
+    expect(planStarterDeckUpgrade(state, later, content, legacy)).toBeUndefined();
+    expect(starterDeckVersion(state, info)).toBe('1.0.0');
+  });
+
+  it('knows the older values of the catalog release (bump STARTER_UPGRADE_TARGET with them)', () => {
+    for (const info of STARTER_DECKS) expect(info.version).toBe(STARTER_UPGRADE_TARGET);
   });
 
   it('a device that syncs the first device’s upgrade first does not run it again', async () => {

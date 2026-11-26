@@ -517,14 +517,18 @@ export function AppProvider({
     if (!backfillReady || backfillDoneRef.current) return;
     backfillDoneRef.current = true;
     // Starter decks seeded from an older release get the current release's text where the user
-    // left the old generated text, once per release. Behind the same sync gate, so a device sees
-    // another device's upgrade first. Lazy, only with a starter deck (onboarding/starterUpgrade.ts).
-    for (const deck of stateRef.current.decks.values()) {
-      if (!deck.source?.package_id?.startsWith('flash-starter:')) continue;
-      void import('../onboarding/starterUpgrade.ts')
-        .then((m) => m.runStarterDeckUpgrade(() => stateRef.current, factoryRef, emitEventsRef))
-        .catch(() => {});
-      break;
+    // left the old generated text, once per release, behind this sync gate so a device sees
+    // another device's upgrade first. The deck scan is lazy too (onboarding/starterUpgradeLaunch.ts).
+    if (stateRef.current.decks.size > 0) {
+      void import('../onboarding/starterUpgradeLaunch.ts')
+        .then((m) =>
+          m.runStarterDeckUpgradeAtLaunch({
+            getState: () => stateRef.current,
+            factory: factoryRef,
+            emitEvents: emitEventsRef,
+          }),
+        )
+        .catch((err: unknown) => console.warn('Starter-deck upgrade failed', err));
     }
     const plan = planLeechBackfill(stateRef.current);
     if (plan.length === 0) return;

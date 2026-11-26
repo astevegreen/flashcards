@@ -4,10 +4,10 @@ import type {
   DeckDescriptionChangedPayload,
   KnownEvent,
   NoteUpsertedPayload,
-  SourceLinkedPayload,
+  StarterDeckUpgradedPayload,
 } from '../events/types.ts';
 import { deriveNoteId } from '../ids.ts';
-import { shouldUpgradePackage } from '../sources/package-version.ts';
+import { comparePackageVersions, shouldUpgradePackage } from '../sources/package-version.ts';
 import { STARTER_DECKS, starterDeckId } from './index.ts';
 import type {
   StarterDeckContent,
@@ -25,21 +25,35 @@ import type {
  *
  * - A field changes only while it still exactly equals a value an older release generated for
  *   that note (`retiredStarterValues`); an edited field stays as it is.
- * - Each `NoteUpserted` carries only the changed fields (per-field LWW), stamped now, so it merges
- *   with edits other devices make to the note's other fields.
- * - It runs once per deck version: the deck's `DeckCreated.source.package_version` is compared
- *   with the catalog's (`shouldUpgradePackage`), and a `SourceLinked` records the new version on
- *   the deck's source register. A relaunch, or another device once it has synced, sees the
- *   current version and does nothing. Two devices that upgrade before syncing write the same
- *   values, so they converge.
+ * - Each `NoteUpserted` carries only the changed fields, stamped now, and is `fields_only`: replay
+ *   leaves the note's deck and source key alone, so it merges with other devices' edits and never
+ *   moves back a note another device moved.
+ * - It runs once per release: the deck's release is the newer of its
+ *   `DeckCreated.source.package_version` and any `StarterDeckUpgraded` (`starterDeckVersion`),
+ *   compared with the catalog's (`shouldUpgradePackage`). The upgrade ends with a
+ *   `StarterDeckUpgraded`, a log-retained event that writes no register (a `SourceLinked` would
+ *   rewrite the deck's source and could undo another device's unlink). A relaunch, or another
+ *   device once it has synced, sees the new release and does nothing. Two devices that upgrade
+ *   before syncing write the same values, so they converge.
  *
  * The older texts are rebuilt from the current deck data: the credit formats of 1.0.0 and 1.1.0
  * (`content/starters/README.md`) from `meaningSource`/`meaningEdited`, and the 1.0.0 glosses from
  * the generated `legacy-glosses.ts` table (loaded on demand, like the deck content).
+ *
+ * The rebuilt values are only right against the release they are written for
+ * (`STARTER_UPGRADE_TARGET`). A catalog at any other release gets no upgrade at all, rather than a
+ * deck stamped as current while it still shows text this step cannot recognise. To ship the next
+ * release: add the outgoing one to `LegacyStarterVersion` with a way to rebuild its values (a
+ * formula over the new deck data, or a table the build writes before the data changes, as
+ * `legacy-glosses.ts` does for 1.0.0), then set `STARTER_UPGRADE_TARGET` to the new release.
+ * `starter-upgrade.test.ts` fails until the target matches the catalog.
  */
 
 /** The `package_id` prefix every seeded starter deck records in its source. */
 export const STARTER_PACKAGE_ID_PREFIX = 'flash-starter:';
+
+/** The starter release the rebuilt values below are written against (see the module comment). */
+export const STARTER_UPGRADE_TARGET = '1.2.0';
 
 /** Starter releases whose generated text the upgrade recognises (each rebuilt below). */
 export type LegacyStarterVersion = '1.0.0' | '1.1.0';
@@ -109,14 +123,47 @@ export function retiredStarterValues(
   return retired;
 }
 
+/**
+ * The release a starter deck's text is at: the newer of the release it was seeded from and every
+ * release a `StarterDeckUpgraded` recorded. Undefined for a deck that is not that starter deck.
+ */
+export function starterDeckVersion(
+  state: CollectionState,
+  info: StarterDeckInfo,
+): string | undefined {
+  const deckId = starterDeckId(info.slug);
+  const source = state.decks.get(deckId)?.source;
+  if (source?.package_id !== `${STARTER_PACKAGE_ID_PREFIX}${info.slug}`) return undefined;
+  let version = source.package_version ?? '0';
+  for (const ev of state.unknownEvents) {
+    if (ev.type !== 'StarterDeckUpgraded') continue;
+    const p = ev.payload as Partial<StarterDeckUpgradedPayload> | null;
+    if (p?.deck_id !== deckId || typeof p.package_version !== 'string') continue;
+    if (comparePackageVersions(p.package_version, version) > 0) version = p.package_version;
+  }
+  return version;
+}
+
+/** Whether this build can bring a deck at `version` up to `info`'s release. */
+function canUpgrade(version: string | undefined, info: StarterDeckInfo): boolean {
+  return (
+    version !== undefined &&
+    info.version === STARTER_UPGRADE_TARGET &&
+    shouldUpgradePackage(version, info.version)
+  );
+}
+
 /** Starter decks in the collection that were seeded from an older release than the catalog's. */
 export function starterDecksDueForUpgrade(state: CollectionState): StarterDeckInfo[] {
-  return STARTER_DECKS.filter((info) => {
-    const source = state.decks.get(starterDeckId(info.slug))?.source;
-    return (
-      source?.package_id === `${STARTER_PACKAGE_ID_PREFIX}${info.slug}` &&
-      shouldUpgradePackage(source.package_version, info.version)
-    );
+  return STARTER_DECKS.filter((info) => canUpgrade(starterDeckVersion(state, info), info));
+}
+
+/** Whether the user ever wrote (or cleared) this deck's description: theirs always wins. */
+function hasUserDescription(state: CollectionState, deckId: string): boolean {
+  return state.unknownEvents.some((ev) => {
+    if (ev.type !== 'DeckDescriptionChanged') return false;
+    const p = ev.payload as { deck_id?: unknown; from_package?: unknown } | null;
+    return p?.deck_id === deckId && p.from_package !== true;
   });
 }
 
@@ -125,10 +172,13 @@ export interface StarterDeckUpgradePlan {
   deckId: string;
   /** One per note with a field still at an older release's value: only those fields. */
   notes: NoteUpsertedPayload[];
-  /** The catalog description (it carries the deck's credits since 1.2.0), when it differs. */
+  /**
+   * The catalog description (it carries the deck's credits since 1.2.0), when it differs and the
+   * user never wrote or cleared one.
+   */
   description?: DeckDescriptionChangedPayload;
-  /** Records the new version on the deck's source, so the upgrade runs once per version. */
-  source: SourceLinkedPayload;
+  /** Records the new release, so the upgrade runs once per release. */
+  upgraded: StarterDeckUpgradedPayload;
 }
 
 /**
@@ -142,15 +192,13 @@ export function planStarterDeckUpgrade(
   legacyGlosses: StarterLegacyGlosses,
 ): StarterDeckUpgradePlan | undefined {
   const deckId = starterDeckId(info.slug);
-  const source = state.decks.get(deckId)?.source;
-  if (source?.package_id !== `${STARTER_PACKAGE_ID_PREFIX}${info.slug}`) return undefined;
-  if (!shouldUpgradePackage(source.package_version, info.version)) return undefined;
+  if (!canUpgrade(starterDeckVersion(state, info), info)) return undefined;
   if (content.slug !== info.slug) throw new Error(`Starter deck content is not "${info.slug}"`);
 
   const notes: NoteUpsertedPayload[] = [];
   for (const starter of content.notes) {
-    // The id never changes, so a note the user moved to another deck is still found (and stays
-    // in that deck: the payload repeats its current deck and source key).
+    // The id never changes, so a note the user moved to another deck is still found. The payload
+    // is fields-only, so the note stays where it is, even after a move that hasn't synced yet.
     const note = state.notes.get(deriveNoteId(deckId, starter.key));
     if (note === undefined) continue;
     const fields: Record<string, string> = {};
@@ -160,22 +208,28 @@ export function planStarterDeckUpgrade(
       if (value !== undefined && next !== undefined && values.has(value)) fields[field] = next;
     }
     if (Object.keys(fields).length === 0) continue;
-    notes.push({ note_id: note.id, deck_id: note.deck_id, source_key: note.source_key, fields });
+    notes.push({
+      note_id: note.id,
+      deck_id: note.deck_id,
+      source_key: note.source_key,
+      fields,
+      fields_only: true,
+    });
   }
 
   const plan: StarterDeckUpgradePlan = {
     deckId,
     notes,
-    source: {
-      target_kind: 'deck',
-      target_id: deckId,
-      source: { ...source, package_version: info.version, content_hash: info.contentHash },
-    },
+    upgraded: { deck_id: deckId, package_version: info.version },
   };
-  // A description the user wrote (or cleared) always wins over a package one, so this only
-  // replaces the older catalog text.
+  // A description the user wrote (or cleared) always wins over a package one, so none is written
+  // over it: such an event would only sit in the log.
   const description = info.description.trim();
-  if (description !== '' && getDeckDescription(state, deckId) !== description) {
+  if (
+    description !== '' &&
+    !hasUserDescription(state, deckId) &&
+    getDeckDescription(state, deckId) !== description
+  ) {
     plan.description = { deck_id: deckId, description, from_package: true };
   }
   return plan;
@@ -191,7 +245,7 @@ export function buildStarterDeckUpgradeEvents(
   if (plan.description !== undefined) {
     events.push(eventFactory.create('DeckDescriptionChanged', plan.description, nowMs));
   }
-  events.push(eventFactory.create('SourceLinked', plan.source, nowMs));
+  events.push(eventFactory.create('StarterDeckUpgraded', plan.upgraded, nowMs));
   return events;
 }
 
