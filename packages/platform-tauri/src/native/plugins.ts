@@ -35,6 +35,7 @@ import type { SecureSecretBackend } from '../auth/refresh-token-store.ts';
 import type { TauriLoopbackOAuthPlugin } from '../auth/tauri-google-auth.ts';
 import type { DesktopNotificationBridge } from '../reminders/desktop-reminders.ts';
 import { createAddDeviceUrlSourceFrom } from './add-device-url.ts';
+import { watchDirectoryWith } from './watch-directory.ts';
 import {
   awaitBrowserCallback,
   createLatestAttempt,
@@ -176,29 +177,8 @@ export function createFsBridge(): TauriFsBridge {
       await mkdir(parentDir(toPath), { recursive: true });
       await rename(fromPath, toPath);
     },
-    watchDirectory: (rootPath, onChange) => {
-      let stopped = false;
-      let unwatch: (() => void) | null = null;
-      const root = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
-      void watch(
-        rootPath,
-        (event) => {
-          const changed = event.paths
-            .map((p) => p.replace(/\\/g, '/'))
-            .filter((p) => p.startsWith(`${root}/`))
-            .map((p) => p.slice(root.length + 1));
-          if (changed.length > 0) onChange(changed);
-        },
-        { recursive: true, delayMs: 500 },
-      ).then((fn) => {
-        if (stopped) fn();
-        else unwatch = fn;
-      });
-      return () => {
-        stopped = true;
-        unwatch?.();
-      };
-    },
+    pathExists: (absPath) => exists(absPath),
+    watchDirectory: (rootPath, onChange) => watchDirectoryWith(watch, rootPath, onChange),
   };
 }
 
