@@ -12,6 +12,7 @@ import {
   CapacitorStorePurchase,
   createCapacitorPlatform,
 } from '../src/index.ts';
+import { InMemorySqliteDriver } from './support/in-memory-sqlite-driver.ts';
 
 function hex(bytes: Uint8Array): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -49,7 +50,7 @@ describe('licence public key (S12)', () => {
     for (const publicKeyHex of [undefined, PLACEHOLDER_LICENSE_PUBLIC_KEY_HEX]) {
       warn.mockClear();
       const purchase = new WebLicensePurchase({
-        storage: new CapacitorSqliteStorage(),
+        storage: new CapacitorSqliteStorage(new InMemorySqliteDriver()),
         isPersonalBuild: false,
         ...(publicKeyHex ? { publicKeyHex } : {}),
       });
@@ -63,14 +64,17 @@ describe('licence public key (S12)', () => {
 
   it('a personal build does not warn', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    new WebLicensePurchase({ storage: new CapacitorSqliteStorage(), isPersonalBuild: true });
+    new WebLicensePurchase({
+      storage: new CapacitorSqliteStorage(new InMemorySqliteDriver()),
+      isPersonalBuild: true,
+    });
     expect(warn).not.toHaveBeenCalled();
   });
 
   it('store build: no key warns and refuses keys with a clear reason', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const purchase = new CapacitorStorePurchase({
-      storage: new CapacitorSqliteStorage(),
+      storage: new CapacitorSqliteStorage(new InMemorySqliteDriver()),
       cryptoProvider: webCryptoEd25519Provider,
     });
     expect(warn).toHaveBeenCalledTimes(1);
@@ -82,7 +86,7 @@ describe('licence public key (S12)', () => {
     const { key, publicKeyHex } = await signedLicence();
     const platform = createCapacitorPlatform({
       deviceId: 'phone',
-      storage: new CapacitorSqliteStorage(),
+      storage: new CapacitorSqliteStorage(new InMemorySqliteDriver()),
       isPersonalBuild: false,
       licensePublicKeyHex: publicKeyHex,
       licenseCryptoProvider: webCryptoEd25519Provider,

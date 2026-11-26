@@ -29,11 +29,7 @@ import {
   CapacitorNativePickerBridge,
   type SystemBrowserLauncher,
 } from './sources/native-picker-bridge.ts';
-import {
-  CapacitorSqliteStorage,
-  InMemorySqliteDriver,
-  type SqliteDriver,
-} from './storage/sqlite-storage.ts';
+import { CapacitorSqliteStorage, type SqliteDriver } from './storage/sqlite-storage.ts';
 import { ICloudDriveSyncTransport, type ICloudDocumentPlugin } from './sync/icloud-transport.ts';
 
 export { CapacitorGoogleAuth, type NativeGoogleSignInPlugin } from './auth/native-google-auth.ts';
@@ -48,11 +44,7 @@ export {
   CapacitorNativePickerBridge,
   type SystemBrowserLauncher,
 } from './sources/native-picker-bridge.ts';
-export {
-  CapacitorSqliteStorage,
-  InMemorySqliteDriver,
-  type SqliteDriver,
-} from './storage/sqlite-storage.ts';
+export { CapacitorSqliteStorage, type SqliteDriver } from './storage/sqlite-storage.ts';
 export { ICloudDriveSyncTransport, type ICloudDocumentPlugin } from './sync/icloud-transport.ts';
 export { isPickerCallback } from './native/deep-links.ts';
 export { createSecureKvRouting, type SecureKvRouting } from './secure/secure-kv-storage.ts';
@@ -108,13 +100,21 @@ function withGetter<T, R extends object>(value: T | undefined, build: (v: T) => 
   return value === undefined ? {} : build(value);
 }
 
+/** The app database over `driver`. A missing driver is a wiring mistake, not a fallback (N9). */
+function capacitorStorageFrom(driver: SqliteDriver | undefined): Storage {
+  if (!driver) {
+    throw new Error(
+      'createCapacitorPlatform needs `storage` or `sqliteDriver`; neither was passed.',
+    );
+  }
+  return new CapacitorSqliteStorage(driver);
+}
+
 /**
  * Creates a Capacitor (Android / iOS) `PlatformServices` bundle (§10.1, §11, §15 Phase 8).
  */
 export function createCapacitorPlatform(options: CreateCapacitorPlatformOptions): PlatformServices {
-  const storage =
-    options.storage ??
-    new CapacitorSqliteStorage(options.sqliteDriver ?? new InMemorySqliteDriver());
+  const storage = options.storage ?? capacitorStorageFrom(options.sqliteDriver);
   const files = new CapacitorFiles(options.fileBridge);
   const googleAuth = new CapacitorGoogleAuth({
     storage,

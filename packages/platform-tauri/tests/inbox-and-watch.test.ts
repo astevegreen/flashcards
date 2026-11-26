@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TauriLocalFolderWatcher, TauriSqliteStorage, type TauriFsBridge } from '../src/index.ts';
 import { watchDirectoryWith } from '../src/native/watch-directory.ts';
+import { memoryTauriDb } from './support/memory-tauri-db.ts';
 
 function memoryBridge(files: Map<string, Uint8Array>, withExists: boolean): TauriFsBridge {
   return {
@@ -43,7 +44,7 @@ describe('Inbox move keeps earlier imports (N8)', () => {
         ['/notes/Inbox/words.csv', text('third')],
       ]);
       const watcher = new TauriLocalFolderWatcher({
-        storage: new TauriSqliteStorage(),
+        storage: new TauriSqliteStorage(memoryTauriDb()),
         bridge: memoryBridge(files, withExists),
       });
       const picked = await watcher.pickFolder();

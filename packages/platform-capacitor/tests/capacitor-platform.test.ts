@@ -11,6 +11,7 @@ import {
   createCapacitorPlatform,
   ICloudDriveSyncTransport,
 } from '../src/index.ts';
+import { InMemorySqliteDriver } from './support/in-memory-sqlite-driver.ts';
 
 /** Mimics a Capacitor rejection from the Swift plugin: an Error with the native `code`. */
 function pluginError(code: string, message: string): Error {
@@ -19,7 +20,7 @@ function pluginError(code: string, message: string): Error {
 
 describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () => {
   it('CapacitorSqliteStorage stores/queries events, local_seq, cards_cache, media & kv', async () => {
-    const storage = new CapacitorSqliteStorage();
+    const storage = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     const factory = createEventFactory('cap-ios-1', 0, createHlcState('cap-ios-1', 1000));
     const ev1 = factory.create(
       'DeckCreated',
@@ -125,7 +126,7 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
   });
 
   it('CapacitorGoogleAuth + NativePickerBridge + StorePurchase + iCloudSyncTransport', async () => {
-    const storage = new CapacitorSqliteStorage();
+    const storage = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     const auth = new CapacitorGoogleAuth({
       storage,
       plugin: {
@@ -195,6 +196,7 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
     expect(await icloud.read('sync/v1/manifest.json')).toEqual(new Uint8Array([1, 2, 3]));
 
     const platform = createCapacitorPlatform({
+      sqliteDriver: new InMemorySqliteDriver(),
       deviceId: 'cap-device-1',
       isPersonalBuild: true,
     });
@@ -206,6 +208,7 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
     const files = new Map<string, Uint8Array>();
     let available = false;
     const platform = createCapacitorPlatform({
+      sqliteDriver: new InMemorySqliteDriver(),
       deviceId: 'cap-ios-icloud',
       iCloudPlugin: {
         isAvailable: async () => available,
@@ -252,7 +255,10 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
       { path: 'sync/v1/manifest.json', size: 1, updatedAt: 1000 },
     ]);
 
-    const android = createCapacitorPlatform({ deviceId: 'cap-android' });
+    const android = createCapacitorPlatform({
+      sqliteDriver: new InMemorySqliteDriver(),
+      deviceId: 'cap-android',
+    });
     expect(android.iCloudSyncSupported).toBeUndefined();
     expect(android.createICloudTransport).toBeUndefined();
   });
