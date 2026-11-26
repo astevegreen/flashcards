@@ -38,7 +38,7 @@ function toSyncError(err: unknown): unknown {
 
 function validateRelativeSyncPath(path: string): string {
   const clean = path.replace(/\\/g, '/').replace(/^\/+/, '');
-  if (!clean || clean.includes('..') || clean.includes('\0')) {
+  if (!clean || clean.split('/').includes('..') || clean.includes('\0')) {
     throw new Error(`Unsafe iCloud Drive sync path "${path}".`);
   }
   return clean;

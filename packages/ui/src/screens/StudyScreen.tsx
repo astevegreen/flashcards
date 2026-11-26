@@ -63,6 +63,12 @@ const LazySwipeGuideBanner = lazyWithRetry(() =>
   import('../study/SwipeGuideBanner.tsx').then((m) => ({ default: m.SwipeGuideBanner })),
 );
 
+// Screen-reader text for the due counts and a live region for the study flow (§10). Lazy, so it
+// costs the initial bundle nothing; it only has to be there before the first reveal.
+const LazyStudyAnnouncer = lazyWithRetry(() =>
+  import('../study/StudyAnnouncer.tsx').then((m) => ({ default: m.StudyAnnouncer })),
+);
+
 const LazyNoteEditDialog = lazyWithRetry(
   () => import('../components/NoteEditDialog.tsx').then((m) => ({ default: m.NoteEditDialog })),
   { closeWith: 'onClose' },
@@ -951,7 +957,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           <StudyOptionsBar deckId={activeDeckId} studyFilter={studyFilter} />
 
           <div
-            aria-label="Due card counts"
+            aria-hidden="true"
             className="flex items-center gap-1.5 text-xs font-semibold tabular-nums"
           >
             <span
@@ -1034,6 +1040,16 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           )}
         </div>
       </header>
+
+      <Suspense fallback={null}>
+        <LazyStudyAnnouncer
+          cardId={currentCard?.id}
+          counts={queueResult.counts}
+          caughtUp={caughtUp}
+          revealStep={revealStep}
+          totalRevealSteps={totalRevealSteps}
+        />
+      </Suspense>
 
       {showFilterPanel && !studyFilter && (
         <Suspense
