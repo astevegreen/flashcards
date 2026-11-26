@@ -24,6 +24,7 @@ import {
 } from './drawing/mlkit-ink-recognizer.ts';
 import { CapacitorFiles, type CapacitorFileBridge } from './files/capacitor-files.ts';
 import { CapacitorStorePurchase, type StoreBillingPlugin } from './purchase/store-purchase.ts';
+import type { Ed25519CryptoProvider } from '@flash/core/license';
 import {
   CapacitorNativePickerBridge,
   type SystemBrowserLauncher,
@@ -84,6 +85,10 @@ export interface CreateCapacitorPlatformOptions {
   mlKitPlugin?: MlKitDigitalInkPlugin;
   fallbackRecognizer?: HandwritingRecognizer;
   billingPlugin?: StoreBillingPlugin;
+  /** Ed25519 public key (hex) licence keys are checked against (S12); none disables them. */
+  licensePublicKeyHex?: string;
+  /** Verifies licence-key signatures; the native boot passes WebCrypto's Ed25519. */
+  licenseCryptoProvider?: Ed25519CryptoProvider;
   iCloudPlugin?: ICloudDocumentPlugin;
   isPersonalBuild?: boolean;
   createDriveTransport?: (auth: Auth) => Promise<SyncTransport>;
@@ -125,6 +130,8 @@ export function createCapacitorPlatform(options: CreateCapacitorPlatformOptions)
     storage,
     isPersonalBuild: options.isPersonalBuild ?? false,
     ...(options.billingPlugin ? { billingPlugin: options.billingPlugin } : {}),
+    ...(options.licensePublicKeyHex ? { publicKeyHex: options.licensePublicKeyHex } : {}),
+    ...(options.licenseCryptoProvider ? { cryptoProvider: options.licenseCryptoProvider } : {}),
   });
   const syncTransport: SyncTransport = {
     list: async () => [],

@@ -82,6 +82,8 @@ function storePurchase(storage: CapacitorSqliteStorage, plugin: StoreBillingPlug
   return new CapacitorStorePurchase({
     storage,
     billingPlugin: plugin,
+    // Any well-formed key that is not the old placeholder; the fake provider accepts every signature.
+    publicKeyHex: 'ab'.repeat(32),
     cryptoProvider: { verify: async () => true },
   });
 }

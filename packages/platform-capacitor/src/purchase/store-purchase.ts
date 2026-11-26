@@ -8,6 +8,11 @@ import {
   type LicenseVerifyResult,
 } from '@flash/core/license';
 import type { Purchase, Storage } from '@flash/platform';
+import {
+  LICENSE_PUBLIC_KEY_MISSING_REASON,
+  usableLicensePublicKey,
+  warnLicensePublicKeyMissing,
+} from '@flash/platform-web/purchase-license';
 
 export interface StoreBillingPlugin {
   /** StoreKit 2 (iOS) or Play Billing v7 (Android) direct non-consumable purchase flow. */
@@ -71,9 +76,6 @@ function isStoreUnlock(cached: CachedStoreEntitlement): boolean {
   return cached.via ? cached.via === 'store' : cached.transactionId === RESTORED_TRANSACTION_ID;
 }
 
-const DEFAULT_STORE_LICENSE_PUBLIC_KEY =
-  '2f5e6f8c0b4a9d3e7c1f2a4b6d8e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a';
-
 /**
  * StoreKit 2 / Google Play Billing non-consumable `unlock_full` adapter (§12.1, §15 Phase 8).
  * Caches verified purchase entitlement on-device so full unlock works 100% offline.
@@ -82,7 +84,7 @@ export class CapacitorStorePurchase implements Purchase {
   readonly isPersonalBuild: boolean;
   private readonly storage: Storage;
   private readonly billingPlugin?: StoreBillingPlugin;
-  private readonly publicKeyHex: string;
+  private readonly publicKeyHex: string | undefined;
   private readonly cryptoProvider?: Ed25519CryptoProvider;
 
   constructor(options: {
@@ -95,8 +97,9 @@ export class CapacitorStorePurchase implements Purchase {
     this.storage = options.storage;
     this.isPersonalBuild = options.isPersonalBuild ?? false;
     if (options.billingPlugin) this.billingPlugin = options.billingPlugin;
-    this.publicKeyHex = options.publicKeyHex ?? DEFAULT_STORE_LICENSE_PUBLIC_KEY;
+    this.publicKeyHex = usableLicensePublicKey(options.publicKeyHex);
     if (options.cryptoProvider) this.cryptoProvider = options.cryptoProvider;
+    if (!this.publicKeyHex && !this.isPersonalBuild) warnLicensePublicKeyMissing();
   }
 
   async getEntitlement(): Promise<EntitlementState> {
@@ -193,10 +196,12 @@ export class CapacitorStorePurchase implements Purchase {
   async activateLicenseKey(
     rawKey: string,
   ): Promise<LicenseVerifyResult & { entitlement: EntitlementState }> {
-    if (!this.cryptoProvider) {
+    if (!this.publicKeyHex || !this.cryptoProvider) {
       return {
         valid: false,
-        reason: 'Ed25519 license key verifier not configured on store build.',
+        reason: this.publicKeyHex
+          ? 'Ed25519 license key verifier not configured on store build.'
+          : LICENSE_PUBLIC_KEY_MISSING_REASON,
         entitlement: await this.getEntitlement(),
       };
     }

@@ -5,6 +5,7 @@ import {
   LazyHandwritingRecognizer,
   lazyOneDriveFields,
 } from '@flash/platform-web/native-support';
+import { webCryptoEd25519Provider } from '@flash/platform-web/purchase-license';
 import { Capacitor } from '@capacitor/core';
 import { CapacitorSqliteStorage, createCapacitorPlatform } from '../index.ts';
 import { createSecureKvRouting } from '../secure/secure-kv-storage.ts';
@@ -54,6 +55,8 @@ export interface CapacitorBootConfig {
   microsoftTenant?: string;
   /** Dropbox App Folder app key (public PKCE client, `flashcards://oauth/dropbox` redirect). */
   dropboxAppKey?: string;
+  /** Ed25519 public key (hex) for offline licence keys (S12, `VITE_LICENSE_PUBLIC_KEY`). */
+  licensePublicKeyHex?: string;
 }
 
 /** Memoizes an async loader; a failed attempt is forgotten so the next call retries. */
@@ -131,6 +134,8 @@ export async function bootCapacitorPlatform(
       ? { fallbackRecognizer: new LazyHandwritingRecognizer(base.getHandwritingRecognizer) }
       : {}),
     billingPlugin: createStoreBillingPlugin(),
+    ...(config.licensePublicKeyHex ? { licensePublicKeyHex: config.licensePublicKeyHex } : {}),
+    licenseCryptoProvider: webCryptoEd25519Provider,
     ...(platformName === 'ios' ? { iCloudPlugin: createICloudDocumentPlugin() } : {}),
     isPersonalBuild: config.isPersonalBuild,
     ...(config.packCatalogUrl ? { packCatalogUrl: config.packCatalogUrl } : {}),

@@ -42,6 +42,7 @@ export async function bootNativePlatform(
     ...nonEmpty('microsoftClientId', settings.microsoftClientId),
     ...nonEmpty('microsoftTenant', settings.microsoftTenant),
     ...nonEmpty('dropboxAppKey', settings.dropboxAppKey),
+    ...nonEmpty('licensePublicKeyHex', settings.licensePublicKeyHex),
   };
   if (runtime === 'capacitor') {
     const { bootCapacitorPlatform } = await import('@flash/platform-capacitor/native');
@@ -56,6 +57,5 @@ export async function bootNativePlatform(
     ...common,
     ...nonEmpty('googleDesktopClientId', envString('VITE_GOOGLE_DESKTOP_CLIENT_ID')),
     ...nonEmpty('googleDesktopClientSecret', envString('VITE_GOOGLE_DESKTOP_CLIENT_SECRET')),
-    ...nonEmpty('licensePublicKeyHex', settings.licensePublicKeyHex),
   });
 }
