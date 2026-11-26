@@ -1795,9 +1795,10 @@ function listFiles(dir, root = dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) out.push(...listFiles(full, root));
-    else out.push(relative(root, full).split('\\').join('/'));
+    else out.push(relative(root, full).replaceAll('\\', '/'));
   }
-  return out.sort();
+  // Code-unit order, the same on every machine (AGENTS.md: never localeCompare).
+  return out.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /**
