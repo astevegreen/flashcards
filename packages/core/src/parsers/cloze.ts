@@ -32,10 +32,8 @@ function findClozeClose(input: string, bodyStart: number): number {
     const ch = input[i];
     const next = input[i + 1];
 
-    if (ch === '{' && next === '{') {
-      // A new `{{` before this cloze balanced: unbalanced body, or an unclosed outer cloze.
-      return firstCloseBefore(input, bodyStart, i);
-    }
+    // A new `{{` before this cloze balanced: unbalanced body, or an unclosed outer cloze.
+    if (ch === '{' && next === '{') break;
 
     if (ch === '{') {
       singleBraceDepth += 1;
@@ -57,12 +55,9 @@ function findClozeClose(input: string, bodyStart: number): number {
     i += 1;
   }
 
-  return firstCloseBefore(input, bodyStart, input.length);
-}
-
-function firstCloseBefore(input: string, from: number, stop: number): number {
-  const close = input.indexOf('}}', from);
-  return close < stop ? close : -1;
+  // Fall back to the first `}}` before where the scan stopped (C19).
+  const close = input.indexOf('}}', bodyStart);
+  return close < i ? close : -1;
 }
 
 /**
@@ -70,6 +65,7 @@ function firstCloseBefore(input: string, from: number, stop: number): number {
  */
 function splitAnswerAndHint(body: string): { answer: string; hint?: string } {
   let depth = 0;
+  let separator = -1;
   for (let i = 0; i < body.length - 1; i++) {
     const ch = body[i];
     if (ch === '{') {
@@ -77,17 +73,15 @@ function splitAnswerAndHint(body: string): { answer: string; hint?: string } {
     } else if (ch === '}' && depth > 0) {
       depth -= 1;
     } else if (depth === 0 && ch === ':' && body[i + 1] === ':') {
-      return splitAt(body, i);
+      separator = i;
+      break;
     }
   }
   // Braces that never balance (`a{b::hint`) don't hide the separator (C19).
-  const separator = depth > 0 ? body.indexOf('::') : -1;
-  return separator === -1 ? { answer: body } : splitAt(body, separator);
-}
-
-function splitAt(body: string, i: number): { answer: string; hint?: string } {
-  const answer = body.slice(0, i);
-  const hint = body.slice(i + 2);
+  if (depth > 0) separator = body.indexOf('::');
+  if (separator === -1) return { answer: body };
+  const answer = body.slice(0, separator);
+  const hint = body.slice(separator + 2);
   return hint.length > 0 ? { answer, hint } : { answer };
 }
 
