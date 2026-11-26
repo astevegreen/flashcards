@@ -185,7 +185,8 @@ test("CI's required verify check aggregates checks, never skips, and checks runs
     'lint',
     'format:check',
     'packs:check',
-    'test',
+    // `pnpm test` with coverage and its threshold (asserted below).
+    'coverage',
     'test:tools',
     'build',
     'size',

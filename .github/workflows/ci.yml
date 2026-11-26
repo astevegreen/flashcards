@@ -45,8 +45,10 @@ jobs:
       - name: Starter packs match a rebuild
         run: pnpm packs:check
 
-      - name: Unit & property tests
-        run: pnpm test
+      # The same tests as `pnpm test`, instrumented; fails when coverage drops below the
+      # thresholds in vitest.config.ts.
+      - name: Unit & property tests (with coverage threshold)
+        run: pnpm coverage
 
       - name: Hook, review-tool and settings tests
         run: pnpm test:tools

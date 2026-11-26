@@ -14,6 +14,7 @@ Run from repository root using `pnpm`:
 - `pnpm lint` — ESLint (enforces architectural boundaries including `packages/core` purity)
 - `pnpm format:check` / `pnpm format` — Prettier formatting check/write
 - `pnpm test` — Vitest unit, golden, and `fast-check` property tests
+- `pnpm coverage` — the same tests with V8 coverage; fails below the thresholds in `vitest.config.ts` (CI runs this). Tests run in Node; a UI render test (`*.test.tsx`) opts into a DOM with `// @vitest-environment happy-dom` and mounts through `packages/ui/tests/helpers/app-harness.tsx`
 - `pnpm size` — enforce §8 bundle budget (`<= 160 KB` gzipped initial study-screen JS, 0 web fonts)
 - `pnpm test:e2e` — Playwright end-to-end tests (study, undo, import/export, offline, multi-device isolation)
 - `node scripts/build-packs.mjs --starter` — regenerate the tiny attributed dictionary/stroke fixtures in `apps/web/public/packs/` (used by dev, `pnpm test`, and `pnpm test:e2e`; never needs network); `--check` (`pnpm packs:check`, part of `pnpm gate`) fails when the committed files differ from a rebuild
