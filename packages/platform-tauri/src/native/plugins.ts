@@ -3,11 +3,6 @@
  * (§10.1, §11, §15 Phase 8). Only imported from `./boot.ts`, which `apps/web` loads lazily
  * when it detects the Tauri runtime, so none of this reaches the PWA's initial chunk.
  */
-import {
-  cancel as cancelOAuthServer,
-  onUrl,
-  start as startOAuthServer,
-} from '@fabianlars/tauri-plugin-oauth';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
@@ -35,11 +30,11 @@ import type { SecureSecretBackend } from '../auth/refresh-token-store.ts';
 import type { TauriLoopbackOAuthPlugin } from '../auth/tauri-google-auth.ts';
 import type { DesktopNotificationBridge } from '../reminders/desktop-reminders.ts';
 import { createAddDeviceUrlSourceFrom } from './add-device-url.ts';
+import { runLoopbackSignIn } from './loopback-sign-in.ts';
 import { watchDirectoryWith } from './watch-directory.ts';
 import {
   awaitBrowserCallback,
   createLatestAttempt,
-  OAUTH_CALLBACK_TIMEOUT_MS,
   PICKER_CALLBACK_TIMEOUT_MS,
 } from './browser-callback.ts';
 import { openTauriSaveStream } from '../files/tauri-stream.ts';
@@ -277,18 +272,6 @@ const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 
-function base64Url(bytes: Uint8Array): string {
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-async function createPkcePair(): Promise<{ verifier: string; challenge: string }> {
-  const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-  return { verifier, challenge: base64Url(new Uint8Array(digest)) };
-}
-
 interface GoogleTokenResponse {
   access_token: string;
   expires_in: number;
@@ -323,59 +306,46 @@ export function createLoopbackOAuthPlugin(config: LoopbackOAuthConfig): TauriLoo
 
   return {
     authorizeWithSystemBrowser: ({ scopes }) =>
-      latestAttempt(async (signal) => {
-        const { verifier, challenge } = await createPkcePair();
-        const state = base64Url(crypto.getRandomValues(new Uint8Array(16)));
-        const port = await startOAuthServer({ response: SUCCESS_HTML });
-        const redirectUri = `http://127.0.0.1:${port}`;
-        try {
-          const authUrl = new URL(GOOGLE_AUTH_URL);
-          authUrl.search = new URLSearchParams({
-            client_id: config.clientId,
-            redirect_uri: redirectUri,
-            response_type: 'code',
-            scope: scopes.join(' '),
-            code_challenge: challenge,
-            code_challenge_method: 'S256',
-            state,
-            access_type: 'offline',
-            prompt: 'consent',
-          }).toString();
-          const returned = new URL(
-            await awaitBrowserCallback({
-              subscribe: (cb) => onUrl(cb),
-              open: () => openUrl(authUrl.toString()),
-              timeoutMs: OAUTH_CALLBACK_TIMEOUT_MS,
-              signal,
-              label: 'Google sign-in',
-            }),
-          );
-          if (returned.searchParams.get('state') !== state) {
-            throw new Error('OAuth state mismatch.');
-          }
-          const err = returned.searchParams.get('error');
-          if (err) throw new Error(`Google sign-in failed: ${err}`);
-          const code = returned.searchParams.get('code');
-          if (!code) throw new Error('Google sign-in returned no authorization code.');
-
-          const tokens = await tokenRequest({
-            grant_type: 'authorization_code',
-            code,
-            code_verifier: verifier,
-            redirect_uri: redirectUri,
-          });
-          // Never keep an older refresh token (possibly another account) past a new sign-in.
-          if (tokens.refresh_token) await config.tokenStore.set(tokens.refresh_token);
-          else await config.tokenStore.delete();
-          return {
-            accessToken: tokens.access_token,
-            expiresInSeconds: tokens.expires_in,
-            ...(tokens.scope ? { scope: tokens.scope } : {}),
-          };
-        } finally {
-          await cancelOAuthServer(port).catch(() => undefined);
-        }
-      }),
+      latestAttempt((signal) =>
+        runLoopbackSignIn(
+          {
+            provider: 'Google',
+            successHtml: SUCCESS_HTML,
+            signal,
+            buildAuthUrl: ({ redirectUri, challenge, state }) => {
+              const authUrl = new URL(GOOGLE_AUTH_URL);
+              authUrl.search = new URLSearchParams({
+                client_id: config.clientId,
+                redirect_uri: redirectUri,
+                response_type: 'code',
+                scope: scopes.join(' '),
+                code_challenge: challenge,
+                code_challenge_method: 'S256',
+                state,
+                access_type: 'offline',
+                prompt: 'consent',
+              }).toString();
+              return authUrl.toString();
+            },
+          },
+          async ({ code, verifier, redirectUri }) => {
+            const tokens = await tokenRequest({
+              grant_type: 'authorization_code',
+              code,
+              code_verifier: verifier,
+              redirect_uri: redirectUri,
+            });
+            // Never keep an older refresh token (possibly another account) past a new sign-in.
+            if (tokens.refresh_token) await config.tokenStore.set(tokens.refresh_token);
+            else await config.tokenStore.delete();
+            return {
+              accessToken: tokens.access_token,
+              expiresInSeconds: tokens.expires_in,
+              ...(tokens.scope ? { scope: tokens.scope } : {}),
+            };
+          },
+        ),
+      ),
     refreshAccessToken: async () => {
       const refreshToken = await config.tokenStore.get();
       if (!refreshToken) throw new Error('Not signed in to Google.');

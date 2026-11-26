@@ -1,16 +1,40 @@
 import { isSyncTransportError } from '@flash/core';
 import type { SyncTransport } from '@flash/platform';
 import { describe, expect, it } from 'vitest';
+import type { FaultyFetch } from './faulty-fetch.ts';
+
+/** A transport plus, for HTTP transports, a way to make its next requests fail. */
+export interface SyncTransportHarness {
+  transport: SyncTransport;
+  faults?: FaultyFetch;
+  /** The provider reports throttling as 403 + a rate-limit reason (Google, C22). */
+  throttlesWith403?: boolean;
+}
+
+async function errorOf(promise: Promise<unknown>): Promise<unknown> {
+  return promise.then(
+    () => null,
+    (e: unknown) => e,
+  );
+}
 
 /**
  * Shared §4.3 `SyncTransport` contract suite. Any transport (in-memory, OneDrive, …) runs the same
  * behavioral checks the sync engine relies on: binary-safe round trips, prefix listing in
  * code-unit order, write-once `ifAbsent` -> `ALREADY_EXISTS`, overwrite, and `NOT_FOUND` reads.
+ * HTTP transports also pass `faults`: a 401 refreshes once and then is AUTH_REQUIRED, and a
+ * 429 (or Google's 403 rate limit) is retried and then is RATE_LIMITED, never a reconnect.
  */
 export function describeSyncTransportContract(
   name: string,
-  createTransport: () => Promise<SyncTransport> | SyncTransport,
+  create: () =>
+    Promise<SyncTransport | SyncTransportHarness> | SyncTransport | SyncTransportHarness,
 ): void {
+  const harness = async (): Promise<SyncTransportHarness> => {
+    const made = await create();
+    return 'transport' in made ? made : { transport: made };
+  };
+  const createTransport = async () => (await harness()).transport;
   describe(`SyncTransport contract: ${name}`, () => {
     it('round-trips binary payloads byte-for-byte', async () => {
       const transport = await createTransport();
@@ -76,6 +100,39 @@ export function describeSyncTransportContract(
         (e: unknown) => e,
       );
       expect(isSyncTransportError(err) && err.code).toBe('NOT_FOUND');
+    });
+
+    it('refreshes once after a 401, then reports AUTH_REQUIRED', async (ctx) => {
+      const { transport, faults } = await harness();
+      if (!faults) return ctx.skip();
+      const bytes = new Uint8Array([4, 2]);
+      await transport.write('sync/v1/manifest.json', bytes);
+      faults.failNext(401, 1);
+      expect(await transport.read('sync/v1/manifest.json')).toEqual(bytes);
+      faults.failNext(401, 2);
+      const err = await errorOf(transport.read('sync/v1/manifest.json'));
+      expect(isSyncTransportError(err) && err.code).toBe('AUTH_REQUIRED');
+    });
+
+    it('retries a 429, then reports RATE_LIMITED', async (ctx) => {
+      const { transport, faults } = await harness();
+      if (!faults) return ctx.skip();
+      const bytes = new Uint8Array([4, 2, 9]);
+      await transport.write('sync/v1/manifest.json', bytes);
+      faults.failNext(429, 1);
+      expect(await transport.read('sync/v1/manifest.json')).toEqual(bytes);
+      faults.failNext(429, 20);
+      const err = await errorOf(transport.read('sync/v1/manifest.json'));
+      expect(isSyncTransportError(err) && err.code).toBe('RATE_LIMITED');
+    });
+
+    it('treats a 403 rate limit as RATE_LIMITED, not PERMISSION_DENIED', async (ctx) => {
+      const { transport, faults, throttlesWith403 } = await harness();
+      if (!faults || !throttlesWith403) return ctx.skip();
+      await transport.write('sync/v1/manifest.json', new Uint8Array([1]));
+      faults.failNext('403-rate', 20);
+      const err = await errorOf(transport.read('sync/v1/manifest.json'));
+      expect(isSyncTransportError(err) && err.code).toBe('RATE_LIMITED');
     });
   });
 }

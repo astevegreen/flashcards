@@ -7,6 +7,7 @@ import {
   type FileSystemWritableLike,
   type FsPermissionState,
 } from '../src/sync/local-folder-transport.ts';
+import { describeSyncTransportContract } from './helpers/sync-transport-contract.ts';
 
 class MockFileHandle implements FileSystemFileHandleLike {
   readonly kind = 'file' as const;
@@ -130,6 +131,11 @@ class MockDirectoryHandle implements FileSystemDirectoryHandleLike {
     }
   }
 }
+
+describeSyncTransportContract(
+  'LocalFolderSyncTransport (mock directory handle)',
+  () => new LocalFolderSyncTransport(new MockDirectoryHandle('FlashcardsSync', 'granted')),
+);
 
 describe('LocalFolderSyncTransport unit tests', () => {
   it('writes nested paths, enforces ifAbsent, lists by prefix, and reads back binary payloads', async () => {

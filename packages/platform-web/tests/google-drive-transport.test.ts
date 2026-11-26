@@ -2,6 +2,7 @@ import { isSyncTransportError } from '@flash/core';
 import type { Auth, AuthSession } from '@flash/platform';
 import { describe, expect, it, vi } from 'vitest';
 import { GoogleDriveAppDataTransport } from '../src/sync/google-drive-transport.ts';
+import { parseMultipart } from './fakes/fake-drive.ts';
 
 function createMockAuth(tokens: string[] = ['token-1', 'token-2']): Auth {
   let idx = 0;
@@ -23,41 +24,6 @@ function createMockAuth(tokens: string[] = ['token-1', 'token-2']): Auth {
     handleRedirectCallback: async () => null,
     signOut: async () => {},
   };
-}
-
-function extractMultipartParts(
-  body: ArrayBuffer | Uint8Array,
-  contentType: string,
-): { metadata: Record<string, unknown>; payload: Uint8Array } {
-  const match = /boundary=([^\s;]+)/.exec(contentType);
-  if (!match || !match[1]) throw new Error('Missing multipart boundary');
-  const boundary = match[1];
-  const bytes = body instanceof Uint8Array ? body : new Uint8Array(body);
-
-  const enc = new TextEncoder();
-  const findSeq = (haystack: Uint8Array, needle: Uint8Array, from = 0): number => {
-    outer: for (let i = from; i <= haystack.length - needle.length; i++) {
-      for (let j = 0; j < needle.length; j++) {
-        if (haystack[i + j] !== needle[j]) continue outer;
-      }
-      return i;
-    }
-    return -1;
-  };
-
-  const sep = enc.encode(`--${boundary}`);
-  const crlfcrlf = enc.encode('\r\n\r\n');
-  const p1 = findSeq(bytes, sep, 0);
-  const p1BodyStart = findSeq(bytes, crlfcrlf, p1) + 4;
-  const p2 = findSeq(bytes, sep, p1BodyStart);
-  const metaJson = new TextDecoder().decode(bytes.subarray(p1BodyStart, p2 - 2));
-
-  const p2BodyStart = findSeq(bytes, crlfcrlf, p2) + 4;
-  const endMarker = enc.encode(`\r\n--${boundary}--`);
-  const p2End = findSeq(bytes, endMarker, p2BodyStart);
-  const payload = new Uint8Array(bytes.subarray(p2BodyStart, p2End));
-
-  return { metadata: JSON.parse(metaJson) as Record<string, unknown>, payload };
 }
 
 describe('GoogleDriveAppDataTransport unit tests (mocked fetch)', () => {
@@ -139,7 +105,7 @@ describe('GoogleDriveAppDataTransport unit tests (mocked fetch)', () => {
         // POST multipart create
         if (method === 'POST' && url.pathname === '/upload/drive/v3/files') {
           const ct = new Headers(init?.headers).get('Content-Type') ?? '';
-          const { metadata, payload } = extractMultipartParts(init?.body as ArrayBuffer, ct);
+          const { metadata, payload } = parseMultipart(init?.body as ArrayBuffer, ct);
           expect(metadata['parents']).toEqual(['appDataFolder']);
           const name = String(metadata['name']);
           const id = `drive-id-${nextId++}`;
