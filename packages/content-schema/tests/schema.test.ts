@@ -125,5 +125,20 @@ describe('@flash/content-schema', () => {
     expect(isSafeRelativePackPath('/packs/%2e%2E/secret.json')).toBe(false);
     expect(isSafeRelativePackPath('/packs/.%2e/secret.json')).toBe(false);
     expect(isSafeRelativePackPath('/packs/..')).toBe(false);
+    // Everything the old any-`..` check rejected stays rejected.
+    for (const raw of [
+      '/packs/..%2fsecret.json',
+      '/packs/%2e%2e%2fsecret.json',
+      '/packs/%2E%2E',
+      '/packs/a%2fb.json',
+      '/packs/a%5Cb.json',
+      '/packs/..?x',
+      '/packs/..#x',
+      '/packs/x?..',
+      '/packs/..;/secret.json',
+      '/packs/a../b.json',
+    ]) {
+      expect(isSafeRelativePackPath(raw), raw).toBe(false);
+    }
   });
 });

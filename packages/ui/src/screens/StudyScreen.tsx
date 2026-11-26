@@ -63,7 +63,8 @@ const LazySwipeGuideBanner = lazyWithRetry(() =>
   import('../study/SwipeGuideBanner.tsx').then((m) => ({ default: m.SwipeGuideBanner })),
 );
 
-// The screen-reader live region (§10); it only has to be there before the first reveal.
+// Screen-reader text for the due counts and a live region for the study flow (§10). Lazy, so it
+// costs the initial bundle nothing; it only has to be there before the first reveal.
 const LazyStudyAnnouncer = lazyWithRetry(() =>
   import('../study/StudyAnnouncer.tsx').then((m) => ({ default: m.StudyAnnouncer })),
 );
@@ -956,30 +957,29 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           <StudyOptionsBar deckId={activeDeckId} studyFilter={studyFilter} />
 
           <div
-            role="group"
-            aria-label="Due card counts"
+            aria-hidden="true"
             className="flex items-center gap-1.5 text-xs font-semibold tabular-nums"
           >
             <span
               title="New cards"
+              data-testid="count-new"
               className="rounded-full bg-sky-500/15 px-2 py-0.5 text-sky-600 dark:text-sky-400"
             >
-              <span data-testid="count-new">{queueResult.counts.new}</span>
-              <span className="sr-only"> new,</span>
+              {queueResult.counts.new}
             </span>
             <span
               title="Learning cards"
+              data-testid="count-learning"
               className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-600 dark:text-amber-400"
             >
-              <span data-testid="count-learning">{queueResult.counts.learning}</span>
-              <span className="sr-only"> learning,</span>
+              {queueResult.counts.learning}
             </span>
             <span
               title="Due review cards"
+              data-testid="count-due"
               className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-600 dark:text-emerald-400"
             >
-              <span data-testid="count-due">{queueResult.counts.due}</span>
-              <span className="sr-only"> due for review</span>
+              {queueResult.counts.due}
             </span>
           </div>
         </div>
@@ -1044,6 +1044,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       <Suspense fallback={null}>
         <LazyStudyAnnouncer
           cardId={currentCard?.id}
+          counts={queueResult.counts}
           caughtUp={caughtUp}
           revealStep={revealStep}
           totalRevealSteps={totalRevealSteps}

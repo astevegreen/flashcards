@@ -32,6 +32,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unzipSync } from 'fflate';
 import { assertPinnedDownload, cachedCopyMatches } from './packs/upstream-pins.mjs';
+import { safeZipEntryBaseName } from './packs/zip-entry.mjs';
 import { UNICODE_LICENSE, UNIHAN } from './starters/sources.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -92,10 +93,10 @@ function prepareManualKrdict(opts, sources) {
   if (zips.length > 0) {
     for (const zip of zips) {
       const files = unzipSync(readFileSync(join(dir, zip)), {
-        filter: (f) => /\.xml$/i.test(f.name) && !f.name.split('/').includes('..'),
+        filter: (f) => /\.xml$/i.test(f.name) && safeZipEntryBaseName(f.name) !== undefined,
       });
       for (const [name, data] of Object.entries(files)) {
-        writeFileSync(join(dir, name.split('/').pop()), data);
+        writeFileSync(join(dir, safeZipEntryBaseName(name)), data);
       }
       console.log(`✓ extracted ${Object.keys(files).length} KRDict XML file(s) from ${zip}`);
     }
@@ -149,10 +150,10 @@ function prepareManualExtraKoreanPack(opts, sources, cfg) {
   if (zips.length > 0) {
     for (const zip of zips) {
       const files = unzipSync(readFileSync(join(dir, zip)), {
-        filter: (f) => cfg.fileRe.test(f.name) && !f.name.split('/').includes('..'),
+        filter: (f) => cfg.fileRe.test(f.name) && safeZipEntryBaseName(f.name) !== undefined,
       });
       for (const [name, data] of Object.entries(files)) {
-        writeFileSync(join(dir, name.split('/').pop()), data);
+        writeFileSync(join(dir, safeZipEntryBaseName(name)), data);
       }
       console.log(`✓ extracted ${Object.keys(files).length} ${cfg.label} file(s) from ${zip}`);
     }

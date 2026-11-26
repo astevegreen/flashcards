@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { choiceQuestionKey } from '../src/study/answerModes/ChoiceMode.tsx';
-import { studyAnnouncementText } from '../src/study/StudyAnnouncer.tsx';
+import { dueCountsText, studyAnnouncementText } from '../src/study/StudyAnnouncer.tsx';
 
 describe('studyAnnouncementText (§10)', () => {
   it('names the next card, the revealed answer and its step, and the end of the queue', () => {
@@ -15,6 +15,14 @@ describe('studyAnnouncementText (§10)', () => {
     );
     expect(studyAnnouncementText({ caughtUp: true, revealStep: 0, totalRevealSteps: 0 })).toBe(
       'No more cards to study right now.',
+    );
+  });
+});
+
+describe('dueCountsText (§10)', () => {
+  it('reads the three chips as one labelled sentence', () => {
+    expect(dueCountsText({ new: 3, learning: 0, due: 12 })).toBe(
+      '3 new, 0 learning, 12 due for review',
     );
   });
 });

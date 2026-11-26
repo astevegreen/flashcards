@@ -1,70 +1,13 @@
-import { useContext } from 'react';
+import { useContext, type ReactNode } from 'react';
 import { RubyDisplayContext } from '../../components/RichText.tsx';
 import { cardTextFitClass } from '../fitText.ts';
 import { CardFieldValue } from './CardFieldValue.tsx';
 import type { AnswerModeRenderProps } from './types.ts';
 
-type ShellProps = Pick<
-  AnswerModeRenderProps,
-  'note' | 'deck' | 'layout' | 'fieldMetaByKey' | 'hideFrontRuby' | 'pinyinToneColors'
->;
-
-export interface FrontFieldsProps extends ShellProps {
-  /** Text size of the first field: `prompt` for flip-style fronts, `answer` above an input. */
-  fit: 'prompt' | 'answer';
-  /** Wrapper classes; defaults to the layout the answer modes share. */
-  className?: string;
-  /** `data-testid` prefix of each field. */
-  testIdPrefix?: string;
-}
-
-/** The front fields of a card, shared by the answer modes (R7). */
-export function FrontFields({
-  note,
-  deck,
-  layout,
-  fieldMetaByKey,
-  hideFrontRuby,
-  pinyinToneColors,
-  fit,
-  className = 'flex w-full max-w-2xl flex-col items-center gap-3 pt-4',
-  testIdPrefix = 'front-field',
-}: FrontFieldsProps) {
-  return (
-    <div className={className}>
-      {layout.front_fields.map((fieldKey, idx) => {
-        const value = note.fields[fieldKey];
-        if (!value) return null;
-        return (
-          <div
-            key={fieldKey}
-            data-testid={`${testIdPrefix}-${fieldKey}`}
-            className={
-              idx === 0
-                ? `whitespace-pre-wrap font-semibold tracking-tight ${cardTextFitClass(value, fit, layout.ruby_display)}`
-                : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail', layout.ruby_display)}`
-            }
-          >
-            <CardFieldValue
-              fieldKey={fieldKey}
-              value={value}
-              meta={fieldMetaByKey.get(fieldKey)}
-              fallbackLang={deck.language}
-              hideRuby={hideFrontRuby}
-              pinyinToneColors={pinyinToneColors}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 export interface RevealedAnswerProps extends Pick<
   AnswerModeRenderProps,
   | 'note'
   | 'deck'
-  | 'layout'
   | 'fieldMetaByKey'
   | 'pinyinToneColors'
   | 'populatedRevealSteps'
@@ -72,22 +15,21 @@ export interface RevealedAnswerProps extends Pick<
   | 'isRevealed'
   | 'isFullyRevealed'
 > {
-  /** Repeat the front fields above the back steps (Listen hides them until reveal). */
-  showFrontFields?: boolean;
+  /** Shown above the back steps (Listen repeats its hidden front there). */
+  children?: ReactNode;
 }
 
 /** The revealed back steps under every answer mode; nothing until the card is revealed (R7). */
 export function RevealedAnswer({
   note,
   deck,
-  layout,
   fieldMetaByKey,
   pinyinToneColors,
   populatedRevealSteps,
   revealStep,
   isRevealed,
   isFullyRevealed,
-  showFrontFields,
+  children,
 }: RevealedAnswerProps) {
   const rubyDisplay = useContext(RubyDisplayContext);
   if (!isRevealed) return null;
@@ -105,19 +47,7 @@ export function RevealedAnswer({
         hasExtrasPanel ? 'gap-3 pt-4' : 'gap-4 pt-6'
       }`}
     >
-      {showFrontFields && (
-        <FrontFields
-          note={note}
-          deck={deck}
-          layout={layout}
-          fieldMetaByKey={fieldMetaByKey}
-          hideFrontRuby={false}
-          pinyinToneColors={pinyinToneColors}
-          fit="answer"
-          className="flex w-full flex-col items-center gap-2"
-          testIdPrefix="back-front-field"
-        />
-      )}
+      {children}
 
       {mainSteps.map((stepKeys, stepIdx) => (
         <div key={stepIdx} className="flex w-full flex-col items-center gap-2">

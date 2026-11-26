@@ -2,10 +2,17 @@ import { generateChoiceOptions } from '@flash/core/choice';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RichText } from '../../components/RichText.tsx';
 import type { Layout, Note } from '@flash/core';
-import { FrontFields, RevealedAnswer } from './AnswerShell.tsx';
+import { RevealedAnswer } from './AnswerShell.tsx';
+import { FrontFields } from './FrontFields.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 
-/** What a choice question depends on besides the distractor pool (§11 nit). */
+/**
+ * When a Choice card rebuilds its options (§11 nit): a new card or study day, an edit of this
+ * card's own fields, or a change to the layout's answer field, first reveal step or ruby display.
+ * Everything else is left out on purpose: other notes (a sync mid-question), and this note's tags,
+ * even though tags pick same-tag distractors, so a tag-only edit keeps the old options until the
+ * next card.
+ */
 export function choiceQuestionKey(
   cardId: string,
   studyDayIndex: number,
@@ -39,8 +46,7 @@ function ChoiceModeView(props: AnswerModeRenderProps) {
     setSelectedOptionId(null);
   }, [card.id]);
 
-  // Rebuild the options only when this card's own question changes: a sync that lands
-  // mid-question adds or edits other notes and would otherwise reshuffle the distractors.
+  // Not on every state change: a sync that lands mid-question would reshuffle the distractors.
   const questionKey = choiceQuestionKey(card.id, studyDayIndex, note, layout);
   const question = useMemo(
     () => generateChoiceOptions(state, card, studyDayIndex),

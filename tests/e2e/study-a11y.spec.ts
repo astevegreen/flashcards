@@ -39,7 +39,8 @@ test.describe('Study accessibility (§10)', () => {
   test('announces reveal and next card, and reads the due counts with labels', async ({ page }) => {
     await openKoreanDeck(page, 'a11y-live');
 
-    const counts = page.getByRole('group', { name: 'Due card counts' });
+    // The chips are hidden from readers; one sentence under the header reads them with labels.
+    const counts = page.getByTestId('study-due-counts');
     await expect(counts).toHaveText(/^\d+ new,\s*\d+ learning,\s*\d+ due for review$/);
     const newCount = Number(await page.getByTestId('count-new').textContent());
 

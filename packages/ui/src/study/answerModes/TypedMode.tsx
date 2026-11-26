@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
-import { FrontFields, RevealedAnswer } from './AnswerShell.tsx';
+import { RevealedAnswer } from './AnswerShell.tsx';
+import { FrontFields } from './FrontFields.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 
 const LazyTypedAnswerPanel = lazyWithRetry(() => import('./TypedAnswerPanel.tsx'));

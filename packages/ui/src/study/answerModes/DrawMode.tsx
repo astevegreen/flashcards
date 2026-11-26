@@ -7,7 +7,8 @@ import type { HandwritingCandidate } from '@flash/platform';
 import { Suspense, useEffect, useState } from 'react';
 import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
 import { DrawLookupPanel } from '../../drawing/DrawLookupPanel.tsx';
-import { FrontFields, RevealedAnswer } from './AnswerShell.tsx';
+import { RevealedAnswer } from './AnswerShell.tsx';
+import { FrontFields } from './FrontFields.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 
 const LazyDrawQuizPanel = lazyWithRetry(() => import('../../drawing/DrawQuizPanel.tsx'));

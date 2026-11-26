@@ -50,7 +50,7 @@ function normalizeUmlaut(syllable: string, isNumbered: boolean): string {
  * The shape of a Hanyu Pinyin syllable: an optional initial, vowels, then an optional `n`/`ng`
  * and erhua `r`. A word followed by a digit that has another shape (`Windows1`) keeps its digit.
  */
-const PINYIN_SYLLABLE = /^([b-df-hj-np-tw-z]|[csz]h)?[aeiouvüê]+(ng?)?r?$/;
+const PINYIN_SYLLABLE = /^([^aeiouvüê]h?)?[aeiouvüê]+(ng?)?r?$/;
 
 /**
  * Standard Hanyu Pinyin tone placement rule:

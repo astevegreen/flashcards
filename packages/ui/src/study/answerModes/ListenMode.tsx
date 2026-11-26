@@ -1,10 +1,15 @@
 import { resolveCardAudioTarget } from '@flash/core';
+import { useContext } from 'react';
+import { RubyDisplayContext } from '../../components/RichText.tsx';
 import { useApp } from '../../state/AppContext.tsx';
+import { cardTextFitClass } from '../fitText.ts';
 import { RevealedAnswer } from './AnswerShell.tsx';
+import { CardFieldValue } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 
 function ListenModeView(props: AnswerModeRenderProps) {
-  const { note, deck, layout, noteType, onSpeak } = props;
+  const { note, deck, layout, noteType, fieldMetaByKey, pinyinToneColors, onSpeak } = props;
+  const rubyDisplay = useContext(RubyDisplayContext);
   const { audio } = useApp();
   const target = resolveCardAudioTarget(note, layout, noteType, deck);
   const audioAvailable = audio.canPlayAnyAudio(target);
@@ -49,7 +54,37 @@ function ListenModeView(props: AnswerModeRenderProps) {
         )}
       </div>
 
-      <RevealedAnswer {...props} showFrontFields />
+      <RevealedAnswer {...props}>
+        {layout.front_fields.length > 0 && (
+          <div className="flex w-full flex-col items-center gap-2">
+            {layout.front_fields.map((fieldKey, idx) => {
+              const value = note.fields[fieldKey];
+              if (!value) return null;
+              const meta = fieldMetaByKey.get(fieldKey);
+              return (
+                <div
+                  key={`front-reveal-${fieldKey}`}
+                  data-testid={`back-front-field-${fieldKey}`}
+                  className={
+                    idx === 0
+                      ? `whitespace-pre-wrap font-semibold ${cardTextFitClass(value, 'answer', rubyDisplay)}`
+                      : `whitespace-pre-wrap text-[var(--muted)] ${cardTextFitClass(value, 'detail', rubyDisplay)}`
+                  }
+                >
+                  <CardFieldValue
+                    fieldKey={fieldKey}
+                    value={value}
+                    meta={meta}
+                    fallbackLang={deck.language}
+                    hideRuby={false}
+                    pinyinToneColors={pinyinToneColors}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </RevealedAnswer>
     </>
   );
 }
