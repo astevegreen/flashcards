@@ -204,6 +204,7 @@ export interface FileSink {
 }
 
 export interface Files {
+  /** `null` when the user cancels; rejects when the chosen file cannot be read. */
   pickFile(options?: PickFileOptions): Promise<PickedFile | null>;
   downloadFile(filename: string, data: Uint8Array, mimeType: string): Promise<void>;
   /**
@@ -799,6 +800,7 @@ export interface AudioPlayer {
   hasPreloaded(hash: string): boolean;
   retainOnly(keepHashes: ReadonlySet<string>): void;
   playPreloaded(hash: string, rate?: number): Promise<boolean>;
+  /** Rejects when playback fails, with or without `cacheHash`. */
   play(bytes: Uint8Array, mime: string, rate?: number, cacheHash?: string): Promise<void>;
   stop(): void;
   dispose(): void;
