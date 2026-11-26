@@ -63,7 +63,10 @@ function fakeStorage() {
       calls.strokeRows += 1;
       return store.rows.get(script) ?? [];
     },
-    countStrokesByScript: async (script: Script) => store.rows.get(script)?.length ?? 0,
+    deckStrokesVersion: async (script: Script) => {
+      const rows = store.rows.get(script) ?? [];
+      return `${rows.length}@${Math.max(0, ...rows.map((r) => r.updatedAt))}`;
+    },
     listInstalledHanjaCharacters: async () => {
       calls.hanja += 1;
       return new Set(store.hanja);
@@ -146,5 +149,29 @@ describe('WebStrokeRecognizer caches its indexes by pack install (P6)', () => {
     const out = await recognizer.recognize(DRAWN_HORIZONTAL, { lang: 'ja' });
     expect(out[0]?.character).toBe('一');
     expect(calls.strokeRows).toBe(2);
+
+    // Re-caching a character with corrected strokes keeps the count but must not keep the old index.
+    store.rows.set('ja', [{ ...row('丨', HORIZONTAL), updatedAt: 5 }, row('一', VERTICAL)]);
+    const corrected = await recognizer.recognize(DRAWN_HORIZONTAL, { lang: 'ja' });
+    expect(calls.strokeRows).toBe(3);
+    expect(corrected[0]?.character).toBe('丨');
+  });
+});
+
+describe('DexiePackStorage.deckStrokesVersion (P6)', () => {
+  it('changes when a cached character is re-cached, not only when one is added', async () => {
+    await import('fake-indexeddb/auto');
+    const { DexiePackStorage } = await import('../src/packs/dexie-pack-storage.ts');
+    const storage = new DexiePackStorage(`strokes-version-${Date.now()}`);
+    const data = (medians: number[][][]) => ({ strokes: [], medians });
+    const empty = await storage.deckStrokesVersion('ja');
+    await storage.putSingleStroke('ja', '一', data(HORIZONTAL));
+    const one = await storage.deckStrokesVersion('ja');
+    expect(one).not.toBe(empty);
+    await storage.putSingleStroke('ja', '一', data(VERTICAL));
+    const recached = await storage.deckStrokesVersion('ja');
+    expect(recached).not.toBe(one);
+    expect(recached.split('@')[0]).toBe('1');
+    expect(await storage.deckStrokesVersion('zh-Hans')).toBe(empty);
   });
 });
