@@ -22,7 +22,7 @@ import type { GooglePickedFile } from '@flash/platform';
 import { Suspense, useEffect, useMemo, useState, type DragEvent, type SyntheticEvent } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
-import { gridToCsv } from '../sources/oneDriveImport.ts';
+import { gridToCsv, readXlsxGrid } from '../sources/oneDriveImport.ts';
 import { useApp } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import type { PendingAnkiFile } from './AnkiImportPanel.tsx';
@@ -890,7 +890,7 @@ export function BringMyCardsPanel({ embedded = false }: Readonly<BringMyCardsPan
 
   /** Reads the first sheet of a workbook (lazy Excel reader) and maps it like a CSV file. */
   const runXlsx = async (name: string, bytes: Uint8Array) => {
-    const grid = await (await platform.getLocalFolderSources()).parseXlsxBytes(bytes);
+    const grid = await readXlsxGrid(platform, name, bytes);
     const headers = (grid[0] ?? []).map((h) => h.trim());
     if (grid.length === 0 || headers.every((h) => h === '')) {
       fail(`"${name}" has nothing in its first sheet's first row.`);

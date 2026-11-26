@@ -7,7 +7,7 @@ import {
   type KnownEvent,
 } from '../../core/src/index.ts';
 import type { PlatformServices } from '../../platform/src/index.ts';
-import { importPickedOneDriveFile } from '../src/sources/oneDriveImport.ts';
+import { importPickedOneDriveFile, readXlsxGrid } from '../src/sources/oneDriveImport.ts';
 
 function context() {
   const state = createEmptyState();
@@ -54,5 +54,23 @@ describe('cloud one-shot .xlsx import on a device without an Excel reader (C21)'
     );
     expect(parseXlsxBytes).not.toHaveBeenCalled();
     expect(createDeck).not.toHaveBeenCalled();
+  });
+});
+
+describe('readXlsxGrid, shared by cloud imports and Bring my cards (C21)', () => {
+  it('refuses before parsing on a device without an Excel reader, else parses', async () => {
+    const parseXlsxBytes = vi.fn(async () => [['Word'], ['나무']]);
+    const platform = (canParse: boolean) =>
+      ({
+        getLocalFolderSources: async () => ({ canParseXlsx: () => canParse, parseXlsxBytes }),
+      }) as unknown as PlatformServices;
+    await expect(readXlsxGrid(platform(false), 'deck.xlsx', new Uint8Array([1]))).rejects.toThrow(
+      /Excel files can't be read on this device/,
+    );
+    expect(parseXlsxBytes).not.toHaveBeenCalled();
+    expect(await readXlsxGrid(platform(true), 'deck.xlsx', new Uint8Array([1]))).toEqual([
+      ['Word'],
+      ['나무'],
+    ]);
   });
 });
