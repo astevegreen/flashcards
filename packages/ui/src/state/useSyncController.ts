@@ -1,5 +1,4 @@
 import {
-  getTotalAppliedEventCount,
   type CollectionState,
   type EventFactory,
   type FlashEvent,
@@ -111,6 +110,8 @@ export interface UseSyncControllerOptions {
   initialSyncConfig?: SyncConfig;
   initialSyncCursor?: SyncCursorState;
   enqueuePersist: (task: () => Promise<void>) => Promise<void>;
+  /** Events applied at the last local snapshot; shared with AppProvider's local-edit snapshots. */
+  lastLocalSnapshotCountRef: MutableRefObject<number>;
   /** When this tab started; sync snapshot writes check the rebuild stamp against it. */
   startedAtMs?: number;
   onStateMutated: (nextMeta?: DeviceMeta) => void;
@@ -173,6 +174,7 @@ export function useSyncController({
   initialSyncConfig,
   initialSyncCursor,
   enqueuePersist,
+  lastLocalSnapshotCountRef,
   startedAtMs,
   onStateMutated,
   onReplaceState,
@@ -201,7 +203,6 @@ export function useSyncController({
   const workerTrackingLocalRef = useRef<boolean>(false);
   const pendingWorkerLocalEventsRef = useRef<FlashEvent[]>([]);
   const reviewsSinceSyncRef = useRef<number>(0);
-  const lastLocalSnapshotCountRef = useRef<number>(getTotalAppliedEventCount(stateRef.current));
   const inFlightRef = useRef<boolean>(false);
   const queuedRef = useRef<boolean>(false);
   const idlePushTimerRef = useRef<number | null>(null);
