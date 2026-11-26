@@ -51,11 +51,13 @@ export function holdWriterLock(
         resolve(done);
       });
     };
-    // A synchronous throw from `request` rejects this promise too, so both reach `.catch`.
-    new Promise((settle) => settle(locks.request(name, options, onLock))).catch(() => {
-      if (release) onLost();
-      else resolve(options.signal?.aborted ? null : () => undefined);
-    });
+    // A synchronous throw from `request` rejects this chain too, so both reach `.catch`.
+    void Promise.resolve()
+      .then(() => locks.request(name, options, onLock))
+      .catch(() => {
+        if (release) onLost();
+        else resolve(options.signal?.aborted ? null : () => undefined);
+      });
   });
 }
 
