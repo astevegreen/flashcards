@@ -1,11 +1,9 @@
 import { compareCodeUnits, SyncTransportError } from '@flash/core';
 import type { Auth, SyncFileInfo, SyncTransport } from '@flash/platform';
-import { isGoogleRateLimited } from './google-errors.ts';
+import { createGoogleFetch, type GoogleFetch } from './google-http.ts';
 
 const DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3/files';
-const MAX_RETRY_ATTEMPTS = 3;
-const BASE_RETRY_DELAY_MS = 250;
 
 interface DriveFileRecord {
   id: string;
@@ -25,6 +23,7 @@ export interface GoogleDriveTransportOptions {
   auth: Auth;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
 }
 
 /** `appProperties` mark on files created with `ifAbsent` (write-once), see {@link pickDriveCopy}. */
@@ -62,12 +61,6 @@ function pickDriveCopy(files: readonly DriveFileRecord[]): DriveFileRecord | und
 
 function escapeDriveQuery(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-}
-
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 function buildMultipartRelatedBody(
@@ -110,86 +103,18 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
  * using its exact logical path as Drive `name`, eliminating nested-folder races.
  */
 export class GoogleDriveAppDataTransport implements SyncTransport {
-  private readonly auth: Auth;
-  private readonly fetchImpl: typeof fetch;
-  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly authorizedFetch: GoogleFetch;
   private readonly pathToId = new Map<string, string>();
 
   constructor(options: GoogleDriveTransportOptions) {
-    this.auth = options.auth;
-    this.fetchImpl = options.fetchImpl ?? ((...args) => fetch(...args));
-    this.sleep = options.sleep ?? defaultSleep;
-  }
-
-  private async authorizedFetch(url: string, init: RequestInit = {}): Promise<Response> {
-    let token = await this.auth.getValidAccessToken();
-    let refreshedOnce = false;
-    let transientAttempts = 0;
-
-    while (transientAttempts < MAX_RETRY_ATTEMPTS) {
-      const headers = new Headers(init.headers);
-      headers.set('Authorization', `Bearer ${token}`);
-
-      let res: Response;
-      try {
-        res = await this.fetchImpl(url, { ...init, headers });
-      } catch (err) {
-        throw new SyncTransportError(
-          'NETWORK',
-          `Google Drive network error: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-
-      if (res.status === 401) {
-        if (!refreshedOnce) {
-          refreshedOnce = true;
-          token = await this.auth.getValidAccessToken({ forceRefresh: true });
-          continue;
-        }
-        throw new SyncTransportError(
-          'AUTH_REQUIRED',
-          'Google Drive rejected credentials after refresh. Please reconnect.',
-          401,
-        );
-      }
-
-      const rateLimited = await isGoogleRateLimited(res);
-      if (
-        (rateLimited || (res.status >= 500 && res.status <= 504)) &&
-        transientAttempts + 1 < MAX_RETRY_ATTEMPTS
-      ) {
-        const delayMs = BASE_RETRY_DELAY_MS * Math.pow(3, transientAttempts);
-        transientAttempts += 1;
-        await this.sleep(delayMs);
-        continue;
-      }
-
-      if (rateLimited) {
-        throw new SyncTransportError(
-          'RATE_LIMITED',
-          'Google Drive rate limit exceeded.',
-          res.status,
-        );
-      }
-      if (res.status === 403) {
-        throw new SyncTransportError(
-          'PERMISSION_DENIED',
-          'Google Drive permission denied for appDataFolder.',
-          403,
-        );
-      }
-      if (res.status >= 500) {
-        throw new SyncTransportError(
-          'NETWORK',
-          `Google Drive server error (HTTP ${res.status}).`,
-          res.status,
-        );
-      }
-
-      return res;
-    }
-
-    throw new SyncTransportError('NETWORK', 'Google Drive request failed after retries.');
+    this.authorizedFetch = createGoogleFetch({
+      ...options,
+      label: 'Google Drive',
+      messages: {
+        authRequired: 'Google Drive rejected credentials after refresh. Please reconnect.',
+        permissionDenied: 'Google Drive permission denied for appDataFolder.',
+      },
+    });
   }
 
   private async findFileId(path: string, bypassCache = false): Promise<string | null> {

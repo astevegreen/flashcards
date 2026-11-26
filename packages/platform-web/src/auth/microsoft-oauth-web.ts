@@ -1,7 +1,9 @@
 import { SyncTransportError } from '@flash/core';
 import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
 import type { GoogleOAuthWindowLike } from './google-oauth-web.ts';
+import { createPkcePair, randomBase64Url } from './pkce.ts';
 import { isFreshPkce } from './pkce-expiry.ts';
+import { reconnectRequiredTokens, requireAccessToken, TokenRefresher } from './token-refresher.ts';
 
 /** OneDrive app-folder sync scopes (least privilege, §13). */
 export const MICROSOFT_SYNC_SCOPES = ['Files.ReadWrite.AppFolder', 'offline_access'] as const;
@@ -47,12 +49,6 @@ export interface MicrosoftOAuthWebOptions {
   fetchImpl?: typeof fetch;
   windowImpl?: GoogleOAuthWindowLike;
   nowMs?: () => number;
-}
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  let str = '';
-  for (const b of bytes) str += String.fromCharCode(b);
-  return btoa(str).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
 
 function trimTrailingSlashes(value: string): string {
@@ -114,7 +110,7 @@ export class MicrosoftOAuthWebAuth implements Auth {
   private readonly fetchImpl: typeof fetch;
   private readonly windowImpl: GoogleOAuthWindowLike | undefined;
   private readonly nowMs: () => number;
-  private inFlightRefresh: Promise<string> | null = null;
+  private readonly refresher: TokenRefresher<StoredMicrosoftTokens>;
 
   constructor(options: MicrosoftOAuthWebOptions) {
     this.clientId = options.clientId.trim();
@@ -126,6 +122,15 @@ export class MicrosoftOAuthWebAuth implements Auth {
       options.windowImpl ??
       (typeof window === 'undefined' ? undefined : (window as unknown as GoogleOAuthWindowLike));
     this.nowMs = options.nowMs ?? (() => Date.now());
+    this.refresher = new TokenRefresher<StoredMicrosoftTokens>({
+      label: 'OneDrive',
+      marginMs: REFRESH_MARGIN_MS,
+      nowMs: this.nowMs,
+      read: () => this.readTokens(),
+      refresh: (tokens) => this.performRefresh(tokens),
+      cannotRefreshMessage:
+        'OneDrive access expired and no refresh token is stored. Please reconnect.',
+    });
   }
 
   isConfigured(): boolean {
@@ -181,9 +186,8 @@ export class MicrosoftOAuthWebAuth implements Auth {
       );
     }
     const win = this.getWindow();
-    const verifier = base64UrlEncode(win.crypto.getRandomValues(new Uint8Array(32)));
-    const digest = await win.crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-    const state = `${MS_STATE_PREFIX}${base64UrlEncode(win.crypto.getRandomValues(new Uint8Array(16)))}`;
+    const { verifier, challenge } = await createPkcePair(win.crypto);
+    const state = `${MS_STATE_PREFIX}${randomBase64Url(16, win.crypto)}`;
     const redirectUri = `${win.location.origin}${win.location.pathname}`;
     const existing = await this.readTokens();
     const scopes = [
@@ -214,7 +218,7 @@ export class MicrosoftOAuthWebAuth implements Auth {
         redirectUri,
         scope,
         state,
-        codeChallenge: base64UrlEncode(new Uint8Array(digest)),
+        codeChallenge: challenge,
       }),
     );
     return null;
@@ -283,30 +287,8 @@ export class MicrosoftOAuthWebAuth implements Auth {
     };
   }
 
-  async getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
-    const tokens = await this.readTokens();
-    if (!tokens) throw new SyncTransportError('AUTH_REQUIRED', 'OneDrive is not connected.');
-    if (tokens.reconnectRequired) {
-      throw new SyncTransportError(
-        'AUTH_REQUIRED',
-        'OneDrive session expired. Please reconnect in Settings.',
-      );
-    }
-    const fresh =
-      !opts?.forceRefresh &&
-      Boolean(tokens.accessToken) &&
-      tokens.expiresAt - this.nowMs() > REFRESH_MARGIN_MS;
-    if (fresh) return tokens.accessToken;
-    if (!tokens.refreshToken) {
-      throw new SyncTransportError(
-        'AUTH_REQUIRED',
-        'OneDrive access expired and no refresh token is stored. Please reconnect.',
-      );
-    }
-    this.inFlightRefresh ??= this.performRefresh(tokens).finally(() => {
-      this.inFlightRefresh = null;
-    });
-    return this.inFlightRefresh;
+  getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
+    return this.refresher.getValidAccessToken(opts);
   }
 
   private async performRefresh(tokens: StoredMicrosoftTokens): Promise<string> {
@@ -318,22 +300,11 @@ export class MicrosoftOAuthWebAuth implements Auth {
       });
     } catch (err) {
       if (err instanceof SyncTransportError && err.code === 'AUTH_REQUIRED') {
-        await this.storage.setKv(MS_TOKENS_KV_KEY, {
-          ...tokens,
-          accessToken: '',
-          expiresAt: 0,
-          reconnectRequired: true,
-        } satisfies StoredMicrosoftTokens);
+        await this.storage.setKv(MS_TOKENS_KV_KEY, reconnectRequiredTokens(tokens));
       }
       throw err;
     }
-    const accessToken = stringOf(data, 'access_token');
-    if (!accessToken) {
-      throw new SyncTransportError(
-        'AUTH_REQUIRED',
-        'Microsoft refresh response missing access_token.',
-      );
-    }
+    const accessToken = requireAccessToken(data, 'Microsoft');
     await this.storage.setKv(MS_TOKENS_KV_KEY, {
       ...tokens,
       accessToken,
@@ -397,7 +368,7 @@ export class MicrosoftOAuthWebAuth implements Auth {
   }
 
   async signOut(): Promise<void> {
-    this.inFlightRefresh = null;
+    this.refresher.reset();
     await this.storage.deleteKv(MS_TOKENS_KV_KEY);
     await this.storage.deleteKv(MS_PKCE_KV_KEY);
   }
