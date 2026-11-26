@@ -34,12 +34,27 @@ id, e.g. `Wikidata L196`, or `Unihan 17.0.0 kDefinition`) and `meaningEdited`. S
 (`buildStarterDeckEvents`) does not copy it into events, so the built-in note types and the event
 format are unchanged.
 
-Decks seeded before 1.2.0 keep the old credit in their Notes field: starter decks have no update
-path yet (see `docs/follow-ups.md`). The exact old text is reproducible from `meaningSource` and
-`meaningEdited` (Korean: `Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English:
-Wikidata L… (CC0)[, edited by this app].`; Mandarin: `[Also read: …. ]Source: Unicode Unihan
-17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3[; meaning edited by this app].`),
-so a future update step can clear it only where the field still equals it exactly.
+## Upgrading decks seeded from an older release
+
+Seeding happens once, at onboarding, so a deck keeps the text of the release it was seeded from.
+At launch, `packages/core/src/starters/upgrade.ts` brings a starter deck whose
+`DeckCreated.source.package_version` is older than the catalog's up to date, once per release (a
+`SourceLinked` records the new version on the deck). Per note, a field changes only while it still
+exactly equals a value an older release generated, and only that field is written, so user edits
+stay. The older values are rebuilt from the current build data:
+
+- **Notes, 1.0.0 and 1.1.0:** the per-card credit, from `meaningSource` and `meaningEdited`
+  (Korean: `Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L…
+(CC0)[, edited by this app].`; Mandarin: `[Also read: …. ]Source: Unicode Unihan 17.0.0
+(kHanyuPinlu, kMandarin, kDefinition), Unicode License v3[; meaning edited by this app].`). 1.0.0
+  never says "edited". The upgrade clears it, or leaves the Mandarin "Also read: …".
+- **Meaning, 1.0.0:** the upstream gloss of every note that has a gloss override (overrides came
+  in 1.1.0). The build writes them to `generated/legacy-glosses.ts` from each override's
+  `upstream`, and `--check` covers that file too.
+
+`packages/core/tests/starter-upgrade.test.ts` rebuilds the full 1.0.0 and 1.1.0 decks this way
+and checks them against the `contentHash` those releases' catalogs recorded. If a re-pin changes an
+override's `upstream`, that test fails, so the lost 1.0.0 gloss is reviewed rather than dropped.
 
 Korean example sentences stay empty: no open source passed the licence gate in a pinned,
 offline-reproducible form (see `docs/follow-ups.md`). They are never invented.

@@ -294,6 +294,9 @@ describe('starter-deck builder', () => {
     expect(zh.notes[0].meaningEdited).toBeUndefined();
     // The hash covers the edited notes.
     expect(ko.info.contentHash).not.toBe(build()[0].info.contentHash);
+    // The 1.0.0 gloss of each reworded note is kept for the starter-deck upgrade.
+    expect(ko.legacyGlosses).toEqual({ 'nikl:가다01:verb': 'to go; to leave' });
+    expect(zh.legacyGlosses).toEqual({ 'unihan:U+7740': 'make move, take action' });
   });
 
   it('rejects stale, misplaced or unknown gloss overrides', () => {
@@ -329,7 +332,12 @@ describe('starter-deck builder', () => {
   it('is deterministic: input order never changes the output, and rendering is byte-identical', async () => {
     const a = await renderStarterModules(build());
     const b = await renderStarterModules(build(LEXEMES.toReversed()));
-    expect([...b.keys()]).toEqual(['catalog.ts', 'ko-core.ts', 'zh-common.ts']);
+    expect([...b.keys()]).toEqual([
+      'catalog.ts',
+      'ko-core.ts',
+      'zh-common.ts',
+      'legacy-glosses.ts',
+    ]);
     for (const [name, source] of a) expect(b.get(name)).toBe(source);
     expect(a.get('catalog.ts')).toContain("module: 'ko-core'");
     expect(a.get('ko-core.ts')).not.toMatch(/\r/);
