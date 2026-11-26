@@ -529,6 +529,30 @@ describe('presets across devices', () => {
     );
   });
 
+  it('an edit to the value a deck already holds still wins on the deck (seed -751377563)', () => {
+    // A sets 1 and B, later, sets 200: the default the decks already hold. Skipping B's copy as a
+    // no-op let A's copy win on the decks while B's save won on the preset.
+    const { a, b, shared } = twoDevices();
+    const aEvents = editPreset(shared, a, 'p1', { settings: { max_reviews_per_day: 1 } }, T0 + 100);
+    const bEvents = editPreset(
+      shared,
+      b,
+      'p1',
+      { settings: { max_reviews_per_day: 200 } },
+      T0 + 200,
+    );
+    for (const delivery of [
+      [...aEvents, ...bEvents],
+      [...bEvents, ...aEvents],
+    ]) {
+      const state = replayAllEvents([...shared, ...delivery]);
+      expect(getDeckPreset(state, KO)?.settings.max_reviews_per_day).toBe(200);
+      for (const deckId of [KO, JA]) {
+        expect(state.decks.get(deckId)?.settings.max_reviews_per_day).toBe(200);
+      }
+    }
+  });
+
   it('concurrent retention and weight copies keep both versions; reviews keep their own', () => {
     const { a, b, shared } = twoDevices();
     const aEvents = editPreset(shared, a, 'p1', { settings: { target_retention: 0.8 } }, T0 + 100);

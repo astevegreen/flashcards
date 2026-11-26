@@ -45,8 +45,10 @@ export interface DeckOrganizationActions {
 }
 
 /**
- * Copies the given preset `fields` into the decks where they differ. An edit copies only the
- * fields it changed, so a concurrent edit of another field on another device is never overwritten.
+ * Copies the given preset `fields` into the decks (with no `fields`, every field that differs). An
+ * edit copies only the fields it changed, so a concurrent edit of another field on another device
+ * is never overwritten, and copies them even where a deck already holds the value, so a concurrent
+ * edit of the same field resolves the same way on the decks as on the preset.
  */
 function fanOut(
   factory: EventFactory,
