@@ -1,6 +1,5 @@
 import type { DropboxBrowseItem, PendingXlsxReconciliation } from '@flash/platform';
 import { CloudFilePickerPanel, type CloudPickerProvider } from './CloudFilePickerPanel.tsx';
-import { linkedDropboxDeck } from './dropboxLinkedDeck.ts';
 
 const APP_FOLDER = <strong>Dropbox › Apps › Flashcards</strong>;
 
@@ -19,9 +18,9 @@ const DROPBOX: CloudPickerProvider<DropboxBrowseItem> = {
     };
   },
   folderOf: (item) => item.pathLower,
-  linkedDeck: linkedDropboxDeck,
+  sourceKind: 'dropbox_file',
   async link(item, ctx, choice) {
-    const { linkDropboxFile } = await import('./sourceRunner.ts');
+    const { linkDropboxFile } = await import('./cloudFileProviders.ts');
     return linkDropboxFile(
       { id: item.id, name: item.name, pathDisplay: item.pathDisplay },
       ctx,

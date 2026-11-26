@@ -1,10 +1,11 @@
-import type { CollectionState, Deck } from '@flash/core';
+import type { SourceKind } from '@flash/core';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import type { PendingXlsxReconciliation, PickedFile, PlatformServices } from '@flash/platform';
 import { Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
-import type { SourceRunContext } from './sourceRunner.ts';
+import type { SourceRunContext } from './sourcesRegistry.ts';
+import { linkedFileDeck } from './linkedFileDeck.ts';
 import type { LinkedFileMappingChoice } from './LinkedFileMapping.tsx';
 import { importPickedCloudFile } from './oneDriveImport.ts';
 
@@ -44,7 +45,8 @@ export interface CloudPickerProvider<Item extends CloudBrowseItem> {
   open(platform: PlatformServices): Promise<CloudPickerSession<Item>>;
   /** The handle `listFolder` takes to browse into this folder. */
   folderOf(item: Item): string;
-  linkedDeck(state: CollectionState, fileId: string): Deck | undefined;
+  /** The `SourceRef.kind` its linked decks carry. */
+  sourceKind: SourceKind;
   link(
     item: Item,
     ctx: SourceRunContext,
@@ -231,8 +233,8 @@ export function CloudFilePickerPanel<Item extends CloudBrowseItem>({
     setPanelError(null);
     try {
       const picked = await session.downloadFile(item);
-      const { readOneDriveTable } = await import('./sourceRunner.ts');
-      setLinking({ item, grid: await readOneDriveTable(platform, picked), busy: false });
+      const { readCloudTable } = await import('./cloudFileSource.ts');
+      setLinking({ item, grid: await readCloudTable(platform, picked), busy: false });
     } catch (err) {
       setPanelError(errorText(err));
     } finally {
@@ -243,7 +245,7 @@ export function CloudFilePickerPanel<Item extends CloudBrowseItem>({
   const handleConfirmLink = async (choice: LinkedFileMappingChoice) => {
     if (!linking) return;
     const { item } = linking;
-    if (!provider.linkedDeck(state, item.id)) {
+    if (!linkedFileDeck(state, provider.sourceKind, item.id)) {
       const gate = canCreateOrImportDeck(activeDeckCount(state), entitlement);
       if (!gate.allowed) {
         setPanelError(gate.reason ?? 'Free tier deck limit reached.');
@@ -349,7 +351,7 @@ export function CloudFilePickerPanel<Item extends CloudBrowseItem>({
               key={linking.item.id}
               fileName={linking.item.name}
               grid={linking.grid}
-              existingDeck={provider.linkedDeck(state, linking.item.id)}
+              existingDeck={linkedFileDeck(state, provider.sourceKind, linking.item.id)}
               busy={linking.busy}
               testIdPrefix={key}
               onLink={(c) => void handleConfirmLink(c)}
