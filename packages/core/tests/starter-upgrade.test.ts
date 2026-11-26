@@ -102,6 +102,24 @@ function replay(...logs: KnownEvent[][]): CollectionState {
   return applyEvents(createEmptyState(), logs.flat());
 }
 
+/**
+ * Applies each log in its own `applyEvents` call, in the order given, as a device receives them.
+ * (One call sorts its batch by HLC, so it can't show what a late or early delivery does.)
+ */
+function replayInTurn(...logs: KnownEvent[][]): CollectionState {
+  const state = createEmptyState();
+  for (const log of logs) applyEvents(state, log);
+  return state;
+}
+
+/** Every order of `logs`, each applied in turn. */
+function everyOrder(logs: KnownEvent[][]): KnownEvent[][][] {
+  if (logs.length <= 1) return [logs];
+  return logs.flatMap((log, i) =>
+    everyOrder([...logs.slice(0, i), ...logs.slice(i + 1)]).map((rest) => [log, ...rest]),
+  );
+}
+
 function edit(
   factory: EventFactory,
   state: CollectionState,
@@ -318,8 +336,8 @@ describe('starter-deck upgrade', () => {
     // Device A, after its upgrade, edits another note's notes.
     const notesA = edit(a, stateA, slug, 'nikl:되다01:verb', { notes: 'irregular' });
 
-    const merged1 = replay(seed, upA, [notesA], upB, [exampleB]);
-    const merged2 = replay(seed, [exampleB], upB, [notesA], upA);
+    const merged1 = replayInTurn(seed, upA, [notesA], upB, [exampleB]);
+    const merged2 = replayInTurn(seed, [exampleB], upB, [notesA], upA);
     expect(noteFields(merged1, slug)).toEqual(noteFields(merged2, slug));
 
     const fields = noteFields(merged1, slug);
@@ -345,13 +363,16 @@ describe('starter-deck upgrade', () => {
       tick(),
     );
     const upA = await upgrade(a, replay(seed));
-    for (const merged of [replay(seed, [moveB], upA), replay(seed, upA, [moveB])]) {
+    // Every delivery order, each log applied on its own: the upgrade before or after the move,
+    // and before the note itself exists (the fields-only create path).
+    const orders = everyOrder([seed, [moveB], upA]);
+    expect(orders).toHaveLength(6);
+    for (const order of orders) {
+      const merged = replayInTurn(...order);
       expect(merged.notes.get(id)).toMatchObject({ deck_id: 'deck-b', fields: { notes: '' } });
       expect(merged.noteIdsByDeck.get('deck-b')?.has(id)).toBe(true);
+      expect(merged.noteIdsByDeck.get(starterDeckId(slug))?.has(id)).toBe(false);
     }
-    // Even when the upgrade reaches a device before the note itself does.
-    const early = replay(upA, seed, [moveB]);
-    expect(early.notes.get(id)).toMatchObject({ deck_id: 'deck-b', fields: { notes: '' } });
   });
 
   it('a deck another device unlinked before the upgrade synced stays unlinked', async () => {
@@ -366,7 +387,7 @@ describe('starter-deck upgrade', () => {
       tick(),
     );
     const upA = await upgrade(a, replay(seed));
-    for (const merged of [replay(seed, [unlinkB], upA), replay(seed, upA, [unlinkB])]) {
+    for (const merged of [replayInTurn(seed, [unlinkB], upA), replayInTurn(seed, upA, [unlinkB])]) {
       expect(merged.decks.get(starterDeckId(slug))?.source).toBeUndefined();
       expect(noteFields(merged, slug)).toEqual(
         Object.fromEntries(content.notes.map((n) => [n.key, n.fields])),
