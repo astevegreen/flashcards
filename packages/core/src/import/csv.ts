@@ -4,6 +4,7 @@ import type { KnownEvent } from '../events/types.ts';
 import type { Note, NoteType } from '../model/types.ts';
 import { convertAnkiRuby } from '../parsers/ruby.ts';
 import { normalizeTagList } from '../tags/index.ts';
+import { splitTagCell } from './tag-cell.ts';
 import {
   columnDisplayName,
   joinNotes,
@@ -39,12 +40,15 @@ export function parseDelimitedText(raw: string, options?: CsvParseOptions): CsvP
 interface ParsedCells extends CsvParseResult {
   /** `quoted[r][c]`: cell `rows[r][c]` was written in quotes, so its spaces are content (C17). */
   quoted: boolean[][];
+  /** Row 1 untrimmed, with its quote flags: the first data row when there is no header row. */
+  firstRow: string[];
+  firstQuoted: boolean[];
 }
 
 function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
   const input = raw.startsWith('\uFEFF') ? raw.slice(1) : raw;
   if (input.trim().length === 0) {
-    return { delimiter: options?.delimiter ?? ',', headers: [], rows: [], quoted: [] };
+    return { ...EMPTY_CELLS, delimiter: options?.delimiter ?? ',' };
   }
 
   const delimiter = options?.delimiter ?? detectDelimiter(input);
@@ -115,7 +119,7 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
 
   const headerRow = allRows[0];
   if (!headerRow) {
-    return { delimiter, headers: [], rows: [], quoted: [] };
+    return { ...EMPTY_CELLS, delimiter };
   }
 
   const headers = headerRow.map((h) => h.trim());
@@ -127,32 +131,10 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
     rows.push(cells);
     quoted.push(allQuoted[r] ?? []);
   }
-  return { delimiter, headers, rows, quoted };
+  return { delimiter, headers, rows, quoted, firstRow: headerRow, firstQuoted: allQuoted[0] ?? [] };
 }
 
-/**
- * Splits a Tags / Category cell on `,` and `;`. `\,` `\;` and `\\` stand for the character itself,
- * so a tag that contains a separator (from `.flashpkg` or Anki) survives `exportCsv` (C17).
- */
-function splitTagCell(value: string): string[] {
-  const tags: string[] = [];
-  let tag = '';
-  for (let i = 0; i < value.length; i++) {
-    const ch = value[i];
-    const next = value[i + 1];
-    if (ch === '\\' && (next === ',' || next === ';' || next === '\\')) {
-      tag += next;
-      i += 1;
-    } else if (ch === ',' || ch === ';') {
-      tags.push(tag);
-      tag = '';
-    } else {
-      tag += ch;
-    }
-  }
-  tags.push(tag);
-  return tags;
-}
+const EMPTY_CELLS = { headers: [], rows: [], quoted: [], firstRow: [], firstQuoted: [] };
 
 function detectDelimiter(input: string): ',' | '\t' {
   // Inspect first line outside quotes
@@ -232,9 +214,9 @@ export function buildEventsFromCsv(
     return { events: [], importedCount: 0, warnings, mappedHeaders };
   }
   const hasHeaderRow = options.hasHeaderRow ?? true;
-  // Without a header row, row 1 is data: put it back in front of the rows.
-  const dataRows = hasHeaderRow ? parsed.rows : [parsed.headers, ...parsed.rows];
-  const dataQuoted = hasHeaderRow ? parsed.quoted : [[], ...parsed.quoted];
+  // Without a header row, row 1 is data, read like any other row: put it back in front.
+  const dataRows = hasHeaderRow ? parsed.rows : [parsed.firstRow, ...parsed.rows];
+  const dataQuoted = hasHeaderRow ? parsed.quoted : [parsed.firstQuoted, ...parsed.quoted];
   const headerNames = hasHeaderRow ? parsed.headers : [];
   // 1-based file row of `dataRows[i]`.
   const rowOffset = hasHeaderRow ? 2 : 1;

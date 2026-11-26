@@ -298,6 +298,26 @@ describe('CSV round trip keeps whitespace and separator characters (C17)', () =>
     }
   });
 
+  it('reads row 1 like any other row when the file has no header row', () => {
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', T0));
+    const res = buildEventsFromCsv(['"  학교 ", school', ' 나무 ,"  tree"'].join('\n'), {
+      deckId: DECK,
+      noteType: koNoteType,
+      eventFactory: factory,
+      columns: [
+        { kind: 'field', fieldKey: 'word' },
+        { kind: 'field', fieldKey: 'meaning' },
+      ],
+      hasHeaderRow: false,
+      nowMs: T0 + 1000,
+    });
+    const fields = res.events.flatMap((e) => (e.type === 'NoteUpserted' ? [e.payload.fields] : []));
+    expect(fields).toEqual([
+      { word: '  학교 ', meaning: 'school' },
+      { word: '나무', meaning: '  tree' },
+    ]);
+  });
+
   it('still trims unquoted cells and splits ; or , in a typed category cell', () => {
     const [note] = notesOf(importCsv('Word,Meaning,Tags\n 학교 ,"  school  ", daily; topik-1 \n'));
     expect(note?.fields).toEqual({ word: '학교', meaning: '  school  ' });
