@@ -10,8 +10,9 @@
  * Usage:
  *   node scripts/build-packs.mjs --starter [--out <dir>] [--base-url <https-url>] [--check]
  *       Tiny attributed dev/CI fixtures (default out: apps/web/public/packs/). Never needs network.
- *       `--check` rebuilds into a temporary folder and fails unless every file in the out folder is
- *       byte-identical to the rebuild (no file missing, extra or different); it writes nothing.
+ *       `--check` rebuilds into a temporary folder and fails unless every file in the out folder
+ *       matches the rebuild (no file missing, extra or different; `.gz` files are compared after
+ *       decompression, since zlib builds differ); it writes nothing.
  *   node scripts/fetch-upstream-packs.mjs && node scripts/build-packs.mjs --full
  *       [--input <upstream-dir>] [--out <dir>] [--base-url <https-url>] [--skip-jmdict] [--no-char-files]
  *       Real packs from upstream open data (default input: .cache/upstream-open-data/, default out:
@@ -1799,14 +1800,25 @@ function listFiles(dir, root = dir) {
   return out.sort();
 }
 
-/** Problems that keep `actualDir` from being a byte-identical copy of `expectedDir`. */
+/**
+ * A file's content for the check: gzip output differs between zlib builds (Node versions, CPU
+ * paths), so a `.gz` file is compared by what it decompresses to; every other file byte for byte.
+ */
+function checkedContent(file) {
+  const bytes = readFileSync(file);
+  return file.endsWith('.gz') ? gunzipSync(bytes) : bytes;
+}
+
+/** Problems that keep `actualDir` from being an identical copy of `expectedDir`. */
 function treeDifferences(expectedDir, actualDir) {
   const expected = listFiles(expectedDir);
   const actual = new Set(listFiles(actualDir));
   const problems = [];
   for (const file of expected) {
     if (!actual.has(file)) problems.push(`missing: ${file}`);
-    else if (!readFileSync(join(expectedDir, file)).equals(readFileSync(join(actualDir, file)))) {
+    else if (
+      !checkedContent(join(expectedDir, file)).equals(checkedContent(join(actualDir, file)))
+    ) {
       problems.push(`differs from a rebuild: ${file}`);
     }
     actual.delete(file);
