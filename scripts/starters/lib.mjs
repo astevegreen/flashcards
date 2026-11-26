@@ -473,6 +473,21 @@ export function glossOverride(overrides, key, word, upstream) {
   return entry.meaning;
 }
 
+/**
+ * The gloss each reworded note showed before its override existed: starter decks 1.0.0 shipped
+ * the derived upstream gloss everywhere, and the overrides came in 1.1.0 (PR #28). `glossOverride`
+ * has already checked that each entry's `upstream` equals what the pinned source still derives,
+ * so this is the exact 1.0.0 value, keyed by note key in deck order. The starter-deck upgrade
+ * (`packages/core/src/starters/upgrade.ts`) replaces a meaning only while it still equals it.
+ */
+export function glossesBeforeOverrides(notes, overrides) {
+  const out = {};
+  for (const note of notes) {
+    if (note.meaningEdited === true) out[note.key] = overrides[note.key].upstream;
+  }
+  return out;
+}
+
 /** Fails when an override names a note the deck does not have (a typo, or a dropped word). */
 export function checkOverridesUsed(overrides, notes, deck) {
   const keys = new Set(notes.map((n) => n.key));
@@ -524,6 +539,20 @@ export function renderDeckModule(deck) {
     "import type { StarterDeckContent } from '../types.ts';\n\n" +
     `const deck: StarterDeckContent = ${JSON.stringify(data, null, 2)};\n\n` +
     'export default deck;\n'
+  );
+}
+
+/**
+ * Source of the module with each deck's 1.0.0 glosses (see `glossesBeforeOverrides`):
+ * `{ [deckSlug]: { [noteKey]: gloss } }`. Loaded only by the starter-deck upgrade.
+ */
+export function renderLegacyGlossesModule(tables) {
+  return (
+    GENERATED_HEADER +
+    "import type { StarterLegacyGlosses } from '../types.ts';\n\n" +
+    '/** The gloss each reworded starter note showed in 1.0.0, before the 1.1.0 gloss overrides. */\n' +
+    `const glosses: StarterLegacyGlosses = ${JSON.stringify(tables, null, 2)};\n\n` +
+    'export default glosses;\n'
   );
 }
 

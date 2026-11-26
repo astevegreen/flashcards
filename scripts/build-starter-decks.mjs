@@ -9,7 +9,7 @@
  * Usage:
  *   node scripts/build-starter-decks.mjs [--dir <cache-dir>] [--check]
  *
- * Writes packages/core/src/starters/generated/{catalog,ko-core,zh-common}.ts. `--check` writes
+ * Writes packages/core/src/starters/generated/{catalog,ko-core,zh-common,legacy-glosses}.ts. `--check` writes
  * nothing and exits 1 if the committed files differ from a fresh build.
  */
 import { createHash } from 'node:crypto';
@@ -22,12 +22,14 @@ import {
   buildMandarinNotes,
   canonicalLexemeJson,
   checkOverridesUsed,
+  glossesBeforeOverrides,
   normalizeLexeme,
   parseNiklList,
   parseSimplifiedVariants,
   parseUnihanReadings,
   renderCatalogModule,
   renderDeckModule,
+  renderLegacyGlossesModule,
   validateNotes,
 } from './starters/lib.mjs';
 import { NIKL_VOCAB, STARTER_DECKS_VERSION, UNIHAN, WIKIDATA } from './starters/sources.mjs';
@@ -167,6 +169,7 @@ export function buildStarterDecks({
         sources: [NIKL_SOURCE, WIKIDATA_SOURCE],
       },
       notes: koNotes,
+      legacyGlosses: glossesBeforeOverrides(koNotes, koOverrides),
     },
     {
       file: 'zh-common.ts',
@@ -182,6 +185,7 @@ export function buildStarterDecks({
         sources: [UNIHAN_SOURCE],
       },
       notes: zhNotes,
+      legacyGlosses: glossesBeforeOverrides(zhNotes, zhOverrides),
     },
   ];
 }
@@ -200,6 +204,14 @@ export async function renderStarterModules(decks) {
   for (const deck of decks) {
     out.set(deck.file, await format(renderDeckModule({ slug: deck.info.slug, notes: deck.notes })));
   }
+  out.set(
+    'legacy-glosses.ts',
+    await format(
+      renderLegacyGlossesModule(
+        Object.fromEntries(decks.map((d) => [d.info.slug, d.legacyGlosses ?? {}])),
+      ),
+    ),
+  );
   return out;
 }
 

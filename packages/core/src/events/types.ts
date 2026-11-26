@@ -79,6 +79,13 @@ export interface NoteUpsertedPayload {
   tags?: string[];
   provenance?: Provenance;
   created_order?: number;
+  /**
+   * Only `fields` (and `tags`, when present) apply: replay leaves the note's `deck_id` and
+   * `source_key` registers alone, so a background edit never moves back a note that another
+   * device moved concurrently. `deck_id`/`source_key` are still sent, for older builds (they apply
+   * them as before). Written by the starter-deck upgrade.
+   */
+  fields_only?: true;
 }
 
 export interface NoteArchivedPayload {
@@ -307,6 +314,17 @@ export interface DeckGroupingChangedPayload {
   folder_id?: string | null;
 }
 
+/**
+ * Records that the starter-deck upgrade (`starters/upgrade.ts`) brought a starter deck's text up
+ * to `package_version`, so no device runs it again for that release. Log-retained (kept in
+ * `unknownEvents`, folded by the upgrade only): unlike a `SourceLinked`, it never rewrites the
+ * deck's source register, so it cannot undo another device's concurrent unlink.
+ */
+export interface StarterDeckUpgradedPayload {
+  deck_id: string;
+  package_version: string;
+}
+
 export interface EventPayloadMap {
   ReviewRecorded: ReviewRecordedPayload;
   ReviewUndone: ReviewUndonePayload;
@@ -340,6 +358,7 @@ export interface EventPayloadMap {
   DeckFolderSaved: DeckFolderSavedPayload;
   DeckFolderDeleted: DeckFolderDeletedPayload;
   DeckGroupingChanged: DeckGroupingChangedPayload;
+  StarterDeckUpgraded: StarterDeckUpgradedPayload;
 }
 
 export type KnownEventType = keyof EventPayloadMap;
@@ -375,7 +394,8 @@ export type LogRetainedEventType =
   | 'DeckFolderSaved'
   | 'DeckFolderDeleted'
   | 'DeckGroupingChanged'
-  | 'DeckDescriptionChanged';
+  | 'DeckDescriptionChanged'
+  | 'StarterDeckUpgraded';
 
 /**
  * Event types `applyKnownEvent` handles. Log-retained types are intentionally absent: they fall

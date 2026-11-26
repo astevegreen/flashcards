@@ -1030,8 +1030,11 @@ function createUpsertedNote(ctx: ApplyEventContext, p: EventPayloadMap['NoteUpse
   };
   state.notes.set(p.note_id, note);
   addToMapSet(state.noteIdsByDeck, note.deck_id, note.id);
-  shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc, collector);
-  shouldApplyLww(state, `note:${p.note_id}:source_key`, hlc, collector);
+  // A fields-only edit that arrives first leaves the header registers to the note's own upsert.
+  if (!p.fields_only) {
+    shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc, collector);
+    shouldApplyLww(state, `note:${p.note_id}:source_key`, hlc, collector);
+  }
   if (p.provenance) shouldApplyLww(state, `note:${p.note_id}:provenance`, hlc, collector);
   if (p.created_order !== undefined) {
     shouldApplyLww(state, `note:${p.note_id}:created_order`, hlc, collector);
@@ -1045,6 +1048,7 @@ function updateUpsertedNoteHeader(
   p: EventPayloadMap['NoteUpserted'],
 ): void {
   const { state, hlc, collector, dirtyDecks } = ctx;
+  if (p.fields_only) return;
   if (shouldApplyLww(state, `note:${p.note_id}:deck_id`, hlc, collector)) {
     if (note.deck_id !== p.deck_id) {
       removeFromMapSet(state.noteIdsByDeck, note.deck_id, note.id);
