@@ -7,7 +7,7 @@ import tseslint from 'typescript-eslint';
 // files when the full set was turned on (review finding T3, 25 Nov 2026). Each listed rule is off
 // in that file only; new files and every other rule are checked in full. Fixing a file means
 // deleting its rule (or its line) here; never add a file or a rule to this list.
-// tools/eslint-baseline.test.mjs pins its size, so it can only shrink.
+// tools/eslint-baseline.test.mjs pins every entry, so it can only shrink.
 export const REACT_COMPILER_BASELINE = {
   'FlashcardsApp.tsx': ['refs'],
   'backups/AutoBackupRuntime.tsx': ['refs'],

@@ -12,8 +12,8 @@
  *       Tiny attributed dev/CI fixtures (default out: apps/web/public/packs/). Never needs network.
  *       `--check` rebuilds into a temporary folder and fails unless every file in the out folder
  *       matches the rebuild (no file missing, extra or different; `.gz` files are compared after
- *       decompression and packs.json without `compressed_bytes`, since zlib builds differ, and
- *       each `compressed_bytes` must match its committed file); it writes nothing.
+ *       decompression and packs.json with its `compressed_bytes` values masked, since zlib builds
+ *       differ, and each `compressed_bytes` must match its committed file); it writes nothing.
  *   node scripts/fetch-upstream-packs.mjs && node scripts/build-packs.mjs --full
  *       [--input <upstream-dir>] [--out <dir>] [--base-url <https-url>] [--skip-jmdict] [--no-char-files]
  *       Real packs from upstream open data (default input: .cache/upstream-open-data/, default out:
@@ -1804,18 +1804,15 @@ function listFiles(dir, root = dir) {
 
 /**
  * A file's content for the check. gzip output differs between zlib builds (Node versions, CPU
- * paths), so a `.gz` file is compared by what it decompresses to, and `packs.json` without its
- * `compressed_bytes` (checked against the folder's own `.gz` files instead, see catalogProblems).
- * Every other file is compared byte for byte.
+ * paths), so a `.gz` file is compared by what it decompresses to, and `packs.json` byte for byte
+ * with only its `compressed_bytes` values masked (each is checked against the folder's own `.gz`
+ * file instead, see catalogProblems). Every other file is compared byte for byte.
  */
 function checkedContent(file) {
   const bytes = readFileSync(file);
   if (file.endsWith('.gz')) return gunzipSync(bytes);
   if (file.endsWith('packs.json')) {
-    const catalog = JSON.parse(bytes.toString('utf8'));
-    return Buffer.from(
-      JSON.stringify(catalog, (k, v) => (k === 'compressed_bytes' ? undefined : v)),
-    );
+    return Buffer.from(bytes.toString('utf8').replaceAll(/("compressed_bytes": )\d+/g, '$1#'));
   }
   return bytes;
 }

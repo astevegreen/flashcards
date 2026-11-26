@@ -77,6 +77,12 @@ describe('build-packs --starter --check', () => {
     expect(run('--check').status).toBe(0);
   });
 
+  it('fails when packs.json holds the same data in a different layout', () => {
+    const catalogPath = join(out, 'packs.json');
+    writeFileSync(catalogPath, JSON.stringify(JSON.parse(readFileSync(catalogPath, 'utf8'))));
+    expectCheckFails('differs from a rebuild: packs.json');
+  });
+
   it('fails when compressed_bytes does not match the committed file', () => {
     const catalogPath = join(out, 'packs.json');
     const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
