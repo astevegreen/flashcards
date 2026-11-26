@@ -6,7 +6,7 @@
   "packageManager": "pnpm@12.18.0",
   "engines": {
     "node": ">=24.2.0",
-    "pnpm": ">=10.0.0"
+    "pnpm": ">=12.18.0"
   },
   "scripts": {
     "dev": "pnpm --filter @flash/web dev",
