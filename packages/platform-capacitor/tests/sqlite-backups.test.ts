@@ -1,11 +1,8 @@
 import type { StoredBackupInfo } from '@flash/platform';
 import initSqlJs from 'sql.js';
 import { describe, expect, it } from 'vitest';
-import {
-  CapacitorSqliteStorage,
-  InMemorySqliteDriver,
-  type SqliteDriver,
-} from '../src/storage/sqlite-storage.ts';
+import { CapacitorSqliteStorage, type SqliteDriver } from '../src/storage/sqlite-storage.ts';
+import { InMemorySqliteDriver } from './support/in-memory-sqlite-driver.ts';
 
 /** Mirrors `SNAPSHOT_CHUNK_CHARS` in sqlite-storage.ts. */
 const SNAPSHOT_CHUNK_CHARS = 512 * 1024;
@@ -46,7 +43,7 @@ async function sqlJsDriver(): Promise<SqliteDriver> {
 }
 
 describe.each([
-  ['in-memory driver', async () => new CapacitorSqliteStorage()],
+  ['in-memory driver', async () => new CapacitorSqliteStorage(new InMemorySqliteDriver())],
   ['sql.js', async () => new CapacitorSqliteStorage(await sqlJsDriver())],
 ])('CapacitorSqliteStorage rolling backups (%s)', (_label, make) => {
   it('lists newest first, reads, deletes, and keeps backups across clearAll', async () => {

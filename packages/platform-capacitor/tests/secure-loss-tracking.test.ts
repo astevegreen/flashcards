@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createHlcState } from '../../core/src/index.ts';
-import { CapacitorSqliteStorage, InMemorySqliteDriver } from '../src/index.ts';
+import { CapacitorSqliteStorage } from '../src/index.ts';
 import { createSecureKvRouting } from '../src/secure/secure-kv-storage.ts';
 import {
   markStoredSecretsAtLaunch,
@@ -18,6 +18,7 @@ import {
   type LegacyPreferenceEntry,
   type NativeSecureStorage,
 } from '../src/secure/secure-store.ts';
+import { InMemorySqliteDriver } from './support/in-memory-sqlite-driver.ts';
 
 const GOOGLE_SESSION = 'capacitor_google_session_v1';
 

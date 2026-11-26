@@ -1,5 +1,6 @@
 import { SyncTransportError } from '@flash/core';
 import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
+import { isFreshPkce } from './pkce-expiry.ts';
 
 export const GOOGLE_OAUTH_SCOPES =
   'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file';
@@ -356,7 +357,8 @@ export class GoogleOAuthWebAuth implements Auth {
       );
     }
 
-    if (!pkce || !state || pkce.state !== state) {
+    // A record older than PKCE_MAX_AGE_MS is refused like a missing one (S13).
+    if (!pkce || !state || pkce.state !== state || !isFreshPkce(pkce.createdAt, this.nowMs())) {
       await this.storage.deleteKv(OAUTH_PKCE_KV_KEY);
       throw new SyncTransportError(
         'AUTH_REQUIRED',
