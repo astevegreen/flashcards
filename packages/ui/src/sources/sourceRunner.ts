@@ -1637,7 +1637,7 @@ export async function refreshAllSources(
         }
       } else {
         // Sheets keep their last state; a Drive file row says it was not refreshed and why.
-        skipped.push(...markGoogleDriveFilesDisconnected(driveFiles));
+        skipped.push(...markGoogleDriveFilesDisconnected(driveFiles, ctx));
       }
     }
 

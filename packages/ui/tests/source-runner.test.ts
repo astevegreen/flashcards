@@ -30,6 +30,7 @@ import {
 } from '../src/sources/googleDriveFileSource.ts';
 import { hasLinkedSources } from '../src/sources/hasLinkedSources.ts';
 import {
+  applyLinkedFileReconciliation,
   createAndLinkGoogleSheetTemplate,
   createEmptySourcesRegistry,
   DROPBOX_RECONCILE_PREFIX,
@@ -38,6 +39,7 @@ import {
   linkOneDriveFile,
   ONEDRIVE_RECONCILE_PREFIX,
   refreshAllSources,
+  refreshLinkedFileRow,
   refreshSingleDropboxSource,
   refreshSingleOneDriveSource,
   type SourceRunContext,
@@ -1021,5 +1023,113 @@ describe('launch check for linked sources (hasAny)', () => {
     await dropbox.link(FILE, ctx);
     const saved = await ctx.platform.storage.getKv<SourcesRegistry>(LINKED_SOURCES_KV_KEY);
     expect(hasLinkedSources(saved)).toBe(true);
+  });
+});
+
+describe('Refresh all with Google disconnected (linked Drive files)', () => {
+  const drive = CLOUD_CASES[2];
+  if (!drive) throw new Error('missing case');
+
+  it('keeps an archived deck’s reason instead of asking to connect Google', async () => {
+    const { drive: fake, state, ctx } = cloudSetup(drive);
+    const { source } = await drive.link(FILE, ctx);
+    const deck = state.decks.get(source.deckId ?? '');
+    if (!deck) throw new Error('missing deck');
+    deck.archived = true;
+    fake.connected = false;
+    const summary = await refreshAllSources(ctx, { force: true });
+    const row = summary.registry.googleDriveFiles?.[0];
+    expect(row).toMatchObject({ skipReason: 'archived' });
+    expect(row?.lastStatus).not.toBe('permission_required');
+    expect(row?.lastError).toMatch(/archived/);
+    expect(summary.skipped).toEqual([`vocab: ${row?.lastError}`]);
+  });
+
+  it('marks nothing in a build without Google', async () => {
+    const { ctx } = cloudSetup(drive);
+    const { source } = await drive.link(FILE, ctx);
+    const before = { ...source };
+    const noGoogle: SourceRunContext = {
+      ...ctx,
+      platform: {
+        ...ctx.platform,
+        googleOAuthConfigured: false,
+        getGoogleAuth: async () => {
+          throw new Error('Google is not configured in this build.');
+        },
+      } as PlatformServices,
+    };
+    const summary = await refreshAllSources(noGoogle, { force: true });
+    const row = summary.registry.googleDriveFiles?.[0];
+    expect(row?.lastStatus).toBe(before.lastStatus);
+    expect(row?.lastError).toBeUndefined();
+    expect(summary.skipped).toEqual([]);
+    expect(summary.errors).toEqual([]);
+  });
+});
+
+const ROW_KINDS = { OneDrive: 'onedrive', Dropbox: 'dropbox' } as const;
+
+describe.each(CLOUD_CASES.slice(0, 2))('Sources panel row routing — $name', (c) => {
+  const rowKind = ROW_KINDS[c.name as keyof typeof ROW_KINDS];
+
+  it('refreshLinkedFileRow refreshes the right row and says what happened', async () => {
+    const { drive, ctx } = cloudSetup(c);
+    const { source } = await c.link(FILE, ctx);
+    const same = await refreshLinkedFileRow(rowKind, source.id, ctx);
+    expect(same?.outcome).toEqual({
+      kind: 'ok',
+      updated: false,
+      message: '"vocab" is already up to date.',
+    });
+    drive.put('file-1', 'vocab.csv', 'word,meaning\n나무,tree\n강,river\n산,mountain\n');
+    const changed = await refreshLinkedFileRow(rowKind, source.id, ctx);
+    expect(changed?.outcome).toMatchObject({ kind: 'ok', updated: true });
+    expect(c.rows(changed?.registry ?? createEmptySourcesRegistry())?.[0]?.lastStatus).toBe(
+      'synced',
+    );
+    expect(await refreshLinkedFileRow(rowKind, 'missing-row', ctx)).toBeNull();
+  });
+
+  it('applyLinkedFileReconciliation applies a held rename through the same provider', async () => {
+    const { drive, state, ctx } = cloudSetup(c);
+    await c.link(FILE, ctx);
+    drive.put('file-1', 'vocab.csv', 'word,meaning\n나모,tree\n강,river\n');
+    const held = await refreshLinkedFileRow(rowKind, `${c.prefix}file-1`, ctx);
+    if (held?.outcome.kind !== 'pending') throw new Error('expected a held rename');
+    const rec = held.outcome.pending;
+    expect(rec.folderId).toBe(`${c.prefix}file-1`);
+    const missing = rec.missingNotes[0];
+    if (!missing) throw new Error('no rename candidate');
+    const res = await applyLinkedFileReconciliation(rec, { [missing.noteId]: '나모' }, ctx);
+    expect(res).toMatchObject({
+      applied: true,
+      message: `Applied the ${c.name} changes to "${rec.deckName}".`,
+    });
+    expect(state.notes.get(missing.noteId)?.archived).toBe(false);
+    expect(
+      await applyLinkedFileReconciliation({ ...rec, folderId: 'local-folder-1' }, {}, ctx),
+    ).toBeUndefined();
+  });
+
+  it('linking without access keeps no row when no deck exists yet', async () => {
+    const { drive, ctx, state } = cloudSetup(c);
+    drive.connected = false;
+    await expect(c.link(FILE, ctx)).rejects.toThrow();
+    const registry = await loadSourcesRegistry(ctx.platform, state);
+    expect(c.rows(registry) ?? []).toEqual([]);
+    expect(state.decks.size).toBe(0);
+  });
+
+  it('linking again without access marks the existing row as an error', async () => {
+    const { drive, ctx, state } = cloudSetup(c);
+    await c.link(FILE, ctx);
+    drive.connected = false;
+    await expect(c.link(FILE, ctx)).rejects.toThrow();
+    const registry = await loadSourcesRegistry(ctx.platform, state);
+    const row = c.rows(registry)?.[0];
+    expect(row?.lastStatus).toBe('error');
+    expect(row?.lastError).toBeTruthy();
+    expect(row?.deckId).toBeTruthy();
   });
 });

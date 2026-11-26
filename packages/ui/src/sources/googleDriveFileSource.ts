@@ -19,6 +19,7 @@ import {
   refreshCloudFile,
   refreshCloudFileRow,
   refreshCloudFiles,
+  skipIfArchived,
   type CloudFileLinkOptions,
   type CloudFileLinkResult,
   type CloudFileProvider,
@@ -333,14 +334,21 @@ export function refreshLinkedGoogleDriveFiles(
 
 /**
  * "Refresh all" while Google is disconnected: each Drive file row says why it was not refreshed,
- * like any other skip. Returns the `name: why` lines for the summary.
+ * like any other skip, and returns the `name: why` lines for the summary. A row whose deck is
+ * archived keeps saying so (as a refresh would, before checking access). A build without Google
+ * marks nothing: its user could not act on "Connect Google".
  */
 export function markGoogleDriveFilesDisconnected(
   sources: readonly LinkedGoogleDriveFileSource[],
+  ctx: SourceRunContext,
 ): string[] {
+  if (!ctx.platform.googleOAuthConfigured) return [];
+  const state = ctx.getState();
   return sources.map((src) => {
-    markPermissionRequired(src, RECONNECT_MESSAGE);
-    return `${src.name}: ${RECONNECT_MESSAGE}`;
+    if (!skipIfArchived(GOOGLE_DRIVE_FILES, src, state)) {
+      markPermissionRequired(src, RECONNECT_MESSAGE);
+    }
+    return `${src.name}: ${src.lastError ?? RECONNECT_MESSAGE}`;
   });
 }
 

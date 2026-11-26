@@ -223,6 +223,23 @@ export function markPermissionRequired(source: CloudFileRow, message: string): v
   source.lastError = message;
 }
 
+/**
+ * Leaves a table row whose deck is archived alone and says so on the row (returns true). Package
+ * rows are never skipped here: their decks are checked by the import.
+ */
+export function skipIfArchived<
+  S extends CloudFileRow,
+  I extends CloudFileInfo,
+  C,
+  F extends { id: string; name: string },
+>(p: CloudFileProvider<S, I, C, F>, source: S, state: CollectionState): boolean {
+  if (p.isPackage?.(source)) return false;
+  const deck = state.decks.get(cloudFileDeckId(p.prefix, p.idOf(source), source.deckId));
+  if (!deck?.archived) return false;
+  markSkipped(source, 'archived', archivedDeckRefreshMessage(deck.name));
+  return true;
+}
+
 function unchangedResult(source: CloudFileRow): CloudFileRefreshResult {
   return { updated: false, notesTouched: 0, warnings: source.warnings ?? [] };
 }
@@ -245,13 +262,7 @@ async function preparePull<
   const unchanged = unchangedResult(source);
   const isPackage = p.isPackage?.(source) ?? false;
   // Before any network call, so the row keeps saying why even when the file is unchanged.
-  if (!isPackage) {
-    const deck = ctx.getState().decks.get(cloudFileDeckId(p.prefix, p.idOf(source), source.deckId));
-    if (deck?.archived) {
-      markSkipped(source, 'archived', archivedDeckRefreshMessage(deck.name));
-      return { result: unchanged };
-    }
-  }
+  if (skipIfArchived(p, source, ctx.getState())) return { result: unchanged };
   if (!isOnline()) {
     source.lastStatus = 'offline';
     return { result: unchanged };
@@ -631,7 +642,7 @@ export async function refreshCloudFiles<
 export type CloudFileRowOutcome =
   | { kind: 'pending'; pending: PendingXlsxReconciliation; message: string }
   | { kind: 'error'; message: string }
-  | { kind: 'ok'; message: string };
+  | { kind: 'ok'; message: string; updated: boolean };
 
 /** What a finished single refresh means for the user (shared by Refresh and reconciliation). */
 function describeRefresh(source: CloudFileRow, res: CloudFileRefreshResult): CloudFileRowOutcome {
@@ -648,6 +659,7 @@ function describeRefresh(source: CloudFileRow, res: CloudFileRefreshResult): Clo
   if (source.lastError) return { kind: 'error', message: source.lastError };
   return {
     kind: 'ok',
+    updated: res.updated,
     message: res.updated
       ? `Refreshed "${source.name}" (${res.notesTouched} note change(s)).`
       : `"${source.name}" is already up to date.`,
@@ -712,7 +724,7 @@ export async function applyCloudFileReconciliation<
   return {
     registry: res.registry,
     applied: true,
-    message: outcome.message.startsWith('Refreshed')
+    message: outcome.updated
       ? `Applied the ${p.label} changes to "${rec.deckName}".`
       : `"${rec.deckName}" is already up to date.`,
   };
