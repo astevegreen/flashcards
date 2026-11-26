@@ -1,5 +1,6 @@
 import { SyncTransportError } from '@flash/core';
 import type { Storage } from '@flash/platform';
+import { TokenRefresher } from './token-refresher.ts';
 
 /** Refresh this long before the cached access token expires. */
 const REFRESH_MARGIN_MS = 5 * 60 * 1000;
@@ -15,26 +16,6 @@ export interface NativeTokenSession {
 export interface NativeTokenSet {
   accessToken: string;
   expiresInSeconds: number;
-}
-
-/** The stored session, or AUTH_REQUIRED when there is none or it needs a new sign-in. */
-export function requireNativeSession<S extends NativeTokenSession>(
-  session: S | undefined,
-  label: string,
-): S {
-  if (!session) throw new SyncTransportError('AUTH_REQUIRED', `${label} is not connected.`);
-  if (session.reconnectRequired) {
-    throw new SyncTransportError(
-      'AUTH_REQUIRED',
-      `${label} session expired. Please reconnect in Settings.`,
-    );
-  }
-  return session;
-}
-
-/** True while the cached access token has more than the refresh margin left. */
-export function isNativeTokenFresh(session: NativeTokenSession, nowMs: number): boolean {
-  return session.expiresAt - nowMs > REFRESH_MARGIN_MS;
 }
 
 /**
@@ -69,4 +50,37 @@ export async function refreshNativeSession<S extends NativeTokenSession>(args: {
     reconnectRequired: false,
   });
   return tokens.accessToken;
+}
+
+/**
+ * The shared `TokenRefresher` (R2) for a native auth: the cached session is used while fresh,
+ * otherwise one bridge refresh runs at a time. Without a bridge, a stale token can't be refreshed.
+ */
+export function createNativeTokenRefresher<S extends NativeTokenSession>(args: {
+  label: string;
+  storage: Storage;
+  kvKey: string;
+  nowMs: () => number;
+  hasBridge: () => boolean;
+  refresh: (session: S) => Promise<NativeTokenSet>;
+  isRejected: (err: unknown) => boolean;
+}): TokenRefresher<S> {
+  return new TokenRefresher<S>({
+    label: args.label,
+    marginMs: REFRESH_MARGIN_MS,
+    nowMs: args.nowMs,
+    read: () => args.storage.getKv<S>(args.kvKey),
+    canRefresh: args.hasBridge,
+    cannotRefreshMessage: `${args.label} sign-in is not configured in this build.`,
+    refresh: (session) =>
+      refreshNativeSession({
+        label: args.label,
+        session,
+        storage: args.storage,
+        kvKey: args.kvKey,
+        nowMs: args.nowMs,
+        refresh: () => args.refresh(session),
+        isRejected: args.isRejected,
+      }),
+  });
 }

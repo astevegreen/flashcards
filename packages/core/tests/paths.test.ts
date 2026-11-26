@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { hasTraversalSegment } from '../src/paths.ts';
+import { hasDotSegment, hasTraversalSegment } from '../src/paths.ts';
+
+describe('hasDotSegment', () => {
+  it('flags a `.` segment with either separator, and nothing else', () => {
+    for (const path of ['.', './a', 'a/.', 'a/./b', 'a\\.\\b', '/.']) {
+      expect(hasDotSegment(path), path).toBe(true);
+    }
+    for (const path of ['', 'a.b', '.hidden/x', 'a/..', '...', 'a/b.']) {
+      expect(hasDotSegment(path), path).toBe(false);
+    }
+  });
+});
 
 describe('hasTraversalSegment (§13)', () => {
   it('flags a `..` segment with either separator, and any NUL', () => {

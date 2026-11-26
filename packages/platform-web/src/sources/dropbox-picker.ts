@@ -1,4 +1,9 @@
-import { compareCodeUnits, hasTraversalSegment, SyncTransportError } from '@flash/core';
+import {
+  compareCodeUnits,
+  hasDotSegment,
+  hasTraversalSegment,
+  SyncTransportError,
+} from '@flash/core';
 import type {
   Auth,
   DropboxBrowseItem,
@@ -96,7 +101,7 @@ function normalizeFolderPath(folderPath?: string): string {
   if (!folderPath) return '';
   const trimmed = trimTrailingSlashes(folderPath.trim().replaceAll('\\', '/'));
   if (!trimmed || trimmed === '/') return '';
-  if (hasTraversalSegment(trimmed)) {
+  if (hasTraversalSegment(trimmed) || hasDotSegment(trimmed)) {
     throw new SyncTransportError('UNKNOWN', `Unsafe Dropbox folder path "${folderPath}".`);
   }
   return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
@@ -109,7 +114,7 @@ function normalizeFileSelector(fileIdOrPath: string): string {
   }
   if (trimmed.startsWith('id:')) return trimmed;
   const clean = trimmed.replaceAll('\\', '/');
-  if (hasTraversalSegment(clean)) {
+  if (hasTraversalSegment(clean) || hasDotSegment(clean)) {
     throw new SyncTransportError('UNKNOWN', `Unsafe Dropbox file path "${fileIdOrPath}".`);
   }
   return clean.startsWith('/') ? clean : `/${clean}`;

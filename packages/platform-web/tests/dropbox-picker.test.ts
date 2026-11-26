@@ -120,7 +120,7 @@ describe('DropboxAppFolderFilePicker', () => {
       }),
     ).rejects.toThrow(/not a \.csv/);
     await expect(picker.listFolder('../escape')).rejects.toThrow(/Unsafe/);
-    for (const path of ['Decks/../..', 'Decks\\..', '/..', 'Decks\0']) {
+    for (const path of ['Decks/../..', 'Decks\\..', '/..', 'Decks\0', 'Decks/.', './Decks', '/.']) {
       await expect(picker.listFolder(path)).rejects.toThrow(/Unsafe/);
       await expect(picker.getFileInfo(`${path}/korean.csv`)).rejects.toThrow(/Unsafe|Invalid/);
     }
@@ -222,5 +222,29 @@ describe('NativeDropboxAuth', () => {
 
     await auth.signOut();
     expect(bridge.signOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs one bridge refresh for concurrent callers, and needs a bridge to refresh', async () => {
+    let clock = 0;
+    const storage = memStorage();
+    let n = 0;
+    const bridge = {
+      authorize: vi.fn(async () => ({ accessToken: 'tok-0', expiresInSeconds: 3600 })),
+      refresh: vi.fn(async () => ({ accessToken: `tok-${++n}`, expiresInSeconds: 3600 })),
+      signOut: vi.fn(async () => {}),
+    };
+    const auth = new NativeDropboxAuth({ bridge, storage, nowMs: () => clock });
+    await auth.signIn();
+    clock += 3600 * 1000;
+    const tokens = await Promise.all([auth.getValidAccessToken(), auth.getValidAccessToken()]);
+    expect(tokens).toEqual(['tok-1', 'tok-1']);
+    expect(bridge.refresh).toHaveBeenCalledTimes(1);
+
+    const noBridge = new NativeDropboxAuth({ storage, nowMs: () => clock });
+    expect(await noBridge.getValidAccessToken()).toBe('tok-1');
+    clock += 3600 * 1000;
+    await expect(noBridge.getValidAccessToken()).rejects.toThrow(
+      'Dropbox sign-in is not configured in this build.',
+    );
   });
 });
