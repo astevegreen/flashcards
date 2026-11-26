@@ -173,7 +173,15 @@ describe('takeOver', () => {
       if ('take' in e.data && ++asks === 2) release?.();
     };
     try {
-      expect(await takeOver(locks, name, 'me', vi.fn(), won.signal, queued, 2000)).toBeNull();
+      expect(
+        await takeOver(locks, name, {
+          self: 'me',
+          onLost: vi.fn(),
+          won,
+          queued,
+          roundMs: 2000,
+        }),
+      ).toBeNull();
       expect(won.signal.aborted).toBe(true);
       expect(stats.steals).toBe(0);
       expect(holderLost).not.toHaveBeenCalled();
@@ -197,7 +205,15 @@ describe('takeOver', () => {
     const beat = setInterval(() => holder.postMessage(yielding), 10);
     setTimeout(() => release?.(), 200);
     try {
-      expect(await takeOver(locks, name, 'me', vi.fn(), won.signal, queued, 50)).toBeNull();
+      expect(
+        await takeOver(locks, name, {
+          self: 'me',
+          onLost: vi.fn(),
+          won,
+          queued,
+          roundMs: 50,
+        }),
+      ).toBeNull();
       expect(stats.steals).toBe(0);
     } finally {
       clearInterval(beat);
@@ -213,9 +229,15 @@ describe('takeOver', () => {
     const won = new AbortController();
     const queued = new AbortController();
     const waiting = holdWriterLock(locks, name, { signal: queued.signal }, vi.fn());
-    expect(await takeOver(locks, name, 'me', vi.fn(), won.signal, queued, 20)).toBeTypeOf(
-      'function',
-    );
+    expect(
+      await takeOver(locks, name, {
+        self: 'me',
+        onLost: vi.fn(),
+        won,
+        queued,
+        roundMs: 20,
+      }),
+    ).toBeTypeOf('function');
     expect(stats.steals).toBe(1);
     expect(queued.signal.aborted).toBe(true);
     expect(await waiting).toBeNull();

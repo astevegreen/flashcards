@@ -81,14 +81,22 @@ export interface HandoffModule {
     release: ReleaseLock,
     whenSaved?: () => Promise<void>,
   ): Promise<void>;
-  takeOver(
-    locks: WriterLocks,
-    name: string,
-    self: string,
-    onLost: () => void,
-    won: AbortSignal,
-    queued: AbortController,
-  ): Promise<ReleaseLock | null>;
+  takeOver(locks: WriterLocks, name: string, ask: TakeOverRequest): Promise<ReleaseLock | null>;
+}
+
+/** What `takeOver` needs besides the lock: who asks, and how its waiting request is doing. */
+export interface TakeOverRequest {
+  /** This tab's id, sent with its requests (a tab ignores its own). */
+  self: string;
+  onLost: () => void;
+  /** Aborted once this tab's waiting lock request has won. */
+  won: AbortController;
+  /** Cancels that waiting request before a steal. */
+  queued: AbortController;
+  /** A round without a "yielding" answer ends in a steal (default 3 s). */
+  roundMs?: number;
+  /** The longest wait while the writer keeps answering (default 120 s). */
+  maxMs?: number;
 }
 
 export interface WriterSetup {
@@ -142,8 +150,8 @@ export async function holdWriter(s: WriterSetup): Promise<void> {
     void holdWriterLock(s.locks, s.name, { signal: queued.signal }, onLost).then(take);
     s.showWaiting(() => {
       s.load()
-        .then((m) => m.takeOver(s.locks, s.name, self, onLost, won.signal, queued))
-        .then(take, () => s.win.location.reload());
+        .then((m) => m.takeOver(s.locks, s.name, { self, onLost, won, queued }))
+        .then(take, onLost);
     });
   });
 }

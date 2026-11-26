@@ -1,6 +1,7 @@
 import {
   holdWriterLock,
   type ReleaseLock,
+  type TakeOverRequest,
   type WriterLocks,
   type WriterMessage,
 } from './writer-lock.ts';
@@ -135,12 +136,7 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 export async function takeOver(
   locks: WriterLocks,
   name: string,
-  self: string,
-  onLost: () => void,
-  won: AbortSignal,
-  queued: AbortController,
-  roundMs = 3000,
-  maxMs = 120_000,
+  { self, onLost, won, queued, roundMs = 3000, maxMs = 120_000 }: TakeOverRequest,
 ): Promise<ReleaseLock | null> {
   const channel = new BroadcastChannel(`${name}:writer`);
   let answers = 0;
@@ -154,8 +150,8 @@ export async function takeOver(
   try {
     for (let waited = 0; waited < maxMs; waited += roundMs) {
       const before = answers;
-      await pause(roundMs, won);
-      if (won.aborted) return null;
+      await pause(roundMs, won.signal);
+      if (won.signal.aborted) return null;
       if (answers === before) break;
     }
     queued.abort();
