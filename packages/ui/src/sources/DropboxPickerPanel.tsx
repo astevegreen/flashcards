@@ -20,7 +20,7 @@ const DROPBOX: CloudPickerProvider<DropboxBrowseItem> = {
   folderOf: (item) => item.pathLower,
   sourceKind: 'dropbox_file',
   async link(item, ctx, choice) {
-    const { linkDropboxFile } = await import('./cloudFileProviders.ts');
+    const { linkDropboxFile } = await import('./sourceRunner.ts');
     return linkDropboxFile(
       { id: item.id, name: item.name, pathDisplay: item.pathDisplay },
       ctx,

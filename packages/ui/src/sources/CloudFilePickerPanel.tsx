@@ -233,7 +233,7 @@ export function CloudFilePickerPanel<Item extends CloudBrowseItem>({
     setPanelError(null);
     try {
       const picked = await session.downloadFile(item);
-      const { readCloudTable } = await import('./cloudFileSource.ts');
+      const { readOneDriveTable: readCloudTable } = await import('./sourceRunner.ts');
       setLinking({ item, grid: await readCloudTable(platform, picked), busy: false });
     } catch (err) {
       setPanelError(errorText(err));

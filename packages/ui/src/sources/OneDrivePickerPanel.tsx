@@ -18,7 +18,7 @@ const ONEDRIVE: CloudPickerProvider<OneDriveBrowseItem> = {
   folderOf: (item) => item.id,
   sourceKind: 'onedrive_file',
   async link(item, ctx, choice) {
-    const { linkOneDriveFile } = await import('./cloudFileProviders.ts');
+    const { linkOneDriveFile } = await import('./sourceRunner.ts');
     return linkOneDriveFile({ id: item.id, name: item.name }, ctx, choice);
   },
   accessText:
