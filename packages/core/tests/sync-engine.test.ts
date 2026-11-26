@@ -16,15 +16,18 @@ import { BUILTIN_NOTE_TYPE_IDS } from '../src/model/presets.ts';
 import {
   decodeDeviceHead,
   decodeEventsSegment,
+  decodeSyncSnapshot,
   deviceHeadPath,
   deviceSegmentPath,
   encodeDeviceHead,
   encodeEventsSegment,
   encodeManifest,
   encodeReadableSyncSnapshot,
+  encodeSyncSnapshot,
   manifestPath,
   safeGunzip,
   sanitizeDeviceId,
+  snapshotPath,
   SyncCodecError,
 } from '../src/sync/codec.ts';
 import { runSync } from '../src/sync/engine.ts';
@@ -971,5 +974,96 @@ describe('snapshots past the decoder limits (D12)', () => {
     expect(result.snapshotWritten).toBeUndefined();
     expect([...transport.files.keys()].some((path) => path.includes('snapshot'))).toBe(false);
     expect(result.cursor.lastSnapshotTotalEvents).toBe(1);
+  });
+
+  it('a fresh device skips a remote snapshot past the read cap and falls back (D12, §9)', async () => {
+    const transport = new RecordingMemoryTransport();
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const events: FlashEvent[] = [
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: 'd1',
+          name: 'Big',
+          note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+          language: 'ko',
+        },
+        t0,
+      ),
+      factory.create(
+        'NoteUpserted',
+        {
+          note_id: deriveNoteId('d1', 'n1'),
+          deck_id: 'd1',
+          source_key: 'n1',
+          fields: { word: '물', meaning: 'water' },
+        },
+        t0 + 1,
+      ),
+    ];
+    const pushed = await runSync({
+      transport,
+      deviceId: 'dev-a',
+      cursor: createInitialSyncCursor(),
+      localOwnSeq: 2,
+      nowMs: () => t0 + 100,
+      generateCollectionId: () => 'col-big',
+      getLocalEventsAfterSeq: async (afterSeq) => events.filter((e) => e.seq > afterSeq),
+    });
+    expect(pushed.status).toBe('ok');
+
+    const snapshotAt = (seq: number, state: SyncSnapshot['state']): SyncSnapshot => ({
+      format_version: 1,
+      snapshot_version: 1,
+      collection_id: 'col-big',
+      created_by: 'dev-a',
+      created_at: t0 + 100,
+      total_events: seq,
+      watermarks: { 'dev-a': seq },
+      state,
+    });
+    const afterFirst = serializeCollectionState(
+      applyEvents(createEmptyState(), events.slice(0, 1)),
+      {
+        'dev-a': 1,
+      },
+    );
+    const afterBoth = serializeCollectionState(applyEvents(createEmptyState(), events), {
+      'dev-a': 2,
+    });
+    // A readable older snapshot, then a newer one an older build wrote past the 25 MiB cap. Its
+    // padding compresses well, so only the inflated size is over the limit.
+    await transport.write(snapshotPath('dev-a', 1), encodeSyncSnapshot(snapshotAt(1, afterFirst)));
+    const oversized = encodeSyncSnapshot(
+      snapshotAt(2, { ...afterBoth, padding: 'x'.repeat(26 * 1024 * 1024) } as typeof afterBoth),
+    );
+    await transport.write(snapshotPath('dev-a', 2), oversized);
+    expect(() => decodeSyncSnapshot(oversized)).toThrow(SyncCodecError);
+
+    const fresh = (cursor = createInitialSyncCursor()) =>
+      runSync({
+        transport,
+        deviceId: 'dev-b',
+        cursor,
+        localOwnSeq: 0,
+        canBootstrapFromSnapshot: true,
+        nowMs: () => t0 + 200,
+        getLocalEventsAfterSeq: async () => [],
+      });
+
+    const fromOlder = await fresh();
+    expect(fromOlder.status).toBe('ok');
+    expect(fromOlder.hydratedSnapshot?.total_events).toBe(1);
+    expect(fromOlder.pulledEvents.map((e) => e.seq)).toEqual([2]);
+    expect(fromOlder.cursor.remoteWatermarks['dev-a']).toBe(2);
+
+    // With only the oversized snapshot left, the device replays every segment instead.
+    transport.files.delete(snapshotPath('dev-a', 1));
+    const fromSegments = await fresh();
+    expect(fromSegments.status).toBe('ok');
+    expect(fromSegments.hydratedSnapshot).toBeUndefined();
+    expect(fromSegments.pulledEvents.map((e) => e.seq)).toEqual([1, 2]);
+    const state = applyEvents(createEmptyState(), fromSegments.pulledEvents);
+    expect(state.notes.get(deriveNoteId('d1', 'n1'))?.fields['word']).toBe('물');
   });
 });

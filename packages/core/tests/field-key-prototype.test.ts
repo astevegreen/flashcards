@@ -130,3 +130,82 @@ describe('field keys that shadow Object.prototype (S4)', () => {
     expect(plan.noteType.fields.map((f) => f.key)).toEqual(['constructor_2', 'meaning']);
   });
 });
+
+describe('a `__proto__` field key from another device (§9)', () => {
+  // Imports refuse these keys (content-schema), but a synced event is only JSON: `JSON.parse`
+  // makes `__proto__` an own key, and replay must neither throw nor touch any prototype.
+  function syncedEvents(fieldsJson: string): FlashEvent[] {
+    const f = createEventFactory('dev-b', 0, createHlcState('dev-b', t0));
+    const deck = f.create(
+      'DeckCreated',
+      { deck_id: 'd1', name: 'Proto', note_type_id: 'nt-proto', language: 'en' },
+      t0,
+    );
+    const noteType = f.create(
+      'NoteTypeChanged',
+      {
+        note_type: {
+          id: 'nt-proto',
+          name: 'Proto',
+          fields: [
+            { key: 'word', label: 'Word', kind: 'text', lang: 'en' },
+            { key: '__proto__', label: 'P', kind: 'text', lang: 'en' },
+          ],
+        },
+      },
+      t0 + 1,
+    );
+    const layout = f.create(
+      'LayoutChanged',
+      {
+        layout: {
+          ...layoutBase,
+          id: 'l-flip',
+          name: 'Flip',
+          front_fields: ['word'],
+          reveal_steps: [['__proto__']],
+          answer_mode: 'flip',
+          speak_field: '__proto__',
+        },
+      },
+      t0 + 2,
+    );
+    const upsert = f.create(
+      'NoteUpserted',
+      { note_id: deriveNoteId('d1', 'k1'), deck_id: 'd1', source_key: 'k1', fields: {} },
+      t0 + 3,
+    );
+    const wire = JSON.parse(
+      JSON.stringify(upsert).replace('"fields":{}', `"fields":${fieldsJson}`),
+    ) as FlashEvent;
+    const settings = f.create(
+      'DeckSettingsChanged',
+      { deck_id: 'd1', settings: { enabled_layout_ids: ['l-flip'] } },
+      t0 + 4,
+    );
+    return [deck, noteType, layout, wire, settings];
+  }
+
+  it('replays a string value without changing the note’s prototype or Object.prototype', () => {
+    const state = replayAllEvents(syncedEvents('{"word":"school","__proto__":"x"}'));
+    const note = state.notes.get(deriveNoteId('d1', 'k1'));
+    if (!note) throw new Error('note missing');
+    expect(note.fields['word']).toBe('school');
+    expect(Object.getPrototypeOf(note.fields)).toBe(Object.prototype);
+    expect(state.cards.size).toBe(1);
+
+    const card = [...state.cards.values()][0];
+    const layout = state.layouts.get('l-flip');
+    const deck = state.decks.get('d1');
+    if (!card || !layout || !deck) throw new Error('collection incomplete');
+    const target = resolveCardAudioTarget(note, layout, state.noteTypes.get('nt-proto'), deck);
+    expect(target.attachedMediaHash).toBeUndefined();
+  });
+
+  it('drops an object value as malformed instead of making it the fields prototype', () => {
+    const state = replayAllEvents(syncedEvents('{"word":"school","__proto__":{"polluted":"yes"}}'));
+    expect(state.unknownEvents.map((e) => e.type)).toEqual(['NoteUpserted']);
+    expect(state.notes.size).toBe(0);
+    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
+  });
+});

@@ -517,7 +517,7 @@ export function importFlashpkg(
   eventFactory: EventFactory,
   options?: {
     nowMs?: number;
-    limits?: Partial<typeof FLASHPKG_SECURITY_LIMITS>;
+    limits?: Partial<ArchiveLimits>;
     sourceOverride?: Partial<SourceRef>;
     archiveRemovedOnUpgrade?: boolean;
   },
