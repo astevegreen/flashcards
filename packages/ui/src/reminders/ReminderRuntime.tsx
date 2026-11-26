@@ -12,6 +12,11 @@ import { rescheduleNativeReminders } from './reminderScheduling.ts';
 const RESCHEDULE_DEBOUNCE_MS = 10_000;
 /** The web badge re-checks the due count this often while reminders are on. */
 const BADGE_REFRESH_MS = 60_000;
+/**
+ * Quiet period after the last change before the web badge rebuilds the queue, so a study session
+ * doesn't rebuild it after every rating (P9).
+ */
+export const BADGE_CHANGE_DEBOUNCE_MS = 2_000;
 
 const localTzOffsetAt = (ms: number) => -new Date(ms).getTimezoneOffset();
 
@@ -92,6 +97,16 @@ export function ReminderRuntime({ onBadgeChange }: ReminderRuntimeProps) {
     evaluate();
     const interval = window.setInterval(evaluate, BADGE_REFRESH_MS);
     return () => window.clearInterval(interval);
+  }, [config, isNative, onBadgeChange]);
+
+  // Web: after a change, once the collection has been quiet for a moment.
+  useEffect(() => {
+    if (isNative || !config?.enabled || stateVersion === 0) return undefined;
+    const timer = window.setTimeout(
+      () => onBadgeChange(webBadgeCount(config, stateRef.current, Date.now())),
+      BADGE_CHANGE_DEBOUNCE_MS,
+    );
+    return () => window.clearTimeout(timer);
   }, [config, isNative, onBadgeChange, stateVersion]);
 
   return null;

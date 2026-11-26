@@ -25,15 +25,28 @@ import {
  * never trusted.
  */
 
-type Row = ReadonlyMap<string, AnkiSqlValue>;
+/** One row, read by lower-case column name. */
+interface Row {
+  get(col: string): AnkiSqlValue | undefined;
+}
 
+/**
+ * The rows of a table, sharing one column index: a row is a view over its own cells, not a `Map`
+ * of its own (P9: a 100k-card revlog built 100k maps).
+ */
 function rowsOf(table: AnkiSqlTable | undefined): Row[] {
   if (!table) return [];
-  return table.rows.map((row) => {
-    const map = new Map<string, AnkiSqlValue>();
-    table.columns.forEach((col, i) => map.set(col.toLowerCase(), row[i] ?? null));
-    return map;
+  const index = new Map<string, number>();
+  table.columns.forEach((col, i) => {
+    // A repeated name keeps its last column, as the per-row Map did.
+    index.set(col.toLowerCase(), i);
   });
+  return table.rows.map((cells) => ({
+    get(col) {
+      const i = index.get(col);
+      return i === undefined ? undefined : (cells[i] ?? null);
+    },
+  }));
 }
 
 function str(row: Row, col: string): string {

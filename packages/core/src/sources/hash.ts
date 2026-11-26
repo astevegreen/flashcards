@@ -19,19 +19,23 @@ function rotr(x: number, n: number): number {
 
 /**
  * Pure TypeScript, zero-dependency FIPS 180-4 SHA-256 returning 64 lowercase hex chars.
- * Keeps `packages/core` 100% pure ES2023 without WebCrypto or `node:crypto`.
+ * Keeps `packages/core` 100% pure ES2023 without WebCrypto or `node:crypto`. Whole blocks are
+ * read from `input` in place; only the padded tail (64 or 128 bytes) is copied, so hashing a large
+ * media file doesn't allocate a second copy of it (P9).
  */
 export function sha256Hex(input: Uint8Array): string {
   const len = input.length;
   const bitLen = len * 8;
-  const paddedLen = Math.ceil((len + 9) / 64) * 64;
-  const msg = new Uint8Array(paddedLen);
-  msg.set(input);
-  msg[len] = 0x80;
-
-  const view = new DataView(msg.buffer);
-  view.setUint32(paddedLen - 8, Math.floor(bitLen / 0x100000000), false);
-  view.setUint32(paddedLen - 4, bitLen >>> 0, false);
+  const fullLen = len - (len % 64);
+  const tailLen = len - fullLen + 9 > 64 ? 128 : 64;
+  const paddedLen = fullLen + tailLen;
+  const tail = new Uint8Array(tailLen);
+  tail.set(input.subarray(fullLen));
+  tail[len - fullLen] = 0x80;
+  const tailView = new DataView(tail.buffer);
+  tailView.setUint32(tailLen - 8, Math.floor(bitLen / 0x100000000), false);
+  tailView.setUint32(tailLen - 4, bitLen >>> 0, false);
+  const inputView = new DataView(input.buffer, input.byteOffset, input.byteLength);
 
   let h0 = 0x6a09e667;
   let h1 = 0xbb67ae85;
@@ -45,8 +49,11 @@ export function sha256Hex(input: Uint8Array): string {
   const w = new Uint32Array(64);
 
   for (let offset = 0; offset < paddedLen; offset += 64) {
+    const inTail = offset >= fullLen;
+    const view = inTail ? tailView : inputView;
+    const base = inTail ? offset - fullLen : offset;
     for (let i = 0; i < 16; i++) {
-      w[i] = view.getUint32(offset + i * 4, false);
+      w[i] = view.getUint32(base + i * 4, false);
     }
     for (let i = 16; i < 64; i++) {
       const w15 = w[i - 15] ?? 0;

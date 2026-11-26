@@ -252,6 +252,7 @@ export function useSyncController({
     }),
     [
       enqueuePersist,
+      lastLocalSnapshotCountRef,
       factoryRef,
       metaRef,
       onReplaceState,
@@ -595,7 +596,7 @@ export function useSyncController({
       lastPulledCount: 0,
       lastPushedCount: 0,
     });
-  }, [clearIdlePushTimer, platform.hasDeviceSlug, setSyncState]);
+  }, [clearIdlePushTimer, lastLocalSnapshotCountRef, platform.hasDeviceSlug, setSyncState]);
 
   return {
     syncState,
