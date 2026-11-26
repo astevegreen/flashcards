@@ -1,0 +1,23 @@
+#!/bin/sh
+# 1. main takes pull requests only (AGENTS.md "Workflow"): refuse a push to main from anyone.
+# 2. Run `pnpm gate` (typecheck, lint, format, unit and tool tests; about a minute) before the push.
+# Runs for every agent and person (Claude Code, Antigravity, the owner).
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    echo "pre-push: main takes no direct pushes. Push a branch and open a pull request (AGENTS.md \"Workflow\")." >&2
+    exit 1
+  fi
+done
+
+root=$(git rev-parse --show-toplevel) || exit 0
+if [ ! -d "$root/node_modules" ]; then
+  echo "pre-push: no node_modules in this worktree, so pnpm gate was skipped (run: pnpm install --frozen-lockfile)." >&2
+  exit 0
+fi
+# git exports the repository's GIT_* variables to its hooks (an absolute GIT_DIR in a worktree). The gate's tool
+# tests run git in throwaway repositories, so with these inherited they would commit into this one.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_PREFIX GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+cd "$root" && pnpm --silent gate || {
+  echo "pre-push: pnpm gate failed; fix the failures above before pushing." >&2
+  exit 1
+}

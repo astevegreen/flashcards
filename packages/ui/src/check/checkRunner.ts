@@ -17,6 +17,7 @@ import { openBackupStore } from '../backups/backupRunner.ts';
 import { storedMediaEntries } from '../state/storedMedia.ts';
 import { announceRebuild } from '../state/rebuildChannel.ts';
 import { COLLECTION_REBUILT_KV_KEY } from '../state/rebuildSignal.ts';
+import { recentlyStoredMedia } from '../state/recentMedia.ts';
 
 /**
  * Settings > Check media and Check database (`@flash/core/check`). Lazy chunk (§8): nothing here
@@ -79,8 +80,14 @@ export interface RemoveMediaResult {
  * runs (an edit since the check) are left alone because the check is run again first.
  */
 export async function removeUnusedMedia(ctx: RemoveMediaContext): Promise<RemoveMediaResult> {
-  const { report } = await runMediaCheck(ctx);
+  const checked = (await runMediaCheck(ctx)).report;
   const nowMs = Date.now();
+  // An import stores its files before the events that use them (D16): leave recent ones alone.
+  const recent = recentlyStoredMedia(nowMs);
+  const report: MediaCheckReport = {
+    ...checked,
+    unused: checked.unused.filter((f) => !recent.has(f.hash)),
+  };
   const factory = ctx.getEventFactory();
   const events = planMediaRemoval(report).map((step) =>
     factory.create(step.type, step.payload, nowMs),

@@ -24,9 +24,16 @@ import {
   rebuiltSince,
   snapshotWriteAllowed,
 } from '../src/state/rebuildSignal.ts';
+import {
+  putMediaTracked,
+  RECENT_MEDIA_MS,
+  recentlyStoredMedia,
+  resetRecentMediaForTests,
+} from '../src/state/recentMedia.ts';
 
 const opened: DexieStorage[] = [];
 afterEach(() => {
+  resetRecentMediaForTests();
   for (const storage of opened.splice(0)) storage.close();
 });
 
@@ -91,6 +98,35 @@ describe('check media on a device', () => {
     expect(state.current.media.has(UNUSED)).toBe(false);
     expect((await storage.listMediaHashes()).sort()).toEqual([USED]);
     expect((await runMediaCheck(ctx)).report.unused).toEqual([]);
+  });
+
+  it('keeps a file an import has just stored but not yet added to the collection (D16)', async () => {
+    const { storage, state, ctx } = await setup();
+    const IMPORTING = 'd'.repeat(64);
+    // An import stores its files first; the MediaAdded events and the notes come later.
+    await putMediaTracked(storage, {
+      hash: IMPORTING,
+      mime: 'image/png',
+      bytes: new Uint8Array([4]),
+    });
+    expect((await runMediaCheck(ctx)).report.unused.map((u) => u.hash)).toContain(IMPORTING);
+
+    const result = await removeUnusedMedia(ctx);
+    expect(result).toEqual({ removedFromCollection: 1, filesDeleted: 2, filesKeptForBackups: 0 });
+    expect((await storage.listMediaHashes()).sort()).toEqual([USED, IMPORTING]);
+    expect(state.current.media.has(UNUSED)).toBe(false);
+  });
+
+  it('forgets a stored file once the recent window has passed', async () => {
+    const { storage } = await setup();
+    const at = Date.now();
+    await putMediaTracked(storage, {
+      hash: 'E'.repeat(64),
+      mime: 'image/png',
+      bytes: new Uint8Array([5]),
+    });
+    expect(recentlyStoredMedia(at + 1000).has('e'.repeat(64))).toBe(true);
+    expect(recentlyStoredMedia(at + RECENT_MEDIA_MS + 1000).size).toBe(0);
   });
 
   it('adds back a used file the collection no longer lists, so sync shares it again', async () => {

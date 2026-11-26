@@ -23,7 +23,12 @@ import { MediaAudioPlayer } from './MediaAudioPlayer.tsx';
 import { MediaImage } from './MediaImage.tsx';
 import { RichText } from './RichText.tsx';
 import { RichTextToolbar } from './RichTextToolbar.tsx';
-import { noteEditChanges, type NoteEditSnapshot } from './noteEditDiff.ts';
+import {
+  DISCARD_NOTE_EDITS_PROMPT,
+  hasNoteEditChanges,
+  noteEditChanges,
+  type NoteEditSnapshot,
+} from './noteEditDiff.ts';
 
 /**
  * Largest pasted or dropped image read into memory. Mirrors the 20 MiB input cap that
@@ -76,6 +81,9 @@ export function NoteEditDialog({
   const [draftFields, setDraftFields] = useState<Record<string, string>>({});
   const [tagsText, setTagsText] = useState('');
   const openingRef = useRef<NoteEditSnapshot>({ fields: {}, tagsText: '' });
+  // Read by the dismiss handlers, which outlive a render.
+  const dirtyRef = useRef(false);
+  dirtyRef.current = hasNoteEditChanges(openingRef.current, draftFields, tagsText);
   const [uploadingField, setUploadingField] = useState<string | null>(null);
   // Synchronous twin of `uploadingField`: two pastes in one tick both see stale state.
   const uploadingRef = useRef(false);
@@ -195,7 +203,7 @@ export function NoteEditDialog({
     };
     const onPointerUp = (e: PointerEvent) => {
       if (pressedOutside && isOutside(e)) {
-        dialog.close();
+        if (!dirtyRef.current || window.confirm(DISCARD_NOTE_EDITS_PROMPT)) dialog.close();
       }
       pressedOutside = false;
     };
@@ -344,6 +352,12 @@ export function NoteEditDialog({
       aria-labelledby={titleId}
       {...({ closedby: 'any' } as Record<string, string>)}
       className="flash-dialog m-auto w-[min(92vw,34rem)] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-0 text-[var(--fg)] shadow-2xl"
+      onCancel={(e) => {
+        // Escape, or a click outside with native closedby: unsaved edits are never lost silently.
+        if (!dirtyRef.current) return;
+        e.preventDefault();
+        if (window.confirm(DISCARD_NOTE_EDITS_PROMPT)) closeDialog('cancel');
+      }}
       onPaste={(e) => routeImageTransfer(e, e.clipboardData)}
       onDragOver={(e) => {
         if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();

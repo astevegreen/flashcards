@@ -106,6 +106,16 @@ Only Chromium Playwright with faked endpoints has covered these.
 - [x] `packs/_headers` was dead in both places `scripts/build-packs.mjs` wrote it (the app's `public/packs` and the CDN's `dist-static/packs`), because Cloudflare Pages applies only the root `_headers`. The packs CDN gets its CORS headers from the root `_headers` that `publish-packs.yml` writes, and the app loads its own packs from the same origin. The file and its generator are removed.
 - [ ] The byte-identical starter-deck rebuild is checked only where the upstream cache exists. Run `node scripts/build-starter-decks.mjs --check` before changing the generated decks.
 
+### Agent tooling: agy merge-gate gaps (agy's notes on PR #65, 2026-11-25)
+
+These live in code ported from Terminal Dusk, so fix them when the four agy copies are brought to one version:
+
+- [ ] `tools/gemini/rails.mjs` `findings()`/`decide()`: a review whose tags don't start a line ("Blocker:", "**blocker**") reads as no findings and merges. Return `retry` when no tagged line is found and the answer is not "No findings."
+- [ ] `railHits` reads only the `b/` path of `diff --git`, so renaming a rail out of its folder (say `.githooks/pre-push` to `docs/`) skips the rail audit. Check the `a/` path too.
+- [ ] `tools/gemini-audit.mjs` puts a linked issue's body into agy's material without checking its author. Port Terminal Dusk's `github-trust.mjs` filter.
+- [ ] `tools/gemini/agy.mjs`: `DEEP_PATHS` defaults to Terminal Dusk's paths (the audit passes Flashcards' list, so there is no effect today), and `newerFirst` uses `localeCompare` (pinned to `en`, tooling only). Fix both or comment why.
+- [ ] The prepare script's shared `core.hooksPath` reaches every worktree, including a branch cut before `.githooks/` existed, which then runs no hooks. Fine once those branches merge main.
+
 ### Final review nits from the Phase 14 batch (PR #9), resolved 2026-11-22
 
 - [x] **Anki media past the 20-per-field cap:** not a bug. `capMedia` (`model-plan.ts`) cuts each field's references to the cap before any file is resolved or stored, and every field gets as many media keys as its largest note needs. A regression test now guards it (`media past the per-field cap is dropped and never stored`).

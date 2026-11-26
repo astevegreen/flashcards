@@ -47,9 +47,23 @@ Run from repository root using `pnpm`:
 4. **Phased scope discipline (§15):** Keep `packages/core` data structures ready for future phases (Pages, Courses, Answer Modes, Sync), but keep Phase 1 UI focused on offline Flip study, FSRS, Undo, Deck/Browse/Settings, and CSV/TSV + `.flashpkg` import/export.
 5. **Security (§13):** Never render raw HTML from note/package content; validate `.flashpkg` archives against zip path-traversal, file count, and uncompressed byte caps.
 
-## Workflow Checkpoints
+## Workflow
 
-Default to normal single-agent execution; never force a slash command for small, linear, or tightly coupled work. Only pause at a natural boundary and suggest a slash command (with a concise ready-to-run prompt) when it clearly pays off:
+These rules bind every agent here, Claude Code and Antigravity alike. Several agents often work in this repository at once, each in its own worktree.
+
+- **One branch per change, from `origin/main`.** Work in your own worktree, never in another agent's (Claude Code and Antigravity make one per agent; by hand, `git worktree add ../Korean-<slug> -b <type>/<slug> origin/main`). Name branches `<type>/<slug>`, type one of `feat` `fix` `refactor` `test` `docs` `chore`. Land it as a pull request into `main`; `main` takes no direct pushes. Commit messages follow the Conventional Commits style already in `git log`.
+- **Set work aside with a WIP commit.** The stash list is shared by every worktree, so `git stash` can hand your work to another agent or theirs to you.
+- **Update from main by merging** `origin/main` into your branch. A rebase needs a force-push, and force-pushes are the owner's.
+- **Parallel agents each get their own** `E2E_PORT` (on the shared default 4173, `reuseExistingServer` silently tests another worktree's build) and their own scratch folder.
+- **Bundle budget is shared.** Each branch can pass `pnpm size` alone while the sum of open branches overflows 160 KB: aim for zero initial-bundle growth (lazy-load new screens) and give the size before and after in the pull request.
+- **Deterministic sorting:** compare strings with `compareCodeUnits` (`packages/core/src/study/queue.ts`). `localeCompare` differs by device locale and breaks replay, even where SonarCloud suggests it.
+- **`docs/follow-ups.md`** holds owner decisions and the backlog. Other agents commit to it often: edit it from your own worktree and merge `origin/main` just before you push.
+- **Gates:** `pnpm gate` (typecheck, lint, format, unit and tool tests) before every push; CI's required `verify` check adds build, size and e2e. SonarCloud's quality gate (3% duplication on new lines) can fail while `verify` is green: check it before merging (`node tools/sonar-gate.mjs <pr>`).
+- **Ask the owner only about design** (what to teach, study behaviour, scope, pricing), money, identity and accounts, and deleting data or history, each with your recommendation. Decide technical questions yourself and note the reason in the pull request.
+
+## Workflow Checkpoints (Antigravity)
+
+These are Antigravity commands; Claude Code has its own (`.claude/skills/`). Default to normal single-agent execution; never force a slash command for small, linear, or tightly coupled work. Only pause at a natural boundary and suggest a slash command (with a concise ready-to-run prompt) when it clearly pays off:
 
 - **`/plan`** — starting a new Phase or major architectural change.
 - **`/boost`** — immediately before tricky, high-stakes logic (e.g., event replay, FSRS, sync convergence, race-safe Sheets `Card ID` write-back, untrusted import security).
