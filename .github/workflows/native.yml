@@ -27,7 +27,8 @@ on:
 
 concurrency:
   group: native-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel only superseded pull-request runs; pushes to main, the schedule and manual runs complete.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
