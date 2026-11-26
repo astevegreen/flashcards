@@ -26,8 +26,10 @@ import type { FsrsOptimizerInput } from '@flash/platform';
 import type * as FsrsBrowserModule from 'fsrs-browser';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  createFsrsTrainingEngine,
   handleFsrsOptimizerRequest,
   type FsrsOptimizerResponse,
+  type FsrsTrainer,
   type FsrsTrainingEngine,
 } from '../src/fsrs/fsrs-optimizer-protocol.ts';
 import { WebFsrsOptimizer, type FsrsOptimizerWorkerLike } from '../src/fsrs/web-fsrs-optimizer.ts';
@@ -233,6 +235,48 @@ describe('FSRS optimizer worker protocol', () => {
   });
 });
 
+describe('createFsrsTrainingEngine (fsrs-browser wrapper)', () => {
+  const input: FsrsOptimizerInput = {
+    ratings: new Uint32Array([3, 1]),
+    delta_ts: new Uint32Array([0, 4]),
+    lengths: new Uint32Array([2]),
+    enable_short_term: false,
+  };
+
+  it('passes the batch through and frees the trainer after a run', () => {
+    const free = vi.fn();
+    const computeParameters = vi.fn(() => Float32Array.of(0.5));
+    const engine = createFsrsTrainingEngine(() => ({ computeParameters, free }));
+    expect(Array.from(engine.computeParameters(input))).toEqual([0.5]);
+    expect(computeParameters).toHaveBeenCalledWith(
+      input.ratings,
+      input.delta_ts,
+      input.lengths,
+      undefined,
+      false,
+    );
+    expect(free).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces a WASM panic even when free() then throws too', async () => {
+    // wasm-bindgen leaves a panicked instance borrowed, so free() fails with its own error.
+    const free = vi.fn(() => {
+      throw new Error('recursive use of an object detected');
+    });
+    const trainer: FsrsTrainer = {
+      computeParameters: () => {
+        throw new Error('RuntimeError: unreachable');
+      },
+      free,
+    };
+    const engine = createFsrsTrainingEngine(() => trainer);
+    expect(() => engine.computeParameters(input)).toThrow('RuntimeError: unreachable');
+    expect(free).toHaveBeenCalledTimes(1);
+    const msgs = await collect({ type: 'optimize', input }, async () => engine);
+    expect(msgs.at(-1)).toEqual({ type: 'error', message: 'RuntimeError: unreachable' });
+  });
+});
+
 class FakeWorker implements FsrsOptimizerWorkerLike {
   onmessage: ((ev: MessageEvent<FsrsOptimizerResponse>) => void) | null = null;
   onerror: ((ev: ErrorEvent) => void) | null = null;
@@ -328,22 +372,7 @@ describe('fsrs-browser WASM fixture (real trainer, known weights)', () => {
       pathToFileURL(require.resolve('fsrs-browser/fsrs_browser.js')).href
     )) as typeof FsrsBrowserModule;
     mod.initSync({ module: readFileSync(wasmPath) });
-    engine = {
-      computeParameters(i) {
-        const fsrs = new mod.Fsrs();
-        try {
-          return fsrs.computeParameters(
-            i.ratings,
-            i.delta_ts,
-            i.lengths,
-            undefined,
-            i.enable_short_term,
-          );
-        } finally {
-          fsrs.free();
-        }
-      },
-    };
+    engine = createFsrsTrainingEngine(() => new mod.Fsrs());
   });
 
   afterAll(() => {

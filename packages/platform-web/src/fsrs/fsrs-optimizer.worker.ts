@@ -1,5 +1,6 @@
 import initFsrsBrowser, { Fsrs } from 'fsrs-browser';
 import {
+  createFsrsTrainingEngine,
   handleFsrsOptimizerRequest,
   type FsrsOptimizerResponse,
   type FsrsTrainingEngine,
@@ -22,22 +23,7 @@ const scope = self as unknown as WorkerScopeLike;
 let engine: Promise<FsrsTrainingEngine> | null = null;
 
 function loadEngine(): Promise<FsrsTrainingEngine> {
-  engine ??= initFsrsBrowser().then(() => ({
-    computeParameters(input) {
-      const fsrs = new Fsrs();
-      try {
-        return fsrs.computeParameters(
-          input.ratings,
-          input.delta_ts,
-          input.lengths,
-          undefined,
-          input.enable_short_term,
-        );
-      } finally {
-        fsrs.free();
-      }
-    },
-  }));
+  engine ??= initFsrsBrowser().then(() => createFsrsTrainingEngine(() => new Fsrs()));
   return engine;
 }
 
