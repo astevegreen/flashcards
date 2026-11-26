@@ -89,6 +89,11 @@ export interface LocalSnapshotRecord {
 
 export interface Storage {
   appendEvents(events: readonly FlashEvent[]): Promise<void>;
+  /**
+   * Stores local events and the device meta that counts them together (D11), so a session killed
+   * in between can't leave the meta behind. Optional: without it callers append, then set the meta.
+   */
+  appendEventsWithMeta?(events: readonly FlashEvent[], meta: DeviceMeta): Promise<void>;
   getAllEvents(): Promise<FlashEvent[]>;
   getDeviceEventsAfterSeq(deviceId: string, afterSeq: number): Promise<FlashEvent[]>;
   getEventsAfterLocalSeq(

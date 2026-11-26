@@ -259,14 +259,19 @@ async function boot(): Promise<void> {
       const { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } = await import('@flash/core/samples');
       const factory = createEventFactory(meta.deviceId, meta.seq, meta.hlc);
       const seedEvents = buildSampleDeckEvents(factory, SAMPLE_SEED_EPOCH_MS);
-      await platform.storage.appendEvents(seedEvents);
       meta = {
         ...meta,
         seq: factory.getSeq(),
         hlc: factory.getHlc(),
         seeded: true,
       };
-      await platform.storage.setDeviceMeta(meta);
+      // Together where the storage can (D11), as local edits are.
+      if (platform.storage.appendEventsWithMeta) {
+        await platform.storage.appendEventsWithMeta(seedEvents, meta);
+      } else {
+        await platform.storage.appendEvents(seedEvents);
+        await platform.storage.setDeviceMeta(meta);
+      }
       events = seedEvents;
     }
 

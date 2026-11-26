@@ -276,3 +276,37 @@ describe('device meta behind stored events (D11)', () => {
     expect(repaired.hlc.wallMs).toBe(1_750_000_000_100);
   });
 });
+
+describe('appendEventsWithMeta (D11)', () => {
+  const hlc = createHlcState('dev-a', 1_750_000_000_000);
+  const eventsFrom = (seq: number, n: number) => {
+    const f = createEventFactory('dev-a', seq, hlc);
+    return Array.from({ length: n }, () =>
+      f.create('PreferencesChanged', { preferences: {} }, 1_750_000_000_100),
+    );
+  };
+
+  it('stores the events and the meta that counts them together', async () => {
+    const storage = createTestStorage('with-meta');
+    const events = eventsFrom(0, 3);
+    await storage.appendEventsWithMeta(events, { deviceId: 'dev-a', seq: 3, hlc });
+    expect((await storage.getAllEvents()).map((e) => e.id)).toEqual(events.map((e) => e.id));
+    expect((await storage.getDeviceMeta())?.seq).toBe(3);
+    expect(await storage.getMaxLocalSeq()).toBe(3);
+    // A retried write of the same events is idempotent and still moves the meta.
+    await storage.appendEventsWithMeta(events, { deviceId: 'dev-a', seq: 4, hlc });
+    expect(await storage.getAllEvents()).toHaveLength(3);
+    expect((await storage.getDeviceMeta())?.seq).toBe(4);
+  });
+
+  it('a failing meta write leaves no events appended', async () => {
+    const storage = createTestStorage('with-meta-fail');
+    await storage.setDeviceMeta({ deviceId: 'dev-a', seq: 0, hlc });
+    // A function can't be stored in IndexedDB, so the meta put fails inside the transaction.
+    const unstorable = { deviceId: 'dev-a', seq: 2, hlc, bad: () => 0 } as never;
+    await expect(storage.appendEventsWithMeta(eventsFrom(0, 2), unstorable)).rejects.toThrow();
+    expect(await storage.getAllEvents()).toEqual([]);
+    expect(await storage.getMaxLocalSeq()).toBe(0);
+    expect((await storage.getDeviceMeta())?.seq).toBe(0);
+  });
+});

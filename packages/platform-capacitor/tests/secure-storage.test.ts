@@ -16,6 +16,7 @@ import {
   CapacitorSqliteStorage,
   createCapacitorPlatform,
   type SqliteDriver,
+  type SqlStatement,
 } from '../src/index.ts';
 import { assertNativeOAuthRedirect, isAppDeepLink } from '../src/native/deep-links.ts';
 import { CAPACITOR_GOOGLE_SESSION_KV_KEY } from '../src/auth/native-google-auth.ts';
@@ -77,6 +78,11 @@ class RecordingDriver implements SqliteDriver {
 
   query<T = Record<string, unknown>>(sql: string, params?: readonly unknown[]): Promise<T[]> {
     return this.inner.query<T>(sql, params);
+  }
+
+  async executeBatch(statements: readonly SqlStatement[]): Promise<void> {
+    for (const { params } of statements) this.written.push(JSON.stringify(params));
+    await this.inner.executeBatch(statements);
   }
 
   mentions(secret: string): boolean {

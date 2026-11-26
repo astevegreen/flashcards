@@ -55,6 +55,24 @@ describe('AppContext rateCard / undoLastReview / redoLastUndo (§9 UI state)', (
     expect((recorded?.payload as ReviewRecordedPayload).review_id).toBe(entry.reviewId);
   });
 
+  it('stores the events with the meta that counts them when the storage can (D11)', async () => {
+    const storage = createMemoryStorage();
+    const together: Array<{ types: string[]; seq: number }> = [];
+    const setMeta = vi.spyOn(storage, 'setDeviceMeta');
+    storage.appendEventsWithMeta = async (events, meta) => {
+      together.push({ types: events.map((e) => e.type), seq: meta.seq });
+    };
+    const { m } = await mount(storage);
+    await act(async () => m.app().rateCard(newCard(m), 3, 1000));
+    await flush();
+
+    expect(together).toHaveLength(1);
+    expect(together[0]?.types).toEqual(['ReviewRecorded']);
+    expect(together[0]?.seq).toBe(must(m.app().meta).seq);
+    expect(storage.appended).toEqual([]);
+    expect(setMeta).not.toHaveBeenCalled();
+  });
+
   it('undoLastReview appends ReviewUndone, restores the schedule and moves the entry to redo', async () => {
     const { m, storage } = await mount();
     const card = newCard(m);

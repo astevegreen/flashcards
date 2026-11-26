@@ -10,9 +10,20 @@ import type {
 } from '@flash/platform';
 import { base64ToBytes, bytesToBase64 } from '@flash/platform-web/base64';
 
+/** One SQL statement and its bound parameters. */
+export interface SqlStatement {
+  readonly sql: string;
+  readonly params: readonly unknown[];
+}
+
 export interface SqliteDriver {
   execute(sql: string, params?: readonly unknown[]): Promise<void>;
   query<T = Record<string, unknown>>(sql: string, params?: readonly unknown[]): Promise<T[]>;
+  /**
+   * Runs `statements` in order inside one transaction: all of them take effect, or (when one
+   * fails, and the promise rejects) none of them do (D11).
+   */
+  executeBatch(statements: readonly SqlStatement[]): Promise<void>;
 }
 
 const SCHEMA_STATEMENTS = [
@@ -88,6 +99,13 @@ const SNAPSHOT_KV_KEY = '__local_snapshot';
 const SNAPSHOT_META_KV_KEY = '__local_snapshot_meta';
 const SNAPSHOT_CHUNK_CHARS = 512 * 1024;
 const EVENT_QUERY_PAGE = 500;
+/**
+ * Bounds for one `executeBatch` call. On Capacitor a batch is one bridge call, so it stays well
+ * under Android's bridge string budget (see the snapshot chunks); a study batch is one call.
+ */
+const TXN_MAX_STATEMENTS = 500;
+const TXN_MAX_CHARS = 1024 * 1024;
+
 function extractCardId(event: FlashEvent): string | null {
   if (
     event.payload &&
@@ -140,6 +158,60 @@ function rowToEvent(row: StoredEventDbRow): FlashEvent {
   return base as unknown as FlashEvent;
 }
 
+function eventInsert(ev: FlashEvent): SqlStatement {
+  const extras = extractExtraFields(ev);
+  return {
+    sql: `INSERT OR IGNORE INTO events (id, device, seq, hlc, type, v, card_id, payload_json, extra_fields_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    params: [
+      ev.id,
+      ev.device,
+      ev.seq,
+      ev.hlc,
+      ev.type,
+      ev.v,
+      extractCardId(ev),
+      JSON.stringify(ev.payload ?? null),
+      extras ? JSON.stringify(extras) : null,
+    ],
+  };
+}
+
+function kvUpsert(key: string, value: unknown): SqlStatement {
+  return {
+    sql: `INSERT OR REPLACE INTO kv (key, value_json) VALUES (?, ?)`,
+    params: [key, JSON.stringify(value)],
+  };
+}
+
+function statementChars(statement: SqlStatement): number {
+  let n = statement.sql.length;
+  for (const p of statement.params) n += typeof p === 'string' ? p.length : 8;
+  return n;
+}
+
+/** Splits `statements`, in order, into transactions within the `TXN_MAX_*` bounds. */
+function toTransactions(statements: readonly SqlStatement[]): SqlStatement[][] {
+  const out: SqlStatement[][] = [];
+  let current: SqlStatement[] = [];
+  let chars = 0;
+  for (const statement of statements) {
+    const size = statementChars(statement);
+    if (
+      current.length > 0 &&
+      (current.length >= TXN_MAX_STATEMENTS || chars + size > TXN_MAX_CHARS)
+    ) {
+      out.push(current);
+      current = [];
+      chars = 0;
+    }
+    current.push(statement);
+    chars += size;
+  }
+  if (current.length > 0) out.push(current);
+  return out;
+}
+
 /** Raw archive bytes per `backup_chunks` row (base64 makes each row about 1.4 MB). */
 const BACKUP_CHUNK_BYTES = 1024 * 1024;
 
@@ -190,25 +262,31 @@ export class CapacitorSqliteStorage implements Storage {
   }
 
   async appendEvents(events: readonly FlashEvent[]): Promise<void> {
-    if (events.length === 0) return;
+    await this.writeEvents(events, []);
+  }
+
+  /**
+   * Stores `events` and the device meta that counts them in one transaction (D11), so a session
+   * killed in between can't leave the meta behind and hand out those seq numbers again.
+   */
+  async appendEventsWithMeta(events: readonly FlashEvent[], meta: DeviceMeta): Promise<void> {
+    await this.writeEvents(events, [kvUpsert(META_KV_KEY, meta)]);
+  }
+
+  /**
+   * One transaction per `TXN_MAX_*` slice, with `tail` in the last one. A batch too big for one
+   * transaction (an import) that fails part way keeps its earlier slices without the meta; boot
+   * then moves the seq past those events (`getDeviceEventsAfterSeq` in apps/web/src/main.tsx).
+   */
+  private async writeEvents(
+    events: readonly FlashEvent[],
+    tail: readonly SqlStatement[],
+  ): Promise<void> {
+    if (events.length === 0 && tail.length === 0) return;
     await this.ensureReady();
-    for (const ev of events) {
-      const extras = extractExtraFields(ev);
-      await this.driver.execute(
-        `INSERT OR IGNORE INTO events (id, device, seq, hlc, type, v, card_id, payload_json, extra_fields_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          ev.id,
-          ev.device,
-          ev.seq,
-          ev.hlc,
-          ev.type,
-          ev.v,
-          extractCardId(ev),
-          JSON.stringify(ev.payload ?? null),
-          extras ? JSON.stringify(extras) : null,
-        ],
-      );
+    for (const txn of toTransactions([...events.map(eventInsert), ...tail])) {
+      // In order, so each slice's local_seq values follow the previous slice's.
+      await this.driver.executeBatch(txn); // NOSONAR
     }
   }
 
@@ -387,10 +465,8 @@ export class CapacitorSqliteStorage implements Storage {
 
   async setKv(key: string, value: unknown): Promise<void> {
     await this.ensureReady();
-    await this.driver.execute(`INSERT OR REPLACE INTO kv (key, value_json) VALUES (?, ?)`, [
-      key,
-      JSON.stringify(value),
-    ]);
+    const { sql, params } = kvUpsert(key, value);
+    await this.driver.execute(sql, params);
   }
 
   async deleteKv(key: string): Promise<void> {

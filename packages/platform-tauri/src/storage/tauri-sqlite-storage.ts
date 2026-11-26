@@ -1,9 +1,19 @@
-import { CapacitorSqliteStorage, type SqliteDriver } from '@flash/platform-capacitor';
+import {
+  CapacitorSqliteStorage,
+  type SqliteDriver,
+  type SqlStatement,
+} from '@flash/platform-capacitor';
 
 /** Interface matching `@tauri-apps/plugin-sql` database instance. */
 export interface TauriSqlPluginDatabase {
   execute(query: string, bindValues?: unknown[]): Promise<{ rowsAffected: number }>;
   select<T = Record<string, unknown>>(query: string, bindValues?: unknown[]): Promise<T[]>;
+  /**
+   * Runs the statements in one transaction, all or none (`sql_execute_batch` in
+   * apps/desktop/src-tauri/src/sql_batch.rs). The plugin's own `execute` can't: it runs each call
+   * on whichever pooled connection is free, so a `BEGIN` and its `COMMIT` may land on different ones.
+   */
+  executeBatch(statements: readonly SqlStatement[]): Promise<void>;
 }
 
 /**
@@ -20,6 +30,7 @@ export class TauriSqliteStorage extends CapacitorSqliteStorage {
       },
       query: async <T = Record<string, unknown>>(sql: string, params?: readonly unknown[]) =>
         db.select<T>(sql, params ? [...params] : undefined),
+      executeBatch: (statements) => db.executeBatch(statements),
     };
     super(driver);
   }
