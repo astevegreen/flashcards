@@ -1,6 +1,7 @@
 import {
   applyEvents,
   applyEventsWithDiff,
+  applyReviewToSchedule,
   createEmptyState,
   createEventFactory,
   createHlcState,
@@ -10,7 +11,10 @@ import {
   getEnabledLayoutsForDeck,
   getTotalAppliedEventCount,
   planLeechBackfill,
+  planLeechTag,
+  planLeechTagUndo,
   resolveDeckFsrsConfig,
+  shouldAutoSuspendLeech,
   uuidv5,
   uuidv7,
   type Card,
@@ -23,7 +27,9 @@ import {
   type KnownEvent,
   type Layout,
   type Note,
+  type NoteTagsAddedPayload,
   type ReviewRating,
+  type ReviewRecordedPayload,
   type SyncCursorState,
 } from '@flash/core';
 import type {
@@ -54,6 +60,7 @@ import { refreshThenRecheckStore } from './entitlementAtLaunch.ts';
 import { priorOfMediaEdits } from './mediaEditPrior.ts';
 import { createMediaReAddQueue, type MediaReAddQueue } from './mediaReAddQueue.ts';
 import { createPersistQueue, type PersistQueue } from './persistQueue.ts';
+import { snapshotWriteAllowed } from './rebuildSignal.ts';
 import { useAudioController, type AudioController } from './useAudioController.ts';
 import { isLeechBackfillReady } from './leechBackfillGate.ts';
 import { buildWatermarks, createSyncShell, initialSyncUiState } from './syncShell.ts';
@@ -62,19 +69,25 @@ import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
 import { localSnapshotDue } from './localSnapshotCounter.ts';
 import { putMediaTracked } from './recentMedia.ts';
-import {
-  cardToRow,
-  localEditWriter,
-  saveLocalSnapshot,
-  type SerializedSnapshot,
-} from './localEditWrite.ts';
-import { planRedo, planReview, planUndo, pushUndoEntry, type UndoEntry } from './studyReviews.ts';
+import { hasNewerReview, inStudyScope } from './undoGuard.ts';
 import type * as SnapshotApi from '@flash/core/snapshot';
 
 export type { AudioController } from './useAudioController.ts';
 export type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
 
-export type { UndoEntry } from './studyReviews.ts';
+export interface UndoEntry {
+  reviewId: string;
+  cardId: string;
+  deckId: string;
+  /** The review made the card a leech and auto-suspended it; Undo unsuspends it too. */
+  leechSuspended?: boolean;
+  /** The review made the card a leech and tagged its note `leech`; Undo removes the tag. */
+  leechTagged?: boolean;
+  /** The review as recorded, so Redo can record it again after an Undo. */
+  review: ReviewRecordedPayload;
+  /** The `leech` tag add the review made, re-added by Redo. */
+  tagAdd?: NoteTagsAddedPayload;
+}
 
 export interface AppContextValue {
   platform: PlatformServices;
@@ -181,10 +194,40 @@ const DEFAULT_PERSONAL_ENTITLEMENT: EntitlementState = {
   productId: 'unlock_full',
 };
 
+function cardToRow(card: Card): MaterializedCardRow {
+  return {
+    id: card.id,
+    deck_id: card.deck_id,
+    note_id: card.note_id,
+    layout_id: card.layout_id,
+    due: card.schedule.due,
+    schedule: card.schedule,
+  };
+}
+
 type SnapshotModule = typeof SnapshotApi;
+type SerializedSnapshot = ReturnType<SnapshotModule['serializeCollectionState']>;
 let snapshotModule: SnapshotModule | undefined;
 const loadSnapshotModule = (): Promise<SnapshotModule> =>
   import('@flash/core/snapshot').then((m) => (snapshotModule = m));
+
+/**
+ * Saves a snapshot serialized when its write was queued (D18): the queue has appended exactly the
+ * events it holds by the time this runs, so `localSeq` matches it. Skipped when a newer Check
+ * rebuild owns the snapshot (rebuildSignal.ts).
+ */
+async function saveLocalSnapshot(
+  storage: PlatformServices['storage'],
+  startedAtMs: number,
+  snapshot: SerializedSnapshot,
+): Promise<void> {
+  if (!(await snapshotWriteAllowed(storage, startedAtMs))) return;
+  await storage.setLocalSnapshot({
+    snapshot,
+    localSeq: await storage.getMaxLocalSeq(),
+    savedAt: Date.now(),
+  });
+}
 
 export interface AppProviderProps {
   platform: PlatformServices;
@@ -420,15 +463,17 @@ export function AppProvider({
         }
       }
 
-      void enqueuePersist(
-        localEditWriter(platform.storage, startedAtMs, {
-          events,
-          changedRows,
-          removedIds,
-          meta: nextMeta,
-          ...(snapshot ? { snapshot } : {}),
-        }),
-      );
+      void enqueuePersist(async () => {
+        await platform.storage.appendEvents(events);
+        if (changedRows.length > 0) {
+          await platform.storage.upsertMaterializedCards(changedRows);
+        }
+        if (removedIds.length > 0) {
+          await platform.storage.deleteMaterializedCards(removedIds);
+        }
+        await platform.storage.setDeviceMeta(nextMeta);
+        if (snapshot) await saveLocalSnapshot(platform.storage, startedAtMs, snapshot);
+      });
     },
     [enqueuePersist, platform.storage, startedAtMs, syncController],
   );
@@ -529,16 +574,61 @@ export function AppProvider({
 
   const rateCard = useCallback(
     (card: Card, rating: ReviewRating, durationMs: number, options?: { typedAnswer?: string }) => {
-      const { events, entry } = planReview(
-        stateRef.current,
-        factoryRef.current,
-        card,
+      const factory = factoryRef.current;
+      const nowMs = Date.now();
+      const tzOffset = -new Date(nowMs).getTimezoneOffset();
+      const st = stateRef.current;
+      const paramsVersion = getActiveFsrsParamsVersion(st, card.deck_id);
+      const fsrsConfig = resolveDeckFsrsConfig(st, card.deck_id, nowMs, paramsVersion);
+      const { next, resulting_due_at } = applyReviewToSchedule(
+        card.schedule,
         rating,
-        durationMs,
-        Date.now(),
-        options,
+        nowMs,
+        fsrsConfig,
       );
-      setUndoStack((prev) => pushUndoEntry(prev, entry));
+      const reviewId = uuidv7(nowMs);
+      const layout = st.layouts.get(card.layout_id);
+
+      const review: ReviewRecordedPayload = {
+        review_id: reviewId,
+        card_id: card.id,
+        rating,
+        reviewed_at: nowMs,
+        tz_offset: tzOffset,
+        duration_ms: Math.max(0, Math.round(durationMs)),
+        answer_mode: layout?.answer_mode ?? 'flip',
+        ...(options?.typedAnswer !== undefined ? { typed_answer: options.typedAnswer } : {}),
+        fsrs_params_version: paramsVersion,
+        resulting_due_at,
+      };
+      const ev = factory.create('ReviewRecorded', review, nowMs);
+
+      // Phase 9 leech auto-suspend (setting, default off): decided once here, logged as an event.
+      const events: KnownEvent[] = [ev];
+      const leech = shouldAutoSuspendLeech(st, card.id, card.schedule.lapses, next.lapses);
+      if (leech) {
+        events.push(
+          factory.create(
+            'CardSuspended',
+            { card_id: card.id, reason: 'leech', review_id: reviewId },
+            nowMs,
+          ),
+        );
+      }
+      // Reaching the leech threshold tags the note `leech` (always, independent of auto-suspend).
+      const leechTag = planLeechTag(st, card, card.schedule.lapses, next.lapses);
+      if (leechTag) events.push(factory.create('NoteTagsAdded', leechTag, nowMs));
+      setUndoStack((prev) => [
+        ...prev.slice(-49),
+        {
+          reviewId,
+          cardId: card.id,
+          deckId: card.deck_id,
+          ...(leech && { leechSuspended: true }),
+          ...(leechTag && { leechTagged: true, tagAdd: leechTag }),
+          review,
+        },
+      ]);
       // A new answer ends the redo history, as in any editor.
       setRedoStack([]);
       emitEvents(events);
@@ -547,35 +637,56 @@ export function AppProvider({
   );
 
   const undoLastReview = useCallback((): boolean => {
-    const plan = planUndo(
-      stateRef.current,
-      factoryRef.current,
-      undoStack,
-      activeDeckId,
-      Date.now(),
-    );
-    if (!plan) return false;
+    const last = undoStack[undoStack.length - 1];
+    if (!last || !inStudyScope(last, activeDeckId)) return false;
+    if (hasNewerReview(stateRef.current, last)) {
+      // A newer answer (synced from another device) stands; this entry can't be undone any more.
+      setUndoStack((prev) => prev.slice(0, -1));
+      return false;
+    }
+    const factory = factoryRef.current;
+    const nowMs = Date.now();
+    const events: KnownEvent[] = [
+      factory.create('ReviewUndone', { review_id: last.reviewId }, nowMs),
+    ];
+    if (last.leechSuspended) {
+      events.push(factory.create('CardUnsuspended', { card_id: last.cardId }, nowMs));
+    }
+    const st = stateRef.current;
+    const card = last.leechTagged ? st.cards.get(last.cardId) : undefined;
+    const untag = card && planLeechTagUndo(st, card);
+    if (untag) events.push(factory.create('NoteUpserted', untag, nowMs));
     setUndoStack((prev) => prev.slice(0, -1));
-    // A newer answer (synced from another device) stands; this entry can't be undone any more.
-    if (plan.stale) return false;
-    setRedoStack((prev) => pushUndoEntry(prev, plan.entry));
-    emitEvents(plan.events);
+    setRedoStack((prev) => [...prev.slice(-49), last]);
+    emitEvents(events);
     return true;
   }, [activeDeckId, emitEvents, undoStack]);
 
+  // Redo records the undone review again under a new id, with its original time and answer, so
+  // replay gives the card the schedule it had before the Undo. Refused (and dropped) once the card
+  // has a newer review, e.g. synced from another device, which the old one would now precede.
   const redoLastUndo = useCallback((): boolean => {
-    const plan = planRedo(
-      stateRef.current,
-      factoryRef.current,
-      redoStack,
-      activeDeckId,
-      Date.now(),
-    );
-    if (!plan) return false;
+    const last = redoStack[redoStack.length - 1];
+    if (!last || !inStudyScope(last, activeDeckId)) return false;
     setRedoStack((prev) => prev.slice(0, -1));
-    if (plan.stale) return false;
-    setUndoStack((prev) => pushUndoEntry(prev, plan.entry));
-    emitEvents(plan.events);
+    const st = stateRef.current;
+    if (!st.cards.has(last.cardId) || hasNewerReview(st, last)) return false;
+    const factory = factoryRef.current;
+    const nowMs = Date.now();
+    const review: ReviewRecordedPayload = { ...last.review, review_id: uuidv7(nowMs) };
+    const events: KnownEvent[] = [factory.create('ReviewRecorded', review, nowMs)];
+    if (last.leechSuspended) {
+      events.push(
+        factory.create(
+          'CardSuspended',
+          { card_id: last.cardId, reason: 'leech', review_id: review.review_id },
+          nowMs,
+        ),
+      );
+    }
+    if (last.tagAdd) events.push(factory.create('NoteTagsAdded', last.tagAdd, nowMs));
+    setUndoStack((prev) => [...prev.slice(-49), { ...last, reviewId: review.review_id, review }]);
+    emitEvents(events);
     return true;
   }, [activeDeckId, emitEvents, redoStack]);
 
