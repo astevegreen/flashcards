@@ -83,6 +83,13 @@ export {
   readCloudTable as readOneDriveTable,
 } from './cloudFileSource.ts';
 export {
+  downloadGoogleDriveFile,
+  linkGoogleDriveFile,
+  readGoogleDriveTable,
+  rejectedDriveFilesMessage,
+  splitPickedGoogleFiles,
+} from './googleDriveFileSource.ts';
+export {
   DROPBOX_RECONCILE_PREFIX,
   linkDropboxFile,
   linkOneDriveFile,

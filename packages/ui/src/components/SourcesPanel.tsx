@@ -336,11 +336,8 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         : await picker.pickSheetsAndDocs();
       if (picked.length === 0) return;
 
-      const [{ linkPickedGoogleFiles }, { rejectedDriveFilesMessage, splitPickedGoogleFiles }] =
-        await Promise.all([
-          import('../sources/sourceRunner.ts'),
-          import('../sources/googleDriveFileSource.ts'),
-        ]);
+      const { linkPickedGoogleFiles, rejectedDriveFilesMessage, splitPickedGoogleFiles } =
+        await import('../sources/sourceRunner.ts');
       const { workspace, files, rejected } = splitPickedGoogleFiles(picked);
       // Plain files get their own link step (column mapping / package) below the action row.
       if (files.length > 0) setDriveFileQueue(files);
