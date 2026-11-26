@@ -6,7 +6,7 @@ import type {
   PackInstallProgress,
 } from '@flash/platform';
 import { isPackForActiveLanguages } from '@flash/core';
-import { PACK_SECURITY_LIMITS } from '@flash/core/dictionary';
+import { PACK_SECURITY_LIMITS } from '@flash/core/pack-limits';
 import { tooLargeMessage } from '../components/pickedFileLimit.ts';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';

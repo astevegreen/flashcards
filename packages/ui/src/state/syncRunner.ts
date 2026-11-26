@@ -459,6 +459,9 @@ export async function runSyncCycle(
             buildWatermarks(deviceId, nextMeta.seq, result.cursor),
           )
         : null;
+      // Moved when the snapshot is decided, as a local edit does, so an edit queued before this
+      // write runs doesn't take a second snapshot of the same events (R10).
+      if (localSnapPayload) ctx.lastLocalSnapshotCountRef.current = totalNow;
 
       void ctx.enqueuePersist(async () => {
         await ctx.platform.storage.appendEvents(result.pulledEvents);
@@ -482,7 +485,6 @@ export async function runSyncCycle(
             localSeq: maxLocalSeq,
             savedAt: Date.now(),
           });
-          ctx.lastLocalSnapshotCountRef.current = totalNow;
         }
       });
     } else {

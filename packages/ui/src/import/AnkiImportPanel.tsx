@@ -9,7 +9,7 @@ import type {
   AnkiSkippedReviews,
   importAnkiPackage,
 } from '@flash/core/anki';
-import { ANKI_IMPORT_LIMITS } from '@flash/core/anki';
+import { ANKI_IMPORT_LIMITS } from '@flash/core/anki-limits';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import { useEffect, useRef, useState } from 'react';
 import { describeImportError } from '../components/describeImportError.ts';
