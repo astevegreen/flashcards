@@ -27,6 +27,9 @@ function pushText(segments: ClozeSegment[], value: string): void {
 function findClozeClose(input: string, bodyStart: number): number {
   let i = bodyStart;
   let singleBraceDepth = 0;
+  // The first `}}` the scan passes: the fallback when the braces never balance (C19). Tracked
+  // here, not searched for afterwards, so parsing stays linear (§13).
+  let firstClose = -1;
 
   while (i < input.length - 1) {
     const ch = input[i];
@@ -42,6 +45,7 @@ function findClozeClose(input: string, bodyStart: number): number {
     }
 
     if (ch === '}') {
+      if (next === '}' && firstClose < 0) firstClose = i;
       if (singleBraceDepth > 0) {
         singleBraceDepth -= 1;
         i += 1;
@@ -55,9 +59,7 @@ function findClozeClose(input: string, bodyStart: number): number {
     i += 1;
   }
 
-  // Fall back to the first `}}` before where the scan stopped (C19).
-  const close = input.indexOf('}}', bodyStart);
-  return close < i ? close : -1;
+  return firstClose;
 }
 
 /**

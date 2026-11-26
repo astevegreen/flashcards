@@ -76,6 +76,18 @@ describe('Cloze parser golden tests (§5.2)', () => {
     ]);
     expect(parseCloze('{{c1::{a}')).toEqual([{ type: 'text', value: '{{c1::{a}' }]);
   });
+
+  it('stays linear on pathological input (a hostile deck must not freeze replay)', () => {
+    const inputs = [
+      '{{c1::'.repeat(170_000),
+      '{{c1::{'.repeat(150_000),
+      '{{c1::{a}'.repeat(110_000) + '}}',
+      '{'.repeat(1_000_000),
+    ];
+    const start = Date.now();
+    for (const input of inputs) parseCloze(input);
+    expect(Date.now() - start).toBeLessThan(3000);
+  });
 });
 
 describe('Multi-variant Cloze card derivation, sibling burying & convergence', () => {
