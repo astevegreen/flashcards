@@ -47,15 +47,23 @@ function normalizeUmlaut(syllable: string, isNumbered: boolean): string {
 }
 
 /**
+ * One Hanyu Pinyin syllable: an optional initial, a final, and an optional erhua `r`. A word
+ * followed by a digit that is not a syllable (`Windows1`, `mp3`) keeps its digit unmarked.
+ */
+const PINYIN_SYLLABLE =
+  /^(?:[bpmfdtnlgkhjqxrzcsyw]|zh|ch|sh)?(?:a|ai|an|ang|ao|e|ê|ei|en|eng|er|o|ong|ou|i|ia|ian|iang|iao|ie|in|ing|io|iong|iou|iu|u|ua|uai|uan|uang|ue|uei|uen|ueng|ui|un|uo|ü|üan|üe|ün|v|ve|m|n|ng)r?$/;
+
+/**
  * Standard Hanyu Pinyin tone placement rule:
  * 1. If `a` or `e` is present, it takes the tone mark.
  * 2. If `ou` is present, `o` takes the tone mark.
  * 3. Otherwise, the last vowel (`a, e, i, o, u, ü`) takes the tone mark.
- * Returns `null` if the syllable has no vowel (e.g., "hsk3"), so callers preserve it verbatim.
+ * Returns `null` if it is not a syllable (e.g., "hsk3", "Windows1"), so callers keep it verbatim.
  */
 function applyToneMark(rawSyllable: string, tone: 1 | 2 | 3 | 4 | 5): string | null {
   const normalized = normalizeUmlaut(rawSyllable, true);
   const lower = normalized.toLowerCase();
+  if (!PINYIN_SYLLABLE.test(lower)) return null;
   let targetIndex = -1;
 
   const aIdx = lower.indexOf('a');

@@ -89,9 +89,9 @@ export async function removeUnusedMedia(ctx: RemoveMediaContext): Promise<Remove
     unused: checked.unused.filter((f) => !recent.has(f.hash)),
   };
   const factory = ctx.getEventFactory();
-  const events = planMediaRemoval(report).map((step) =>
+  const events: KnownEvent[] = planMediaRemoval(report).map((step) =>
     factory.create(step.type, step.payload, nowMs),
-  ) as KnownEvent[];
+  );
   if (events.length > 0) ctx.emitEvents(events);
   let filesDeleted = 0;
   const storage = ctx.platform.storage;

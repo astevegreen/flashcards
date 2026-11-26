@@ -28,7 +28,7 @@ const REGISTRY_FOLDERS_KEY = 'tauri_linked_folders_v1';
 
 function joinSafeRelative(root: string, rel: string): string {
   const norm = rel.replace(/\\/g, '/').replace(/^\/+/, '');
-  if (!norm || norm.includes('..') || norm.includes('\0') || /^[a-zA-Z]:/.test(norm)) {
+  if (!norm || norm.split('/').includes('..') || norm.includes('\0') || /^[a-zA-Z]:/.test(norm)) {
     throw new Error(`Unsafe relative path "${rel}".`);
   }
   const cleanRoot = root.replace(/[/\\]+$/, '');
@@ -175,7 +175,8 @@ export class TauriLocalFolderWatcher implements LocalFolderSourcesAdapter {
     mediaRelativePath: string,
   ): Promise<{ bytes: Uint8Array; mime: string; ext: string } | null> {
     const cleanRel = mediaRelativePath.trim().replace(/\\/g, '/');
-    if (!cleanRel || cleanRel.includes('..') || /^[a-zA-Z]+:/.test(cleanRel)) return null;
+    if (!cleanRel || cleanRel.split('/').includes('..') || /^[a-zA-Z]+:/.test(cleanRel))
+      return null;
     const baseParts = baseFileRelativePath.replace(/\\/g, '/').split('/');
     baseParts.pop();
     const joined = [...baseParts, cleanRel].filter(Boolean).join('/');

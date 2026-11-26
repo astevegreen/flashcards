@@ -111,7 +111,7 @@ export function StudyOptionsBar({ deckId, studyFilter }: Readonly<StudyOptionsBa
         popoverTarget={supportsPopover ? panelId : undefined}
         onClick={supportsPopover ? undefined : () => setOpen((v) => !v)}
         title={`This session: ${sessionSummary}`}
-        className="max-w-[11rem] truncate rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+        className="pointer-coarse:min-h-11 max-w-[11rem] truncate rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
       >
         {method === 'practice' ? 'Practice' : 'SRS'}
         {orderLabel ? ` · ${orderLabel}` : ''}

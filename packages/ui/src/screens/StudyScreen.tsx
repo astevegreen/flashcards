@@ -45,6 +45,7 @@ import {
   type StudySession,
 } from '../study/filterStore.ts';
 import { RatingBar } from '../study/RatingBar.tsx';
+import { StudyAnnouncer } from '../study/StudyAnnouncer.tsx';
 import { StudyCard } from '../study/StudyCard.tsx';
 import {
   canVerticalSwipeFromScroll,
@@ -909,7 +910,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               setStudyFilter(undefined);
               e.currentTarget.blur();
             }}
-            className="max-w-[14rem] truncate rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none sm:max-w-xs"
+            className="max-w-[14rem] truncate pointer-coarse:min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none sm:max-w-xs"
           >
             <option value="">All Decks</option>
             {decks.map((d) => (
@@ -930,7 +931,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
                 data-testid="study-filter-clear"
                 aria-label="Clear study filter"
                 onClick={() => setStudyFilter(undefined)}
-                className="rounded-full px-1 hover:bg-[var(--surface-2)]"
+                className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 rounded-full px-1 hover:bg-[var(--surface-2)]"
               >
                 ×
               </button>
@@ -942,7 +943,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               aria-expanded={showFilterPanel}
               onClick={() => setShowFilterPanel((v) => !v)}
               title="Study sets, filters and custom study (review ahead, extra new, practice)"
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+              className="pointer-coarse:min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
             >
               Filter
             </button>
@@ -951,29 +952,30 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
           <StudyOptionsBar deckId={activeDeckId} studyFilter={studyFilter} />
 
           <div
+            role="group"
             aria-label="Due card counts"
             className="flex items-center gap-1.5 text-xs font-semibold tabular-nums"
           >
             <span
               title="New cards"
-              data-testid="count-new"
               className="rounded-full bg-sky-500/15 px-2 py-0.5 text-sky-600 dark:text-sky-400"
             >
-              {queueResult.counts.new}
+              <span data-testid="count-new">{queueResult.counts.new}</span>
+              <span className="sr-only"> new,</span>
             </span>
             <span
               title="Learning cards"
-              data-testid="count-learning"
               className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-600 dark:text-amber-400"
             >
-              {queueResult.counts.learning}
+              <span data-testid="count-learning">{queueResult.counts.learning}</span>
+              <span className="sr-only"> learning,</span>
             </span>
             <span
               title="Due review cards"
-              data-testid="count-due"
               className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-600 dark:text-emerald-400"
             >
-              {queueResult.counts.due}
+              <span data-testid="count-due">{queueResult.counts.due}</span>
+              <span className="sr-only"> due for review</span>
             </span>
           </div>
         </div>
@@ -990,7 +992,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
                   : 'Toggle furigana / reading hints (F)'
               }
               aria-pressed={!hideFrontRuby}
-              className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+              className={`pointer-coarse:min-h-11 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
                 !hideFrontRuby
                   ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
                   : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--fg)]'
@@ -1005,7 +1007,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
             onClick={handleUndo}
             disabled={!undoAvailable}
             title="Undo last review (Z / →)"
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)] disabled:opacity-40"
+            className="pointer-coarse:min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)] disabled:opacity-40"
           >
             Undo
           </button>
@@ -1016,7 +1018,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               data-testid="study-redo"
               onClick={handleRedo}
               title="Redo the undone review (Ctrl+Shift+Z)"
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+              className="pointer-coarse:min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
             >
               Redo
             </button>
@@ -1027,13 +1029,20 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               type="button"
               onClick={() => setEditingNote(currentNote)}
               title="Edit note (E)"
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+              className="pointer-coarse:min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
             >
               Edit
             </button>
           )}
         </div>
       </header>
+
+      <StudyAnnouncer
+        cardId={currentCard?.id}
+        caughtUp={caughtUp}
+        revealStep={revealStep}
+        totalRevealSteps={totalRevealSteps}
+      />
 
       {showFilterPanel && !studyFilter && (
         <Suspense

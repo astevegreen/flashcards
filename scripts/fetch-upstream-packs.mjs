@@ -92,7 +92,7 @@ function prepareManualKrdict(opts, sources) {
   if (zips.length > 0) {
     for (const zip of zips) {
       const files = unzipSync(readFileSync(join(dir, zip)), {
-        filter: (f) => /\.xml$/i.test(f.name) && !f.name.includes('..'),
+        filter: (f) => /\.xml$/i.test(f.name) && !f.name.split('/').includes('..'),
       });
       for (const [name, data] of Object.entries(files)) {
         writeFileSync(join(dir, name.split('/').pop()), data);
@@ -149,7 +149,7 @@ function prepareManualExtraKoreanPack(opts, sources, cfg) {
   if (zips.length > 0) {
     for (const zip of zips) {
       const files = unzipSync(readFileSync(join(dir, zip)), {
-        filter: (f) => cfg.fileRe.test(f.name) && !f.name.includes('..'),
+        filter: (f) => cfg.fileRe.test(f.name) && !f.name.split('/').includes('..'),
       });
       for (const [name, data] of Object.entries(files)) {
         writeFileSync(join(dir, name.split('/').pop()), data);

@@ -253,8 +253,10 @@ export type FamilyCatalog = z.infer<typeof FamilyCatalogSchema>;
 export function isSafeRelativePackPath(raw: string): boolean {
   if (!raw || hasWhitespaceOrControlChar(raw)) return false;
   if (!raw.startsWith('/') || raw.startsWith('//')) return false;
-  if (raw.includes('\\') || raw.includes('..') || raw.includes(':')) return false;
-  return true;
+  if (raw.includes('\\') || raw.includes(':')) return false;
+  // No `..` segment, percent-encoded or not (URL parsing resolves `%2e%2e` too); a file name
+  // such as `a..b.json` is fine.
+  return !raw.split('/').some((segment) => segment.replaceAll(/%2e/gi, '.') === '..');
 }
 
 export function isSafePackUrl(raw: string, allowRelative = false): boolean {
