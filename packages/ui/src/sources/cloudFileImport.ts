@@ -9,6 +9,7 @@ import {
 } from '@flash/core';
 import { canCreateOrImportDeck, type EntitlementState } from '@flash/core/license';
 import type { PickedFile, PlatformServices } from '@flash/platform';
+import { describeImportWarnings } from '../import/importWarnings.ts';
 import { putMediaListTracked } from '../state/recentMedia.ts';
 
 /**
@@ -125,7 +126,7 @@ async function importPackage(
   }
   await putMediaListTracked(ctx.platform.storage, result.extractedMedia);
   if (result.events.length > 0) ctx.emitEvents(result.events);
-  return `Imported "${result.manifest.name}" from ${provider} (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.pagesImported} page(s)).`;
+  return `Imported "${result.manifest.name}" from ${provider} (${result.decksImported} deck(s), ${result.notesImported} note(s), ${result.pagesImported} page(s)).${describeImportWarnings(result.warnings)}`;
 }
 
 /**
