@@ -107,12 +107,11 @@ export function safeGunzipWithCap(
 ): Uint8Array {
   const chunks: Uint8Array[] = [];
   let total = 0;
-  let exceeded = false;
 
+  // The cap check throws from inside `push`, which aborts the loop below.
   const gunzip = new Gunzip((chunk) => {
     total += chunk.byteLength;
     if (total > maxUncompressedBytes) {
-      exceeded = true;
       throw new PackValidationError(
         `Pack archive exceeds maximum uncompressed byte cap (${maxUncompressedBytes} bytes).`,
       );
@@ -126,11 +125,6 @@ export function safeGunzipWithCap(
     const end = Math.min(offset + sliceSize, bytes.byteLength);
     const isFinal = end >= bytes.byteLength;
     gunzip.push(bytes.subarray(offset, end), isFinal);
-    if (exceeded) {
-      throw new PackValidationError(
-        `Pack archive exceeds maximum uncompressed byte cap (${maxUncompressedBytes} bytes).`,
-      );
-    }
   }
 
   const out = new Uint8Array(total);

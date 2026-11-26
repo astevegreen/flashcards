@@ -8,12 +8,12 @@ import {
   CHOSEONG_JUMP_JAMO,
   choseongSyllableRange,
   decodePackArchive,
+  DictionaryBrowseSummaryBuilder,
   entryBrowseFacets,
   materializeDictionaryEntries,
   planDictionarySearch,
   rankDictionaryResults,
   splitDictionaryGrade,
-  summarizeDictionaryBrowse,
   toChoseong,
   type DictionaryBrowseQuery,
   type DictionaryEntry,
@@ -156,7 +156,9 @@ describe('browse keys and ranges', () => {
   });
 
   it('summarizes levels (in order), topics (by count), grades and parts of speech', () => {
-    const summary = summarizeDictionaryBrowse('dict-krdict', entries);
+    const builder = new DictionaryBrowseSummaryBuilder('dict-krdict');
+    for (const e of entries) builder.add(e);
+    const summary = builder.build();
     expect(summary.total).toBe(7);
     expect(summary.levels).toEqual([
       { key: 'beginner', count: 4 },

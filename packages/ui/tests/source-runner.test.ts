@@ -32,7 +32,6 @@ import { hasLinkedSources } from '../src/sources/hasLinkedSources.ts';
 import {
   applyLinkedFileReconciliation,
   createAndLinkGoogleSheetTemplate,
-  createEmptySourcesRegistry,
   DROPBOX_RECONCILE_PREFIX,
   LINKED_SOURCES_KV_KEY,
   linkDropboxFile,
@@ -49,6 +48,17 @@ import {
   refreshSingleGoogleSource,
   scanSingleLocalFolder,
 } from '../src/sources/sourceRunner.ts';
+
+function createEmptySourcesRegistry(): SourcesRegistry {
+  return {
+    googleSources: [],
+    oneDriveSources: [],
+    dropboxSources: [],
+    localFolders: [],
+    packageSubscriptions: [],
+    catalogs: [],
+  };
+}
 
 function makeInMemoryStorage(): Storage & { mediaStore: Map<string, MediaBlob> } {
   const kv = new Map<string, unknown>();

@@ -46,10 +46,6 @@ export function getAnswerMode(mode: AnswerMode): AnswerModePlugin {
   return registry.get(mode) ?? flipAnswerMode;
 }
 
-export function listRegisteredAnswerModes(): AnswerMode[] {
-  return [...registry.keys()];
-}
-
 // Keep Flip mode eager (0 ms fast-path default); strictly lazy-load all other answer modes (§8).
 registerAnswerMode(flipAnswerMode);
 registerAnswerMode(

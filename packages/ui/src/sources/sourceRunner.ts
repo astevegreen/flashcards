@@ -66,7 +66,6 @@ import {
 } from './sourcesRegistry.ts';
 
 export {
-  createEmptySourcesRegistry,
   isOnline,
   LINKED_SOURCES_KV_KEY,
   loadSourcesRegistry,

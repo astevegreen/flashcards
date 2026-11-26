@@ -79,7 +79,6 @@ export class WebAudioPlayer implements AudioPlayer {
 
   private getAudio(): HTMLAudioElement | null {
     if (this.audio) return this.audio;
-    if (typeof Audio === 'undefined' && !this.createAudioElement) return null;
     try {
       const el = this.createAudioElement();
       el.preload = 'auto';

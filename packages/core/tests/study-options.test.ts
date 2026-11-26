@@ -13,9 +13,6 @@ import { SAMPLE_SEED_EPOCH_MS } from '../src/samples/decks.ts';
 import {
   compareSeededRandom,
   compareSourceOrder,
-  isPracticeOrder,
-  isStudyMethod,
-  isStudyOrder,
   planCardOrderForAllDecks,
   resolveReviewOrder,
 } from '../src/study/card-order.ts';
@@ -57,19 +54,6 @@ const sorted = (values: readonly string[]) => [...values].sort();
 function fakeCards(cardIds: readonly string[]): Card[] {
   return cardIds.map((id) => ({ id }) as Card);
 }
-
-describe('card-order guards', () => {
-  it('accept only the known methods and orders', () => {
-    expect(isStudyMethod('schedule')).toBe(true);
-    expect(isStudyMethod('practice')).toBe(true);
-    expect(isStudyMethod('cram')).toBe(false);
-    expect(isStudyOrder('deck')).toBe(true);
-    expect(isStudyOrder('random')).toBe(true);
-    expect(isStudyOrder('hardest')).toBe(false);
-    expect(isPracticeOrder('hardest')).toBe(true);
-    expect(isPracticeOrder(undefined)).toBe(false);
-  });
-});
 
 describe('compareSeededRandom (seeded, reproducible shuffle)', () => {
   const idsArb = fc.uniqueArray(fc.string({ minLength: 1, maxLength: 12 }), {

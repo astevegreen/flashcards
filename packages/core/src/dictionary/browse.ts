@@ -207,12 +207,3 @@ export class DictionaryBrowseSummaryBuilder {
     };
   }
 }
-
-export function summarizeDictionaryBrowse(
-  packId: DictionaryPackId,
-  entries: Iterable<Pick<DictionaryEntry, 'level' | 'topics' | 'grade' | 'pos'>>,
-): DictionaryBrowseSummary {
-  const builder = new DictionaryBrowseSummaryBuilder(packId);
-  for (const e of entries) builder.add(e);
-  return builder.build();
-}

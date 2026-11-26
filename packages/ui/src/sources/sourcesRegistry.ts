@@ -65,17 +65,6 @@ export interface SourceRefreshSummary {
   skipped: string[];
 }
 
-export function createEmptySourcesRegistry(): SourcesRegistry {
-  return {
-    googleSources: [],
-    oneDriveSources: [],
-    dropboxSources: [],
-    localFolders: [],
-    packageSubscriptions: [],
-    catalogs: [],
-  };
-}
-
 /**
  * Loads the device-local source registry and merges any synced `google_sheets`, `google_docs`,
  * or `package_url` decks/pages from `CollectionState` so sources linked on Device A also surface on Device B.

@@ -28,7 +28,7 @@ import {
   shouldAutoSuspendLeech,
 } from '../src/study/filter.ts';
 import { applyFilterPreset } from '../src/study/filter-lists.ts';
-import { getExtraNewCardsToday } from '../src/study/custom-study.ts';
+import { getExtraNewCardsToday } from './helpers/extra-new-cards.ts';
 import { buildStudyQueue } from '../src/study/queue.ts';
 
 const DAY = 86_400_000;

@@ -20,7 +20,7 @@ import {
   listStudySets,
 } from '../src/study/custom-study.ts';
 import { normalizeCardFilter } from '../src/study/filter.ts';
-import { getExtraNewCardsToday } from '../src/study/custom-study.ts';
+import { getExtraNewCardsToday } from './helpers/extra-new-cards.ts';
 import { buildStudyQueue } from '../src/study/queue.ts';
 
 const DECK = 'deck-ko-custom-study-prop';

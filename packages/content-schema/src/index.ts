@@ -24,7 +24,6 @@ export const NoteTypeFieldSchema = z.object({
   tts: z.boolean().optional(),
   sortKey: z.boolean().optional(),
 });
-export type NoteTypeFieldDef = z.infer<typeof NoteTypeFieldSchema>;
 
 export const NoteTypeDefSchema = z.object({
   id: z.string().min(1),
@@ -144,14 +143,12 @@ export const PageFrontmatterSchema = z.object({
   lang: z.string().min(1).optional(),
   tags: z.array(z.string()).default([]),
 });
-export type PageFrontmatter = z.infer<typeof PageFrontmatterSchema>;
 
 export const CourseItemSchema = z.object({
   kind: z.enum(['page', 'deck']),
   ref_id: z.string().min(1),
   unlocks_after_page_id: z.string().min(1).optional(),
 });
-export type CourseItemDef = z.infer<typeof CourseItemSchema>;
 
 export const CourseDefSchema = z.object({
   id: z.string().min(1),
@@ -238,7 +235,6 @@ export const FamilyCatalogEntrySchema = z.object({
     .regex(/^[0-9a-f]{64}$/i, 'sha256 must be a 64-character hex string')
     .optional(),
 });
-export type FamilyCatalogEntry = z.infer<typeof FamilyCatalogEntrySchema>;
 
 export const FamilyCatalogSchema = z.object({
   format_version: z.literal(1),
@@ -334,7 +330,6 @@ export const PackCatalogShardsSchema = z.object({
   compressed_bytes: z.number().int().nonnegative(),
   uncompressed_bytes: z.number().int().nonnegative().optional(),
 });
-export type PackCatalogShardsDef = z.infer<typeof PackCatalogShardsSchema>;
 
 export const PackCatalogEntrySchema = z.object({
   id: PackIdSchema,

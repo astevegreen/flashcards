@@ -65,16 +65,6 @@ export function listPresetDeckIds(state: CollectionState, presetId: string): str
   return out.sort(cmpStr);
 }
 
-/** The non-archived decks in a folder, sorted by name then id. */
-export function listFolderDecks(state: CollectionState, folderId: string): Deck[] {
-  const out: Deck[] = [];
-  for (const [deckId, id] of getDeckOrganization(state).folderByDeck) {
-    const deck = state.decks.get(deckId);
-    if (id === folderId && deck && !deck.archived) out.push(deck);
-  }
-  return out.sort(byNameThenId);
-}
-
 /** The live folder a deck is in, if any. */
 export function getDeckFolder(state: CollectionState, deckId: string): DeckFolder | undefined {
   const org = getDeckOrganization(state);
