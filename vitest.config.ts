@@ -13,6 +13,7 @@ export default defineConfig({
       'apps/**/tests/**/*.test.ts',
       'tools/**/tests/**/*.test.ts',
       'scripts/tests/**/*.test.mjs',
+      'tests/unit/**/*.test.ts',
     ],
     // Node by default; a UI render test opts into a DOM with `// @vitest-environment happy-dom`.
     environment: 'node',

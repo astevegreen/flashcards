@@ -23,4 +23,17 @@ describe('safeZipEntryBaseName', () => {
       expect(safeZipEntryBaseName(name)).toBeUndefined();
     }
   });
+
+  it('skips a name with a colon (drive-relative path or NTFS stream) or a NUL byte', () => {
+    for (const name of [
+      'C:evil.xml',
+      'C:\\Windows\\evil.xml',
+      'dir/C:evil.xml',
+      'krdict_1.xml:hidden',
+      'export/krdict_1.xml::$DATA',
+      'evil\0.xml',
+    ]) {
+      expect(safeZipEntryBaseName(name)).toBeUndefined();
+    }
+  });
 });
