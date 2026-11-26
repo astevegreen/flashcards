@@ -512,8 +512,8 @@ If development ever stops:
 - [x] `drive.file`: Google Picker multi-select of Sheets; Sheets API read + `batchUpdate`; Google Docs export as `text/markdown`. *(Verified live in ADR 0001: `setAppId` + combined `ViewId.DOCS` MIME view, `FORMULA` `=IMAGE(...)`, race-guarded `Card ID` `batchUpdate`, `modifiedTime` metadata, and Docs `text/markdown` export)*
 - [x] File System Access API (`showDirectoryPicker`) permission persistence in installed Chrome/Edge PWAs on Windows, reading Google Drive for Desktop folders. *(Verified live in ADR 0001: installed Windows PWA retained `readPermission: "granted"` and `readWritePermission: "granted"` across restart on mirrored `My Drive\Flashcards Deluxe`)*
 - [x] `ts-fsrs` v5 API (fields, learning steps, deterministic replay) and WASM optimizer package check. *(Verified in ADR 0001: `ts-fsrs@6.0.0` FSRS-6 21-weight + `fsrs-browser@6.6.0` BSD-3-Clause WASM)*
-- [x] Hanzi Writer quiz with KanjiVG Japanese stroke data + Arphic/CC BY-SA license verification. *(Verified in ADR 0001 + `spikes/phase0/drawing.html`)*
-- [x] CORS check for `.flashpkg` URLs (GitHub raw / Cloudflare Pages) and BYO Google Cloud TTS REST endpoint. *(Verified in ADR 0001 + `spikes/phase0/_headers`)*
+- [x] Hanzi Writer quiz with KanjiVG Japanese stroke data + Arphic/CC BY-SA license verification. *(Verified in `docs/adr/0001-phase0-spike-results.md`; the spike files are deleted)*
+- [x] CORS check for `.flashpkg` URLs (GitHub raw / Cloudflare Pages) and BYO Google Cloud TTS REST endpoint. *(Verified in `docs/adr/0001-phase0-spike-results.md`; the spike files are deleted)*
 
 ### Phase 1 — Core & Offline Single-Device App (Lean MVP)
 - Monorepo setup (`pnpm` workspaces), `AGENTS.md`, CI, sample decks (`ja`, `zh-Hans`, `ko`, `en`).

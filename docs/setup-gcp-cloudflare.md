@@ -1,6 +1,6 @@
 # GCP & Cloudflare Setup Guide (Phase 0 Spikes & Phase 2 Sync)
 
-This guide sets up the minimal cloud pieces required for **Spikes 0.1, 0.2, 0.3, and 0.7b** (and directly reused in Phase 2 Cloud Sync and Phase 3 Sheets/Docs Sources) using temporary `*.workers.dev` and `*.pages.dev` preview URLs.
+This guide sets up the minimal cloud pieces required for Phase 2 Cloud Sync and Phase 3 Sheets/Docs Sources (first built for the retired Phase 0 spikes) using temporary `*.workers.dev` and `*.pages.dev` preview URLs.
 
 > [!NOTE]
 > Everything in Phase 0 and Phase 2 runs inside the **free tier**: GCP OAuth + Drive/Sheets/Docs APIs have zero monthly cost, and Cloudflare Workers/Pages free tier covers 100k requests/day. Your GCP bonus credits only matter if you optionally test Cloud TTS (Spike 0.7b) beyond its free tier.

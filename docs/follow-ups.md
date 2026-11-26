@@ -109,10 +109,10 @@ Only Chromium Playwright with faked endpoints has covered these.
 ### Perf batch notes (PR #69, P2-P7 of the 2026-11-25 review)
 
 - [x] `packages/core/tests/deck-organization.test.ts` "two devices' concurrent edits reach every member deck" fails on main too with seed -751377563, path "20:1:9:9" (counterexample: A sets `max_reviews_per_day` 1, B sets 200, no weights): a deck's settings don't match the merged preset. Find the merge-order bug, then pin the seed as a regression case. Fixed: an edit skipped its deck copy where the deck already held the new value (200 is the default), so A's concurrent copy won on the decks while B won on the preset. Edits now always copy the fields they change; the case is pinned in the same file.
-- [ ] P6: with no stroke pack installed, the recognizer's cache key is the deck-stroke count, so re-caching a character with corrected strokes keeps the old index until reload. Key it by count plus latest `updatedAt`.
-- [ ] P4: no test pins that a shared ts-fsrs scheduler stays deterministic with `enable_fuzz: true` (same inputs in a different call order give the same output). Add one before the next ts-fsrs upgrade.
+- [x] P6: with no stroke pack installed, the recognizer's cache key is the deck-stroke count, so re-caching a character with corrected strokes keeps the old index until reload. Key it by count plus latest `updatedAt`. Fixed in #82: with no stroke pack the key is the count plus the latest deck-stroke write (a kv row that `putSingleStroke` keeps current), tested with the fake and with real Dexie.
+- [x] P4: no test pins that a shared ts-fsrs scheduler stays deterministic with `enable_fuzz: true` (same inputs in a different call order give the same output). Add one before the next ts-fsrs upgrade. Added in #82: a shared scheduler with `enable_fuzz: true` gives the same results whatever the call order.
 - [ ] P3: only `keepSyncStateIfUnchanged` is tested; a render-count test of `useApp()` consumers on an unchanged sync tick would cover the wiring.
-- [ ] The P2 and P4 perf tests log timings but assert none, and replay 20k cards on every `pnpm test`. Shrink them or move the timings to a bench script.
+- [x] The P2 and P4 perf tests log timings but assert none, and replay 20k cards on every `pnpm test`. Shrink them or move the timings to a bench script. Done in #82: `pnpm test` now checks a read-count bound on 2k cards, and the 20k-card timings run in `pnpm bench` (`vitest.bench.config.ts`).
 
 ### Agent tooling: agy merge-gate gaps (agy's notes on PR #65, 2026-11-25)
 
@@ -267,7 +267,7 @@ Defaults the 2026-11-23 agents picked. Each stays shipped until the owner decide
 - [ ] **PR #27, iOS loss marker location:** the app's SQLite database, not UserDefaults (same backup behaviour, plain TypeScript). Markers are iOS-only; Android relies on its plugin's own Keystore-loss report.
 - [ ] **PR #27, Mac entitlement check:** only checks that an iCloud entitlement exists, not that it names `iCloud.app.flashcards.localfirst`. A launch-probe timeout counts as unknown: Google Drive stays the default, with no "iCloud Drive looks off" hint.
 - [ ] **PR #28, gloss choices:** 해 stays "year (counter)" without "sun"; every numeral is labelled native or Sino-Korean; 팔 fronts get no hint. Every sense in the hand-written starter KRDict fixture (dev and tests only) now gets the App badge, not just 먹다 and 춥다.
-- [ ] **PR #28, existing starter decks:** devices that already loaded the 1.0.0 starter decks keep the old glosses (there is no upgrade path).
+- [x] **PR #28, existing starter decks:** devices that already loaded the 1.0.0 starter decks keep the old glosses (there is no upgrade path). Done in #83: a launch step upgrades decks seeded from an older release (see "Burn-down wave 2 follow-ups" and "Decisions needed (burn-down, 2026-11-26)").
 - [ ] **PR #29, Languages:** "Show all languages" is one per-device switch for the pack manager and the dictionary. Unticking a language also drops its onboarding choice. Unticking everything (with no decks) shows no language options. Cloze, Sentence and Grammar are language-neutral, so a mis-tagged neutral deck no longer counts through its fields. A Korean card that already stores ruby on a layout that hides it on the front keeps the Ruby toggle. Dev collections seeded with the old Korean sample keep its ruby.
 
 ### Leftover nits from the 2026-11-23 batch
@@ -443,7 +443,7 @@ Defaults picked while building the checks. Each stays shipped until the owner de
 - [ ] Real Google Drive is unverified for plain files: the Picker MIME filter (especially how `.flashpkg` and Windows `.csv` uploads are typed), `alt=media` CORS from the Capacitor WebView, and `drive.file` access on a second device. Hosted `picker.html` (`mode=drive_files`, with CSP-safe external `picker.js`) is deployed at `https://flashcards-localfirst-dev.yodc.workers.dev/picker.html` and confirmed opening Google Picker from Windows Tauri.
 - [x] `LinkedFileMapping.tsx` and `OneDriveLinkMapping.tsx` merged: `OneDrivePickerPanel.tsx` now uses `LinkedFileMapping.tsx` and `OneDriveLinkMapping.tsx` is removed.
 - [x] Linking a `.flashpkg` from Drive now checks the free-tier deck limit against every new deck the package adds before storing media or emitting events (`pullDrivePackage` in `googleDriveFileSource.ts`).
-- [ ] Sign-in is checked per refresh; "Refresh all" skips Drive files (like Sheets) while Google is disconnected, without a row message.
+- [x] Sign-in is checked per refresh; "Refresh all" skips Drive files (like Sheets) while Google is disconnected, without a row message. Done in #80: Refresh all lists a disconnected Drive file with a row message. Sheets and Docs still skip it silently (see the wave 2 follow-ups).
 
 ### #20 Sync and devices
 
@@ -518,7 +518,7 @@ Observed while bringing up the Capacitor Android debug build on a Pixel 9 Pro an
 ## Starter-deck content (Android testing follow-up, 2026-11-25)
 
 - [x] **No licence credit on starter cards (decks 1.2.0).** The vocab layouts reveal `example` + `notes` last, so every starter card's "third side" showed only a credit line. The build now leaves `notes` for learner content (the Mandarin deck's "Also read: …"; empty otherwise) and fails if a credit lands in `notes` or `example`. Credits are deck-level: each deck description ends with a "Credits: …" line, Settings > About & Open Data Licenses lists every starter source with its licence attribution and changes (`packages/ui/src/packs/starterSourceCredits.ts`), and `THIRD-PARTY-NOTICES.txt` keeps the full notices. Per-note provenance (`meaningSource`, `meaningEdited`) is metadata in the generated module, not a field, and is not copied into events. Reasoning per licence: `content/starters/README.md`.
-- [ ] **Clean up the old credit on decks seeded before 1.2.0.** There is no starter update path: seeding happens once, at onboarding (`startOnboardingDeck`), and `presetCatchUp.ts` is about deck-option presets, not deck content. Existing users keep the credit line in Notes (and the 1.0.0 glosses, see PR #28 above). A future update step would, per starter note, emit a `NoteUpserted` that clears `notes` (or leaves "Also read: …") **only when the field still exactly equals the old generated credit**. The old text is reproducible from `meaningSource`/`meaningEdited` (formats in `content/starters/README.md`). It must merge with any user edit (only that field changes, timestamped now) and run once per deck version (`DeckCreated.source.package_version`). Owner decision: build this, or leave existing decks as they are.
+- [x] **Clean up the old credit on decks seeded before 1.2.0.** There is no starter update path: seeding happens once, at onboarding (`startOnboardingDeck`), and `presetCatchUp.ts` is about deck-option presets, not deck content. Existing users keep the credit line in Notes (and the 1.0.0 glosses, see PR #28 above). A future update step would, per starter note, emit a `NoteUpserted` that clears `notes` (or leaves "Also read: …") **only when the field still exactly equals the old generated credit**. The old text is reproducible from `meaningSource`/`meaningEdited` (formats in `content/starters/README.md`). It must merge with any user edit (only that field changes, timestamped now) and run once per deck version (`DeckCreated.source.package_version`). Owner decision: build this, or leave existing decks as they are. Done in #83 (`packages/core/src/starters/upgrade.ts`): per starter note, one `fields_only` `NoteUpserted` clears the 1.0.0 or 1.1.0 credit, and the 1.0.0 gloss is replaced by the current one. Edited fields stay.
 - [ ] **Korean example sentences: not added (no compatible source).** The `example` field stays empty rather than invented. Checked 2026-11-25: Wikidata lexeme usage examples (P5831, CC0) exist on only 7 of the 204 pinned lexemes. KRDict 한국어기초사전 examples are CC BY-SA 2.0 KR (share-alike, rejected). Tatoeba is CC BY 2.0 FR (some CC0): no share-alike, but it needs per-sentence attribution, has no pinned release (weekly exports only), and matching inflected Korean to a NIKL headword needs morphological analysis; English translations are uneven. Owner decision: accept Tatoeba (CC BY) with a pinned snapshot and per-deck credits, or keep examples empty.
 - [x] **No empty reveal step.** The study screen already drops reveal steps whose fields are all empty, so a Korean starter card (empty `example` and `notes`) now reveals in one step, and a Mandarin card shows the last step only when it has "Also read: …".
 
@@ -545,3 +545,126 @@ Proposed scheme:
 - [ ] **New decks start with source order.** A deck created or imported after choosing "Random (all decks)" gets `new_card_order: 'source'` (the deck default) until "Apply to all" or its own deck options change it. Decide whether deck creation should copy the Settings default.
 - [ ] **Review order is collection-wide.** `study_order` orders reviews in every deck; only new-card order can differ per deck. Add a per-deck review order only if users ask for it.
 - [ ] **"Newest first" order** (suggested in the Android review) is not built; the three orders above cover the decided scope.
+
+## Burn-down wave 2 follow-ups (2026-11-26)
+
+Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code review. Each item is small and none blocks a release.
+
+### Cloud transports and sign-in (#79, #74)
+
+- [ ] The 401 contract test doesn't prove that the token was force-refreshed. The fake ignores the Authorization header, and OneDrive's harness always returns the same token (`sync-transport-conformance.test.ts`).
+- [ ] No per-call-site over-cap test for the image and audio processors, the picker downloads or the Docs export. Only the shared reader (`net/read-capped.ts`) is covered.
+- [ ] The 2 s interactive Retry-After ceiling is not tested in the OneDrive or Dropbox pickers.
+- [ ] A token-helper reply with no token now returns 502, so web Google shows "helper unavailable" with tap-to-renew instead of AUTH_REQUIRED. Check that this is the wording we want.
+- [ ] The 50 MB cap on Sheets `values.get` JSON is tighter than the same data as CSV.
+- [ ] Behaviour changes to keep in mind: the 401 refresh no longer counts as an attempt for OneDrive and Dropbox (up to `maxAttempts + 1` requests), Google no longer retries 501, and the Dropbox picker's network-error text changed.
+- [ ] The native Dropbox and Microsoft auths keep their own `inFlightRefresh` (`dropbox-native-auth.ts`, `microsoft-native-auth.ts`). Move them onto `TokenRefresher`.
+- [ ] The Google Drive, Dropbox and OneDrive transport `read()`s still load the whole file into memory.
+- [ ] Run one real desktop sign-in per provider. The shared loopback helper (`platform-tauri/src/native/loopback-sign-in.ts`) has only mocks so far.
+- [ ] Picker deep link: require the `state` nonce once the hosted `picker.js` has been live a while. A callback with no `state` is still accepted (`native-picker-bridge.ts`).
+- [ ] Add `http://127.0.0.1` as a "Mobile and desktop" redirect URI on the Entra app, then switch `microsoft-loopback.ts` to `127.0.0.1` (review N8).
+- [ ] `flash-cli audio --key-stdin` prints its prompt on stderr at a terminal. Check that it never echoes the key.
+- [ ] `apps/desktop/.cargo/config.toml` (the `SQLITE_SECURE_DELETE` build flag) needs a comment that says why it sits in `apps/desktop/` and not in `src-tauri`.
+
+### Left from partly fixed review items (D11, S4, P3, §9)
+
+- [ ] D11 (review): two tabs of one device can still write at once and reuse `(device, seq)`, and the SQLite storages still append events and meta without one transaction (`native/plugins.ts`). Add `appendEventsWithMeta` in one transaction, or rebuild seq from `max(seq)` at boot.
+- [ ] S4 (review): UI components still read `note.fields[key]` directly. Route them through `noteField`.
+- [ ] P3 (review): a sync tick that changes `syncState` still re-renders every `useApp()` consumer. Move `syncState` out of the context value.
+- [ ] §9 Native (review): event SQL runs only against `InMemorySqliteDriver`, never real SQLite. Run it against sql.js or a device.
+
+### Linked sources and refresh (#80, #72)
+
+- [ ] `markPermissionRequired` leaves an old `skipReason` in place.
+- [ ] `applyCloudFileReconciliation` looks up the row outside `withSourcesLock`. It is harmless today, because it looks the row up again inside the lock.
+- [ ] The new row-routing tests cover OneDrive and Dropbox only, not the Drive branch.
+- [ ] Relinking without access leaves the row at `error`, not `permission_required`, until the next refresh.
+- [ ] "Refresh all" still skips Google Sheets and Docs with no message while Google is disconnected. The Drive row message could apply to them too.
+- [ ] A device that has synced linked decks but never opened Sources doesn't refresh them at launch. The launch check reads only the saved registry (`sources/hasLinkedSources.ts`).
+- [ ] Local-folder `.xlsx` scans skip `canParseXlsx` (`sourceRunner.ts` ~1946).
+
+### Import, CSV and zip (#72, #85)
+
+- [ ] Export, then re-import into the same collection, adds a copy of a note that lost the record-id race, because it is now exported under its note id (`flashpkg.ts` ~732, `import/record-ids.ts`). Needs a package-origin deck that already holds duplicate keys to test.
+- [ ] Zip detection decodes entry names as UTF-8, while extraction decodes a name without the UTF-8 flag as Latin-1 (CP437 names; `zip-entries.ts` ~85). Test with a real Anki or Drive archive.
+- [ ] A space before an opening quote is still part of the cell (`csv.ts` ~96).
+- [ ] A cell that holds only spaces inside quotes still reads as empty, so it doesn't round-trip.
+- [ ] The Bring my cards preview still trims quoted padded cells, because its grid has no quote flags. The import keeps them.
+- [ ] The Card ID write-back still doesn't quote outer spaces, unlike `exportCsv`. Changing it would start preserving spaces in cells that were unquoted before.
+- [ ] `scripts/packs/zip-entry.mjs` doesn't reject `:` in entry names.
+- [ ] The Dropbox transport and picker accept `.` segments, while OneDrive rejects them.
+- [ ] The NUL check in Tauri `readRelativeMedia` is tested only through its helper (`hasTraversalSegment`).
+
+### Sync, replay and snapshots (#75, #82, #83)
+
+- [ ] TTS-key restore approximation when a snapshot has no registers (`events/snapshot.ts` ~58).
+- [ ] The Anki reader's idle timeout also runs during the read itself. Use `quiet()` there.
+- [ ] The hydrate branch (`syncRunner.ts` ~441) still moves the snapshot counter after its queued write.
+- [ ] The counter moves even when the persist later skips the write, so the next snapshot can be up to 200 events late.
+- [ ] A sync that pulls 100 or more events snapshots regardless of the counter.
+- [ ] Retained `unknownEvents` are shared objects between the serialized input and the live state.
+- [ ] Starter upgrade (#83): an unsynced edit of a still-old-text field loses to the upgrade.
+- [ ] Starter upgrade (#83): the `SyncRuntime` hook wiring is not render-tested.
+- [ ] Starter upgrade (#83): `legacySeed` builds the old decks with today's seeding code, so a seeding change can drift from what older builds wrote.
+- [ ] Run the Drive `ifAbsent` race fix (C23) against real Google Drive: `createdTime` and `appProperties` in `files.list`, and how fast a create shows up in a name lookup.
+
+### Packs, backups and memory (#82, #85)
+
+- [ ] A `full` backup with `withMedia` and no `loadMedia` loader silently writes a `daily` manifest.
+- [ ] `.gz` packs between 50 and 150 MB are read whole before the codec refuses them.
+- [ ] The pack codec's uncompressed cap relies on fflate's `ondata` throw alone.
+- [ ] The DictionaryPanel presence index costs k × N.
+- [ ] The picker `maxBytes` caps are unverified on Capacitor (`readData: false` path).
+- [ ] `loadMaterializedCards` is kept, but nothing reads that table at boot. See P5 in the review and the decision below.
+- [ ] The `--full` pack build (`publish-packs.yml`) is not reached by any gate.
+- [ ] `pnpm bench` is missing from AGENTS.md "Commands".
+
+### Study screen and accessibility (#81)
+
+- [ ] `choice-sync-stable.spec.ts` may fail on some days, because the ranking is hashed by study day. If it flakes, pin the study day.
+- [ ] The "only other notes change" unit test for the choice key is weak. The e2e is the real proof.
+- [ ] The spoken count sentence exists only once the lazy announcer chunk has loaded.
+- [ ] Tags are left out of the choice key on purpose, so a tag-only edit keeps the old options until the next card.
+
+### Tests and tooling (#73, #84, #85)
+
+- [ ] Burn down `REACT_COMPILER_BASELINE` (88 sites in 37 files; `purity` is off in `StudyScreen`).
+- [ ] Decide whether the Security jobs (`security.yml`) become required checks. That needs a `dependency-review` that tolerates a skip, because it runs only on pull requests.
+- [ ] CodeQL covers JavaScript, TypeScript and Actions only. Add Rust, Kotlin and Swift to `desktop.yml` and `native.yml` if wanted.
+- [ ] Watch the first Gradle Dependabot PRs on the Capacitor project: `cap sync` rewrites `capacitor.build.gradle` and `capacitor.settings.gradle`.
+- [ ] The string-value `__proto__` test and the `({}).polluted` check can't fail.
+- [ ] `phase5-audio.spec.ts` ~351: polling `getVoices` can pass before the key press reaches `speak`.
+- [ ] The front auto-speak absence check waits only two frames.
+- [ ] The `flash-cli mcp` child-process test has no explicit timeout or kill.
+- [ ] The retry reporter doesn't escape `%` in `::warning` messages, and has no automated test.
+- [ ] The 26 MiB snapshot fixture is heavy. Shrink it or build it lazily.
+- [ ] `sw-picker.spec.ts` matches the exact regex text of the denylist.
+- [ ] The `listFolderDecks` coverage (hide archived, name and id order) was dropped with the function.
+- [ ] UI render tests still to write once `happy-dom` is in: `rateCard`, `undoLastReview`, `redoLastUndo`, `emitEvents` with a failed persist, the P3 render-count test, and the effect wiring in `ReminderRuntime`, `MediaImage` and Browse (see the decision below).
+- [ ] A coverage threshold in `vitest.config.ts`, once `@vitest/coverage-v8` is in.
+
+### Left over from the dead-code pass (#85)
+
+- [ ] knip still lists 60 unused value exports and 121 unused type exports, mostly component prop types and module constants. Un-export them in a later pass. A few are `default` exports used through `lazy()`.
+- [ ] R8 leftovers: the per-review FSRS loop (`stats.ts`, `replay.ts`), the `.flashpkg` layout and note-type payloads, and the device-speech wrappers.
+- [ ] Moving the shared SQLite code out of `@flash/platform-capacitor` needs a new workspace package. `platform-tauri` also takes `isPickerCallback`, `SystemBrowserLauncher` and `ICloudDocumentPlugin` from it.
+- [ ] Owner chores: delete `C:\Antigravity\Korean-w9-base` and `C:\Antigravity\Korean-w9-main` (locked `node_modules`), and the empty untracked `packages\ui\src\utils` in the main checkout.
+
+## Decisions needed (burn-down, 2026-11-26)
+
+Each default below stays shipped until the owner decides.
+
+- [ ] **Add `happy-dom` as a dev dependency for UI render tests.** Recommend yes. It unblocks the §9 `rateCard`, undo, redo and failed-persist tests, the P3 render-count test, and the effect wiring of #82 and #83.
+- [ ] **Add `@vitest/coverage-v8` and set a coverage threshold.** Recommend yes.
+- [ ] **Starter-deck upgrade defaults (#83).** The deck description is replaced unless the user wrote or cleared one. Notes is cleared when it equals either the 1.0.0 or the 1.1.0 credit. The upgrade runs silently, with no notice and no undo entry. Archived starter notes are upgraded too. Recommend keep all four.
+- [ ] **Starter upgrade does not rewrite `source.package_version` (#83).** The release lives in the `StarterDeckUpgraded` event, and no screen shows a native deck's version. Recommend keep.
+- [ ] **Accepted limitation (#83).** A device on an older build ignores `fields_only` and can bake the upgrade's `deck_id` into its snapshots. A concurrent move can then stay lost there, and on devices that bootstrap from that snapshot. Recommend accept.
+- [ ] **Generate the Ed25519 licence key and set `VITE_LICENSE_PUBLIC_KEY`.** Keep the private key safe. Until then, licence keys are refused, with a warning where they are offered.
+- [ ] **CSV tag backslash escaping (#72).** `exportCsv` writes the tag `a,b` as `a\,b`, so Flashcards Deluxe or Excel show the backslash. Recommend accept; the other way breaks the tested `daily; topik-1` import.
+- [ ] **Licence keys bought outside the stores stay off for store builds (#74).** Decided: in-app purchase only. Keep `VITE_STORE_LICENSE_KEYS` off and keep this recorded, because App Store guideline 3.1.1 restricts key unlocks.
+- [ ] **Screen-reader live region wording (#81).** It names the event only ("Next card.", "Answer shown."), not the card's text. Recommend keep, and add the front text only if screen-reader users ask.
+- [ ] **Reminder badge lag and media retry (#82).** The web badge lags up to 2 s after a rating (`BADGE_CHANGE_DEBOUNCE_MS`), and a missing image is retried at most every 5 s (`MISSING_MEDIA_RETRY_MS`). Recommend keep both.
+- [ ] **A full backup that finds no media keeps the `daily` manifest (#82).** Pinned by a test. Recommend keep.
+- [ ] **P5 (review): the materialized card cache is write-only.** Every persist writes it and nothing reads it. Recommend measuring boot at 50k reviews first: if replay is fast enough, stop writing the cache; if not, read it at boot.
+- [ ] **D19 (review): a moved note's reviews replay under the new deck's FSRS params.** Recommend accept and document it. A card follows the settings of the deck it is in, as in Anki.
+- [ ] **S6 (review): CSV export allows formula injection.** Recommend prefixing `'` to cells that start with `=`, `+`, `-` or `@` only in the "for other apps" export, and skipping `-` followed by a Hangul letter, so grammar entries like `-(으)ㄴ` stay as they are.
