@@ -67,6 +67,7 @@ import { buildWatermarks, createSyncShell, initialSyncUiState } from './syncShel
 import type { SyncUiState } from './useSyncController.ts';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
+import { hasLinkedSources } from '../sources/hasLinkedSources.ts';
 import { putMediaTracked } from './recentMedia.ts';
 import { hasNewerReview, inStudyScope } from './undoGuard.ts';
 import type * as SnapshotApi from '@flash/core/snapshot';
@@ -540,15 +541,7 @@ export function AppProvider({
       void (async () => {
         try {
           const saved = await platform.storage.getKv<SourcesRegistry>('linked_sources_v1');
-          const hasAny =
-            Boolean(saved?.googleSources?.length) ||
-            Boolean(saved?.oneDriveSources?.length) ||
-            Boolean(saved?.dropboxSources?.length) ||
-            Boolean(saved?.googleDriveFiles?.length) ||
-            Boolean(saved?.localFolders?.length) ||
-            Boolean(saved?.packageSubscriptions?.length) ||
-            Boolean(saved?.catalogs?.length);
-          if (!hasAny) return;
+          if (!hasLinkedSources(saved)) return;
           const { refreshAllSources } = await import('../sources/sourceRunner.ts');
           await refreshAllSources(
             {

@@ -197,66 +197,81 @@ export async function unlinkSource(
   });
 }
 
+type RemoteMediaFetcher =
+  | ((url: string) => Promise<{
+      hash: string;
+      ext: string;
+      mime: string;
+      size: number;
+      bytes: Uint8Array;
+    }>)
+  | undefined;
+
+/** What differs between localizing images and audio: the fetcher, the cache field, the warning. */
+interface RemoteMediaKind {
+  fetcher: RemoteMediaFetcher;
+  cache: 'localizedImages' | 'localizedAudio';
+  warningCode: string;
+  warn: (url: string, reason: string) => string;
+}
+
+interface LocalizedRemoteMedia {
+  mediaPathMap: Record<string, string>;
+  mediaEvents: KnownEvent[];
+  warnings: SourceWarning[];
+}
+
+/** A cached `media:<sha256>` URI still backed by local media storage and state, else null. */
+async function reusableCachedMedia(
+  cachedUri: string | undefined,
+  ctx: SourceRunContext,
+): Promise<string | null> {
+  const cachedMatch = cachedUri ? /^media:([0-9a-f]{64})$/i.exec(cachedUri) : null;
+  if (!cachedMatch?.[1]) return null;
+  const hash = cachedMatch[1].toLowerCase();
+  if (!ctx.getState().media.has(hash)) return null;
+  return (await ctx.platform.storage.getMedia(hash)) ? `media:${hash}` : null;
+}
+
 /**
- * Option 1 (§13 + R7): Pre-localizes remote `https:` image URLs BEFORE diffing Google Sheets / Docs
- * so:
+ * Option 1 (§13 + R7): Pre-localizes remote `https:` image or audio URLs BEFORE diffing Google
+ * Sheets / Docs so:
  * 1. `MediaAdded` events are emitted FIRST with strictly ascending `seq` (before `NoteUpserted`/`PageUpserted`).
- * 2. Already-cached URLs (`source.localizedImages`) are reused with zero redundant network fetches
- *    and zero spurious `NoteUpserted`/`PageUpserted` diffs on subsequent pulls.
+ * 2. Already-cached URLs (`source.localizedImages` / `localizedAudio`) are reused with zero
+ *    redundant network fetches and zero spurious `NoteUpserted`/`PageUpserted` diffs on later pulls.
  * 3. CORS failures emit a clear non-blocking warning without failing the pull.
  */
-async function preLocalizeHttpsImageUrls(
+async function preLocalizeHttpsMedia(
+  kind: RemoteMediaKind,
   urls: Iterable<string>,
   source: LinkedGoogleSource,
   ctx: SourceRunContext,
   nowMs: number,
-): Promise<{
-  mediaPathMap: Record<string, string>;
-  mediaEvents: KnownEvent[];
-  warnings: SourceWarning[];
-}> {
-  const fetcher = ctx.platform.fetchAndCacheHttpsImage;
-  const mediaPathMap: Record<string, string> = {};
-  const mediaEvents: KnownEvent[] = [];
-  const warnings: SourceWarning[] = [];
-
+): Promise<LocalizedRemoteMedia> {
+  const result: LocalizedRemoteMedia = { mediaPathMap: {}, mediaEvents: [], warnings: [] };
   const uniqueUrls = [...new Set(urls)];
-  if (uniqueUrls.length === 0) {
-    return { mediaPathMap, mediaEvents, warnings };
-  }
+  if (uniqueUrls.length === 0) return result;
 
-  const state = ctx.getState();
   const factory = ctx.getEventFactory();
-  const emittedHashes = new Set<string>(state.media.keys());
-  const cachedMap = source.localizedImages ?? {};
-  const nextCache: Record<string, string> = { ...cachedMap };
+  const emittedHashes = new Set<string>(ctx.getState().media.keys());
+  const nextCache: Record<string, string> = { ...source[kind.cache] };
   let cacheMutated = false;
 
   for (const url of uniqueUrls) {
-    // 1. Reuse previously localized `media:<sha256>` if still present in local media storage & state
-    const cachedUri = nextCache[url];
-    const cachedMatch = cachedUri ? /^media:([0-9a-f]{64})$/i.exec(cachedUri) : null;
-    if (cachedMatch?.[1]) {
-      const hash = cachedMatch[1].toLowerCase();
-      if (state.media.has(hash)) {
-        const localBlob = await ctx.platform.storage.getMedia(hash);
-        if (localBlob) {
-          mediaPathMap[url] = `media:${hash}`;
-          continue;
-        }
-      }
+    // One file at a time, right after it is fetched or read.
+    const reused = await reusableCachedMedia(nextCache[url], ctx); // NOSONAR (S9382)
+    if (reused) {
+      result.mediaPathMap[url] = reused;
+      continue;
     }
-
-    if (!fetcher) continue;
-
+    if (!kind.fetcher) continue;
     try {
-      const processed = await fetcher(url);
+      const processed = await kind.fetcher(url); // NOSONAR (S9382)
       const blob = { hash: processed.hash, mime: processed.mime, bytes: processed.bytes };
-      // One file at a time, right after it is fetched or read.
       await putMediaTracked(ctx.platform.storage, blob); // NOSONAR (S9382)
       if (!emittedHashes.has(processed.hash)) {
         emittedHashes.add(processed.hash);
-        mediaEvents.push(
+        result.mediaEvents.push(
           factory.create(
             'MediaAdded',
             {
@@ -272,22 +287,52 @@ async function preLocalizeHttpsImageUrls(
         );
       }
       const mediaUri = `media:${processed.hash}`;
-      mediaPathMap[url] = mediaUri;
+      result.mediaPathMap[url] = mediaUri;
       nextCache[url] = mediaUri;
       cacheMutated = true;
     } catch (err) {
-      warnings.push({
-        code: 'remote_image_cors_blocked',
-        message: `Could not cache remote image "${url}" (${err instanceof Error ? err.message : String(err)}). Upload the image directly or bundle it in .flashpkg / a linked local folder for offline display.`,
+      result.warnings.push({
+        code: kind.warningCode,
+        message: kind.warn(url, err instanceof Error ? err.message : String(err)),
       });
     }
   }
 
-  if (cacheMutated) {
-    source.localizedImages = nextCache;
-  }
+  if (cacheMutated) source[kind.cache] = nextCache;
+  return result;
+}
 
-  return { mediaPathMap, mediaEvents, warnings };
+function preLocalizeHttpsImageUrls(
+  urls: Iterable<string>,
+  source: LinkedGoogleSource,
+  ctx: SourceRunContext,
+  nowMs: number,
+): Promise<LocalizedRemoteMedia> {
+  const kind: RemoteMediaKind = {
+    fetcher: ctx.platform.fetchAndCacheHttpsImage,
+    cache: 'localizedImages',
+    warningCode: 'remote_image_cors_blocked',
+    warn: (url, reason) =>
+      `Could not cache remote image "${url}" (${reason}). Upload the image directly or bundle it in .flashpkg / a linked local folder for offline display.`,
+  };
+  return preLocalizeHttpsMedia(kind, urls, source, ctx, nowMs);
+}
+
+/** Remote audio from Google Sheets `Audio` / `Sound 1` columns, like images. */
+function preLocalizeHttpsAudioUrls(
+  urls: Iterable<string>,
+  source: LinkedGoogleSource,
+  ctx: SourceRunContext,
+  nowMs: number,
+): Promise<LocalizedRemoteMedia> {
+  const kind: RemoteMediaKind = {
+    fetcher: ctx.platform.fetchAndCacheHttpsAudio,
+    cache: 'localizedAudio',
+    warningCode: 'remote_audio_cors_blocked',
+    warn: (url, reason) =>
+      `Could not cache remote audio "${url}" (${reason}). Upload the audio clip directly or bundle it in .flashpkg / a linked local folder for offline playback.`,
+  };
+  return preLocalizeHttpsMedia(kind, urls, source, ctx, nowMs);
 }
 
 function extractHttpsImageUrlsFromSheetGrid(
@@ -313,94 +358,6 @@ function extractHttpsImageUrlsFromSheetGrid(
     }
   }
   return [...urls];
-}
-
-/**
- * Pre-localizes remote `https:` audio URLs from Google Sheets `Audio` / `Sound 1` columns
- * BEFORE diffing so `MediaAdded` events precede `NoteUpserted` and unchanged rows reuse cache.
- */
-async function preLocalizeHttpsAudioUrls(
-  urls: Iterable<string>,
-  source: LinkedGoogleSource,
-  ctx: SourceRunContext,
-  nowMs: number,
-): Promise<{
-  mediaPathMap: Record<string, string>;
-  mediaEvents: KnownEvent[];
-  warnings: SourceWarning[];
-}> {
-  const fetcher = ctx.platform.fetchAndCacheHttpsAudio;
-  const mediaPathMap: Record<string, string> = {};
-  const mediaEvents: KnownEvent[] = [];
-  const warnings: SourceWarning[] = [];
-
-  const uniqueUrls = [...new Set(urls)];
-  if (uniqueUrls.length === 0) {
-    return { mediaPathMap, mediaEvents, warnings };
-  }
-
-  const state = ctx.getState();
-  const factory = ctx.getEventFactory();
-  const emittedHashes = new Set<string>(state.media.keys());
-  const cachedMap = source.localizedAudio ?? {};
-  const nextCache: Record<string, string> = { ...cachedMap };
-  let cacheMutated = false;
-
-  for (const url of uniqueUrls) {
-    const cachedUri = nextCache[url];
-    const cachedMatch = cachedUri ? /^media:([0-9a-f]{64})$/i.exec(cachedUri) : null;
-    if (cachedMatch?.[1]) {
-      const hash = cachedMatch[1].toLowerCase();
-      if (state.media.has(hash)) {
-        const localBlob = await ctx.platform.storage.getMedia(hash);
-        if (localBlob) {
-          mediaPathMap[url] = `media:${hash}`;
-          continue;
-        }
-      }
-    }
-
-    if (!fetcher) continue;
-
-    try {
-      const processed = await fetcher(url);
-      const blob = { hash: processed.hash, mime: processed.mime, bytes: processed.bytes };
-      // One file at a time, right after it is fetched or read.
-      await putMediaTracked(ctx.platform.storage, blob); // NOSONAR (S9382)
-      if (!emittedHashes.has(processed.hash)) {
-        emittedHashes.add(processed.hash);
-        mediaEvents.push(
-          factory.create(
-            'MediaAdded',
-            {
-              media: {
-                hash: processed.hash,
-                ext: processed.ext,
-                mime: processed.mime,
-                size: processed.size,
-              },
-            },
-            nowMs,
-          ),
-        );
-      }
-      const mediaUri = `media:${processed.hash}`;
-      mediaPathMap[url] = mediaUri;
-      nextCache[url] = mediaUri;
-      cacheMutated = true;
-    } catch (err) {
-      warnings.push({
-        code: 'remote_audio_cors_blocked',
-        message: `Could not cache remote audio "${url}" (${err instanceof Error ? err.message : String(err)}). Upload the audio clip directly or bundle it in .flashpkg / a linked local folder for offline playback.`,
-      });
-    }
-  }
-
-  if (cacheMutated) {
-    source.localizedAudio = nextCache;
-  }
-
-  return { mediaPathMap, mediaEvents, warnings };
 }
 
 function extractHttpsAudioUrlsFromSheetGrid(

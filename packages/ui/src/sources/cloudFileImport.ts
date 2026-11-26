@@ -142,11 +142,3 @@ export async function importPickedCloudFile(
     return importSpreadsheet(picked, ctx, provider);
   throw new Error(`"${picked.name}" is not a .csv, .tsv, .xlsx or .flashpkg file.`);
 }
-
-/** Imports one picked OneDrive file and returns the status line to show. */
-export function importPickedOneDriveFile(
-  picked: PickedFile,
-  ctx: PickedFileImportContext,
-): Promise<string> {
-  return importPickedCloudFile(picked, ctx, 'OneDrive');
-}

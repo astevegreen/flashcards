@@ -7,7 +7,7 @@ import { useApp } from '../state/AppContext.tsx';
 import type { SourceRunContext } from './sourcesRegistry.ts';
 import { linkedFileDeck } from './linkedFileDeck.ts';
 import type { LinkedFileMappingChoice } from './LinkedFileMapping.tsx';
-import { importPickedCloudFile } from './oneDriveImport.ts';
+import { importPickedCloudFile } from './cloudFileImport.ts';
 
 const LazyLinkedFileMapping = lazyWithRetry(() => import('./LinkedFileMapping.tsx'), {
   closeWith: 'onCancel',

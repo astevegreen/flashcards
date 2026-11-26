@@ -15,13 +15,32 @@ import { sha256Hex } from '@flash/core/sources';
 import type {
   LocalFolderSourcesAdapter,
   MediaBlob,
+  PendingXlsxReconciliation,
   PlatformServices,
+  SourcesRegistry,
   ScannedLocalFileDescriptor,
   Storage,
 } from '@flash/platform';
 import { describe, expect, it } from 'vitest';
+import type { CloudFileRow } from '../src/sources/cloudFileSource.ts';
+import {
+  GDRIVE_RECONCILE_PREFIX,
+  linkGoogleDriveFile,
+  refreshSingleGoogleDriveFileSource,
+} from '../src/sources/googleDriveFileSource.ts';
+import { hasLinkedSources } from '../src/sources/hasLinkedSources.ts';
 import {
   createAndLinkGoogleSheetTemplate,
+  createEmptySourcesRegistry,
+  DROPBOX_RECONCILE_PREFIX,
+  LINKED_SOURCES_KV_KEY,
+  linkDropboxFile,
+  linkOneDriveFile,
+  ONEDRIVE_RECONCILE_PREFIX,
+  refreshAllSources,
+  refreshSingleDropboxSource,
+  refreshSingleOneDriveSource,
+  type SourceRunContext,
   linkAndScanLocalFolder,
   linkPickedGoogleFiles,
   loadSourcesRegistry,
@@ -773,5 +792,234 @@ describe('sourceRunner — Google Sheets edge cases (C20)', () => {
     expect(codes.filter((c) => c === 'missing_card_id_readonly')).toHaveLength(2);
     const words = [...ctx.getState().notes.values()].map((n) => n.fields['word']);
     expect(words).toEqual(['나무']);
+  });
+});
+
+/** One in-memory drive behind all three providers' fakes (OneDrive, Dropbox, Google Drive). */
+class FakeCloudDrive {
+  files = new Map<string, { name: string; bytes: Uint8Array; tag: number }>();
+  connected = true;
+  downloads = 0;
+  infoCalls = 0;
+
+  put(id: string, name: string, text: string): void {
+    const prev = this.files.get(id);
+    this.files.set(id, { name, bytes: encodeUtf8(text), tag: (prev?.tag ?? 0) + 1 });
+  }
+
+  info(id: string) {
+    this.infoCalls += 1;
+    const f = this.files.get(id);
+    if (!f) throw new Error(`no file ${id}`);
+    return { id, name: f.name, size: f.bytes.length, contentTag: `tag-${f.tag}` };
+  }
+
+  download(id: string) {
+    this.downloads += 1;
+    const f = this.files.get(id);
+    if (!f) throw new Error(`no file ${id}`);
+    return { name: f.name, bytes: f.bytes };
+  }
+}
+
+interface CloudCase {
+  name: string;
+  kind: 'onedrive_file' | 'dropbox_file' | 'google_drive_file';
+  prefix: string;
+  platform(drive: FakeCloudDrive): Partial<PlatformServices>;
+  rows(registry: SourcesRegistry): CloudFileRow[] | undefined;
+  link(
+    file: { id: string; name: string },
+    ctx: SourceRunContext,
+  ): Promise<{ source: CloudFileRow }>;
+  refresh(
+    source: CloudFileRow,
+    ctx: SourceRunContext,
+    opts?: { force?: boolean; renameMap?: Record<string, string> },
+  ): Promise<{ pending?: PendingXlsxReconciliation; updated: boolean }>;
+}
+
+const LINK_CHOICE = { noteTypeId: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO, language: 'ko' };
+
+const CLOUD_CASES: CloudCase[] = [
+  {
+    name: 'OneDrive',
+    kind: 'onedrive_file',
+    prefix: ONEDRIVE_RECONCILE_PREFIX,
+    platform: (drive) => ({
+      oneDriveConfigured: true,
+      getOneDrivePicker: async () =>
+        ({
+          hasFileAccess: async () => drive.connected,
+          getFileInfo: async (id: string) => drive.info(id),
+          downloadById: async (id: string) => drive.download(id),
+        }) as never,
+    }),
+    rows: (r) => r.oneDriveSources,
+    link: (file, ctx) => linkOneDriveFile(file, ctx, LINK_CHOICE),
+    refresh: (source, ctx, opts) => refreshSingleOneDriveSource(source as never, ctx, opts),
+  },
+  {
+    name: 'Dropbox',
+    kind: 'dropbox_file',
+    prefix: DROPBOX_RECONCILE_PREFIX,
+    platform: (drive) => ({
+      dropboxConfigured: true,
+      getDropboxPicker: async () =>
+        ({
+          isConnected: async () => drive.connected,
+          getFileInfo: async (id: string) => ({ ...drive.info(id), pathDisplay: `/Decks/${id}` }),
+          downloadById: async (id: string) => drive.download(id),
+        }) as never,
+    }),
+    rows: (r) => r.dropboxSources,
+    link: (file, ctx) => linkDropboxFile(file, ctx, LINK_CHOICE),
+    refresh: (source, ctx, opts) => refreshSingleDropboxSource(source as never, ctx, opts),
+  },
+  {
+    name: 'Google Drive',
+    kind: 'google_drive_file',
+    prefix: GDRIVE_RECONCILE_PREFIX,
+    platform: (drive) => ({
+      googleOAuthConfigured: true,
+      getGoogleAuth: async () => ({ isConnected: async () => drive.connected }) as never,
+      getGoogleSourcesClient: async () =>
+        ({
+          getDriveFileInfo: async (id: string) => ({ ...drive.info(id), mimeType: 'text/csv' }),
+          downloadDriveFile: async (id: string) => ({ ...drive.download(id), mime: 'text/csv' }),
+        }) as never,
+    }),
+    rows: (r) => r.googleDriveFiles,
+    link: (file, ctx) => linkGoogleDriveFile({ ...file, mimeType: 'text/csv' }, ctx, LINK_CHOICE),
+    refresh: (source, ctx, opts) => refreshSingleGoogleDriveFileSource(source as never, ctx, opts),
+  },
+];
+
+function cloudSetup(c: CloudCase) {
+  const drive = new FakeCloudDrive();
+  drive.put('file-1', 'vocab.csv', 'word,meaning\n나무,tree\n강,river\n');
+  const state = createEmptyState();
+  const factory = createEventFactory('dev-cloud', 0, createHlcState('dev-cloud', 1000));
+  const emitted: KnownEvent[] = [];
+  const platform = {
+    storage: makeInMemoryStorage(),
+    getLocalFolderSources: async () => ({ canParseXlsx: () => true }),
+    ...c.platform(drive),
+  } as unknown as PlatformServices;
+  const ctx: SourceRunContext = {
+    platform,
+    getState: () => state,
+    getEventFactory: () => factory,
+    emitEvents: (events) => {
+      emitted.push(...events);
+      applyEvents(state, events);
+    },
+  };
+  const upserts = () => emitted.filter((e) => e.type === 'NoteUpserted').length;
+  return { drive, state, emitted, ctx, upserts };
+}
+
+const FILE = { id: 'file-1', name: 'vocab.csv' };
+
+describe.each(CLOUD_CASES)('merged cloud-file runner — $name (R4)', (c) => {
+  it('links into one deck, skips the download while unchanged, and re-pulls a change', async () => {
+    const { drive, state, ctx, upserts } = cloudSetup(c);
+    const { source } = await c.link(FILE, ctx);
+    const deck = state.decks.get(source.deckId ?? '');
+    expect(deck?.source).toMatchObject({ kind: c.kind, external_id: 'file-1', read_only: true });
+    expect(upserts()).toBe(2);
+    expect(drive.downloads).toBe(1);
+
+    const same = await c.refresh(source, ctx);
+    expect(same.updated).toBe(false);
+    expect(drive.downloads).toBe(1);
+    expect(source.lastStatus).toBe('synced');
+
+    drive.put('file-1', 'vocab.csv', 'word,meaning\n나무,tree\n강,river\n산,mountain\n');
+    const changed = await c.refresh(source, ctx);
+    expect(changed.updated).toBe(true);
+    expect(drive.downloads).toBe(2);
+    expect(upserts()).toBe(3);
+  });
+
+  it('leaves a file whose deck is archived alone, before any network call', async () => {
+    const { drive, state, ctx } = cloudSetup(c);
+    const { source } = await c.link(FILE, ctx);
+    const deck = state.decks.get(source.deckId ?? '');
+    if (!deck) throw new Error('missing deck');
+    deck.archived = true;
+    const calls = drive.infoCalls;
+    await c.refresh(source, ctx, { force: true });
+    expect(drive.infoCalls).toBe(calls);
+    expect(source).toMatchObject({ lastStatus: 'idle', skipReason: 'archived' });
+    await expect(c.link(FILE, ctx)).rejects.toThrow(/archived\. Restore it in the Library first/);
+  });
+
+  it('holds a likely rename for review, then applies the chosen match', async () => {
+    const { drive, state, ctx } = cloudSetup(c);
+    const { source } = await c.link(FILE, ctx);
+    drive.put('file-1', 'vocab.csv', 'word,meaning\n나모,tree\n강,river\n');
+    const held = await c.refresh(source, ctx);
+    expect(held.pending?.folderId).toBe(`${c.prefix}file-1`);
+    const missing = held.pending?.missingNotes[0];
+    if (!missing) throw new Error('no rename candidate');
+    const applied = await c.refresh(source, ctx, {
+      force: true,
+      renameMap: { [missing.noteId]: '나모' },
+    });
+    expect(applied.updated).toBe(true);
+    expect(state.notes.get(missing.noteId)?.archived).toBe(false);
+  });
+
+  it('marks the row when the provider is disconnected, and Refresh all says why', async () => {
+    const { drive, ctx } = cloudSetup(c);
+    await c.link(FILE, ctx);
+    drive.connected = false;
+    const summary = await refreshAllSources(ctx, { force: true });
+    const row = c.rows(summary.registry)?.[0];
+    expect(row?.lastStatus).toBe('permission_required');
+    expect(row?.lastError).toBeTruthy();
+    expect(summary.skipped).toEqual([`vocab: ${row?.lastError}`]);
+    expect(summary.errors).toEqual([]);
+  });
+
+  it('runs two concurrent refreshes one after the other, applying the change once (D8)', async () => {
+    const { drive, ctx, upserts } = cloudSetup(c);
+    await c.link(FILE, ctx);
+    drive.put('file-1', 'vocab.csv', 'word,meaning\n나무,tree\n강,river\n달,moon\n');
+    const before = upserts();
+    const [first, second] = await Promise.all([refreshAllSources(ctx), refreshAllSources(ctx)]);
+    expect(first.updatedSources + second.updatedSources).toBe(1);
+    expect(upserts() - before).toBe(1);
+    expect(drive.downloads).toBe(2);
+  });
+});
+
+describe('launch check for linked sources (hasAny)', () => {
+  it('is false for no registry or empty lists, true when any list has a source', () => {
+    expect(hasLinkedSources(undefined)).toBe(false);
+    expect(hasLinkedSources(createEmptySourcesRegistry())).toBe(false);
+    expect(hasLinkedSources({ googleSources: [] })).toBe(false);
+    const lists = [
+      'googleSources',
+      'oneDriveSources',
+      'dropboxSources',
+      'googleDriveFiles',
+      'localFolders',
+      'packageSubscriptions',
+      'catalogs',
+    ] as const;
+    for (const key of lists) {
+      expect(hasLinkedSources({ ...createEmptySourcesRegistry(), [key]: [{}] })).toBe(true);
+    }
+  });
+
+  it('is true right after linking a file, as read back from storage', async () => {
+    const dropbox = CLOUD_CASES[1];
+    if (!dropbox) throw new Error('missing case');
+    const { ctx } = cloudSetup(dropbox);
+    await dropbox.link(FILE, ctx);
+    const saved = await ctx.platform.storage.getKv<SourcesRegistry>(LINKED_SOURCES_KV_KEY);
+    expect(hasLinkedSources(saved)).toBe(true);
   });
 });
