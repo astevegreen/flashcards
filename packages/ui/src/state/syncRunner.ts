@@ -403,7 +403,7 @@ export async function runSyncCycle(
       ctx.pendingWorkerLocalEventsRef.current = [];
       ctx.onReplaceState(hydrated, nextMeta);
 
-      const allCardRows = [...hydrated.cards.values()].map(cardToRow);
+      const allCardRows = [...hydrated.cards.values()].map((card) => cardToRow(card));
       const snapWatermarks = buildWatermarks(deviceId, nextMeta.seq, result.cursor);
       const localSnapPayload = serializeCollectionState(hydrated, snapWatermarks);
 

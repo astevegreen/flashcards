@@ -293,7 +293,7 @@ async function boot(): Promise<void> {
 
     // Asynchronously warm cards_cache and local snapshot for subsequent fast cold starts
     if (events.length > 0) {
-      const rows = [...initialState.cards.values()].map(cardToRow);
+      const rows = [...initialState.cards.values()].map((card) => cardToRow(card));
       void platform.storage.saveMaterializedCards(rows);
       if (events.length >= 200 || replayedLog !== undefined) {
         // Capture maxLocalSeq synchronously before rendering so post-render mutations cannot race ahead

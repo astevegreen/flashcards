@@ -3,13 +3,13 @@
  * has its own pure base64url codec for licences (`@flash/core/license`).
  */
 
-/** 32 KB slices keep `String.fromCharCode(...slice)` under the engine's argument limit. */
+/** 32 KB slices keep `String.fromCodePoint(...slice)` under the engine's argument limit. */
 const CHUNK = 0x8000;
 
 export function bytesToBase64(bytes: Uint8Array): string {
   let bin = '';
   for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    bin += String.fromCodePoint(...bytes.subarray(i, i + CHUNK));
   }
   return btoa(bin);
 }
@@ -18,6 +18,6 @@ export function bytesToBase64(bytes: Uint8Array): string {
 export function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.codePointAt(i) ?? 0;
   return out;
 }

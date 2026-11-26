@@ -259,7 +259,8 @@ export function exportFlashpkgFiles(
     usedNoteTypeIds.add(deck.note_type_id);
     if (deck.language) languages.add(deck.language);
 
-    const filePath = `decks/${asciiSlug(deck.name, `deck-${i + 1}`)}-${i + 1}.jsonl`;
+    const slug = asciiSlug(deck.name, `deck-${i + 1}`);
+    const filePath = `decks/${slug}-${i + 1}.jsonl`;
     deckEntries.push({
       id: deck.id,
       name: deck.name,
