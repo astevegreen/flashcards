@@ -11,8 +11,9 @@ import type { AuthSession, PlatformServices, SyncConfig, SyncProviderKind } from
 import { createWebPlatform, resolveDeviceFromUrl } from '@flash/platform-web';
 import { FlashcardsApp } from '@flash/ui';
 import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createRoot, type Root } from 'react-dom/client';
 import './styles.css';
+import { holdWriterLock, stopWriting } from './writer-lock.ts';
 
 // Public OAuth Web Client ID & stateless token-helper Worker URL (never secret)
 const DEFAULT_GOOGLE_CLIENT_ID =
@@ -61,6 +62,20 @@ async function handleOAuthRedirect(
   }
   const session = await (await platform.getGoogleAuth()).handleRedirectCallback();
   return { session, sessionProvider: 'google_drive' };
+}
+
+/**
+ * Holds the writer lock, or shows "open in another tab" until the user takes it over. Storage is
+ * read only after this, so a takeover boots from the latest stored state.
+ */
+async function waitForWriterLock(root: Root, name: string, onLost: () => void): Promise<void> {
+  if (await holdWriterLock(navigator.locks, name, false, onLost)) return;
+  const { OtherTab } = await import('./other-tab.tsx');
+  await new Promise<void>((resolve) => {
+    const onUse = () =>
+      void holdWriterLock(navigator.locks, name, true, onLost).then(() => resolve());
+    root.render(<OtherTab onUse={onUse} />);
+  });
 }
 
 async function boot(): Promise<void> {
@@ -145,6 +160,19 @@ async function boot(): Promise<void> {
         starterCatalogUrl,
       })
     : webPlatform;
+
+  const rootEl = document.getElementById('root');
+  if (!rootEl) {
+    throw new Error('Root element #root not found');
+  }
+  const root = createRoot(rootEl);
+  // One writer per browser profile, before anything reads or writes storage. Native shells are
+  // single-window, and browsers without Web Locks write as before.
+  if (nativeRuntime === null && 'locks' in navigator) {
+    await waitForWriterLock(root, `flashcards-db${resolved.slug ? `-${resolved.slug}` : ''}`, () =>
+      stopWriting(platform.storage, window),
+    );
+  }
 
   // Zero-overhead OAuth redirect callback check (only lazy-loads GoogleAuth if `?code=` / `?error=` is present)
   let initialOAuthError: string | undefined;
@@ -298,12 +326,7 @@ async function boot(): Promise<void> {
     }
   }
 
-  const rootEl = document.getElementById('root');
-  if (!rootEl) {
-    throw new Error('Root element #root not found');
-  }
-
-  createRoot(rootEl).render(
+  root.render(
     <StrictMode>
       <FlashcardsApp
         platform={platform}

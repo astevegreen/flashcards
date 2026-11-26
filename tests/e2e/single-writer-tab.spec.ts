@@ -1,0 +1,82 @@
+import { expect, test, type Page } from '@playwright/test';
+
+/**
+ * One writer per browser profile (Web Locks): a second tab of the same database shows "open in
+ * another tab" and writes nothing; "Use here instead" moves writing to it, from the latest stored
+ * state, and the first tab switches to the same screen.
+ */
+
+const DEVICE = 'onewriter';
+const DB = `flashcards-db-${DEVICE}`;
+
+/** Number of stored events, read straight from IndexedDB. */
+async function storedEvents(page: Page): Promise<number> {
+  return page.evaluate(
+    (name) =>
+      new Promise<number>((resolve, reject) => {
+        const open = indexedDB.open(name);
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const count = db.transaction('events').objectStore('events').count();
+          count.onsuccess = () => {
+            db.close();
+            resolve(count.result);
+          };
+        };
+      }),
+    DB,
+  );
+}
+
+async function rateOne(page: Page): Promise<void> {
+  const before = Number(await page.getByTestId('count-new').textContent());
+  await page.keyboard.press('Space');
+  await page.getByTestId('rate-easy').click();
+  await expect(page.getByTestId('count-new')).toHaveText(String(before - 1));
+}
+
+test('a second tab waits, then "Use here instead" moves writing to it and back', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ viewport: { width: 320, height: 568 } });
+  const first = await context.newPage();
+  await first.goto(`/?device=${DEVICE}`);
+  await expect(first.getByTestId('study-card')).toBeVisible();
+  const newAtStart = Number(await first.getByTestId('count-new').textContent());
+
+  const second = await context.newPage();
+  await second.goto(`/?device=${DEVICE}`);
+  const screen = second.getByTestId('other-tab');
+  await expect(screen).toContainText('Flashcards is open in another tab.');
+  await expect(second.getByTestId('study-card')).toHaveCount(0);
+  // Fits a 320 px phone without sideways scrolling.
+  expect(
+    await second.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+
+  // The first tab still writes; the waiting tab adds nothing.
+  await rateOne(first);
+  const afterFirst = await storedEvents(first);
+  await second.waitForTimeout(300); // NOSONAR (S2925): a negative needs a timed window
+  expect(await storedEvents(second)).toBe(afterFirst);
+
+  // Take over: the second tab boots from storage (sees the first tab's review), the first stops.
+  await screen.getByRole('button', { name: 'Use here instead' }).click();
+  await expect(second.getByTestId('study-card')).toBeVisible();
+  await expect(second.getByTestId('count-new')).toHaveText(String(newAtStart - 1));
+  await expect(first.getByTestId('other-tab')).toBeVisible();
+  await expect(first.getByTestId('study-card')).toHaveCount(0);
+
+  await rateOne(second);
+  const afterSecond = await storedEvents(second);
+  expect(afterSecond).toBeGreaterThan(afterFirst);
+
+  // ...and the first tab can take it back the same way.
+  await first.getByRole('button', { name: 'Use here instead' }).click();
+  await expect(first.getByTestId('count-new')).toHaveText(String(newAtStart - 2));
+  await expect(second.getByTestId('other-tab')).toBeVisible();
+  expect(await storedEvents(first)).toBe(afterSecond);
+
+  await context.close();
+});
