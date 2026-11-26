@@ -18,9 +18,10 @@ export default defineConfig({
       include: ['packages/*/src/**', 'apps/*/src/**', 'tools/*/src/**'],
       reporter: ['text-summary', 'json-summary'],
       reportsDirectory: 'coverage',
-      // Just below the numbers measured on 2026-11-26 (rounded down to whole percent), so `pnpm
-      // coverage` fails only when coverage drops. Raise them as tests are added.
-      thresholds: { statements: 64, branches: 55, functions: 55, lines: 65 },
+      // About one point under the numbers measured on 2026-11-26 (64.4 / 55.7 / 55.4 / 65.5): open
+      // branches and Node or V8 versions shift coverage a little. To adjust, run `pnpm coverage`
+      // on main and set each to its measured number rounded down, minus 1.
+      thresholds: { statements: 63, branches: 54, functions: 54, lines: 64 },
     },
   },
 });
