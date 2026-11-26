@@ -2,6 +2,7 @@ import type { CollectionState } from '../events/replay.ts';
 import type { Note, NoteType } from '../model/types.ts';
 import { stripRichText as stripRichTextMarkup } from '../parsers/rich-text.ts';
 import { normalizeTagList } from '../tags/index.ts';
+import { uniqueRecordIds } from './record-ids.ts';
 
 export interface CsvExportOptions {
   deckId: string;
@@ -67,10 +68,24 @@ function fieldHeaders(noteType: NoteType): string[] {
 }
 
 function escapeCell(value: string, delimiter: string): string {
-  if (value.includes('"') || value.includes(delimiter) || /[\r\n]/.test(value)) {
+  // Import trims an unquoted cell, so a value with outer spaces is quoted too (C17).
+  if (
+    value.includes('"') ||
+    value.includes(delimiter) ||
+    /[\r\n]/.test(value) ||
+    value !== value.trim()
+  ) {
     return `"${value.replaceAll('"', '""')}"`;
   }
   return value;
+}
+
+/**
+ * Import splits a category cell on `,` and `;`, so a tag holding one (from `.flashpkg` or Anki)
+ * is written as `\,` or `\;`, and a backslash as `\\` (C17).
+ */
+function escapeTag(tag: string): string {
+  return tag.replaceAll(/[\\,;]/g, (ch) => `\\${ch}`);
 }
 
 /**
@@ -104,15 +119,16 @@ export function exportCsv(state: CollectionState, options: CsvExportOptions): Cs
   ];
 
   const lines = [headers.map((h) => escapeCell(h, delimiter)).join(delimiter)];
+  const recordIds = uniqueRecordIds(notes);
   notes.forEach((note, idx) => {
     const tags = tagLists[idx] ?? [];
     const cells = [
-      note.source_key || note.id,
+      recordIds[idx] ?? note.id,
       ...fields.map((f) => {
         const value = note.fields[f.key] ?? '';
         return options.stripRichText ? stripRichTextMarkup(value) : value;
       }),
-      ...Array.from({ length: categoryColumns }, (_, i) => tags[i] ?? ''),
+      ...Array.from({ length: categoryColumns }, (_, i) => escapeTag(tags[i] ?? '')),
     ];
     lines.push(cells.map((c) => escapeCell(c, delimiter)).join(delimiter));
   });

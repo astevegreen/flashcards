@@ -310,6 +310,34 @@ function skipElementContent(html: string, name: string, from: number): number {
   }
 }
 
+/** True when `html` has the tag `<name` or `</name` (a whole tag name) at `lt`. */
+function isTagAt(html: string, lt: number, name: string, closing: boolean): boolean {
+  const start = lt + (closing ? 2 : 1);
+  if (closing && html[lt + 1] !== '/') return false;
+  return (
+    html.slice(start, start + name.length).toLowerCase() === name &&
+    !isTagNameChar(html.charCodeAt(start + name.length))
+  );
+}
+
+/**
+ * Index where an `<rp>`'s content ends. `</rp>` is optional in HTML: the next `<rt>`, `<rp>` or
+ * `</ruby>` closes it too (C19). With none of them, it holds only its text up to the next tag,
+ * so the rest of the field is kept.
+ */
+function skipRpContent(html: string, from: number): number {
+  const firstTag = html.indexOf('<', from);
+  for (let lt = firstTag; lt !== -1; lt = html.indexOf('<', lt + 1)) {
+    if (isTagAt(html, lt, 'rp', true)) {
+      const gt = html.indexOf('>', lt);
+      return gt === -1 ? html.length : gt + 1;
+    }
+    if (isTagAt(html, lt, 'rt', false) || isTagAt(html, lt, 'rp', false)) return lt;
+    if (isTagAt(html, lt, 'ruby', true)) return lt;
+  }
+  return firstTag === -1 ? html.length : firstTag;
+}
+
 /** Skips `<!-- … -->`, `<!DOCTYPE …>` and `<? … >`; returns -1 if `lt` starts none of them. */
 function skipMarkupDeclaration(html: string, lt: number): number {
   if (html.startsWith('<!--', lt)) {
@@ -509,7 +537,7 @@ function applyDropOrRp(b: FieldTextBuilder, html: string, tag: ParsedTag): numbe
   }
   if (name === 'rp' && !closing) {
     b.flush();
-    return skipElementContent(html, name, tag.end);
+    return skipRpContent(html, tag.end);
   }
   return undefined;
 }

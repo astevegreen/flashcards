@@ -11,6 +11,7 @@ import {
   resolveSourceColumnMap,
   type ColumnTarget,
 } from '../import/column-target.ts';
+import { splitTagCell } from '../import/tag-cell.ts';
 import { computeNoteContentHash } from './content-hash.ts';
 import { sha256String } from './hash.ts';
 
@@ -665,7 +666,7 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
       } else if (role.kind === 'notes') {
         notes.push(notesLine(role.header, colIdx, rawCell));
       } else if (role.kind === 'tags') {
-        for (const part of rawCell.split(/[;,]/)) {
+        for (const part of splitTagCell(rawCell)) {
           const t = part.normalize('NFC').trim();
           if (t) tagSet.add(t);
         }

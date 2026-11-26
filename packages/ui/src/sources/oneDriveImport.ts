@@ -37,13 +37,33 @@ function activeDeckCount(state: CollectionState): number {
   return count;
 }
 
-function csvField(value: string): string {
+/** Trimmed first: a spreadsheet cell has no quotes, so every `.xlsx` path trims it (C17). */
+function csvField(raw: string): string {
+  const value = raw.trim();
   return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
 /** Serializes an `.xlsx` grid as CSV so it takes the same import path as a `.csv` file. */
 export function gridToCsv(grid: readonly (readonly string[])[]): string {
   return grid.map((row) => row.map(csvField).join(',')).join('\n');
+}
+
+/**
+ * Reads the first sheet of an `.xlsx` file being imported. The phone shells have no Excel reader
+ * yet, so it says so instead of parsing; linked files check the same thing (C21).
+ */
+export async function readXlsxGrid(
+  platform: PlatformServices,
+  name: string,
+  bytes: Uint8Array,
+): Promise<string[][]> {
+  const adapter = await platform.getLocalFolderSources();
+  if (adapter.canParseXlsx && !adapter.canParseXlsx()) {
+    throw new Error(
+      `Excel files can't be read on this device. Save "${name}" as CSV in Excel and import that instead.`,
+    );
+  }
+  return adapter.parseXlsxBytes(bytes);
 }
 
 async function importSpreadsheet(
@@ -59,8 +79,7 @@ async function importSpreadsheet(
   const ext = extensionOf(picked.name);
   let text: string;
   if (ext === '.xlsx') {
-    const adapter = await ctx.platform.getLocalFolderSources();
-    text = gridToCsv(await adapter.parseXlsxBytes(picked.bytes));
+    text = gridToCsv(await readXlsxGrid(ctx.platform, picked.name, picked.bytes));
   } else {
     text = decodeUtf8(picked.bytes);
   }

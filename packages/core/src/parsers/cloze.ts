@@ -21,19 +21,22 @@ function pushText(segments: ClozeSegment[], value: string): void {
 /**
  * Finds the matching `}}` for a cloze marker starting after `{{cN::`, respecting nested
  * single-brace ruby syntax `{base|reading}` so `{{c1::{今日|きょう}}}` closes at the outer `}}`!
+ * When the braces inside never balance (`{{c1::{a}}`), it closes at the first `}}`, as Anki
+ * reads it (C19).
  */
 function findClozeClose(input: string, bodyStart: number): number {
   let i = bodyStart;
   let singleBraceDepth = 0;
+  // The first `}}` the scan passes: the fallback when the braces never balance (C19). Tracked
+  // here, not searched for afterwards, so parsing stays linear (§13).
+  let firstClose = -1;
 
   while (i < input.length - 1) {
     const ch = input[i];
     const next = input[i + 1];
 
-    if (ch === '{' && next === '{') {
-      // Unclosed outer cloze before a new `{{`
-      return -1;
-    }
+    // A new `{{` before this cloze balanced: unbalanced body, or an unclosed outer cloze.
+    if (ch === '{' && next === '{') break;
 
     if (ch === '{') {
       singleBraceDepth += 1;
@@ -42,6 +45,7 @@ function findClozeClose(input: string, bodyStart: number): number {
     }
 
     if (ch === '}') {
+      if (next === '}' && firstClose < 0) firstClose = i;
       if (singleBraceDepth > 0) {
         singleBraceDepth -= 1;
         i += 1;
@@ -55,7 +59,7 @@ function findClozeClose(input: string, bodyStart: number): number {
     i += 1;
   }
 
-  return -1;
+  return firstClose;
 }
 
 /**
@@ -63,6 +67,7 @@ function findClozeClose(input: string, bodyStart: number): number {
  */
 function splitAnswerAndHint(body: string): { answer: string; hint?: string } {
   let depth = 0;
+  let separator = -1;
   for (let i = 0; i < body.length - 1; i++) {
     const ch = body[i];
     if (ch === '{') {
@@ -70,12 +75,16 @@ function splitAnswerAndHint(body: string): { answer: string; hint?: string } {
     } else if (ch === '}' && depth > 0) {
       depth -= 1;
     } else if (depth === 0 && ch === ':' && body[i + 1] === ':') {
-      const answer = body.slice(0, i);
-      const hint = body.slice(i + 2);
-      return hint.length > 0 ? { answer, hint } : { answer };
+      separator = i;
+      break;
     }
   }
-  return { answer: body };
+  // Braces that never balance (`a{b::hint`) don't hide the separator (C19).
+  if (depth > 0) separator = body.indexOf('::');
+  if (separator === -1) return { answer: body };
+  const answer = body.slice(0, separator);
+  const hint = body.slice(separator + 2);
+  return hint.length > 0 ? { answer, hint } : { answer };
 }
 
 /**

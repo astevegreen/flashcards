@@ -42,6 +42,7 @@ import {
   type PageNormalizeWarning,
 } from '../sources/pages.ts';
 import { mergedNoteType } from './merge-model.ts';
+import { uniqueRecordIds } from './record-ids.ts';
 
 export const FLASHPKG_SECURITY_LIMITS = {
   maxFiles: 10_000,
@@ -283,9 +284,10 @@ export function exportFlashpkgFiles(
       .filter((n) => n.deck_id === deck.id && isExportedNote(n, noteSubset))
       .sort((a, b) => a.created_order - b.created_order || (a.id < b.id ? -1 : 1));
 
-    const lines = deckNotes.map((n) => {
+    const recordIds = uniqueRecordIds(deckNotes);
+    const lines = deckNotes.map((n, noteIdx) => {
       const rec: PackageNoteRecord = {
-        id: n.source_key || n.id,
+        id: recordIds[noteIdx] ?? n.id,
         fields: n.fields,
         // Categories travel as note tags (NFC); `importFlashpkg` reads them back unchanged.
         tags: normalizeTagList(n.tags),

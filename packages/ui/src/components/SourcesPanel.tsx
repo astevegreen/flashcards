@@ -391,7 +391,12 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       setRegistry(res.registry);
       setTemplateTitle('');
       setShowTemplateForm(false);
-      onStatusMessage(`Created and linked Google Sheet "${res.source.name}".`);
+      // The Sheet was created and linked; only its first pull failed (C20).
+      if (res.error === undefined) {
+        onStatusMessage(`Created and linked Google Sheet "${res.source.name}".`);
+      } else {
+        onErrorMessage(res.error);
+      }
     } catch (err) {
       onErrorMessage(err instanceof Error ? err.message : String(err));
     } finally {

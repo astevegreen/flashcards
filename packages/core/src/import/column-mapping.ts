@@ -1,6 +1,7 @@
 import { BUILTIN_NOTE_TYPE_IDS } from '../model/presets.ts';
 import type { NoteType } from '../model/types.ts';
 import { normalizeTagList } from '../tags/index.ts';
+import { splitTagCell } from './tag-cell.ts';
 import {
   columnDisplayName,
   joinNotes,
@@ -529,9 +530,10 @@ export interface MappedRow {
 }
 
 /**
- * One row through a mapping, exactly as the CSV importer stores it: fields (two columns into one
- * field are joined by a line break), `Header: value` lines appended to Notes, category cells split
- * on `,`/`;` into tags.
+ * One row through a mapping, as the CSV importer stores it: fields (two columns into one field are
+ * joined by a line break), `Header: value` lines appended to Notes, category cells split on `,`/`;`
+ * into tags (`splitTagCell`). A grid carries no CSV quotes, so every cell is trimmed, like an
+ * unquoted CSV cell.
  */
 export function applyColumnTargets(
   row: readonly string[],
@@ -550,7 +552,7 @@ export function applyColumnTargets(
       const prev = fields[target.fieldKey];
       fields[target.fieldKey] = prev ? `${prev}\n${value}` : value;
     } else if (target.kind === 'tags') {
-      rawTags.push(...value.split(/[;,]/));
+      rawTags.push(...splitTagCell(value));
     } else if (target.kind === 'card_id') {
       if (!cardId) cardId = value;
     } else if (target.kind === 'notes') {

@@ -495,3 +495,39 @@ describe('guessColumnMapping: header and value edge cases', () => {
     expect(doc?.target).not.toEqual({ kind: 'field', fieldKey: 'image' });
   });
 });
+
+describe('category cells read the same everywhere (C17)', () => {
+  // `exportCsv` writes the tag `a,b` as `a\,b`; every path that reads a category cell keeps it.
+  const CELL = String.raw`a\,b; c\;d , back\\slash`;
+  const TAGS = ['a,b', 'c;d', String.raw`back\slash`];
+
+  it('the mapping preview splits like the CSV importer', () => {
+    const row = applyColumnTargets(
+      ['나무', CELL],
+      ['word', 'tags'],
+      [{ kind: 'field', fieldKey: 'word' }, { kind: 'tags' }],
+      KO,
+    );
+    expect(row.tags).toEqual(TAGS);
+  });
+
+  it('a linked Sheet or file splits like the CSV importer', () => {
+    const res = diffTabularSource({
+      deckId: 'deck-t',
+      noteType: KO,
+      state: createEmptyState(),
+      eventFactory: createEventFactory('dev-t', 0, createHlcState('dev-t', 1000)),
+      grid: [
+        ['Card ID', 'Word', 'Tags'],
+        ['c-1', '나무', CELL],
+      ],
+      identityMode: 'card_id',
+      canWriteBack: false,
+      nowMs: 2000,
+    });
+    const upsert = res.events.find((e) => e.type === 'NoteUpserted');
+    if (upsert?.type !== 'NoteUpserted') throw new Error('no note');
+    // Linked sources store tags in code-unit order.
+    expect(upsert.payload.tags).toEqual(['a,b', String.raw`back\slash`, 'c;d']);
+  });
+});

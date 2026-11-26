@@ -158,6 +158,8 @@ test.describe('Phase 14 Sync my devices', () => {
     await pageA.getByTestId('add-device-btn').click();
     const panel = pageA.getByTestId('add-device-panel');
     await expect(panel.getByRole('img', { name: /QR code/ })).toBeVisible();
+    // The e2e server is on 127.0.0.1, which no other device can open (C21).
+    await expect(panel.getByTestId('add-device-loopback-note')).toBeVisible();
     const link = (await panel.getByTestId('add-device-link').textContent()) ?? '';
     const url = new URL(link);
     expect(url.searchParams.get('sync')).toBe('onedrive');

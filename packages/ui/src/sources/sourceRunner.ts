@@ -812,7 +812,7 @@ export async function linkPickedGoogleFiles(
 export async function createAndLinkGoogleSheetTemplate(
   options: { title: string; noteTypeId: string; language: string },
   ctx: SourceRunContext,
-): Promise<{ source: LinkedGoogleSource; registry: SourcesRegistry }> {
+): Promise<{ source: LinkedGoogleSource; registry: SourcesRegistry; error?: string }> {
   return withSourcesLock(async () => {
     const state = ctx.getState();
     const noteType = resolveNoteType(state, options.noteTypeId);
@@ -845,9 +845,18 @@ export async function createAndLinkGoogleSheetTemplate(
     };
     registry.googleSources.push(source);
 
-    await refreshSingleGoogleSource(source, ctx, { force: true });
+    // The Sheet now exists in Drive: keep it linked even when the first pull fails, so the user
+    // can refresh it later instead of finding an orphan Sheet there (C20).
+    let error: string | undefined;
+    try {
+      await refreshSingleGoogleSource(source, ctx, { force: true });
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+      source.lastStatus = 'error';
+      source.lastError = error;
+    }
     await saveSourcesRegistry(ctx.platform, registry);
-    return { source, registry };
+    return error === undefined ? { source, registry } : { source, registry, error };
   });
 }
 
@@ -1050,8 +1059,12 @@ export async function refreshSingleGoogleSource(
       }
     } catch (writeErr) {
       if (isSyncTransportError(writeErr) && writeErr.code === 'PERMISSION_DENIED') {
-        // Shared view-only sheet: gracefully switch to read-only diff
+        // Shared view-only sheet: gracefully switch to read-only diff. Nothing was written, so
+        // the race check's dropped rows and warning belong to the discarded diff (C20).
         grid.readOnly = true;
+        droppedRacedNoteIds = new Set();
+        const raced = extraWarnings.findIndex((w) => w.code === 'writeback_raced');
+        if (raced !== -1) extraWarnings.splice(raced, 1);
         diff = diffTabularSource({
           deckId,
           noteType,

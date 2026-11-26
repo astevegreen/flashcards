@@ -15,9 +15,11 @@ import {
   takeAddDeviceLink,
 } from '../src/sync/addDeviceLink.ts';
 import {
+  addDeviceJoinPhrase,
   buildAddDeviceDeepLink,
   buildAddDeviceUrl,
   checkAddDeviceCollection,
+  isLoopbackAddress,
 } from '../src/sync/addDeviceLinkShare.ts';
 import { qrMatrixToPath } from '../src/sync/qrPath.ts';
 
@@ -249,5 +251,29 @@ describe('mergeOpenedAddDeviceLink', () => {
     const b = { provider: 'dropbox' as const, collectionId: COLLECTION };
     expect(mergeOpenedAddDeviceLink(a, b)).toBe(b);
     expect(mergeOpenedAddDeviceLink(undefined, b)).toBe(b);
+  });
+});
+
+describe('add-device panel copy (C21)', () => {
+  it('tells a folder user to open the same folder, not to sign in to a "Local folder account"', () => {
+    expect(addDeviceJoinPhrase('local_folder', 'Local folder')).toBe(
+      'opens the same shared folder',
+    );
+    expect(addDeviceJoinPhrase('icloud', 'iCloud Drive')).toBe('uses the same Apple ID');
+    expect(addDeviceJoinPhrase('dropbox', 'Dropbox')).toBe('signs in to the same Dropbox account');
+  });
+
+  it('knows a link on a loopback address opens on no other device', () => {
+    for (const url of [
+      'http://localhost:5173/',
+      'http://127.0.0.1:4173/',
+      'http://[::1]:5173/',
+      'http://app.localhost/',
+    ]) {
+      expect(isLoopbackAddress(url)).toBe(true);
+    }
+    for (const url of ['https://app.example/', 'http://192.168.1.20:5173/', 'not a url']) {
+      expect(isLoopbackAddress(url)).toBe(false);
+    }
   });
 });

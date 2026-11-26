@@ -222,3 +222,110 @@ describe('.flashpkg export keeps categories', () => {
     expect(note?.tags).toEqual(['한국어', '문법::조사']);
   });
 });
+
+describe('exports never write one record id twice (C19)', () => {
+  // Two notes of one deck can share a source key (one moved in from a deck linked to the same
+  // sheet); a third note's own id can equal that key too.
+  function sharedKeyState(): CollectionState {
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', T0));
+    const note = (id: string, sourceKey: string, word: string, order: number) =>
+      factory.create(
+        'NoteUpserted',
+        {
+          note_id: id,
+          deck_id: DECK,
+          source_key: sourceKey,
+          fields: { word, meaning: word },
+          tags: [],
+          provenance: { source: 'import', reviewed: true },
+          created_order: order,
+        },
+        T0 + order + 1,
+      );
+    return replayAllEvents([
+      ...deckEvents(factory),
+      note('n1', 'k', 'one', 0),
+      note('n2', 'k', 'two', 1),
+      note('k', '', 'three', 2),
+    ]);
+  }
+
+  it('.flashpkg keeps every note', () => {
+    const bytes = exportFlashpkg(sharedKeyState(), { deckId: DECK });
+    const f2 = createEventFactory('dev-y', 0, createHlcState('dev-y', T0 + 20_000));
+    const res = importFlashpkg(bytes, replayAllEvents([]), f2, { nowMs: T0 + 20_000 });
+    const words = [...replayAllEvents(res.events).notes.values()].map((n) => n.fields['word']);
+    expect(words.sort()).toEqual(['one', 'three', 'two']);
+  });
+
+  it('CSV keeps every note without a duplicate Card ID warning', () => {
+    const exported = exportCsv(sharedKeyState(), { deckId: DECK });
+    expect(notesOf(importCsv(exported.text)).map((n) => n.fields['word'])).toEqual([
+      'one',
+      'two',
+      'three',
+    ]);
+  });
+});
+
+describe('CSV round trip keeps whitespace and separator characters (C17)', () => {
+  it('export -> import keeps padded fields and tags that contain , ; or a backslash', () => {
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', T0));
+    const fields = { word: '  학교', meaning: 'school \n', example: ' a, b ' };
+    // Tags like these arrive from .flashpkg or Anki, where `,` and `;` are ordinary characters.
+    const tags = ['a,b', 'c;d', 'back\\slash', 'tail\\', 'esc\\,aped', 'plain'];
+    const first = replayAllEvents([
+      ...deckEvents(factory),
+      factory.create(
+        'NoteUpserted',
+        {
+          note_id: 'n1',
+          deck_id: DECK,
+          source_key: 'card-1',
+          fields,
+          tags,
+          provenance: { source: 'import', reviewed: true },
+          created_order: 0,
+        },
+        T0 + 1,
+      ),
+    ]);
+    for (const delimiter of [',', '\t'] as const) {
+      const exported = exportCsv(first, { deckId: DECK, delimiter });
+      const [note] = notesOf(importCsv(exported.text));
+      expect(note?.fields).toEqual(fields);
+      expect(note?.tags).toEqual(tags);
+    }
+  });
+
+  it('keeps the spaces inside quotes but trims the ones after the closing quote', () => {
+    const [note] = notesOf(importCsv(['Word,Meaning', '"학교" ,"  school  "  ', ''].join('\n')));
+    expect(note?.fields).toEqual({ word: '학교', meaning: '  school  ' });
+  });
+
+  it('reads row 1 like any other row when the file has no header row', () => {
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', T0));
+    const res = buildEventsFromCsv(['"  학교 ", school', ' 나무 ,"  tree"'].join('\n'), {
+      deckId: DECK,
+      noteType: koNoteType,
+      eventFactory: factory,
+      columns: [
+        { kind: 'field', fieldKey: 'word' },
+        { kind: 'field', fieldKey: 'meaning' },
+      ],
+      hasHeaderRow: false,
+      nowMs: T0 + 1000,
+    });
+    const fields = res.events.flatMap((e) => (e.type === 'NoteUpserted' ? [e.payload.fields] : []));
+    expect(fields).toEqual([
+      { word: '  학교 ', meaning: 'school' },
+      { word: '나무', meaning: '  tree' },
+    ]);
+  });
+
+  it('still trims unquoted cells and splits ; or , in a typed category cell', () => {
+    const [note] = notesOf(importCsv('Word,Meaning,Tags\n 학교 ,"  school  ", daily; topik-1 \n'));
+    expect(note?.fields).toEqual({ word: '학교', meaning: '  school  ' });
+    expect(note?.tags).toEqual(['daily', 'topik-1']);
+  });
+});

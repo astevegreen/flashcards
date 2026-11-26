@@ -86,6 +86,17 @@ describe('ankiHtmlToText (tokenizer, no raw HTML)', () => {
     expect(text('<ruby>base only</ruby>')).toBe('base only');
   });
 
+  it('ends an unclosed <rp> where HTML does, keeping the rest of the field (C19)', () => {
+    // `</rp>` is optional: the next <rt>, <rp> or </ruby> closes it.
+    expect(text('<ruby>漢字<rp>(<rt>かんじ<rp>)</ruby>です')).toBe('{漢字|かんじ}です');
+    expect(text('<ruby>漢字<rp>(<rt>かんじ</rt><rp>)</ruby> and more text')).toBe(
+      '{漢字|かんじ} and more text',
+    );
+    // With nothing to close it, the <rp> holds only its text up to the next tag.
+    expect(text('a<rp>(<b>kept</b>')).toBe('akept');
+    expect(text('<ruby>漢<rp><span>(</span></rp><rt>かん</rt></ruby>')).toBe('{漢|かん}');
+  });
+
   it('stays linear on pathological input (no backtracking)', () => {
     const inputs = [
       '<'.repeat(200_000),
