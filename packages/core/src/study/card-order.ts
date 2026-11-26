@@ -1,28 +1,13 @@
 import type { CollectionState } from '../events/replay.ts';
 import type { DeckSettingsChangedPayload } from '../events/types.ts';
-import type { Card, NewCardOrder, PracticeOrder, StudyMethod, StudyOrder } from '../model/types.ts';
+import type { Card, NewCardOrder, StudyOrder } from '../model/types.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Study method and card order (Study screen session options, Settings defaults). Every order here
  * is a pure, total comparator: "random" is a seeded hash shuffle, so a queue is identical on every
  * device and on every rebuild for the same seed (a study day, or a practice session id).
  */
-
-export const STUDY_METHODS: readonly StudyMethod[] = ['schedule', 'practice'];
-export const STUDY_ORDERS: readonly StudyOrder[] = ['deck', 'random'];
-export const PRACTICE_ORDERS: readonly PracticeOrder[] = ['deck', 'random', 'hardest'];
-
-export function isStudyMethod(value: unknown): value is StudyMethod {
-  return value === 'schedule' || value === 'practice';
-}
-
-export function isStudyOrder(value: unknown): value is StudyOrder {
-  return value === 'deck' || value === 'random';
-}
-
-export function isPracticeOrder(value: unknown): value is PracticeOrder {
-  return isStudyOrder(value) || value === 'hardest';
-}
 
 /** FNV-1a 32-bit hash: the deterministic source of every seeded order. */
 export function hashString32(input: string): number {
@@ -52,7 +37,7 @@ function compareLayouts(a: string, b: string): number {
   const aIsRec = a.includes('recognition') ? 0 : 1;
   const bIsRec = b.includes('recognition') ? 0 : 1;
   if (aIsRec !== bIsRec) return aIsRec - bIsRec;
-  return a < b ? -1 : 1;
+  return compareCodeUnits(a, b);
 }
 
 /** Source order: by note.created_order, then layout order (Recognition before Production), then variant, then id. */

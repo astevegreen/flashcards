@@ -1,6 +1,6 @@
 import { BUILTIN_NOTE_TYPE_IDS } from '../model/presets.ts';
 import { parseRuby } from '../parsers/ruby.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 import { normalizeLanguage } from './normalize.ts';
 
 /**

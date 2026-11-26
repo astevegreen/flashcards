@@ -8,6 +8,7 @@ import {
   tagKey,
   validateTagName,
 } from './index.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Browse bulk edit (Phase 9): pure planners that turn a selection of notes plus one action
@@ -56,11 +57,6 @@ export interface BulkActionPlan {
   error?: BulkActionError;
 }
 
-function cmpStr(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
-}
-
 function sameList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
@@ -71,7 +67,7 @@ function selectedNotes(state: CollectionState, noteIds: Iterable<string>): Note[
     const note = state.notes.get(id);
     if (note) out.push(note);
   }
-  return out.sort((a, b) => cmpStr(a.id, b.id));
+  return out.sort((a, b) => compareCodeUnits(a.id, b.id));
 }
 
 function tagsPayload(note: Note, tags: string[]): BulkEventDraft {
@@ -101,7 +97,7 @@ export function listMoveTargetDecks(state: CollectionState, noteTypeId: string):
   return [...state.decks.values()]
     .filter((d) => !d.archived && !isLinkedDeck(d) && d.note_type_id === noteTypeId)
     .map((d) => d.id)
-    .sort(cmpStr);
+    .sort(compareCodeUnits);
 }
 
 /**
@@ -240,7 +236,7 @@ function planSuspension(
   let changedNoteCount = 0;
   for (const note of notes) {
     const cardIds = [...(state.cardIdsByNote.get(note.id) ?? [])]
-      .sort(cmpStr)
+      .sort(compareCodeUnits)
       .filter((cardId) => isCardSuspended(state, cardId) !== suspend);
     for (const cardId of cardIds) {
       events.push(

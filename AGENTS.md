@@ -10,7 +10,7 @@ Run from repository root using `pnpm`:
 - `pnpm dev` — start local Vite dev server (zero-login dev mode with sample decks)
 - `pnpm build` — typecheck/build all packages and production PWA bundle (`apps/web/dist`) (skips `@flash/desktop`; run `pnpm --filter @flash/desktop build` with Rust installed)
 - `pnpm --filter @flash/mobile exec cap sync android` — copy `apps/web/dist` + plugins into the Android project
-- `pnpm typecheck` — strict TypeScript check across all workspace packages
+- `pnpm typecheck` — strict TypeScript check of every workspace package with TypeScript sources (tests and benches included, through each package's `tsconfig.test.json`) plus the root e2e tests; `.mjs` scripts are not type-checked, and `@flash/desktop`'s `typecheck` only parses `tauri.conf.json`
 - `pnpm lint` — ESLint (enforces architectural boundaries including `packages/core` purity)
 - `pnpm format:check` / `pnpm format` — Prettier formatting check/write
 - `pnpm test` — Vitest unit, golden, and `fast-check` property tests
@@ -30,12 +30,12 @@ Run from repository root using `pnpm`:
 - `packages/content-schema` (`@flash/content-schema`) — Zod schemas & JSON Schema exports for `.flashpkg`, `index.json`, and `packs.json`.
 - `packages/core` (`@flash/core`) — **100% pure TypeScript**: events, deterministic replay, `ts-fsrs` wrapper, Note Types, Layouts, Card derivation, Ruby/Pinyin/Cloze parsers, answer matching, courses, audio resolution, drawing/stroke grading & recognition, offline dictionary search & pack codec, offline Ed25519 licensing, CSV/TSV & `.flashpkg` import/export, sync engine, sample data.
 - `packages/platform` (`@flash/platform`) — pure TypeScript interfaces (`Storage`, `Files`, `SyncTransport`, `Auth`, `TtsProvider`, `AudioPlayer`, `Purchase`, `PackManager`, `StrokeDataProvider`, `HandwritingRecognizer`, `DictionaryService`, `NativePickerBridge`).
-- `packages/platform-web` (`@flash/platform-web`) — Dexie IndexedDB `Storage`, browser `Files`, Google Drive / Local Folder / Dropbox / OneDrive / BroadcastChannel `SyncTransport` (OneDrive lazy via `@flash/platform-web/onedrive`), Google OAuth + Picker + Sheets/Docs, Web Audio preloader + BYO Cloud TTS + `speechSynthesis`, offline pack/dictionary/stroke adapters, WebCrypto Ed25519 license purchase.
+- `packages/platform-web` (`@flash/platform-web`) — Dexie IndexedDB `Storage`, browser `Files`, Google Drive / Local Folder / Dropbox / OneDrive / BroadcastChannel `SyncTransport` (OneDrive lazy via `@flash/platform-web/onedrive`), Google OAuth + Picker + Sheets/Docs, `<audio>` clip preloader + BYO Cloud TTS + `speechSynthesis`, offline pack/dictionary/stroke adapters, WebCrypto Ed25519 license purchase.
 - `packages/platform-capacitor` (`@flash/platform-capacitor`) — Capacitor Android/iOS SQLite `Storage`, native Google Sign-In, `picker.html` deep-link bridge, Google ML Kit Digital Ink recognizer, StoreKit 2 / Play Billing IAP, iCloud Drive transport.
 - `packages/platform-tauri` (`@flash/platform-tauri`) — Tauri desktop SQLite `Storage`, native folder & `Inbox/` watcher, loopback Google OAuth, offline Ed25519 license verifier.
 - `packages/ui` (`@flash/ui`) — lean React UI components & screens consuming `@flash/core` and `@flash/platform` with strict lazy-loading of secondary screens and heavy answer modes.
 - `apps/web` (`@flash/web`) — static Vite + React + Tailwind v4 + `vite-plugin-pwa` shell.
-- `apps/token-helper` (`@flash/token-helper`) — stateless Cloudflare Worker for Web/PWA Google OAuth (`/exchange`, `/refresh`) and Microsoft OneDrive (`/ms/exchange`, `/ms/refresh`) code exchange and token refresh.
+- `apps/token-helper` (`@flash/token-helper`) — stateless Cloudflare Worker for Web/PWA Google OAuth (`/auth/exchange`, `/auth/refresh`) and Microsoft OneDrive (`/ms/exchange`, `/ms/refresh`) code exchange and token refresh.
 - `apps/mobile` (`@flash/mobile`) & `apps/desktop` (`@flash/desktop`) — Capacitor 8 (`android/`, `ios/`) and Tauri 2 (`src-tauri/`) shells wrapping the identical `apps/web/dist`; `apps/web` lazily boots `@flash/platform-capacitor/native` / `@flash/platform-tauri/native` when it detects the runtime. Local build steps: `docs/native-shells.md`.
 - `tools/cli` (`@flash/cli`) — Node CLI (`validate`, `build`, `audio`, `inbox`) and local JSON-RPC 2.0 MCP server (`mcp`).
 
@@ -56,7 +56,7 @@ These rules bind every agent here, Claude Code and Antigravity alike. Several ag
 - **Update from main by merging** `origin/main` into your branch. A rebase needs a force-push, and force-pushes are the owner's.
 - **Parallel agents each get their own** `E2E_PORT` (on the shared default 4173, `reuseExistingServer` silently tests another worktree's build) and their own scratch folder.
 - **Bundle budget is shared.** Each branch can pass `pnpm size` alone while the sum of open branches overflows 160 KB: aim for zero initial-bundle growth (lazy-load new screens) and give the size before and after in the pull request.
-- **Deterministic sorting:** compare strings with `compareCodeUnits` (`packages/core/src/study/queue.ts`). `localeCompare` differs by device locale and breaks replay, even where SonarCloud suggests it.
+- **Deterministic sorting:** compare strings with `compareCodeUnits` (`packages/core/src/compare.ts`, exported from `@flash/core`). `localeCompare` differs by device locale and breaks replay, even where SonarCloud suggests it.
 - **`docs/follow-ups.md`** holds owner decisions and the backlog. Other agents commit to it often: edit it from your own worktree and merge `origin/main` just before you push.
 - **Gates:** `pnpm gate` (typecheck, lint, format, starter-pack check, unit and tool tests) before every push; CI's required `verify` check adds build, size and e2e. SonarCloud's quality gate (3% duplication on new lines) can fail while `verify` is green: check it before merging (`node tools/sonar-gate.mjs <pr>`).
 - **Ask the owner only about design** (what to teach, study behaviour, scope, pricing), money, identity and accounts, and deleting data or history, each with your recommendation. Decide technical questions yourself and note the reason in the pull request.

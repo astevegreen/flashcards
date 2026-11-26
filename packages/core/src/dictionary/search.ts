@@ -13,6 +13,7 @@ import type {
   DictionaryLevel,
   DictionaryPackId,
 } from './types.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /** Maps Katakana U+30A1..U+30F6 to Hiragana U+3041..U+3096 for kana-insensitive Japanese search. */
 export function foldKatakanaToHiragana(input: string): string {
@@ -164,11 +165,6 @@ export interface DictionarySearchPlan {
 
 const MAX_HEADWORD_CANDIDATES = 400;
 const MAX_JAPANESE_PREFIX_TOKENS = 10;
-
-/** Code-unit order (not localeCompare) so results are identical on every machine and locale. */
-function compareCodeUnits(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
 
 /** Prefix-index tokens for a query, most specific first, without duplicates. */
 function planPrefixTokens(

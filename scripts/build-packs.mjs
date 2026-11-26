@@ -87,7 +87,7 @@ function fromMedians(medians) {
 
 /**
  * Compact starter stroke fixtures (Hanzi Writer 1024x1024 Y-up coordinates) for offline dev mode & CI.
- * Real Spike 0.6 KanjiVG conversions (食, 語) are loaded directly from spikes/phase0/kanjivg-*.json when present.
+ * Real Spike 0.6 KanjiVG conversions (食, 語) are loaded from scripts/packs/fixtures/kanjivg-*.json.
  */
 function buildStarterStrokeSets() {
   // Common geometric primitives in Hanzi Writer Y-up coordinates (top ≈ 800, bottom ≈ 50)
@@ -476,10 +476,9 @@ function buildStarterStrokeSets() {
   ]);
 
   // Real Spike 0.6 KanjiVG Japanese strokes (食 9 strokes, 語 14 strokes)
-  const kvgShiPath = join(REPO_ROOT, 'spikes', 'phase0', 'kanjivg-098df.json');
-  const kvgYuPath = join(REPO_ROOT, 'spikes', 'phase0', 'kanjivg-08a9e.json');
-  const kvgShi = existsSync(kvgShiPath) ? JSON.parse(readFileSync(kvgShiPath, 'utf8')) : CHAR_RI;
-  const kvgYu = existsSync(kvgYuPath) ? JSON.parse(readFileSync(kvgYuPath, 'utf8')) : CHAR_BEN;
+  const fixtures = join(REPO_ROOT, 'scripts', 'packs', 'fixtures');
+  const kvgShi = JSON.parse(readFileSync(join(fixtures, 'kanjivg-098df.json'), 'utf8'));
+  const kvgYu = JSON.parse(readFileSync(join(fixtures, 'kanjivg-08a9e.json'), 'utf8'));
 
   // Distinct Chinese Make Me a Hanzi stroke order for 食 (stroke 3 is a dot, 9 strokes)
   const zhShi = fromMedians([

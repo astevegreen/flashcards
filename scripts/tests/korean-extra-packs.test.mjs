@@ -2,14 +2,16 @@ import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import {
   decodePackArchive,
-  getAttributionForPack,
   materializeDictionaryEntries,
+  OPEN_DATA_ATTRIBUTIONS,
 } from '../../packages/core/src/dictionary/index.ts';
 import {
   parseKaikkiKoJsonl,
   parseUrimalsamJson,
   parseUrimalsamXml,
 } from '../packs/upstream-parsers.mjs';
+
+const attributionFor = (packId) => OPEN_DATA_ATTRIBUTIONS.find((a) => a.packId === packId);
 
 describe('Urimalsaem (우리말샘) & Kaikki Korean parsers', () => {
   it('parses Urimalsaem JSON into dict-urimalsam entries and round-trips through pack codec', () => {
@@ -66,7 +68,7 @@ describe('Urimalsaem (우리말샘) & Kaikki Korean parsers', () => {
       relations: [{ type: 'synonym', word: '학원' }],
     });
 
-    const attr = getAttributionForPack('dict-urimalsam');
+    const attr = attributionFor('dict-urimalsam');
     expect(attr?.licenseName).toBe('CC BY-SA 2.0 KR');
     const archive = new Uint8Array(
       gzipSync(
@@ -170,7 +172,7 @@ describe('Urimalsaem (우리말샘) & Kaikki Korean parsers', () => {
       pos: ['noun'],
     });
 
-    const attr = getAttributionForPack('dict-kaikki-ko');
+    const attr = attributionFor('dict-kaikki-ko');
     expect(attr?.licenseName).toBe('CC BY-SA 4.0');
   });
 });

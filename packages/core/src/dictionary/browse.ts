@@ -8,6 +8,7 @@ import type {
   DictionaryLevel,
   DictionaryPackId,
 } from './types.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Browsing a dictionary without typing (by learner level, topic, grade, or the whole pack in
@@ -151,16 +152,12 @@ export function browsePageSize(query: DictionaryBrowseQuery): number {
   return Math.max(1, Math.min(MAX_BROWSE_PAGE_SIZE, query.limit ?? DEFAULT_BROWSE_PAGE_SIZE));
 }
 
-/** Code-unit order so summaries are identical on every machine and locale. */
-function compareKeys(a: string, b: string): number {
-  if (a === b) return 0;
-  return a < b ? -1 : 1;
-}
-
 function sortedCounts(map: Map<string, number>, order: 'count' | 'key'): DictionaryBrowseCount[] {
   const rows = [...map].map(([key, count]) => ({ key, count }));
   return rows.sort((a, b) =>
-    order === 'count' ? b.count - a.count || compareKeys(a.key, b.key) : compareKeys(a.key, b.key),
+    order === 'count'
+      ? b.count - a.count || compareCodeUnits(a.key, b.key)
+      : compareCodeUnits(a.key, b.key),
   );
 }
 
@@ -206,13 +203,4 @@ export class DictionaryBrowseSummaryBuilder {
       pos: sortedCounts(this.pos, 'count'),
     };
   }
-}
-
-export function summarizeDictionaryBrowse(
-  packId: DictionaryPackId,
-  entries: Iterable<Pick<DictionaryEntry, 'level' | 'topics' | 'grade' | 'pos'>>,
-): DictionaryBrowseSummary {
-  const builder = new DictionaryBrowseSummaryBuilder(packId);
-  for (const e of entries) builder.add(e);
-  return builder.build();
 }

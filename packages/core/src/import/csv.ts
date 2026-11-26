@@ -14,6 +14,7 @@ import {
 } from './column-target.ts';
 
 export * from './csv-export.ts';
+export { escapeDelimitedCell, type CsvCellOptions } from './csv-cell.ts';
 
 export interface CsvParseOptions {
   delimiter?: ',' | '\t';
@@ -26,7 +27,8 @@ export interface CsvParseResult {
 }
 
 /**
- * RFC 4180 compliant CSV/TSV parser.
+ * Lenient RFC 4180-style CSV/TSV parser (it accepts input the RFC rejects, such as a stray quote
+ * inside an unquoted field).
  * - Strips UTF-8 BOM
  * - Auto-detects `,` vs `\t` from first non-empty line when delimiter is omitted
  * - Handles quoted newlines, commas/tabs inside quotes, and escaped `""`

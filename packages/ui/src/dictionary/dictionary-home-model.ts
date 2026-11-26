@@ -71,10 +71,6 @@ const TOPIC_LABEL: Readonly<Record<string, string>> = {
   개념: 'Concepts',
 };
 
-export function topicEnglishLabel(topic: string): string | undefined {
-  return TOPIC_LABEL[topic];
-}
-
 /** `Ordering food · 음식 주문하기`, or the Korean topic alone. */
 export function topicLabel(topic: string): string {
   const en = TOPIC_LABEL[topic];

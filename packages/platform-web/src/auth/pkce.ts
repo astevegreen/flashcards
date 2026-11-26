@@ -3,6 +3,8 @@
  * `cryptoImpl` is injectable so tests can pin the random bytes.
  */
 
+import { bytesToBase64 } from '../base64.ts';
+
 export interface PkceCrypto {
   getRandomValues(array: Uint8Array<ArrayBuffer>): Uint8Array;
   subtle: { digest(algorithm: string, data: BufferSource): Promise<ArrayBuffer> };
@@ -10,9 +12,7 @@ export interface PkceCrypto {
 
 /** Unpadded base64url (RFC 4648 §5). */
 export function base64UrlEncode(bytes: Uint8Array): string {
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+  return bytesToBase64(bytes).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
 
 /** A random base64url string from `byteLength` random bytes (OAuth `state`, nonces). */

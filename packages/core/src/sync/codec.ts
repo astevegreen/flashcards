@@ -126,13 +126,6 @@ export function parseDeviceHeadPath(path: string): string | null {
   return rawId;
 }
 
-export function parseSegmentNumber(path: string): number | null {
-  const match = /\/seg-(\d{6,})\.jsonl\.gz$/.exec(path);
-  if (!match || !match[1]) return null;
-  const num = Number.parseInt(match[1], 10);
-  return Number.isSafeInteger(num) && num >= 1 ? num : null;
-}
-
 export function parseSnapshotPath(path: string): { deviceId: string; seq: number } | null {
   const prefix = snapshotsPrefix();
   const suffix = '.json.gz';

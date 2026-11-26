@@ -208,20 +208,9 @@ export class DexieStorage implements Storage {
     });
   }
 
-  async getEvents(sinceHlc?: string): Promise<FlashEvent[]> {
-    const rows = sinceHlc
-      ? await this.db.events.where('hlc').above(sinceHlc).sortBy('hlc')
-      : await this.db.events.orderBy('hlc').toArray();
-    return rows.map(rowToFlashEvent);
-  }
-
-  async getEventsForCard(cardId: string): Promise<FlashEvent[]> {
-    const rows = await this.db.events.where('card_id').equals(cardId).sortBy('hlc');
-    return rows.map(rowToFlashEvent);
-  }
-
   async getAllEvents(): Promise<FlashEvent[]> {
-    return this.getEvents();
+    const rows = await this.db.events.orderBy('hlc').toArray();
+    return rows.map(rowToFlashEvent);
   }
 
   async getDeviceEventsAfterSeq(deviceId: string, afterSeq: number): Promise<FlashEvent[]> {

@@ -76,15 +76,3 @@ export const THIRD_PARTY_NOTICES: readonly ThirdPartyNotice[] = [
     paragraphs: MIT_PARAGRAPHS,
   },
 ];
-
-/** Plain-text rendering, as it appears in THIRD-PARTY-NOTICES.txt. */
-export function formatThirdPartyNotice(notice: ThirdPartyNotice): string {
-  return [
-    `${notice.name} ${notice.version}: ${notice.licenseName}`,
-    `Source: ${notice.sourceUrl}`,
-    '',
-    notice.copyright,
-    '',
-    notice.paragraphs.join('\n\n'),
-  ].join('\n');
-}

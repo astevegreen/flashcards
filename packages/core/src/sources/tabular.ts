@@ -11,9 +11,11 @@ import {
   resolveSourceColumnMap,
   type ColumnTarget,
 } from '../import/column-target.ts';
+import { escapeDelimitedCell } from '../import/csv-cell.ts';
 import { splitTagCell } from '../import/tag-cell.ts';
 import { computeNoteContentHash } from './content-hash.ts';
 import { sha256String } from './hash.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 export type TabularWarningCode =
   | 'unknown_header'
@@ -729,7 +731,7 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
       continue;
     }
 
-    const tags = [...tagSet].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const tags = [...tagSet].sort(compareCodeUnits);
     const fingerprint = computeTabularRowFingerprint(row, headerMap.roles);
 
     let noteId: string;
@@ -1035,18 +1037,6 @@ export function filterSafeWriteBackCells(
     safeCells,
     skippedCells,
   };
-}
-
-function escapeDelimitedCell(value: string, delimiter: ',' | '\t'): string {
-  if (
-    value.includes(delimiter) ||
-    value.includes('"') ||
-    value.includes('\n') ||
-    value.includes('\r')
-  ) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }
 
 /**

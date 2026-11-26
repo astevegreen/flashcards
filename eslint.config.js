@@ -204,7 +204,6 @@ export default tseslint.config(
   {
     files: [
       'scripts/**/*.{js,mjs}',
-      'spikes/phase0/scripts/**/*.{js,mjs}',
       'tools/**/*.{ts,js,mjs}',
       '*.config.{js,ts}',
       'tests/**/*.ts',
@@ -221,16 +220,6 @@ export default tseslint.config(
     files: ['apps/token-helper/src/**/*.ts'],
     languageOptions: {
       globals: {
-        ...globals.serviceworker,
-      },
-    },
-  },
-  // Throwaway browser spike harness
-  {
-    files: ['spikes/phase0/*.js'],
-    languageOptions: {
-      globals: {
-        ...globals.browser,
         ...globals.serviceworker,
       },
     },

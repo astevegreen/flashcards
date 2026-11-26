@@ -13,6 +13,7 @@ import {
   listDeckPresets,
   nextPresetParamsVersion,
   normalizeDeckGroupName,
+  PRESET_SETTING_KEYS,
   validWeights,
   type DeckPreset,
 } from '../decks/organization.ts';
@@ -23,7 +24,7 @@ import {
 } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { DEFAULT_DECK_SETTINGS, type Deck } from '../model/types.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 import { clipFSRS6Parameters, migrateFSRS6Parameters } from 'ts-fsrs/models/fsrs-6';
 
 /**
@@ -98,7 +99,7 @@ export function packageGroupsForDecks(
 /** The package's settings without `undefined` entries (validated by the payload builder). */
 function definedSettings(raw: PackagePreset['settings']): Partial<DeckPreset['settings']> {
   const out: Partial<DeckPreset['settings']> = {};
-  for (const key of ['new_cards_per_day', 'max_reviews_per_day', 'target_retention'] as const) {
+  for (const key of PRESET_SETTING_KEYS) {
     const v = raw[key];
     if (v !== undefined) out[key] = v;
   }

@@ -2,6 +2,7 @@ import {
   createEventFactory,
   createHlcState,
   decodeUtf8,
+  escapeDelimitedCell,
   type CollectionState,
   type EventFactory,
   type KnownEvent,
@@ -40,7 +41,7 @@ function activeDeckCount(state: CollectionState): number {
 /** Trimmed first: a spreadsheet cell has no quotes, so every `.xlsx` path trims it (C17). */
 function csvField(raw: string): string {
   const value = raw.trim();
-  return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+  return escapeDelimitedCell(value, ',');
 }
 
 /** Serializes an `.xlsx` grid as CSV so it takes the same import path as a `.csv` file. */

@@ -16,8 +16,11 @@ export interface SyncShell extends SyncActions {
   attach: (controller: SyncActions) => void;
 }
 
+/** `navigator.onLine`; online when there is no navigator or it gives no boolean. */
 export function isNavigatorOnline(): boolean {
-  return typeof navigator === 'undefined' ? true : navigator.onLine;
+  return typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean'
+    ? true
+    : navigator.onLine;
 }
 
 export function isNetworkSyncProvider(provider: SyncProviderKind): boolean {

@@ -7,7 +7,6 @@ import {
   mergeStatePatch,
   receiveHlc,
   serializeCollectionState,
-  type Card,
   type CollectionState,
   type CollectionStatePatch,
   type EventFactory,
@@ -26,24 +25,11 @@ import type {
   SyncTransport,
 } from '@flash/platform';
 import type { MutableRefObject } from 'react';
+import { cardToRow } from './cardRow.ts';
 import type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
 import { localSnapshotDue } from './localSnapshotCounter.ts';
 import { snapshotWriteAllowed } from './rebuildSignal.ts';
-
-function isNavigatorOnline(): boolean {
-  return typeof navigator === 'undefined' ? true : navigator.onLine;
-}
-
-function cardToRow(card: Card): MaterializedCardRow {
-  return {
-    id: card.id,
-    deck_id: card.deck_id,
-    note_id: card.note_id,
-    layout_id: card.layout_id,
-    due: card.schedule.due,
-    schedule: card.schedule,
-  };
-}
+import { isNavigatorOnline } from './syncShell.ts';
 
 export function buildWatermarks(
   deviceId: string,
@@ -417,7 +403,7 @@ export async function runSyncCycle(
       ctx.pendingWorkerLocalEventsRef.current = [];
       ctx.onReplaceState(hydrated, nextMeta);
 
-      const allCardRows = [...hydrated.cards.values()].map(cardToRow);
+      const allCardRows = [...hydrated.cards.values()].map((card) => cardToRow(card));
       const snapWatermarks = buildWatermarks(deviceId, nextMeta.seq, result.cursor);
       const localSnapPayload = serializeCollectionState(hydrated, snapWatermarks);
 

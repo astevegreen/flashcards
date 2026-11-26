@@ -99,8 +99,6 @@ export interface LocalSnapshotRecord {
 
 export interface Storage {
   appendEvents(events: readonly FlashEvent[]): Promise<void>;
-  getEvents(sinceHlc?: string): Promise<FlashEvent[]>;
-  getEventsForCard(cardId: string): Promise<FlashEvent[]>;
   getAllEvents(): Promise<FlashEvent[]>;
   getDeviceEventsAfterSeq(deviceId: string, afterSeq: number): Promise<FlashEvent[]>;
   getEventsAfterLocalSeq(
@@ -266,13 +264,6 @@ export interface Auth {
   signIn(opts?: { intent?: OAuthSignInIntent }): Promise<AuthSession | null>;
   handleRedirectCallback(): Promise<AuthSession | null>;
   signOut(): Promise<void>;
-  /**
-   * True when the normal refresh path is unavailable (e.g. the token-helper Worker is down or
-   * unconfigured) and access can only be renewed with a user tap (§4.3 GIS fallback).
-   */
-  needsInteractiveRenew?(): Promise<boolean>;
-  /** Renews access from a user gesture without the Worker (Google Identity Services popup). */
-  renewInteractively?(opts?: { intent?: OAuthSignInIntent }): Promise<AuthSession>;
 }
 
 /** Non-blocking import warning surfaced per linked source. */

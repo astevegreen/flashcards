@@ -25,7 +25,8 @@ import { decodeUtf8 } from '../utf8-decode.ts';
 import type { Deck, Note, SourceRef } from '../model/types.ts';
 import { computeNoteContentHash } from '../sources/content-hash.ts';
 import { sha256Hex } from '../sources/hash.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
+import { asciiSlug } from '../slug.ts';
 import { normalizeTagList } from '../tags/index.ts';
 import {
   safeUnzip,
@@ -117,14 +118,6 @@ export class FlashpkgValidationError extends Error {
 export function assertSafeArchivePath(path: string): void {
   const reason = unsafeArchivePathReason(path);
   if (reason) throw new FlashpkgSecurityError(reason);
-}
-
-function safeSlug(name: string, fallback: string): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug || fallback;
 }
 
 interface ExportScope {
@@ -266,7 +259,8 @@ export function exportFlashpkgFiles(
     usedNoteTypeIds.add(deck.note_type_id);
     if (deck.language) languages.add(deck.language);
 
-    const filePath = `decks/${safeSlug(deck.name, `deck-${i + 1}`)}-${i + 1}.jsonl`;
+    const slug = asciiSlug(deck.name, `deck-${i + 1}`);
+    const filePath = `decks/${slug}-${i + 1}.jsonl`;
     deckEntries.push({
       id: deck.id,
       name: deck.name,
@@ -383,10 +377,10 @@ export function exportFlashpkgFiles(
     .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   const usedSlugs = new Set<string>();
   for (const page of exportedPages) {
-    let slug = safeSlug(page.slug || page.title, 'page');
+    let slug = asciiSlug(page.slug || page.title, 'page');
     let suffix = 2;
     while (usedSlugs.has(slug)) {
-      slug = `${safeSlug(page.slug || page.title, 'page')}-${suffix}`;
+      slug = `${asciiSlug(page.slug || page.title, 'page')}-${suffix}`;
       suffix += 1;
     }
     usedSlugs.add(slug);

@@ -5,7 +5,7 @@ import { deriveCardId, deriveNoteId, FLASH_NAMESPACE_UUID, uuidv5 } from '../../
 import type { Layout, ReviewRating } from '../../model/types.ts';
 import { computeNoteContentHash } from '../../sources/content-hash.ts';
 import { sha256Hex } from '../../sources/hash.ts';
-import { compareCodeUnits } from '../../study/queue.ts';
+import { compareCodeUnits } from '../../compare.ts';
 import { normalizeTagList } from '../../tags/index.ts';
 import { safeMediaMimeForExt } from '../media-types.ts';
 import { normalizeAnkiPackage } from './collection.ts';

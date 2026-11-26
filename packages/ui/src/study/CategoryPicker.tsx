@@ -1,4 +1,9 @@
-import type { CategoryCount, CategoryCriterion, CategoryMatchMode } from '@flash/core';
+import {
+  compareCodeUnits,
+  type CategoryCount,
+  type CategoryCriterion,
+  type CategoryMatchMode,
+} from '@flash/core';
 import { useState } from 'react';
 
 export interface CategoryPickerProps {
@@ -44,9 +49,7 @@ export function CategoryPicker({
   const update = (tags: Set<string>, nextMode: CategoryMatchMode) => {
     setPendingMode(nextMode);
     onChange(
-      tags.size > 0
-        ? { mode: nextMode, tags: [...tags].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) }
-        : undefined,
+      tags.size > 0 ? { mode: nextMode, tags: [...tags].sort(compareCodeUnits) } : undefined,
     );
   };
 

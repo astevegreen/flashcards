@@ -5,6 +5,7 @@ import { normalizeLanguage } from '../languages/normalize.ts';
 import type { Note, NoteType } from '../model/types.ts';
 import { stripRichText } from '../parsers/rich-text.ts';
 import { parseRuby } from '../parsers/ruby.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Duplicate finder (Browse): notes in different decks whose key field is the same text, mainly
@@ -78,11 +79,6 @@ export function duplicateKeyField(noteType: NoteType | undefined): string | unde
   return (noteType.fields.find((f) => f.sortKey) ?? noteType.fields[0])?.key;
 }
 
-function cmpStr(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
-}
-
 /**
  * Groups notes with the same normalized key field and deck language. Deterministic: groups are
  * sorted by language, then key; notes by deck name, then note id.
@@ -118,14 +114,20 @@ export function findDuplicateGroups(
   const groups: DuplicateGroup[] = [];
   for (const { key, language, notes } of buckets.values()) {
     if (notes.length < 2) continue;
-    const deckIds = [...new Set(notes.map((n) => n.deck_id))].sort(cmpStr);
+    const deckIds = [...new Set(notes.map((n) => n.deck_id))].sort(compareCodeUnits);
     if (acrossDecksOnly && deckIds.length < 2) continue;
     const noteIds = [...notes]
-      .sort((a, b) => cmpStr(deckName(a.deck_id), deckName(b.deck_id)) || cmpStr(a.id, b.id))
+      .sort(
+        (a, b) =>
+          compareCodeUnits(deckName(a.deck_id), deckName(b.deck_id)) ||
+          compareCodeUnits(a.id, b.id),
+      )
       .map((n) => n.id);
     groups.push({ key, language, noteIds, deckIds });
   }
-  return groups.sort((a, b) => cmpStr(a.language, b.language) || cmpStr(a.key, b.key));
+  return groups.sort(
+    (a, b) => compareCodeUnits(a.language, b.language) || compareCodeUnits(a.key, b.key),
+  );
 }
 
 /** The tag the duplicate finder adds, so the notes can be found again with `#duplicate`. */
@@ -142,7 +144,7 @@ export function planDuplicateTagAdds(
 ): NoteTagsAddedPayload[] {
   const tag = normalizeAddedTag(DUPLICATE_TAG);
   const out: NoteTagsAddedPayload[] = [];
-  for (const id of [...new Set(noteIds)].sort(cmpStr)) {
+  for (const id of [...new Set(noteIds)].sort(compareCodeUnits)) {
     const note = state.notes.get(id);
     if (!note || note.tags.some((t) => normalizeAddedTag(t) === tag)) continue;
     out.push({ note_id: id, tags: [tag] });

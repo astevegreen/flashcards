@@ -54,7 +54,6 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
     await storage.appendEvents([ev1]);
 
     expect((await storage.getAllEvents()).length).toBe(2);
-    expect((await storage.getEventsForCard('c1')).length).toBe(1);
     expect((await storage.getDeviceEventsAfterSeq('cap-ios-1', 1)).map((e) => e.id)).toEqual([
       ev2.id,
     ]);

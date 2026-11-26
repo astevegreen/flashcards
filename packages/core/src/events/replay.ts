@@ -40,6 +40,8 @@ import {
   type UnknownEvent,
 } from './types.ts';
 import { isApplicableEvent } from './validate.ts';
+import { compareCodeUnits } from '../compare.ts';
+import { addToMapSet, removeFromMapSet } from '../map-set.ts';
 
 export interface PendingDeckPatch {
   name?: string;
@@ -203,24 +205,6 @@ export function createEmptyState(): CollectionState {
   };
 }
 
-function addToMapSet(map: Map<string, Set<string>>, key: string, value: string): void {
-  let set = map.get(key);
-  if (!set) {
-    set = new Set();
-    map.set(key, set);
-  }
-  set.add(value);
-}
-
-function removeFromMapSet(map: Map<string, Set<string>>, key: string, value: string): void {
-  const set = map.get(key);
-  if (!set) return;
-  set.delete(value);
-  if (set.size === 0) {
-    map.delete(key);
-  }
-}
-
 function setCardInState(state: CollectionState, card: Card): void {
   const prev = state.cards.get(card.id);
   if (prev && (prev.deck_id !== card.deck_id || prev.note_id !== card.note_id)) {
@@ -364,7 +348,7 @@ function resolveOwnParamsVersion(
   return own;
 }
 
-/** Returns the active FSRS params version number for a deck at `nowMs`. */
+/** Returns the FSRS params version a deck uses now: the newest one in its version list. */
 export function getActiveFsrsParamsVersion(state: CollectionState, deckId: string): number {
   const versions = state.deckFsrsParams.get(deckId);
   const latest = versions?.[versions.length - 1];
@@ -413,6 +397,13 @@ export function getEnabledLayoutsForDeck(state: CollectionState, deck: Deck): La
   return matching;
 }
 
+/** A card's active (not undone) reviews, in replay order `(reviewed_at, hlc, review_id)`. */
+export function getActiveReviews(state: CollectionState, cardId: string): ReviewRecord[] {
+  const all = state.reviewsByCard.get(cardId);
+  if (!all || all.length === 0) return [];
+  return all.filter((r) => !state.undoneReviewIds.has(r.review_id)).sort(compareReviewRecords);
+}
+
 /**
  * Replays a single card's schedule deterministically from its active reviews.
  * Runs in < 1 ms for incremental UI updates on rate / undo.
@@ -421,10 +412,7 @@ export function replaySingleCard(state: CollectionState, cardId: string): Card |
   const card = state.cards.get(cardId);
   if (!card) return undefined;
 
-  const allReviews = state.reviewsByCard.get(cardId) ?? [];
-  const active = allReviews
-    .filter((r) => !state.undoneReviewIds.has(r.review_id))
-    .sort(compareReviewRecords);
+  const active = getActiveReviews(state, cardId);
 
   let schedule = createInitialSchedule(0);
   let lastReviewedAt: number | undefined;
@@ -677,6 +665,30 @@ export function rebuildCardsForNote(
   }
 }
 
+/**
+ * Every `DeckSettings` field, in the order replay applies them (each its own LWW register). A
+ * `Record` so a new field fails to compile until it is listed here.
+ */
+const DECK_SETTING_FIELDS: Record<keyof DeckSettings, true> = {
+  new_cards_per_day: true,
+  max_reviews_per_day: true,
+  target_retention: true,
+  new_card_order: true,
+  enabled_layout_ids: true,
+  day_start_hour: true,
+};
+const DECK_SETTING_KEYS = Object.keys(DECK_SETTING_FIELDS) as (keyof DeckSettings)[];
+
+/** Copies one present setting (a fresh array for `enabled_layout_ids`). */
+function copyDeckSetting<K extends keyof DeckSettings>(
+  target: Partial<DeckSettings>,
+  source: Partial<DeckSettings>,
+  key: K,
+): void {
+  const value = source[key];
+  target[key] = (Array.isArray(value) ? [...value] : value) as DeckSettings[K];
+}
+
 function applyDeckSettingsPatchTarget(
   state: CollectionState,
   deckId: string,
@@ -686,45 +698,15 @@ function applyDeckSettingsPatchTarget(
   collector?: ApplyMutationCollector,
 ): boolean {
   let layoutsChanged = false;
-
-  if (
-    settings.new_cards_per_day !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:new_cards_per_day`, hlc, collector)
-  ) {
-    target.new_cards_per_day = settings.new_cards_per_day;
+  for (const key of DECK_SETTING_KEYS) {
+    if (
+      settings[key] !== undefined &&
+      shouldApplyLww(state, `deck:${deckId}:settings:${key}`, hlc, collector)
+    ) {
+      copyDeckSetting(target, settings, key);
+      if (key === 'enabled_layout_ids') layoutsChanged = true;
+    }
   }
-  if (
-    settings.max_reviews_per_day !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:max_reviews_per_day`, hlc, collector)
-  ) {
-    target.max_reviews_per_day = settings.max_reviews_per_day;
-  }
-  if (
-    settings.target_retention !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:target_retention`, hlc, collector)
-  ) {
-    target.target_retention = settings.target_retention;
-  }
-  if (
-    settings.new_card_order !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:new_card_order`, hlc, collector)
-  ) {
-    target.new_card_order = settings.new_card_order;
-  }
-  if (
-    settings.enabled_layout_ids !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:enabled_layout_ids`, hlc, collector)
-  ) {
-    target.enabled_layout_ids = [...settings.enabled_layout_ids];
-    layoutsChanged = true;
-  }
-  if (
-    settings.day_start_hour !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:day_start_hour`, hlc, collector)
-  ) {
-    target.day_start_hour = settings.day_start_hour;
-  }
-
   return layoutsChanged;
 }
 
@@ -811,23 +793,8 @@ function applyLayoutChanged(
 function buildMergedDeckSettings(pendingSettings: Partial<DeckSettings> | undefined): DeckSettings {
   const mergedSettings: DeckSettings = { ...DEFAULT_DECK_SETTINGS };
   if (pendingSettings) {
-    if (pendingSettings.new_cards_per_day !== undefined) {
-      mergedSettings.new_cards_per_day = pendingSettings.new_cards_per_day;
-    }
-    if (pendingSettings.max_reviews_per_day !== undefined) {
-      mergedSettings.max_reviews_per_day = pendingSettings.max_reviews_per_day;
-    }
-    if (pendingSettings.target_retention !== undefined) {
-      mergedSettings.target_retention = pendingSettings.target_retention;
-    }
-    if (pendingSettings.new_card_order !== undefined) {
-      mergedSettings.new_card_order = pendingSettings.new_card_order;
-    }
-    if (pendingSettings.enabled_layout_ids !== undefined) {
-      mergedSettings.enabled_layout_ids = [...pendingSettings.enabled_layout_ids];
-    }
-    if (pendingSettings.day_start_hour !== undefined) {
-      mergedSettings.day_start_hour = pendingSettings.day_start_hour;
+    for (const key of DECK_SETTING_KEYS) {
+      if (pendingSettings[key] !== undefined) copyDeckSetting(mergedSettings, pendingSettings, key);
     }
   }
   return mergedSettings;
@@ -1510,11 +1477,6 @@ function applyDrawingModePreferences(ctx: ApplyEventContext, pref: PreferencesPa
   return changed;
 }
 
-function compareRawKeys(a: string, b: string): number {
-  if (a === b) return 0;
-  return a < b ? -1 : 1;
-}
-
 /** Per-language Settings > Languages choices; returns true when any entry was applied. */
 function applyLanguageChoicePreferences(ctx: ApplyEventContext, pref: PreferencesPatch): boolean {
   const { state, hlc, collector } = ctx;
@@ -1523,7 +1485,7 @@ function applyLanguageChoicePreferences(ctx: ApplyEventContext, pref: Preference
   // Keys are normalized (`ja-JP` -> `ja`) before the LWW check, so aliases share one register.
   // Aliases inside one event resolve deterministically: the code-unit-last raw key wins.
   const byCode = new Map<string, boolean>();
-  const entries = Object.entries(pref.languages).sort(([a], [b]) => compareRawKeys(a, b));
+  const entries = Object.entries(pref.languages).sort(([a], [b]) => compareCodeUnits(a, b));
   for (const [rawKey, on] of entries) {
     const code = normalizeLanguage(rawKey);
     if (code && typeof on === 'boolean') byCode.set(code, on);

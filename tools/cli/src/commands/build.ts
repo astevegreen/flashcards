@@ -8,7 +8,6 @@ import {
   createEventFactory,
   createHlcState,
   deriveNoteId,
-  encodeUtf8,
   FLASH_NAMESPACE_UUID,
   uuidv5,
   type KnownEvent,
@@ -422,8 +421,4 @@ export function buildFamilyCatalogJson(params: {
 
 function decodeTextPretty(value: unknown): string {
   return JSON.stringify(value, null, 2) + '\n';
-}
-
-export function encodeTextUtf8(value: string): Uint8Array {
-  return encodeUtf8(value);
 }

@@ -1,4 +1,4 @@
-import type { DataLicenseAttribution, PackId } from './types.ts';
+import type { DataLicenseAttribution } from './types.ts';
 
 /**
  * Upstream license & attribution metadata for all downloadable data packs & drawing engine
@@ -139,7 +139,3 @@ export const OPEN_DATA_ATTRIBUTIONS: readonly DataLicenseAttribution[] = [
       'Licensed under the MIT License. Lazy-loaded on demand only when studying Draw answer-mode cards.',
   },
 ];
-
-export function getAttributionForPack(packId: PackId): DataLicenseAttribution | undefined {
-  return OPEN_DATA_ATTRIBUTIONS.find((a) => a.packId === packId);
-}

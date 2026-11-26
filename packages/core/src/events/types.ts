@@ -382,21 +382,6 @@ export type UnknownEvent = EventEnvelope<string, unknown>;
 
 export type FlashEvent = KnownEvent | UnknownEvent;
 
-/** Event types replay keeps verbatim in `unknownEvents` (see {@link StudySetSavedPayload}). */
-export type LogRetainedEventType =
-  | 'StudySetSaved'
-  | 'StudySetDeleted'
-  | 'PracticeRecorded'
-  | 'PracticeUndone'
-  | 'NewCardLimitRaised'
-  | 'DeckPresetSaved'
-  | 'DeckPresetDeleted'
-  | 'DeckFolderSaved'
-  | 'DeckFolderDeleted'
-  | 'DeckGroupingChanged'
-  | 'DeckDescriptionChanged'
-  | 'StarterDeckUpgraded';
-
 /**
  * Event types `applyKnownEvent` handles. Log-retained types are intentionally absent: they fall
  * through to `unknownEvents`, which every build serializes into snapshots untouched.

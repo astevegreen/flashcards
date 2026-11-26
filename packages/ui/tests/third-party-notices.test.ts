@@ -1,10 +1,22 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { THIRD_PARTY_NOTICES, formatThirdPartyNotice } from '../src/packs/third-party-notices.ts';
+import { THIRD_PARTY_NOTICES, type ThirdPartyNotice } from '../src/packs/third-party-notices.ts';
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const read = (rel: string) => readFileSync(`${repoRoot}${rel}`, 'utf8').replaceAll('\r\n', '\n');
+
+/** Plain-text rendering, as it appears in THIRD-PARTY-NOTICES.txt. */
+function formatThirdPartyNotice(notice: ThirdPartyNotice): string {
+  return [
+    `${notice.name} ${notice.version}: ${notice.licenseName}`,
+    `Source: ${notice.sourceUrl}`,
+    '',
+    notice.copyright,
+    '',
+    notice.paragraphs.join('\n\n'),
+  ].join('\n');
+}
 
 describe('third-party notices', () => {
   it('ships every notice verbatim in apps/web/public/THIRD-PARTY-NOTICES.txt', () => {

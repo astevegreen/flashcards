@@ -1,3 +1,4 @@
+import { asciiSlug } from '../../slug.ts';
 import type { CollectionState } from '../../events/replay.ts';
 import { encodeUtf8 } from '../../ids.ts';
 import { escapeCsvCell, selectDeckNotes } from './select.ts';
@@ -58,12 +59,7 @@ export interface AnkiCsvExportZip {
 
 /** File-name slug for a deck name (ASCII; `deck` when nothing is left). */
 export function ankiExportSlug(name: string, fallback = 'deck'): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || fallback
-  );
+  return asciiSlug(name, fallback);
 }
 
 /** A `#columns` name: the separator and line breaks would end it early, so they become spaces. */

@@ -10,7 +10,6 @@ import {
   getDeckPreset,
   listDeckFolders,
   listDeckPresets,
-  listFolderDecks,
   listPresetDeckIds,
   buildPresetCatchUp,
   nextPresetParamsVersion,
@@ -161,13 +160,7 @@ describe('deck organization fold', () => {
       ['Renamed', 50],
     ]);
     expect(getDeckPreset(state, KO)).toBeUndefined();
-    expect(listFolderDecks(state, 'f1').map((d) => d.id)).toEqual(
-      [KO, JA].sort((x, y) => {
-        const nx = state.decks.get(x)?.name ?? '';
-        const ny = state.decks.get(y)?.name ?? '';
-        return nx < ny ? -1 : nx > ny ? 1 : 0;
-      }),
-    );
+    expect([KO, JA].map((id) => getDeckFolder(state, id)?.id)).toEqual(['f1', 'f1']);
   });
 
   it('drops deleted presets and folders for good: a later save does not bring them back', () => {

@@ -9,9 +9,14 @@ import type {
   Page,
   ReviewRecord,
 } from '../model/types.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 import { getDeckDescription } from '../decks/description.ts';
-import { getDeckOrganization, getDeckOrganizationHistory, type DeckPreset } from '../decks/fold.ts';
+import {
+  getDeckOrganization,
+  getDeckOrganizationHistory,
+  PRESET_SETTING_KEYS,
+  type DeckPreset,
+} from '../decks/fold.ts';
 import { FLASH_NAMESPACE_UUID, uuidv5 } from '../ids.ts';
 
 /**
@@ -521,7 +526,7 @@ function planPreset(ctx: PlanContext, preset: DeckPreset, deleted: ReadonlySet<s
   const payload: EventPayloadMap['DeckPresetSaved'] = { preset_id: id };
   if (base?.name !== preset.name) payload.name = preset.name;
   const settings: Partial<DeckPreset['settings']> = {};
-  for (const key of ['new_cards_per_day', 'max_reviews_per_day', 'target_retention'] as const) {
+  for (const key of PRESET_SETTING_KEYS) {
     if (base?.settings[key] !== preset.settings[key]) settings[key] = preset.settings[key];
   }
   if (Object.keys(settings).length > 0) payload.settings = settings;

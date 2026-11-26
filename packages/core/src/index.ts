@@ -1,19 +1,56 @@
 export * from './ids.ts';
+export * from './paths.ts';
 export * from './utf8-decode.ts';
-export * from './hlc.ts';
+// Explicit lists where a module has `@internal` helpers (HLC_MAX_COUNTER, planNoteCards,
+// tagAddIndex, …) that only sibling modules may import.
+export { compareHlc, createHlcState, formatHlc, tickHlc, type HlcState } from './hlc.ts';
 export * from './hlc-merge.ts';
 export * from './model/types.ts';
 export * from './model/presets.ts';
 export * from './model/optional-cards.ts';
 export * from './model/note-fields.ts';
 export * from './events/types.ts';
-export * from './events/replay.ts';
+export {
+  applyEvents,
+  applyEventsWithCollector,
+  applyEventsWithDiff,
+  buildRetentionParamsPayload,
+  compareReviewRecords,
+  createEmptyState,
+  createEventFactory,
+  createMutationCollector,
+  getActiveFsrsParamsVersion,
+  getActiveReviews,
+  getEnabledLayoutsForDeck,
+  getTotalAppliedEventCount,
+  getVariantsForNoteLayout,
+  isCardSuspended,
+  replayAllEvents,
+  replaySingleCard,
+  resolveDeckFsrsConfig,
+  type ApplyEventsResult,
+  type ApplyMutationCollector,
+  type CollectionState,
+  type EventFactory,
+  type PendingDeckPatch,
+  type PendingPagePatch,
+} from './events/replay.ts';
 export * from './events/snapshot.ts';
 export * from './events/patch.ts';
 export * from './events/media-refs.ts';
 export * from './fsrs/scheduler.ts';
 export * from './events/suspension.ts';
-export * from './events/tag-adds.ts';
+export {
+  applyTagAddRegisters,
+  canonicalizeNoteTags,
+  hasTagAddRegister,
+  normalizeAddedTag,
+  NOTE_TAGS_ADDED,
+  noteHasTagAdds,
+  readTagAddPayload,
+  recordTagAddKeys,
+  tagAddRegisterKey,
+} from './events/tag-adds.ts';
 export * from './study/filter.ts';
 export * from './study/filter-lists.ts';
 export * from './tags/index.ts';

@@ -56,6 +56,7 @@ import {
   parseAddDeviceDeepLink,
   type AddDeviceLink,
 } from '../sync/addDeviceLink.ts';
+import { cardToRow } from './cardRow.ts';
 import { refreshThenRecheckStore } from './entitlementAtLaunch.ts';
 import { priorOfMediaEdits } from './mediaEditPrior.ts';
 import { createMediaReAddQueue, type MediaReAddQueue } from './mediaReAddQueue.ts';
@@ -194,17 +195,6 @@ const DEFAULT_PERSONAL_ENTITLEMENT: EntitlementState = {
   personalBuild: true,
   productId: 'unlock_full',
 };
-
-function cardToRow(card: Card): MaterializedCardRow {
-  return {
-    id: card.id,
-    deck_id: card.deck_id,
-    note_id: card.note_id,
-    layout_id: card.layout_id,
-    due: card.schedule.due,
-    schedule: card.schedule,
-  };
-}
 
 type SnapshotModule = typeof SnapshotApi;
 type SerializedSnapshot = ReturnType<SnapshotModule['serializeCollectionState']>;

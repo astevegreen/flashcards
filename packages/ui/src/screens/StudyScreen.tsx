@@ -495,18 +495,12 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     [currentLayout?.answer_mode],
   );
 
-  const studyDayIndex = useMemo(() => {
-    const dayStart = resolveDayStartHour(
-      currentDeck?.settings.day_start_hour,
-      state.preferences.day_start_hour,
-    );
-    return getStudyDayIndex(nowMs, tzOffsetMinutes, dayStart);
-  }, [
-    currentDeck?.settings.day_start_hour,
+  // `nowMs` changes every render, so a memo here would never hit.
+  const studyDayIndex = getStudyDayIndex(
     nowMs,
-    state.preferences.day_start_hour,
     tzOffsetMinutes,
-  ]);
+    resolveDayStartHour(currentDeck?.settings.day_start_hour, state.preferences.day_start_hour),
+  );
 
   const fieldMetaByKey = useMemo(() => {
     const map = new Map<string, FieldMeta>();

@@ -21,6 +21,7 @@ import type {
   TtsProviderConfig,
 } from '@flash/platform';
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { isNavigatorOnline } from './syncShell.ts';
 
 export const TTS_CONFIG_KV_KEY = 'tts_config_v1';
 export const MISSING_VOICE_PROMPTED_KV_PREFIX = 'missing_voice_prompted:';
@@ -85,12 +86,6 @@ export interface UseAudioControllerOptions {
     tts_key?: string;
     tts_lang_key?: string;
   }) => Promise<void>;
-}
-
-function isNavigatorOnline(): boolean {
-  return typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean'
-    ? true
-    : navigator.onLine;
 }
 
 function isCloudTtsConfigured(cfg: TtsProviderConfig): boolean {

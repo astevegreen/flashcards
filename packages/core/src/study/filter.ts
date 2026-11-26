@@ -4,7 +4,7 @@ import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.t
 import { hasTagAddRegister } from '../events/tag-adds.ts';
 import type { NoteTagsAddedPayload, NoteUpsertedPayload } from '../events/types.ts';
 import type { Card, Note } from '../model/types.ts';
-import { compareCodeUnits } from './queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 
 /**
  * Phase 9 shared filter model (blueprint §15 Phase 9): one plain, JSON-safe description of a
@@ -83,10 +83,6 @@ export interface CardFilterContext {
 
 const MS_PER_DAY = 86_400_000;
 
-function cmpStr(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
 function round4(value: number): number {
   return Number(value.toFixed(4));
 }
@@ -105,7 +101,7 @@ function normalizeDeckIds(raw: unknown): string[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const ids = [
     ...new Set(raw.filter((v): v is string => typeof v === 'string' && v.length > 0)),
-  ].sort(cmpStr);
+  ].sort(compareCodeUnits);
   return ids.length > 0 ? ids : undefined;
 }
 
@@ -118,7 +114,7 @@ function normalizeTagList(raw: unknown): string[] {
         .map(normalizeTag)
         .filter((v) => v.length > 0),
     ),
-  ].sort(cmpStr);
+  ].sort(compareCodeUnits);
 }
 
 function isCategoryMatchMode(value: unknown): value is CategoryMatchMode {
@@ -384,7 +380,7 @@ export function compareHardestCards(a: Card, b: Card): number {
     b.schedule.lapses - a.schedule.lapses ||
     round4(a.schedule.stability) - round4(b.schedule.stability) ||
     round4(b.schedule.difficulty) - round4(a.schedule.difficulty) ||
-    cmpStr(a.id, b.id)
+    compareCodeUnits(a.id, b.id)
   );
 }
 
@@ -577,7 +573,7 @@ export function filterCards(
     matched.sort(compareHardestCards);
     return matched.slice(0, hardest);
   }
-  matched.sort((a, b) => cmpStr(a.id, b.id));
+  matched.sort((a, b) => compareCodeUnits(a.id, b.id));
   return matched;
 }
 

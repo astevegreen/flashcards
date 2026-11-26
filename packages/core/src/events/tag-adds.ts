@@ -1,7 +1,8 @@
 import { compareHlc } from '../hlc.ts';
 import type { Note } from '../model/types.ts';
-import { compareCodeUnits } from '../study/queue.ts';
+import { compareCodeUnits } from '../compare.ts';
 import type { CollectionState } from './replay.ts';
+import { addToMapSet } from '../map-set.ts';
 
 /**
  * `NoteTagsAdded` (set-union tag adds, used for automatic `leech` tagging and its backfill).
@@ -80,12 +81,6 @@ export function readTagAddPayload(
  */
 const tagAddIndexes = new WeakMap<CollectionState, Map<string, Set<string>>>();
 
-function addToIndex(index: Map<string, Set<string>>, noteId: string, tag: string): void {
-  const set = index.get(noteId);
-  if (set) set.add(tag);
-  else index.set(noteId, new Set([tag]));
-}
-
 /** @internal snapshot-upgrade only (`snapshot-upgrade.ts`); otherwise called only inside this module. */
 export function tagAddIndex(state: CollectionState): Map<string, Set<string>> {
   let index = tagAddIndexes.get(state);
@@ -93,7 +88,7 @@ export function tagAddIndex(state: CollectionState): Map<string, Set<string>> {
     index = new Map();
     for (const key of state.fieldHlcs.keys()) {
       const parsed = parseTagAddKey(key);
-      if (parsed) addToIndex(index, parsed.noteId, parsed.tag);
+      if (parsed) addToMapSet(index, parsed.noteId, parsed.tag);
     }
     tagAddIndexes.set(state, index);
   }
@@ -106,7 +101,7 @@ export function recordTagAddKeys(state: CollectionState, keys: Iterable<string>)
   if (!index) return; // Built lazily from `fieldHlcs` on first use.
   for (const key of keys) {
     const parsed = parseTagAddKey(key);
-    if (parsed) addToIndex(index, parsed.noteId, parsed.tag);
+    if (parsed) addToMapSet(index, parsed.noteId, parsed.tag);
   }
 }
 
@@ -133,7 +128,7 @@ export function applyTagAddRegisters(
     const prev = state.fieldHlcs.get(key);
     if (prev !== undefined && compareHlc(hlc, prev) <= 0) continue;
     state.fieldHlcs.set(key, hlc);
-    addToIndex(index, parsed.noteId, tag);
+    addToMapSet(index, parsed.noteId, tag);
     keys.push(key);
   }
   return { noteId: parsed.noteId, keys };
