@@ -40,3 +40,19 @@ describe('OneDrive picked-file import', () => {
     expect(emitted).toEqual([]);
   });
 });
+
+describe('cloud one-shot .xlsx import on a device without an Excel reader (C21)', () => {
+  it('says so before parsing, like a linked Dropbox or OneDrive file does', async () => {
+    const { ctx, createDeck } = context();
+    const parseXlsxBytes = vi.fn(async () => [['Word'], ['나무']]);
+    ctx.platform = {
+      getLocalFolderSources: async () => ({ canParseXlsx: () => false, parseXlsxBytes }),
+    } as unknown as PlatformServices;
+    const picked = { name: 'deck.xlsx', bytes: new Uint8Array([1]), mime: 'application/zip' };
+    await expect(importPickedOneDriveFile(picked as never, ctx)).rejects.toThrow(
+      /Excel files can't be read on this device/,
+    );
+    expect(parseXlsxBytes).not.toHaveBeenCalled();
+    expect(createDeck).not.toHaveBeenCalled();
+  });
+});

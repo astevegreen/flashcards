@@ -60,6 +60,12 @@ async function importSpreadsheet(
   let text: string;
   if (ext === '.xlsx') {
     const adapter = await ctx.platform.getLocalFolderSources();
+    // The phone shells have no Excel reader yet; linked files check this too (C21).
+    if (adapter.canParseXlsx && !adapter.canParseXlsx()) {
+      throw new Error(
+        `Excel files can't be read on this device. Save "${picked.name}" as CSV in Excel and import that instead.`,
+      );
+    }
     text = gridToCsv(await adapter.parseXlsxBytes(picked.bytes));
   } else {
     text = decodeUtf8(picked.bytes);
