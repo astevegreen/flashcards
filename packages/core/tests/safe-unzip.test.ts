@@ -49,6 +49,25 @@ describe('safeUnzip duplicate and mismatched entries (C18, §13)', () => {
     expect([...safeUnzip(hangul, LIMITS, ERRORS).keys()]).toEqual(['학교/사진.png', 'café.txt']);
   });
 
+  it('accepts a central directory that lists the same entries in another order', () => {
+    // In-place updating tools rewrite the central directory in their own order; the zip format
+    // doesn't tie it to the local-header order.
+    const bytes = twoEntries();
+    const eocd = bytes.length - 22;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const start = view.getUint32(eocd + 16, true);
+    const size = view.getUint32(eocd + 12, true);
+    const first = 46 + view.getUint16(start + 28, true) + view.getUint16(start + 30, true);
+    const records = bytes.slice(start, start + size);
+    bytes.set(records.subarray(first), start);
+    bytes.set(records.subarray(0, first), start + size - first);
+    expect(listZipEntryNames(bytes)).toEqual(['entry-two.txt', 'entry-one.txt']);
+    expect([...safeUnzip(bytes, LIMITS, ERRORS).keys()]).toEqual([
+      'entry-one.txt',
+      'entry-two.txt',
+    ]);
+  });
+
   it('rejects two entries with the same name instead of keeping the last one', () => {
     const bytes = twoEntries();
     // Rename entry-two.txt to entry-one.txt in its local header and in the central directory.
@@ -65,6 +84,9 @@ describe('safeUnzip duplicate and mismatched entries (C18, §13)', () => {
     // Detection would see a name the importer never extracts.
     rename(bytes, central, 'entry-xyz.txt');
     expect(listZipEntryNames(bytes)).toEqual(['entry-one.txt', 'entry-xyz.txt']);
+    expect(() => safeUnzip(bytes, LIMITS, ERRORS)).toThrow(SecurityError);
+    // Same count, but one name twice: still not the same entries.
+    rename(bytes, central, 'entry-one.txt');
     expect(() => safeUnzip(bytes, LIMITS, ERRORS)).toThrow(SecurityError);
   });
 });

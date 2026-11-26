@@ -178,15 +178,19 @@ function pushAll(unzipper: Unzip, run: UnzipRun, archiveBytes: Uint8Array, label
 
 /**
  * Format detection lists names from the central directory while extraction streams the local
- * headers. Refuses an archive where the two disagree, so what was detected is what gets imported
- * (C18). An archive without a readable central directory has nothing to disagree with.
+ * headers. Refuses an archive where the two name different entries, so what was detected is what
+ * gets imported (C18). An archive without a readable central directory has nothing to disagree with.
  */
 function checkCentralDirectory(run: UnzipRun, archiveBytes: Uint8Array): void {
   const central = centralDirectoryNameRecords(archiveBytes, run.limits.maxFiles + 1);
   if (!central) return;
+  // The same names, in any order (the format doesn't tie the two orders together). Local names
+  // are already unique, so a matching count of distinct central names makes the multisets equal.
+  const names = new Set(central.map((record) => strFromU8(record.bytes, !record.utf8)));
   const matches =
     central.length === run.names.length &&
-    central.every((record, i) => strFromU8(record.bytes, !record.utf8) === run.names[i]);
+    names.size === central.length &&
+    [...names].every((name) => run.seenNames.has(name));
   if (!matches) {
     throw run.errors.security(`Archive's central directory doesn't match its entries.`);
   }
