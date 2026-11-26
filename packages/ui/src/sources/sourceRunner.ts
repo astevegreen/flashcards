@@ -1679,8 +1679,10 @@ export async function refreshAllSources(
         }
       } else {
         // Each Sheet, Doc and Drive file row says it was not refreshed and why.
-        skipped.push(...markGoogleSourcesDisconnected(registry.googleSources, ctx));
-        skipped.push(...markGoogleDriveFilesDisconnected(driveFiles, ctx));
+        skipped.push(
+          ...markGoogleSourcesDisconnected(registry.googleSources, ctx),
+          ...markGoogleDriveFilesDisconnected(driveFiles, ctx),
+        );
       }
     }
 
