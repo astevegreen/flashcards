@@ -41,6 +41,7 @@ import {
 } from './types.ts';
 import { isApplicableEvent } from './validate.ts';
 import { compareCodeUnits } from '../compare.ts';
+import { addToMapSet, removeFromMapSet } from '../map-set.ts';
 
 export interface PendingDeckPatch {
   name?: string;
@@ -202,24 +203,6 @@ export function createEmptyState(): CollectionState {
     snapshotWatermarks: new Map(),
     snapshotEventCount: 0,
   };
-}
-
-function addToMapSet(map: Map<string, Set<string>>, key: string, value: string): void {
-  let set = map.get(key);
-  if (!set) {
-    set = new Set();
-    map.set(key, set);
-  }
-  set.add(value);
-}
-
-function removeFromMapSet(map: Map<string, Set<string>>, key: string, value: string): void {
-  const set = map.get(key);
-  if (!set) return;
-  set.delete(value);
-  if (set.size === 0) {
-    map.delete(key);
-  }
 }
 
 function setCardInState(state: CollectionState, card: Card): void {

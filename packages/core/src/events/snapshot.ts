@@ -29,6 +29,7 @@ import { compareHlc } from '../hlc.ts';
 import { SERIALIZED_STATE_FORMAT_VERSION } from './snapshot-format.ts';
 import type { UnknownEvent } from './types.ts';
 import { compareCodeUnits } from '../compare.ts';
+import { addToMapSet } from '../map-set.ts';
 
 export { SERIALIZED_STATE_FORMAT_VERSION, snapshotLacksMediaRecords } from './snapshot-format.ts';
 
@@ -99,15 +100,6 @@ export interface SerializedCollectionState {
 
 function cloneJsonValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function addToMapSet(map: Map<string, Set<string>>, key: string, value: string): void {
-  let set = map.get(key);
-  if (!set) {
-    set = new Set();
-    map.set(key, set);
-  }
-  set.add(value);
 }
 
 /**

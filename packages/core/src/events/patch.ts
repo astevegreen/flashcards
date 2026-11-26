@@ -20,6 +20,7 @@ import {
 } from './replay.ts';
 import { recordTagAddKeys } from './tag-adds.ts';
 import type { FlashEvent, UnknownEvent } from './types.ts';
+import { addToMapSet, removeFromMapSet } from '../map-set.ts';
 
 /**
  * Compact, structured-cloneable incremental state patch produced by a Web Worker
@@ -56,24 +57,6 @@ export interface CollectionStatePatch {
 export interface MergePatchResult {
   changedCardIds: string[];
   removedCardIds: string[];
-}
-
-function addToMapSet(map: Map<string, Set<string>>, key: string, value: string): void {
-  let set = map.get(key);
-  if (!set) {
-    set = new Set();
-    map.set(key, set);
-  }
-  set.add(value);
-}
-
-function removeFromMapSet(map: Map<string, Set<string>>, key: string, value: string): void {
-  const set = map.get(key);
-  if (!set) return;
-  set.delete(value);
-  if (set.size === 0) {
-    map.delete(key);
-  }
 }
 
 /**
