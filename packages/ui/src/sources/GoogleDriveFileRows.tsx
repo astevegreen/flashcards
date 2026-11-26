@@ -1,10 +1,26 @@
 import type { LinkedGoogleDriveFileSource, SourceSyncStatus } from '@flash/platform';
 import type { ReactNode } from 'react';
 
-function isSafeDriveUrl(uri?: string): boolean {
-  return Boolean(
-    uri &&
-    (uri.startsWith('https://drive.google.com/') || uri.startsWith('https://docs.google.com/')),
+const DRIVE_LINK_HOSTS = new Set(['drive.google.com', 'docs.google.com']);
+
+/**
+ * True for an `https://drive.google.com/…` or `https://docs.google.com/…` link. Parsed with
+ * `URL` rather than prefix checks (§11), so userinfo, ports and look-alike hosts are refused.
+ */
+export function isSafeDriveUrl(uri?: string): boolean {
+  if (!uri) return false;
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    return false;
+  }
+  return (
+    url.protocol === 'https:' &&
+    DRIVE_LINK_HOSTS.has(url.hostname) &&
+    url.port === '' &&
+    url.username === '' &&
+    url.password === ''
   );
 }
 

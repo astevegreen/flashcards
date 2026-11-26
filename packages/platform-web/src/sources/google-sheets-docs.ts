@@ -8,14 +8,20 @@ import type {
   GoogleSourcesClient,
   PickedFile,
 } from '@flash/platform';
+import { readTextCapped } from '../net/read-capped.ts';
 import { downloadDriveFileBytes, fetchDriveFileInfo } from './google-drive-files.ts';
-import { isGoogleRateLimited } from '../sync/google-errors.ts';
+import { INTERACTIVE_MAX_RETRY_AFTER_MS } from '../sync/authorized-http.ts';
+import { createGoogleFetch, type GoogleFetch } from '../sync/google-http.ts';
 
 const DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
-const MAX_RETRY_ATTEMPTS = 3;
-const BASE_RETRY_DELAY_MS = 250;
 const MAX_DOC_MARKDOWN_BYTES = 10 * 1024 * 1024; // 10 MB
+/** File and spreadsheet metadata (titles, tab names): small even for a sheet with many tabs. */
+const MAX_META_JSON_BYTES = 1024 * 1024;
+/** `values.get` of A1:ZZ; the same cap as a linked .csv/.xlsx file, so big decks still load. */
+const MAX_VALUES_JSON_BYTES = 50 * 1024 * 1024;
+/** The best-effort embedded-image scan reads one column. */
+const MAX_IMAGE_GRID_JSON_BYTES = 10 * 1024 * 1024;
 
 export const GOOGLE_SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
 export const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
@@ -24,12 +30,19 @@ export interface GoogleSourcesClientOptions {
   auth: Auth;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
 }
 
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
+/** Parses a JSON reply, refusing one over `maxBytes` before it is all in memory (P8). */
+async function readJsonCapped(res: Response, maxBytes: number, what: string): Promise<unknown> {
+  const text = await readTextCapped(res, maxBytes, {
+    tooLarge: () =>
+      new SyncTransportError(
+        'UNKNOWN',
+        `Google ${what} reply exceeds ${maxBytes} byte safety limit.`,
+      ),
   });
+  return JSON.parse(text) as unknown;
 }
 
 function quoteSheetTab(sheetTitle: string): string {
@@ -75,83 +88,21 @@ interface EmbeddedImageGridResponse {
  * single `values:batchUpdate` Card ID write-back, and Docs `text/markdown` export.
  */
 export class WebGoogleSourcesClient implements GoogleSourcesClient {
-  private readonly auth: Auth;
-  private readonly fetchImpl: typeof fetch;
-  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly authorizedFetch: GoogleFetch;
 
   constructor(options: GoogleSourcesClientOptions) {
-    this.auth = options.auth;
-    this.fetchImpl = options.fetchImpl ?? ((...args) => fetch(...args));
-    this.sleep = options.sleep ?? defaultSleep;
-  }
-
-  private async authorizedFetch(url: string, init: RequestInit = {}): Promise<Response> {
-    let token = await this.auth.getValidAccessToken();
-    let refreshedOnce = false;
-    let attempts = 0;
-
-    while (attempts < MAX_RETRY_ATTEMPTS) {
-      const headers = new Headers(init.headers);
-      headers.set('Authorization', `Bearer ${token}`);
-
-      let res: Response;
-      try {
-        res = await this.fetchImpl(url, { ...init, headers });
-      } catch (err) {
-        throw new SyncTransportError(
-          'NETWORK',
-          `Google API network error: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-
-      if (res.status === 401) {
-        if (!refreshedOnce) {
-          refreshedOnce = true;
-          token = await this.auth.getValidAccessToken({ forceRefresh: true });
-          continue;
-        }
-        throw new SyncTransportError(
-          'AUTH_REQUIRED',
-          'Google session expired. Please reconnect Google in Settings or Library.',
-          401,
-        );
-      }
-
-      const rateLimited = await isGoogleRateLimited(res);
-      if (
-        (rateLimited || (res.status >= 500 && res.status <= 504)) &&
-        attempts + 1 < MAX_RETRY_ATTEMPTS
-      ) {
-        await this.sleep(BASE_RETRY_DELAY_MS * Math.pow(3, attempts));
-        attempts += 1;
-        continue;
-      }
-
-      if (rateLimited) {
-        throw new SyncTransportError('RATE_LIMITED', 'Google API rate limit exceeded.', res.status);
-      }
-      if (res.status === 404) {
-        throw new SyncTransportError('NOT_FOUND', 'Google Drive file was not found.', 404);
-      }
-      if (res.status === 403) {
-        throw new SyncTransportError(
-          'PERMISSION_DENIED',
+    this.authorizedFetch = createGoogleFetch({
+      ...options,
+      label: 'Google API',
+      // A user is waiting on Sheets/Docs reads, so a long Retry-After fails fast instead.
+      maxRetryAfterMs: INTERACTIVE_MAX_RETRY_AFTER_MS,
+      messages: {
+        authRequired: 'Google session expired. Please reconnect Google in Settings or Library.',
+        permissionDenied:
           'Permission denied accessing Google Sheet/Doc (it may be read-only or revoked).',
-          403,
-        );
-      }
-      if (res.status >= 500) {
-        throw new SyncTransportError(
-          'NETWORK',
-          `Google API server error (HTTP ${res.status}).`,
-          res.status,
-        );
-      }
-
-      return res;
-    }
-
-    throw new SyncTransportError('NETWORK', 'Google API request failed after retries.');
+        notFound: 'Google Drive file was not found.',
+      },
+    });
   }
 
   async getFileMetadata(fileId: string): Promise<GoogleDriveFileMeta> {
@@ -168,7 +119,7 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
         res.status,
       );
     }
-    const data = (await res.json()) as {
+    const data = (await readJsonCapped(res, MAX_META_JSON_BYTES, 'file metadata')) as {
       id?: string;
       name?: string;
       mimeType?: string;
@@ -199,7 +150,11 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
         sheetInfoRes.status,
       );
     }
-    const sheetInfo = (await sheetInfoRes.json()) as SpreadsheetMetaResponse;
+    const sheetInfo = (await readJsonCapped(
+      sheetInfoRes,
+      MAX_META_JSON_BYTES,
+      'spreadsheet metadata',
+    )) as SpreadsheetMetaResponse;
     const availableTabs = (sheetInfo.sheets ?? [])
       .map((s) => s.properties?.title)
       .filter((t): t is string => Boolean(t));
@@ -217,7 +172,11 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
         valuesRes.status,
       );
     }
-    const valuesData = (await valuesRes.json()) as SpreadsheetValuesResponse;
+    const valuesData = (await readJsonCapped(
+      valuesRes,
+      MAX_VALUES_JSON_BYTES,
+      'sheet values',
+    )) as SpreadsheetValuesResponse;
     const values: string[][] = (valuesData.values ?? []).map((row) => row.map(cellToString));
 
     // Optional lightweight check for unsupported embedded in-cell images when an Image/Picture column exists
@@ -261,7 +220,11 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
         `${SHEETS_API}/${encodeURIComponent(fileId)}?${params.toString()}`,
       );
       if (!res.ok) return [];
-      const data = (await res.json()) as EmbeddedImageGridResponse;
+      const data = (await readJsonCapped(
+        res,
+        MAX_IMAGE_GRID_JSON_BYTES,
+        'embedded image scan',
+      )) as EmbeddedImageGridResponse;
       const rows = data.sheets?.[0]?.data?.[0]?.rowData ?? [];
       const flagged: number[] = [];
       for (let i = 0; i < rows.length; i++) {
@@ -344,7 +307,7 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
       );
     }
 
-    const created = (await createRes.json()) as {
+    const created = (await readJsonCapped(createRes, MAX_META_JSON_BYTES, 'created sheet')) as {
       spreadsheetId?: string;
       spreadsheetUrl?: string;
       properties?: { title?: string };
@@ -416,14 +379,13 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
       );
     }
 
-    const buf = new Uint8Array(await exportRes.arrayBuffer());
-    if (buf.byteLength > MAX_DOC_MARKDOWN_BYTES) {
-      throw new SyncTransportError(
-        'UNKNOWN',
-        `Google Doc export exceeds ${MAX_DOC_MARKDOWN_BYTES} byte safety limit.`,
-      );
-    }
-    const markdown = new TextDecoder().decode(buf);
+    const markdown = await readTextCapped(exportRes, MAX_DOC_MARKDOWN_BYTES, {
+      tooLarge: () =>
+        new SyncTransportError(
+          'UNKNOWN',
+          `Google Doc export exceeds ${MAX_DOC_MARKDOWN_BYTES} byte safety limit.`,
+        ),
+    });
 
     return {
       fileId: meta.id,
@@ -435,11 +397,11 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
 
   /** Plain Drive file metadata, for linked `.csv` / `.tsv` / `.xlsx` / `.flashpkg` files. */
   async getDriveFileInfo(fileId: string): Promise<GoogleDriveFileInfo> {
-    return fetchDriveFileInfo((url, init) => this.authorizedFetch(url, init), fileId);
+    return fetchDriveFileInfo(this.authorizedFetch, fileId);
   }
 
   /** Downloads a plain Drive file (`alt=media`, 50 MB cap). */
   async downloadDriveFile(fileId: string): Promise<PickedFile> {
-    return downloadDriveFileBytes((url, init) => this.authorizedFetch(url, init), fileId);
+    return downloadDriveFileBytes(this.authorizedFetch, fileId);
   }
 }

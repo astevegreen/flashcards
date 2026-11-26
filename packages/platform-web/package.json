@@ -25,6 +25,10 @@
       "types": "./src/sync/local-folder-transport.ts",
       "default": "./src/sync/local-folder-transport.ts"
     },
+    "./pkce": {
+      "types": "./src/auth/pkce.ts",
+      "default": "./src/auth/pkce.ts"
+    },
     "./auth-google": {
       "types": "./src/auth/google-oauth-web.ts",
       "default": "./src/auth/google-oauth-web.ts"
