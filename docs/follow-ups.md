@@ -75,18 +75,18 @@ The owner answered every open decision on 2026-11-22. **To build** marks work th
 
 Only Chromium Playwright with faked endpoints has covered these.
 
-- [ ] **`@flash/capacitor-secure-storage` on devices.** Its Java and Swift code now compiles in CI (`.github/workflows/native.yml`: Gradle `assembleDebug` and an unsigned Simulator `xcodebuild`, PR #10). It has never run on a device. Still to check there: the Keychain/Keystore round trip, the Custom Tabs OneDrive redirect (including a WebView older than Chromium M130), migration of an existing plaintext token on upgrade, backup exclusions, and the CapacitorHttp refresh against real Entra.
+- [ ] **`@flash/capacitor-secure-storage` on devices.** Its Java and Swift code now compiles in CI (`.github/workflows/native.yml`: Gradle `assembleDebug` and an unsigned Simulator `xcodebuild`, PR #10). On a real Android 16 tablet (`SM_X400`, SDK 36, 2026-11-24), launch verified `FlashSecureStorage` initialization, legacy-pref cleanup (`GOOGLE_LOGIN_F13oz0I_SHARED_PERF.xml`, `CapgoOAuth2ProviderPrefs.xml`), and `app.flashcards.securestorage.xml` matching `backup_rules.xml` / `data_extraction_rules.xml`. Still to check on an unlocked device: interactive Keychain/Keystore set/get round trip, Custom Tabs OneDrive redirect (including WebView < M130), plaintext token migration on upgrade, and CapacitorHttp refresh against real Entra.
 - [ ] Capacitor `pickFile({ maxBytes })`: `@capawesome/capacitor-file-picker` with `readData: false`, then `Filesystem.readFile` on the returned path (an Android `content://` URI or an iOS temporary file). Never run on a device.
 - [ ] Recheck the capgo plugin's internal plaintext key names (`packages/platform-capacitor/src/secure/secure-store.ts` and the native allowlists) on every `@capgo/capacitor-social-login` upgrade. They are pinned for 8.7.x.
-- [ ] Add-device QR codes scanned with a real phone camera, and the `flashcards://add-device` deep link opened on Android, iOS and Tauri.
+- [ ] Add-device QR codes scanned with a real phone camera, and the `flashcards://add-device` deep link opened on Android and iOS. **Windows Tauri release verified (2026-11-24):** `flashcards://` registered in `HKCU\Software\Classes\flashcards`, and both cold-start and warm-start (`tauri-plugin-single-instance` forwarding) `flashcards://add-device` links routed to Settings and displayed the provider prompt. Android intent filters (`picker-callback`, `oauth`, `add-device`) confirmed via `dumpsys package` on Android 16; interactive open still pending unlocked device test.
 - [ ] Real iCloud Drive sync on macOS, and a signed Mac build (PR #22 is compiled in CI only).
-- [ ] Capacitor and Tauri shells running the language-aware menus (PR #23 was checked in the web build only).
+- [ ] Capacitor shell running the language-aware menus (still pending unlocked device test). **Windows Tauri release verified (2026-11-24):** toggling Japanese in `Settings > Languages` dynamically revealed/hid Japanese typed-mode (`Hiragana = Katakana`) and Japanese language options.
 - [ ] Second device fully synced within 2 minutes with one sign-in (the Phase 14 target). It has not been measured, because the e2e sign-in is faked.
 - [ ] Tauri loopback Microsoft sign-in end to end, including whether `tauri-plugin-http` sends an `Origin` header that Entra rejects (AADSTS9002327).
 - [ ] Capacitor Microsoft sign-in on Android and iOS. From reading the code, `SocialLogin.initialize` with only the oauth2 config re-creates only that provider and keeps the Google config, but this hasn't been seen on a device.
 - [ ] OneDrive download and upload-session URLs allowing CORS from the Capacitor and Tauri WebView origins.
 - [ ] Real Microsoft Graph and Entra behaviour, against a real app registration (`docs/setup-microsoft.md`).
-- [ ] Tauri attaching its CSP to Worker script responses, so the FSRS optimizer and the Anki SQLite WASM run under `'wasm-unsafe-eval'`.
+- [x] Tauri attaching its CSP to Worker script responses, so the FSRS optimizer and the Anki SQLite WASM run under `'wasm-unsafe-eval'`. **Verified on Windows Tauri release (`flashcards-desktop.exe`, 2026-11-24):** both `apkg-writer.worker` (`sql-wasm-browser.wasm`, wrote valid `SQLite format 3` DB) and `fsrs-optimizer.worker` (`fsrs_browser_bg.wasm`, trained 660 items → 21 FSRS-6 weights) executed under live Tauri CSP with 0 CSP/console errors; also fixed `fsrs.free()` in `finally` not to mask WASM panic errors.
 - [ ] iOS WKWebView module Workers loaded from the `capacitor://` scheme.
 - [ ] Real Anki 23.x/24.x `anki21b` exports. The fixture is synthetic, and its schema-18 DDL was written from memory.
 
@@ -466,11 +466,11 @@ Defaults picked while building the checks. Each stays shipped until the owner de
 
 ### Unverified overall
 
-- [ ] On-device QR scans and deep links.
+- [ ] On-device QR scans and Android/iOS deep links (Windows Tauri cold/warm `flashcards://add-device` verified 2026-11-24).
 - [ ] Real iCloud sync and signed Mac builds.
 - [ ] Real Graph/OneDrive.
 - [ ] Real Dropbox App Folder OAuth + Linked Sources on web, Capacitor (`flashcards://oauth/dropbox`), and Tauri (`http://127.0.0.1:53682`). Only faked endpoints have been tested (`docs/setup-dropbox.md`).
-- [ ] The Capacitor and Tauri shells were not run for #23.
+- [ ] The Capacitor shell was not run interactively for #23 (Windows Tauri release verified 2026-11-24).
 
 ## Cross-platform gaps found on device & code review (2026-11-23)
 
@@ -478,7 +478,7 @@ Observed while bringing up the Capacitor Android debug build on a Pixel 9 Pro an
 
 ### Native Device TTS (missed in initial build plan)
 
-- [x] **Android native `TextToSpeech` bridge (`deviceSpeech`).** Added `AndroidTtsPlugin.java` (registered in `MainActivity.java`) and `CapacitorDeviceSpeechPlayer` (`packages/platform-capacitor/src/audio/native-device-speech.ts`), wired on Android in `bootCapacitorPlatform`, plus `DeviceSpeechPlayer.onVoicesChanged` so `SettingsScreen.tsx` refreshes voices without touching `window.speechSynthesis`. Not yet run on a device.
+- [x] **Android native `TextToSpeech` bridge (`deviceSpeech`).** Added `AndroidTtsPlugin.java` (registered in `MainActivity.java`) and `CapacitorDeviceSpeechPlayer` (`packages/platform-capacitor/src/audio/native-device-speech.ts`), wired on Android in `bootCapacitorPlatform`, plus `DeviceSpeechPlayer.onVoicesChanged` so `SettingsScreen.tsx` refreshes voices without touching `window.speechSynthesis`. Launch init, `voicesChanged`, `isAvailable`, and `getVoices` verified on Android 16 (`SM_X400`, 2026-11-24); audible `speak()` check pending unlocked device test.
 - [x] **Misleading error when `deviceSpeech` is unavailable.** `useAudioController.ts` now forwards `speechRes.message` on `unavailable` / `error` so `runTestTtsVoice` shows the real reason.
 - [ ] **iOS `AVSpeechSynthesizer` vs. `WKWebView` `speechSynthesis`.** `WKWebView` exposes `window.speechSynthesis`, but behaviour under the iOS hardware silent switch, `voiceschanged` timing, and `localService` reporting has not been verified on a real iPhone; consider wrapping `AVSpeechSynthesizer` if `WKWebView` misreports local voices or respects the mute switch.
 - [ ] **Desktop (Tauri) `speechSynthesis` on Linux WebKitGTK.** `platform-tauri` inherits `WebDeviceSpeechPlayer` too; Linux WebKitGTK builds without `speech-dispatcher` (or missing OS voice packages) have no `window.speechSynthesis` voices.
@@ -487,7 +487,7 @@ Observed while bringing up the Capacitor Android debug build on a Pixel 9 Pro an
 
 - [x] **Android hardware/gesture Back button.** Added `PlatformServices.onBackButton` (`createBackButtonSource` in `packages/platform-capacitor/src/native/plugins.ts`) and wired `ScreenRouter` (`FlashcardsApp.tsx`) to close the topmost open `<dialog>` / modal, else return to the Study tab, else minimize the app. Not yet run on a device.
 - [ ] **Soft keyboard resize & Android 15/16 edge-to-edge (`targetSdkVersion = 36`).** Added `android:windowSoftInputMode="adjustResize"` in `AndroidManifest.xml`; still verify on device that typed-answer study, Browse search, and the note editor toolbar aren't covered by the soft keyboard, and verify `env(safe-area-inset-*)` padding in `AppShell.tsx` under gesture navigation and cutouts.
-- [ ] **Verify reminders survive a reboot (`@capacitor/local-notifications`).** `local-notification-reminders.ts` schedules inexact `allowWhileIdle` alarms when the app opens. The plugin ships `LocalNotificationRestoreReceiver` for `BOOT_COMPLETED`, so they should be restored after a restart; check it on a device.
+- [ ] **Verify reminders survive a reboot (`@capacitor/local-notifications`).** `local-notification-reminders.ts` schedules inexact `allowWhileIdle` alarms when the app opens. `dumpsys package` on Android 16 (`SM_X400`, 2026-11-24) confirmed `LocalNotificationRestoreReceiver` is registered for `BOOT_COMPLETED` / `LOCKED_BOOT_COMPLETED` with `RECEIVE_BOOT_COMPLETED` granted; still verify an actual scheduled reminder survives a device reboot.
 - [x] **Export temp files accumulate in `Directory.Cache`.** `saveAndShareFile` and `openSaveStream` now write into `Directory.Cache/flashcards-exports/` and `bootCapacitorPlatform` sweeps leftover files from previous sessions in the background at launch (`sweepExportCache`).
 
 ### All native shells (Capacitor + Tauri)

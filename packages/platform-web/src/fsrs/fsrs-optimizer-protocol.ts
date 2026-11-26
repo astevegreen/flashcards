@@ -19,6 +19,46 @@ export interface FsrsTrainingEngine {
   computeParameters(input: FsrsOptimizerInput): ArrayLike<number>;
 }
 
+/** The slice of an `fsrs-browser` `Fsrs` instance one training run uses. */
+export interface FsrsTrainer {
+  computeParameters(
+    ratings: Uint32Array,
+    delta_ts: Uint32Array,
+    lengths: Uint32Array,
+    progress: undefined,
+    enable_short_term: boolean,
+  ): ArrayLike<number>;
+  free(): void;
+}
+
+/**
+ * Wraps `fsrs-browser` as a training engine: a fresh trainer per run, always freed. A WASM panic
+ * in `computeParameters` leaves the wasm-bindgen instance borrowed, so `free()` then throws a
+ * second error; it is swallowed so the original failure is the one the caller sees.
+ */
+export function createFsrsTrainingEngine(newTrainer: () => FsrsTrainer): FsrsTrainingEngine {
+  return {
+    computeParameters(input) {
+      const fsrs = newTrainer();
+      try {
+        return fsrs.computeParameters(
+          input.ratings,
+          input.delta_ts,
+          input.lengths,
+          undefined,
+          input.enable_short_term,
+        );
+      } finally {
+        try {
+          fsrs.free();
+        } catch {
+          // Already failing (see above); the instance's memory goes with the Worker.
+        }
+      }
+    },
+  };
+}
+
 function describeError(err: unknown): string {
   if (err instanceof Error && err.message) return err.message;
   const text = String(err);
