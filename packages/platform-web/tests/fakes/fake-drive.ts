@@ -30,10 +30,12 @@ function indexOfBytes(haystack: Uint8Array, needle: Uint8Array, from: number): n
   return -1;
 }
 
-function parseMultipart(
-  body: Uint8Array,
+/** Splits a Drive `multipart/related` upload into its JSON metadata and its bytes. */
+export function parseMultipart(
+  body: Uint8Array | ArrayBuffer,
   contentType: string,
 ): { metadata: Record<string, unknown>; payload: Uint8Array } {
+  if (body instanceof ArrayBuffer) body = new Uint8Array(body);
   const boundary = /boundary=([^\s;]+)/.exec(contentType)?.[1];
   if (!boundary) throw new Error('Missing multipart boundary');
   const enc = new TextEncoder();
