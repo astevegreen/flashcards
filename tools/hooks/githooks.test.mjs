@@ -96,6 +96,7 @@ test('the prepare script points core.hooksPath at .githooks inside a checkout, a
     cwd: dir,
     encoding: 'utf8',
     windowsHide: true,
+    env: cleanEnv(),
   });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(sh('git', ['config', '--get', 'core.hooksPath'], dir), '.githooks');

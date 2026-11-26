@@ -108,7 +108,8 @@ export function railHits(diff) {
 export function findings(response) {
   const out = { blockers: [], notes: [] };
   for (const line of String(response ?? '').split(/\r?\n/)) {
-    const m = /^\s*(?:[-*]|\d+[.)])?\s*\**\[(blocker|note|minor)\]\**:?\s*(.*)$/i.exec(line);
+    // Trimmed first, and no two neighbouring parts match the same text, so the pattern can't backtrack.
+    const m = /^(?:[-*]|\d+[.)])?[ \t]*\**\[(blocker|note|minor)\]\**:?(.*)$/i.exec(line.trim());
     if (m) (m[1].toLowerCase() === 'blocker' ? out.blockers : out.notes).push(m[2].trim());
   }
   return out;
@@ -118,10 +119,16 @@ export function findings(response) {
 // answer says neither.
 export function railAnswer(response) {
   const text = String(response ?? '');
-  const m = /^\W*LOOSENS:\W*(yes|no)\b.*$/im.exec(text);
-  if (!m) return { loosens: null, reason: text.trim().slice(0, 800) };
-  const rest = text.slice(m.index + m[0].length).trim();
-  return { loosens: m[1].toLowerCase() === 'yes', reason: rest.slice(0, 800) || 'no reason given' };
+  // Line by line: a multiline pattern whose \W* can cross newlines backtracks on a long answer.
+  const lines = text.split('\n');
+  const at = lines.findIndex((l) => /^[^\w\n]*LOOSENS:[^\w\n]*(?:yes|no)\b/i.test(l));
+  if (at < 0) return { loosens: null, reason: text.trim().slice(0, 800) };
+  const yes = /^[^\w\n]*LOOSENS:[^\w\n]*yes\b/i.test(lines[at]);
+  const rest = lines
+    .slice(at + 1)
+    .join('\n')
+    .trim();
+  return { loosens: yes, reason: rest.slice(0, 800) || 'no reason given' };
 }
 
 // What the pull request does next, from the review and the rail audit (null when no rail was touched). Each is

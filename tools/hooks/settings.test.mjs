@@ -58,6 +58,7 @@ test('force-pushes, rebases and history rewrites are denied', () => {
   for (const cmd of [
     'git push --force origin feat/x',
     'git push -f origin feat/x',
+    'git push origin feat/x -f',
     'git push origin +feat/x',
     'git push origin feat/x --force-with-lease',
     'git rebase origin/main',
@@ -118,6 +119,15 @@ test("deleting a branch or a worktree asks: it may be another agent's work (AGEN
 test('a push the settings cannot read as main is left to .githooks/pre-push (githooks.test.mjs)', () => {
   // `git push origin HEAD` while on main names no branch, so only the pre-push hook sees it is main.
   assert.equal(verdict('Bash', 'git push origin HEAD'), 'allow');
+});
+
+test('pnpm --filter runs package scripts without asking, but an arbitrary command through it asks', () => {
+  assert.equal(verdict('Bash', 'pnpm --filter @flash/core test'), 'allow');
+  for (const cmd of [
+    'pnpm --filter @flash/web exec git stash',
+    'pnpm --filter @flash/web dlx some-tool',
+  ])
+    assert.equal(verdict('Bash', cmd), 'ask', cmd);
 });
 
 test('opening, readying and auto-merging a pull request run without asking', () => {

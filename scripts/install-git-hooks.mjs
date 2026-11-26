@@ -10,8 +10,10 @@ const current = git(['config', '--get', 'core.hooksPath']).stdout?.trim();
 if (current !== '.githooks') {
   const r = git(['config', 'core.hooksPath', '.githooks']);
   if (r.status !== 0) console.warn(`Could not set core.hooksPath: ${r.stderr.trim()}`);
-  else
+  else {
+    const was = current ? ` (was ${current})` : '';
     console.log(
-      `Git hooks: core.hooksPath set to .githooks${current ? ` (was ${current})` : ''}, for every worktree of this clone.`,
+      `Git hooks: core.hooksPath set to .githooks${was}, for every worktree of this clone.`,
     );
+  }
 }
