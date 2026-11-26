@@ -1,6 +1,7 @@
 import type { CollectionState } from '../../events/replay.ts';
 import type { Note } from '../../model/types.ts';
 import { compareCodeUnits } from '../../compare.ts';
+import { escapeDelimitedCell } from '../../import/csv-cell.ts';
 
 /**
  * Small helpers kept inside the lazy `@flash/core/anki-export` entry. They mirror
@@ -27,19 +28,7 @@ export function selectDeckNotes(state: CollectionState, options: NoteSelection):
   return notes.sort((a, b) => a.created_order - b.created_order || compareCodeUnits(a.id, b.id));
 }
 
-/**
- * Quotes a CSV / TSV cell when it holds a quote, the delimiter or a line break, or starts with
- * `#`: Anki's CSV reader treats a line starting with `#` as a comment and drops the row, and a
- * base91 GUID re-exported from Anki can start with `#`.
- */
+/** A CSV / TSV cell for Anki: also quoted when it starts with `#` (Anki reads that as a comment). */
 export function escapeCsvCell(value: string, delimiter: string): string {
-  if (
-    value.startsWith('#') ||
-    value.includes('"') ||
-    value.includes(delimiter) ||
-    /[\r\n]/.test(value)
-  ) {
-    return `"${value.replaceAll('"', '""')}"`;
-  }
-  return value;
+  return escapeDelimitedCell(value, delimiter, { quoteLeadingHash: true });
 }

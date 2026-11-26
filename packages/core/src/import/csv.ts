@@ -14,6 +14,7 @@ import {
 } from './column-target.ts';
 
 export * from './csv-export.ts';
+export { escapeDelimitedCell, type CsvCellOptions } from './csv-cell.ts';
 
 export interface CsvParseOptions {
   delimiter?: ',' | '\t';

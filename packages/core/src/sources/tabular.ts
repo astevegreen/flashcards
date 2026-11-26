@@ -11,6 +11,7 @@ import {
   resolveSourceColumnMap,
   type ColumnTarget,
 } from '../import/column-target.ts';
+import { escapeDelimitedCell } from '../import/csv-cell.ts';
 import { splitTagCell } from '../import/tag-cell.ts';
 import { computeNoteContentHash } from './content-hash.ts';
 import { sha256String } from './hash.ts';
@@ -1036,18 +1037,6 @@ export function filterSafeWriteBackCells(
     safeCells,
     skippedCells,
   };
-}
-
-function escapeDelimitedCell(value: string, delimiter: ',' | '\t'): string {
-  if (
-    value.includes(delimiter) ||
-    value.includes('"') ||
-    value.includes('\n') ||
-    value.includes('\r')
-  ) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }
 
 /**

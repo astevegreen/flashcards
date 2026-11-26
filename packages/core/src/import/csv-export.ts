@@ -2,6 +2,7 @@ import type { CollectionState } from '../events/replay.ts';
 import type { Note, NoteType } from '../model/types.ts';
 import { stripRichText as stripRichTextMarkup } from '../parsers/rich-text.ts';
 import { normalizeTagList } from '../tags/index.ts';
+import { escapeDelimitedCell } from './csv-cell.ts';
 import { uniqueRecordIds } from './record-ids.ts';
 
 export interface CsvExportOptions {
@@ -68,16 +69,7 @@ function fieldHeaders(noteType: NoteType): string[] {
 }
 
 function escapeCell(value: string, delimiter: string): string {
-  // Import trims an unquoted cell, so a value with outer spaces is quoted too (C17).
-  if (
-    value.includes('"') ||
-    value.includes(delimiter) ||
-    /[\r\n]/.test(value) ||
-    value !== value.trim()
-  ) {
-    return `"${value.replaceAll('"', '""')}"`;
-  }
-  return value;
+  return escapeDelimitedCell(value, delimiter, { quoteOuterSpace: true });
 }
 
 /**
