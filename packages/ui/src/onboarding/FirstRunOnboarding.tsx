@@ -135,7 +135,12 @@ export function FirstRunOnboarding({
         {language === undefined ? (
           <span />
         ) : (
-          <button type="button" onClick={() => setLanguage(undefined)} className={LINK_CLASS}>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setLanguage(undefined)}
+            className={LINK_CLASS}
+          >
             Back
           </button>
         )}
