@@ -1,0 +1,15 @@
+#!/bin/sh
+# Prettier check on the staged files only, so `format:check` failures show up before CI.
+# Runs for every agent and person (Claude Code, Antigravity, the owner). Never rewrites files.
+root=$(git rev-parse --show-toplevel) || exit 0
+prettier="$root/node_modules/prettier/bin/prettier.cjs"
+if [ ! -f "$prettier" ]; then
+  echo "pre-commit: no node_modules in this worktree, so the format check was skipped (run: pnpm install --frozen-lockfile)." >&2
+  exit 0
+fi
+files=$(git diff --cached --name-only --diff-filter=ACMR -z | tr '\0' '\n' | grep -E '\.(ts|tsx|js|jsx|mjs|cjs|json|md|css|html|ya?ml)$')
+[ -z "$files" ] && exit 0
+echo "$files" | tr '\n' '\0' | xargs -0 node "$prettier" --check --log-level warn --ignore-unknown || {
+  echo "pre-commit: the files above are not Prettier-formatted. Run: pnpm exec prettier --write <file>, then git add it." >&2
+  exit 1
+}

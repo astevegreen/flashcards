@@ -127,7 +127,7 @@ export default tseslint.config(
     files: [
       'scripts/**/*.{js,mjs}',
       'spikes/phase0/scripts/**/*.{js,mjs}',
-      'tools/cli/**/*.{ts,js,mjs}',
+      'tools/**/*.{ts,js,mjs}',
       '*.config.{js,ts}',
       'tests/**/*.ts',
       'apps/token-helper/**/*.ts',
