@@ -1,5 +1,9 @@
 import { defineConfig } from 'vitest/config';
 
+// V8 instrumentation slows heavy tests (snapshots, backups) to 3-6 s on a CI runner. With coverage
+// on they get 15 s; plain `pnpm test` (and `pnpm gate`) keeps vitest's 5 s default.
+const coverageRun = process.argv.includes('--coverage');
+
 export default defineConfig({
   test: {
     include: [
@@ -13,6 +17,7 @@ export default defineConfig({
     // Node by default; a UI render test opts into a DOM with `// @vitest-environment happy-dom`.
     environment: 'node',
     globals: false,
+    ...(coverageRun ? { testTimeout: 15_000 } : {}),
     coverage: {
       provider: 'v8',
       include: ['packages/*/src/**', 'apps/*/src/**', 'tools/*/src/**'],

@@ -975,7 +975,6 @@ describe('snapshots past the decoder limits (D12)', () => {
     expect(result.cursor.lastSnapshotTotalEvents).toBe(1);
   });
 
-  // Builds a 26 MiB snapshot: past the 5 s default under coverage on a shared CI runner.
   it('a fresh device skips a remote snapshot past the read cap and falls back (D12, §9)', async () => {
     const transport = new RecordingMemoryTransport();
     const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
@@ -1067,5 +1066,5 @@ describe('snapshots past the decoder limits (D12)', () => {
     expect(fromSegments.pulledEvents.map((e) => e.seq)).toEqual([1, 2]);
     const state = applyEvents(createEmptyState(), fromSegments.pulledEvents);
     expect(state.notes.get(deriveNoteId('d1', 'n1'))?.fields['word']).toBe('물');
-  }, 30_000);
+  });
 });
