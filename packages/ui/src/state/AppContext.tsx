@@ -495,6 +495,11 @@ export function AppProvider({
   }, [enqueuePersist, persistQueue, platform.storage, startedAtMs, syncController]);
 
   const getEventFactory = useCallback(() => factoryRef.current, []);
+  // Stable, so a sync tick (or any provider render) doesn't hand consumers a new one (P3).
+  const clearUndoStack = useCallback(() => {
+    setUndoStack([]);
+    setRedoStack([]);
+  }, []);
 
   // Leech backfill, once per app launch: cards that reached the leech threshold before leech
   // tagging existed (or on an older build, or through an imported history) get the `leech` tag as
@@ -1089,10 +1094,7 @@ export function AppProvider({
     refreshEntitlement,
     undoStack,
     redoStack,
-    clearUndoStack: () => {
-      setUndoStack([]);
-      setRedoStack([]);
-    },
+    clearUndoStack,
     whenSaved,
     persistFailed,
     retryPersist,

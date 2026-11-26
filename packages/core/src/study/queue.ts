@@ -1,4 +1,5 @@
-import { isCardSuspended, type CollectionState } from '../events/replay.ts';
+import type { CollectionState } from '../events/replay.ts';
+import { listSuspendedCardIds } from '../events/suspension.ts';
 import { getNextStudyDayRolloverMs, getStudyDayIndex } from '../fsrs/scheduler.ts';
 import type { Card, Deck, StudyOrder } from '../model/types.ts';
 import {
@@ -76,6 +77,8 @@ interface QueueContext {
   globalDayStart: number;
   /** Session card order override (see {@link StudyQueueOptions.order}). */
   order?: StudyOrder | undefined;
+  /** Suspended card ids, read once per build (P2). */
+  suspended: ReadonlySet<string>;
 }
 
 function deckDayStart(ctx: QueueContext, deck: Deck): number {
@@ -191,11 +194,15 @@ function collectTodayActivity(ctx: QueueContext): TodayActivity {
     startedToday: [],
   };
   for (const card of state.cards.values()) {
+    // `last_reviewed_at` is the card's latest active review (replay), so a card last reviewed
+    // before today has no review today: skip it without walking its history (P2).
+    const lastReviewedAt = card.last_reviewed_at;
+    if (lastReviewedAt === undefined) continue;
     const deck = state.decks.get(card.deck_id);
     if (!deck || deck.archived) continue;
-    if ((state.reviewsByCard.get(card.id)?.length ?? 0) === 0) continue;
     const dayStart = deckDayStart(ctx, deck);
     const todayIndex = getStudyDayIndex(ctx.nowMs, ctx.tzOffsetMinutes, dayStart);
+    if (getStudyDayIndex(lastReviewedAt, ctx.tzOffsetMinutes, dayStart) < todayIndex) continue;
     const { activeCountToday, startedToday, firstActiveReviewTime } = summarizeCardReviewsToday(
       ctx,
       card.id,
@@ -233,7 +240,7 @@ function eligibleDeckOf(
   const { state } = ctx;
   if (deckId !== undefined && card.deck_id !== deckId) return undefined;
   if (allowedCardIds !== undefined && !allowedCardIds.has(card.id)) return undefined;
-  if (card.empty === true || isCardSuspended(state, card.id)) return undefined;
+  if (card.empty === true || ctx.suspended.has(card.id)) return undefined;
   const deck = state.decks.get(card.deck_id);
   if (!deck || deck.archived) return undefined;
   const note = state.notes.get(card.note_id);
@@ -521,6 +528,7 @@ export function buildStudyQueue(
     tzOffsetMinutes: options.tzOffsetMinutes,
     globalDayStart: options.dayStartHour ?? state.preferences.day_start_hour,
     order: options.order,
+    suspended: listSuspendedCardIds(state.fieldHlcs),
   };
   const { allowed: allowedCardIds, hardest } = resolveAllowedCardIds(state, options);
 

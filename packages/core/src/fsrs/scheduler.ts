@@ -2,10 +2,9 @@ import {
   createEmptyCard,
   fsrs,
   generatorParameters,
-  Rating,
   type Card as FsrsCard,
+  type FSRS,
   type FSRSParameters,
-  type Grade,
 } from 'ts-fsrs';
 import type {
   CardLearningState,
@@ -24,19 +23,39 @@ export const DEFAULT_FSRS_CONFIG: FSRSParamsConfig = {
   enable_short_term: true,
 };
 
-function buildFsrsParams(config?: Partial<FSRSParamsConfig>): FSRSParameters {
-  const partial: Partial<FSRSParameters> = {
-    request_retention: config?.request_retention ?? DEFAULT_FSRS_CONFIG.request_retention,
-    enable_fuzz: config?.enable_fuzz ?? false,
-    enable_short_term: config?.enable_short_term ?? true,
-  };
-  if (config?.maximum_interval !== undefined) {
-    partial.maximum_interval = config.maximum_interval;
+function buildFsrsParams({
+  request_retention = DEFAULT_FSRS_CONFIG.request_retention,
+  enable_fuzz = false,
+  enable_short_term = true,
+  maximum_interval,
+  w,
+}: Partial<FSRSParamsConfig> = {}): FSRSParameters {
+  return generatorParameters({
+    request_retention,
+    enable_fuzz,
+    enable_short_term,
+    ...(maximum_interval === undefined ? {} : { maximum_interval }),
+    ...(w === undefined ? {} : { w }),
+  });
+}
+
+/** Schedulers by params. Bounded: an optimizer run may try many weight sets. */
+const schedulers = new Map<string, FSRS>();
+
+/**
+ * One ts-fsrs scheduler per distinct params (P4): replay used to build one for every review. The
+ * key is the params themselves, so a params change (new version, optimized weights) gets a new
+ * scheduler and a cached one can never go stale. A scheduler keeps no per-review state.
+ */
+function schedulerFor(config?: Partial<FSRSParamsConfig>): FSRS {
+  const key = JSON.stringify(config ?? {});
+  let scheduler = schedulers.get(key);
+  if (!scheduler) {
+    if (schedulers.size >= 32) schedulers.clear();
+    scheduler = fsrs(buildFsrsParams(config));
+    schedulers.set(key, scheduler);
   }
-  if (config?.w !== undefined) {
-    partial.w = config.w;
-  }
-  return generatorParameters(partial);
+  return scheduler;
 }
 
 function toFsrsCard(schedule: CardScheduleState): FsrsCard {
@@ -73,19 +92,6 @@ function fromFsrsCard(card: FsrsCard): CardScheduleState {
   return out;
 }
 
-function toGrade(rating: ReviewRating): Grade {
-  switch (rating) {
-    case 1:
-      return Rating.Again;
-    case 2:
-      return Rating.Hard;
-    case 3:
-      return Rating.Good;
-    case 4:
-      return Rating.Easy;
-  }
-}
-
 export function createInitialSchedule(nowMs = 0): CardScheduleState {
   return fromFsrsCard(createEmptyCard(new Date(nowMs)));
 }
@@ -96,9 +102,10 @@ export function applyReviewToSchedule(
   reviewedAtMs: number,
   config?: Partial<FSRSParamsConfig>,
 ): { next: CardScheduleState; resulting_due_at: number } {
-  const scheduler = fsrs(buildFsrsParams(config));
+  const scheduler = schedulerFor(config);
   const fsrsCard = toFsrsCard(schedule);
-  const result = scheduler.next(fsrsCard, new Date(reviewedAtMs), toGrade(rating));
+  // A ReviewRating is a ts-fsrs Grade: 1 Again, 2 Hard, 3 Good, 4 Easy.
+  const result = scheduler.next(fsrsCard, new Date(reviewedAtMs), rating);
   const next = fromFsrsCard(result.card);
   return {
     next,
@@ -142,14 +149,14 @@ export function previewIntervals(
   nowMs: number,
   config?: Partial<FSRSParamsConfig>,
 ): Record<ReviewRating, IntervalPreview> {
-  const scheduler = fsrs(buildFsrsParams(config));
+  const scheduler = schedulerFor(config);
   const fsrsCard = toFsrsCard(schedule);
   const outcomes = scheduler.repeat(fsrsCard, new Date(nowMs));
 
   const ratings: ReviewRating[] = [1, 2, 3, 4];
   const previews = {} as Record<ReviewRating, IntervalPreview>;
   for (const r of ratings) {
-    const outcome = outcomes[toGrade(r)].card;
+    const outcome = outcomes[r].card;
     const due = outcome.due.getTime();
     previews[r] = {
       due,
