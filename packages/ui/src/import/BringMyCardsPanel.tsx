@@ -22,7 +22,7 @@ import type { GooglePickedFile } from '@flash/platform';
 import { Suspense, useEffect, useMemo, useState, type DragEvent, type SyntheticEvent } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
-import { gridToCsv, readXlsxGrid } from '../sources/oneDriveImport.ts';
+import { gridToCsv, readXlsxGrid } from '../sources/cloudFileImport.ts';
 import { useApp } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import type { PendingAnkiFile } from './AnkiImportPanel.tsx';
