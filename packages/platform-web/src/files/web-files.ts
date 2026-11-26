@@ -14,7 +14,7 @@ export class WebFiles implements Files {
         settled = true;
         resolve(val);
       };
-      input.addEventListener('change', async () => {
+      input.addEventListener('change', () => {
         const file = input.files?.[0];
         if (!file) {
           done(null);
@@ -25,20 +25,16 @@ export class WebFiles implements Files {
           done({ name: file.name, bytes: new Uint8Array(0), size: file.size, tooLarge: true });
           return;
         }
-        let buf: ArrayBuffer;
-        try {
-          buf = await file.arrayBuffer();
-        } catch (err) {
+        file.arrayBuffer().then(
+          (buf) =>
+            done({
+              name: file.name,
+              bytes: new Uint8Array(buf),
+              ...(file.type ? { mime: file.type } : {}),
+            }),
           // The file went away or lost permission after it was picked (C25).
-          settled = true;
-          reject(err instanceof Error ? err : new Error(String(err)));
-          return;
-        }
-        done({
-          name: file.name,
-          bytes: new Uint8Array(buf),
-          ...(file.type ? { mime: file.type } : {}),
-        });
+          reject,
+        );
       });
       input.addEventListener('cancel', () => done(null));
       input.click();

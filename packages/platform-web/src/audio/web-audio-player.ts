@@ -185,26 +185,12 @@ export class WebAudioPlayer implements AudioPlayer {
    * preserving iOS Safari user-gesture activation on card flip/advance (§7.2).
    */
   playPreloaded(hash: string, rate = 1.0): Promise<boolean> {
-    const started = this.startPreloaded(hash, rate);
-    return started
-      ? started.then(
-          () => true,
-          () => false,
-        )
-      : Promise.resolve(false);
-  }
-
-  /**
-   * Starts a preloaded clip synchronously (see `playPreloaded`). `null` when there is no clip or
-   * no audio element; otherwise a promise that rejects with the playback error.
-   */
-  private startPreloaded(hash: string, rate: number): Promise<void> | null {
     const normHash = hash.trim().toLowerCase();
     const url = this.preloadedUrls.get(normHash);
-    if (!url) return null;
+    if (!url) return Promise.resolve(false);
 
     const audio = this.getAudio();
-    if (!audio) return null;
+    if (!audio) return Promise.resolve(false);
 
     this.playGeneration += 1;
     audio.muted = false;
@@ -222,16 +208,20 @@ export class WebAudioPlayer implements AudioPlayer {
     try {
       const p = audio.play();
       if (p && typeof p.then === 'function') {
-        return p.then(() => {
-          this.unlocked = true;
-          this.unlocking = false;
-        });
+        return p.then(
+          () => {
+            this.unlocked = true;
+            this.unlocking = false;
+            return true;
+          },
+          () => false,
+        );
       }
       this.unlocked = true;
       this.unlocking = false;
-      return Promise.resolve();
-    } catch (err) {
-      return Promise.reject(err instanceof Error ? err : new Error(String(err)));
+      return Promise.resolve(true);
+    } catch {
+      return Promise.resolve(false);
     }
   }
 
@@ -239,7 +229,9 @@ export class WebAudioPlayer implements AudioPlayer {
     if (cacheHash) {
       this.preload(cacheHash, bytes, mime);
       // A playback failure rejects, as it does without `cacheHash` (C25).
-      await this.startPreloaded(cacheHash, rate);
+      if (!(await this.playPreloaded(cacheHash, rate)) && this.audio) {
+        throw new Error('Audio playback failed');
+      }
       return;
     }
 

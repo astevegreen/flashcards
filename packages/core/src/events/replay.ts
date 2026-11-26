@@ -3,7 +3,7 @@ import {
   createInitialSchedule,
   DEFAULT_FSRS_CONFIG,
 } from '../fsrs/scheduler.ts';
-import { compareHlc, tickHlc, type HlcState } from '../hlc.ts';
+import { compareHlc, formatHlc, tickHlc, type HlcState } from '../hlc.ts';
 import { deriveCardId, uuidv7 } from '../ids.ts';
 import { normalizeLanguage } from '../languages/normalize.ts';
 import { noteField } from '../model/note-fields.ts';
@@ -1236,6 +1236,8 @@ function applyCourseChanged(
   }
 }
 
+const TTS_FIELDS = ['tts_key', 'tts_lang_key'] as const;
+
 /**
  * Each `MediaEntry` field is its own LWW register, so any delivery order converges (D20): `ext`,
  * `mime` and `size` follow `media:<hash>:added`, and `tts_key` / `tts_lang_key` follow
@@ -1256,31 +1258,21 @@ function applyMediaAdded(ctx: ApplyEventContext, payload: EventPayloadMap['Media
     state.ttsMediaByLangKey.set(m.tts_lang_key, normHash);
     collector?.ttsLangKeys.add(m.tts_lang_key);
   }
-  const wonAdded = shouldApplyLww(state, `media:${normHash}:added`, hlc, collector);
+  const won = shouldApplyLww(state, `media:${normHash}:added`, hlc, collector);
   // `MediaRemoved`: an add older than the newest removal of the same hash stays removed.
   const removedAt = state.fieldHlcs.get(`media:${normHash}:removed`);
   if (removedAt !== undefined && compareHlc(hlc, removedAt) < 0) return;
   const prev = state.media.get(normHash);
-  const base = wonAdded || !prev ? m : prev;
-  const ttsKey = m.tts_key
-    ? shouldApplyLww(state, `media:${normHash}:tts_key`, hlc, collector)
-      ? m.tts_key
-      : prev?.tts_key
-    : prev?.tts_key;
-  const ttsLangKey = m.tts_lang_key
-    ? shouldApplyLww(state, `media:${normHash}:tts_lang_key`, hlc, collector)
-      ? m.tts_lang_key
-      : prev?.tts_lang_key
-    : prev?.tts_lang_key;
-  const nextEntry: MediaEntry = {
-    hash: normHash,
-    ext: base.ext.toLowerCase(),
-    mime: base.mime,
-    size: base.size,
-    ...(ttsKey !== undefined ? { tts_key: ttsKey } : {}),
-    ...(ttsLangKey !== undefined ? { tts_lang_key: ttsLangKey } : {}),
-  };
-  state.media.set(normHash, nextEntry);
+  const next: MediaEntry =
+    won || !prev
+      ? { hash: normHash, ext: m.ext.toLowerCase(), mime: m.mime, size: m.size }
+      : { ...prev };
+  for (const f of TTS_FIELDS) {
+    const v =
+      m[f] && shouldApplyLww(state, `media:${normHash}:${f}`, hlc, collector) ? m[f] : prev?.[f];
+    if (v !== undefined) next[f] = v;
+  }
+  state.media.set(normHash, next);
   collector?.mediaHashes.add(normHash);
 }
 
@@ -1294,28 +1286,20 @@ export function applyMediaRemoved(
   const normHash = payload.hash.toLowerCase();
   shouldApplyLww(state, `media:${normHash}:removed`, hlc, collector);
   const addedAt = state.fieldHlcs.get(`media:${normHash}:added`);
+  const entry = state.media.get(normHash);
   if (addedAt !== undefined && compareHlc(addedAt, hlc) > 0) {
     // A newer add keeps the file, but TTS keys only an older add gave it go with this removal.
-    const entry = state.media.get(normHash);
-    const removedAt = state.fieldHlcs.get(`media:${normHash}:removed`) ?? hlc;
     if (!entry) return;
-    const stale = (field: 'tts_key' | 'tts_lang_key') => {
-      const at = state.fieldHlcs.get(`media:${normHash}:${field}`);
-      return entry[field] !== undefined && at !== undefined && compareHlc(at, removedAt) < 0;
-    };
-    const staleKey = stale('tts_key');
-    const staleLangKey = stale('tts_lang_key');
-    if (!staleKey && !staleLangKey) return;
-    const { tts_key, tts_lang_key, ...rest } = entry;
-    state.media.set(normHash, {
-      ...rest,
-      ...(tts_key !== undefined && !staleKey ? { tts_key } : {}),
-      ...(tts_lang_key !== undefined && !staleLangKey ? { tts_lang_key } : {}),
-    });
-    collector?.mediaHashes.add(normHash);
-    return;
-  }
-  if (state.media.delete(normHash)) collector?.mediaHashes.add(normHash);
+    const removedAt = state.fieldHlcs.get(`media:${normHash}:removed`) ?? hlc;
+    const next: MediaEntry = { hash: normHash, ext: entry.ext, mime: entry.mime, size: entry.size };
+    for (const f of TTS_FIELDS) {
+      const v = entry[f];
+      const at = state.fieldHlcs.get(`media:${normHash}:${f}`);
+      if (v !== undefined && !(at !== undefined && compareHlc(at, removedAt) < 0)) next[f] = v;
+    }
+    state.media.set(normHash, next);
+  } else if (!state.media.delete(normHash)) return;
+  collector?.mediaHashes.add(normHash);
 }
 
 function linkDeckSource(ctx: ApplyEventContext, p: EventPayloadMap['SourceLinked']): void {
@@ -1837,10 +1821,7 @@ export function createEventFactory(
     // Merges, never rewinds: a value read before this factory's latest event must not let the
     // next event sort before it (D20).
     setHlc: (nextHlc: HlcState) => {
-      if (
-        nextHlc.wallMs > hlcState.wallMs ||
-        (nextHlc.wallMs === hlcState.wallMs && nextHlc.counter > hlcState.counter)
-      ) {
+      if (compareHlc(formatHlc(nextHlc), formatHlc(hlcState)) > 0) {
         hlcState = { ...hlcState, wallMs: nextHlc.wallMs, counter: nextHlc.counter };
       }
     },

@@ -155,7 +155,9 @@ describe('WebAudioPlayer.play reports a failed playback (C25)', () => {
     });
     const bytes = new Uint8Array([1, 2, 3]);
     await expect(player.play(bytes, 'audio/mpeg', 1)).rejects.toBe(failure);
-    await expect(player.play(bytes, 'audio/mpeg', 1, 'a'.repeat(64))).rejects.toBe(failure);
+    await expect(player.play(bytes, 'audio/mpeg', 1, 'a'.repeat(64))).rejects.toThrow(
+      'Audio playback failed',
+    );
     // playPreloaded keeps its boolean contract.
     await expect(player.playPreloaded('a'.repeat(64))).resolves.toBe(false);
   });
