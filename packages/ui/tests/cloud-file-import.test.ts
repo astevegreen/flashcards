@@ -95,7 +95,7 @@ describe('gridToCsv (every .xlsx import goes through it)', () => {
 
 describe('importPickedCloudFile (merged OneDrive/Dropbox import, R5)', () => {
   function freeTier(ctx: ReturnType<typeof context>['ctx']) {
-    ctx.entitlement = createFreeTierEntitlement();
+    Object.assign(ctx, { entitlement: createFreeTierEntitlement() });
   }
 
   function addDecks(state: ReturnType<typeof context>['ctx']['state'], count: number) {
