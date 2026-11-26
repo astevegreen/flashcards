@@ -6,10 +6,11 @@ on:
   pull_request:
     branches: [main]
 
-# A newer push to a pull request cancels its older run; every push to main runs to completion, so
-# each commit that lands is verified.
 concurrency:
-  group: ci-${{ github.ref }}
+  # Pull requests share one group per branch, so a newer push cancels the older run. Every other
+  # event gets its own group per commit: GitHub also drops a *pending* run when a newer one joins
+  # its group, so a shared main group would leave the middle of three quick pushes unverified.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
