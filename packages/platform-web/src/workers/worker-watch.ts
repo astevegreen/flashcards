@@ -8,6 +8,11 @@ export interface WatchedWorker {
 export interface WorkerWatch {
   /** Restarts the idle clock (call on every message from the Worker). */
   touch(): void;
+  /**
+   * Stops the idle clock but keeps watching for errors: for a long synchronous step that sends
+   * nothing, where silence cannot be told from a slow device.
+   */
+  quiet(): void;
   /** Stops the clock and detaches the error handlers. */
   stop(): void;
 }
@@ -24,9 +29,12 @@ export function watchWorker(
   fail: (err: Error) => void,
 ): WorkerWatch {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const stop = () => {
+  const quiet = () => {
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
+  };
+  const stop = () => {
+    quiet();
     worker.onerror = null;
     worker.onmessageerror = null;
   };
@@ -46,5 +54,5 @@ export function watchWorker(
     fail(new Error(`A message from the ${what} worker could not be read`));
   };
   touch();
-  return { touch, stop };
+  return { touch, quiet, stop };
 }

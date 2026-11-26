@@ -13,10 +13,14 @@ class SilentWorker<T> {
   onerror: ((ev: ErrorEvent) => void) | null = null;
   onmessageerror: ((ev: MessageEvent) => void) | null = null;
   terminated = 0;
-  postMessage(): void {}
+  postMessage(): void {
+    if (this.postError) throw this.postError;
+  }
   terminate(): void {
     this.terminated += 1;
   }
+  /** Set to make `postMessage` throw, as a DataCloneError does. */
+  postError: Error | null = null;
   emit(data: T): void {
     this.onmessage?.({ data } as MessageEvent<T>);
   }
@@ -98,6 +102,43 @@ describe('Worker requests always settle (C25)', () => {
     expect(w2.terminated).toBe(1);
     // Cancelling after the timeout is a no-op.
     r2.cancel();
+    expect(w2.terminated).toBe(1);
+  });
+
+  it('FSRS optimizer: training itself has no idle limit, and errors during it still reject', async () => {
+    vi.useFakeTimers();
+    const worker = new SilentWorker<FsrsOptimizerResponse>();
+    const run = new WebFsrsOptimizer(() => worker as FsrsOptimizerWorkerLike, {
+      idleTimeoutMs: 1_000,
+    }).optimize(fsrsInput());
+    worker.emit({ type: 'stage', stage: 'loading' });
+    worker.emit({ type: 'stage', stage: 'training' });
+    // A long synchronous run on a slow device sends nothing for a long time.
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(worker.terminated).toBe(0);
+    worker.onmessageerror?.({} as MessageEvent);
+    await expect(run.result).rejects.toThrow(/could not be read/);
+    expect(worker.terminated).toBe(1);
+  });
+
+  it('a postMessage that throws rejects and frees the Worker', async () => {
+    const clone = new DOMException('could not be cloned', 'DataCloneError');
+    const w1 = new SilentWorker<AnkiReadResponse>();
+    w1.postError = clone;
+    await expect(
+      new WebAnkiPackageReader(() => w1 as AnkiReaderWorkerLike).read(new Uint8Array([1])),
+    ).rejects.toBe(clone);
+    expect(w1.terminated).toBe(1);
+
+    vi.useFakeTimers();
+    const w2 = new SilentWorker<FsrsOptimizerResponse>();
+    w2.postError = clone;
+    const run = new WebFsrsOptimizer(() => w2 as FsrsOptimizerWorkerLike).optimize(fsrsInput());
+    await expect(run.result).rejects.toBe(clone);
+    expect(w2.terminated).toBe(1);
+    // Nothing is left running: no idle timer, no second terminate on cancel.
+    expect(vi.getTimerCount()).toBe(0);
+    run.cancel();
     expect(w2.terminated).toBe(1);
   });
 

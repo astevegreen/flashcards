@@ -23,11 +23,12 @@ function createDefaultWorker(): FsrsOptimizerWorkerLike {
 }
 
 /**
- * Training is one synchronous WASM call after the `training` stage, so this bounds the whole run.
- * Generous on purpose (a big collection on a slow phone; the user can cancel sooner): it is there
- * for a Worker that died silently.
+ * Bounds the wait for the Worker to start and load the trainer (the `loading` stage). Training
+ * itself is one synchronous WASM call that sends nothing, so it has no idle limit (a long run on a
+ * slow device is not a crash): load errors and unreadable messages still reject, and the user can
+ * cancel.
  */
-const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60_000;
+const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60_000;
 
 function abortError(): Error {
   const err = new Error('FSRS optimization cancelled');
@@ -75,7 +76,8 @@ export class WebFsrsOptimizer implements FsrsOptimizer {
       worker.onmessage = (ev) => {
         const msg = ev.data;
         if (msg.type === 'stage') {
-          watch.touch();
+          if (msg.stage === 'training') watch.quiet();
+          else watch.touch();
           options?.onStage?.(msg.stage);
           return;
         }
