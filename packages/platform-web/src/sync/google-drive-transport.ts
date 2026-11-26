@@ -1,4 +1,4 @@
-import { SyncTransportError } from '@flash/core';
+import { compareCodeUnits, SyncTransportError } from '@flash/core';
 import type { Auth, SyncFileInfo, SyncTransport } from '@flash/platform';
 import { isGoogleRateLimited } from './google-errors.ts';
 
@@ -278,7 +278,7 @@ export class GoogleDriveAppDataTransport implements SyncTransport {
         ...(Number.isNaN(updatedAt) ? {} : { updatedAt }),
       });
     }
-    return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    return out.sort((a, b) => compareCodeUnits(a.path, b.path));
   }
 
   async read(path: string): Promise<Uint8Array> {

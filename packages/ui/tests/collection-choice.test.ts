@@ -1,12 +1,7 @@
-import {
-  createEmptyState,
-  createEventFactory,
-  createHlcState,
-  SyncTransportError,
-  type FlashEvent,
-} from '@flash/core';
+import { createEmptyState, createEventFactory, createHlcState, type FlashEvent } from '@flash/core';
 import { encodeManifest, manifestPath } from '@flash/core/sync';
 import { describe, expect, it } from 'vitest';
+import { memoryTransport } from './helpers/memory-transport.ts';
 import { answerCollectionChoice } from '../src/state/collectionChoice.ts';
 import { COLLECTION_REBUILT_KV_KEY } from '../src/state/rebuildSignal.ts';
 import { saveAddDeviceExpectation } from '../src/sync/addDeviceExpectation.ts';
@@ -19,32 +14,6 @@ import type { SyncUiState } from '../src/state/useSyncController.ts';
 
 const EXPECTED = 'col-11111111-1111-4111-8111-111111111111';
 const REMOTE = 'col-22222222-2222-4222-8222-222222222222';
-
-function memoryTransport() {
-  const files = new Map<string, Uint8Array>();
-  const writes: string[] = [];
-  return {
-    files,
-    writes,
-    async list(prefix: string) {
-      return [...files.entries()]
-        .filter(([p]) => p.startsWith(prefix))
-        .map(([path, d]) => ({ path, size: d.byteLength, updatedAt: 1 }));
-    },
-    async read(path: string) {
-      const d = files.get(path);
-      if (!d) throw new SyncTransportError('NOT_FOUND', path);
-      return d;
-    },
-    async write(path: string, data: Uint8Array) {
-      writes.push(path);
-      files.set(path, data);
-    },
-    async delete(path: string) {
-      files.delete(path);
-    },
-  };
-}
 
 function setup(localEvents: FlashEvent[] = []) {
   const kv = new Map<string, unknown>();

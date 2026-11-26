@@ -1,40 +1,14 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { computeStatePatch, mergeStatePatch } from '../src/events/patch.ts';
-import {
-  applyEvents,
-  createEmptyState,
-  createEventFactory,
-  type CollectionState,
-} from '../src/events/replay.ts';
+import { applyEvents, createEventFactory, type CollectionState } from '../src/events/replay.ts';
 import { deserializeCollectionState, serializeCollectionState } from '../src/events/snapshot.ts';
 import type { FlashEvent } from '../src/events/types.ts';
 import { createHlcState } from '../src/hlc.ts';
 import { compareCodeUnits } from '../src/study/queue.ts';
+import { replayChunked, shuffleWithSeed } from './helpers/delivery-orders.ts';
 
 const HASHES = ['a'.repeat(64), 'b'.repeat(64)];
-
-function shuffleWithSeed<T>(arr: readonly T[], s: number): T[] {
-  const copy = [...arr];
-  let x = s || 1;
-  for (let i = copy.length - 1; i > 0; i--) {
-    x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
-    const j = x % (i + 1);
-    const a = copy[i];
-    const b = copy[j];
-    if (a !== undefined && b !== undefined) {
-      copy[i] = b;
-      copy[j] = a;
-    }
-  }
-  return copy;
-}
-
-function replayChunked(list: readonly FlashEvent[], chunk: number): CollectionState {
-  const st = createEmptyState();
-  for (let i = 0; i < list.length; i += chunk) applyEvents(st, list.slice(i, i + chunk));
-  return st;
-}
 
 function sortedRecord(map: ReadonlyMap<string, string>): [string, string][] {
   return [...map.entries()].sort(([a], [b]) => compareCodeUnits(a, b));

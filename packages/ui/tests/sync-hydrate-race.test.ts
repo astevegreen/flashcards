@@ -6,39 +6,16 @@ import {
   createHlcState,
   getTotalAppliedEventCount,
   serializeCollectionState,
-  SyncTransportError,
   type CollectionState,
   type FlashEvent,
 } from '@flash/core';
 import { createInitialSyncCursor, runSync, snapshotsPrefix } from '@flash/core/sync';
 import { describe, expect, it } from 'vitest';
+import { memoryTransport } from './helpers/memory-transport.ts';
 import { runSyncCycle, type SyncRunnerContext } from '../src/state/syncRunner.ts';
 import type { SyncUiState } from '../src/state/useSyncController.ts';
 
 const T0 = Date.UTC(2026, 10, 25, 9, 0, 0);
-
-function memoryTransport() {
-  const files = new Map<string, Uint8Array>();
-  return {
-    files,
-    onRead: (_path: string) => {},
-    async list(prefix: string) {
-      return [...files.entries()]
-        .filter(([p]) => p.startsWith(prefix))
-        .map(([path, d]) => ({ path, size: d.byteLength, updatedAt: 1 }));
-    },
-    async read(path: string) {
-      this.onRead(path);
-      const d = files.get(path);
-      if (!d) throw new SyncTransportError('NOT_FOUND', path);
-      return d;
-    },
-    async write(path: string, data: Uint8Array, opts?: { ifAbsent?: boolean }) {
-      if (opts?.ifAbsent && files.has(path)) throw new SyncTransportError('ALREADY_EXISTS', path);
-      files.set(path, data);
-    },
-  };
-}
 
 const deck = (deck_id: string) => ({
   deck_id,
