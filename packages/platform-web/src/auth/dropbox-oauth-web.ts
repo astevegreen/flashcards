@@ -2,7 +2,9 @@ import { SyncTransportError } from '@flash/core';
 import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
 import { buildDropboxPkceAuthUrl } from '../sync/dropbox-transport.ts';
 import type { GoogleOAuthWindowLike } from './google-oauth-web.ts';
+import { createPkcePair, randomBase64Url } from './pkce.ts';
 import { isFreshPkce } from './pkce-expiry.ts';
+import { reconnectRequiredTokens, requireAccessToken, TokenRefresher } from './token-refresher.ts';
 
 const DROPBOX_TOKEN_ENDPOINT = 'https://api.dropboxapi.com/oauth2/token';
 const DROPBOX_PKCE_KV_KEY = 'dropbox_oauth_pkce';
@@ -36,14 +38,6 @@ export interface DropboxOAuthWebOptions {
   nowMs?: () => number;
 }
 
-function base64UrlEncode(bytes: Uint8Array): string {
-  let str = '';
-  for (let i = 0; i < bytes.length; i++) {
-    str += String.fromCharCode(bytes[i] ?? 0);
-  }
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
 /**
  * Web/PWA Dropbox App Folder OAuth (PKCE redirect, offline refresh tokens).
  * Dropbox lets public clients exchange and refresh tokens directly, so unlike Google this
@@ -55,7 +49,7 @@ export class DropboxOAuthWebAuth implements Auth {
   private readonly fetchImpl: typeof fetch;
   private readonly windowImpl: GoogleOAuthWindowLike | undefined;
   private readonly nowMs: () => number;
-  private inFlightRefresh: Promise<string> | null = null;
+  private readonly refresher: TokenRefresher<StoredDropboxTokens>;
 
   constructor(options: DropboxOAuthWebOptions) {
     this.appKey = options.appKey.trim();
@@ -65,6 +59,15 @@ export class DropboxOAuthWebAuth implements Auth {
       options.windowImpl ??
       (typeof window !== 'undefined' ? (window as unknown as GoogleOAuthWindowLike) : undefined);
     this.nowMs = options.nowMs ?? (() => Date.now());
+    this.refresher = new TokenRefresher<StoredDropboxTokens>({
+      label: 'Dropbox',
+      marginMs: REFRESH_MARGIN_MS,
+      nowMs: this.nowMs,
+      read: () => this.storage.getKv<StoredDropboxTokens>(DROPBOX_TOKENS_KV_KEY),
+      refresh: (tokens) => this.performRefresh(tokens),
+      cannotRefreshMessage:
+        'Dropbox access expired and no refresh token is stored. Please reconnect.',
+    });
   }
 
   isConfigured(): boolean {
@@ -101,14 +104,8 @@ export class DropboxOAuthWebAuth implements Auth {
       );
     }
     const win = this.getWindow();
-    const verifierBytes = new Uint8Array(32);
-    win.crypto.getRandomValues(verifierBytes);
-    const verifier = base64UrlEncode(verifierBytes);
-    const digest = await win.crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-    const challenge = base64UrlEncode(new Uint8Array(digest));
-    const stateBytes = new Uint8Array(16);
-    win.crypto.getRandomValues(stateBytes);
-    const state = `dbx.${base64UrlEncode(stateBytes)}`;
+    const { verifier, challenge } = await createPkcePair(win.crypto);
+    const state = `dbx.${randomBase64Url(16, win.crypto)}`;
     const redirectUri = `${win.location.origin}${win.location.pathname}`;
 
     const existingParams = new URLSearchParams(win.location.search);
@@ -205,32 +202,8 @@ export class DropboxOAuthWebAuth implements Auth {
     };
   }
 
-  async getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
-    const tokens = await this.storage.getKv<StoredDropboxTokens>(DROPBOX_TOKENS_KV_KEY);
-    if (!tokens) throw new SyncTransportError('AUTH_REQUIRED', 'Dropbox is not connected.');
-    if (tokens.reconnectRequired) {
-      throw new SyncTransportError(
-        'AUTH_REQUIRED',
-        'Dropbox session expired. Please reconnect in Settings.',
-      );
-    }
-    const needsRefresh =
-      Boolean(opts?.forceRefresh) ||
-      !tokens.accessToken ||
-      tokens.expiresAt - this.nowMs() <= REFRESH_MARGIN_MS;
-    if (!needsRefresh) return tokens.accessToken;
-    if (!tokens.refreshToken) {
-      throw new SyncTransportError(
-        'AUTH_REQUIRED',
-        'Dropbox access expired and no refresh token is stored. Please reconnect.',
-      );
-    }
-    if (!this.inFlightRefresh) {
-      this.inFlightRefresh = this.performRefresh(tokens).finally(() => {
-        this.inFlightRefresh = null;
-      });
-    }
-    return this.inFlightRefresh;
+  getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
+    return this.refresher.getValidAccessToken(opts);
   }
 
   private async performRefresh(tokens: StoredDropboxTokens): Promise<string> {
@@ -246,22 +219,11 @@ export class DropboxOAuthWebAuth implements Auth {
       );
     } catch (err) {
       if (err instanceof SyncTransportError && err.code === 'AUTH_REQUIRED') {
-        await this.storage.setKv(DROPBOX_TOKENS_KV_KEY, {
-          ...tokens,
-          accessToken: '',
-          expiresAt: 0,
-          reconnectRequired: true,
-        } satisfies StoredDropboxTokens);
+        await this.storage.setKv(DROPBOX_TOKENS_KV_KEY, reconnectRequiredTokens(tokens));
       }
       throw err;
     }
-    const accessToken = typeof data['access_token'] === 'string' ? data['access_token'] : '';
-    if (!accessToken) {
-      throw new SyncTransportError(
-        'AUTH_REQUIRED',
-        'Dropbox refresh response missing access_token.',
-      );
-    }
+    const accessToken = requireAccessToken(data, 'Dropbox');
     await this.storage.setKv(DROPBOX_TOKENS_KV_KEY, {
       ...tokens,
       accessToken,
@@ -316,7 +278,7 @@ export class DropboxOAuthWebAuth implements Auth {
   }
 
   async signOut(): Promise<void> {
-    this.inFlightRefresh = null;
+    this.refresher.reset();
     await this.storage.deleteKv(DROPBOX_TOKENS_KV_KEY);
     await this.storage.deleteKv(DROPBOX_PKCE_KV_KEY);
   }

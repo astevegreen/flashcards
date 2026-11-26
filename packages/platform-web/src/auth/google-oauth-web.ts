@@ -1,6 +1,8 @@
 import { SyncTransportError } from '@flash/core';
 import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
+import { createPkcePair, randomBase64Url } from './pkce.ts';
 import { isFreshPkce } from './pkce-expiry.ts';
+import { reconnectRequiredTokens, requireAccessToken, TokenRefresher } from './token-refresher.ts';
 
 export const GOOGLE_OAUTH_SCOPES =
   'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file';
@@ -121,14 +123,6 @@ function isProbablyOnline(): boolean {
   return (globalThis as { navigator?: { onLine?: boolean } }).navigator?.onLine !== false;
 }
 
-function base64UrlEncode(bytes: Uint8Array): string {
-  let str = '';
-  for (let i = 0; i < bytes.length; i++) {
-    str += String.fromCharCode(bytes[i] ?? 0);
-  }
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
 /**
  * Web/PWA Google OAuth 2.0 PKCE redirect + silent refresh adapter (§4.3 & §12.3).
  * Exchanges authorization codes and refreshes tokens through the stateless
@@ -142,7 +136,7 @@ export class GoogleOAuthWebAuth implements Auth {
   private readonly fetchImpl: typeof fetch;
   private readonly windowImpl: GoogleOAuthWindowLike | undefined;
   private readonly nowMs: () => number;
-  private inFlightRefresh: Promise<string> | null = null;
+  private readonly refresher: TokenRefresher<StoredOAuthTokens>;
 
   constructor(options: GoogleOAuthWebOptions) {
     this.clientId = options.clientId.trim();
@@ -153,6 +147,16 @@ export class GoogleOAuthWebAuth implements Auth {
       options.windowImpl ??
       (typeof window !== 'undefined' ? (window as unknown as GoogleOAuthWindowLike) : undefined);
     this.nowMs = options.nowMs ?? (() => Date.now());
+    this.refresher = new TokenRefresher<StoredOAuthTokens>({
+      label: 'Google Drive',
+      marginMs: REFRESH_MARGIN_MS,
+      nowMs: this.nowMs,
+      read: () => this.storage.getKv<StoredOAuthTokens>(OAUTH_TOKENS_KV_KEY),
+      refresh: (tokens, forced) => this.performRefresh(tokens, forced),
+      canRefresh: (tokens) => Boolean(tokens.refreshToken && this.tokenHelperUrl),
+      cannotRefreshMessage: 'Google Drive access expired. Tap Reconnect to renew it.',
+      useUnexpiredWhenUnrefreshable: true,
+    });
   }
 
   isConfigured(): boolean {
@@ -242,16 +246,6 @@ export class GoogleOAuthWebAuth implements Auth {
     return `${win.location.origin}${win.location.pathname}`;
   }
 
-  private async createPkcePair(): Promise<{ verifier: string; challenge: string }> {
-    const win = this.getWindow();
-    const verifierBytes = new Uint8Array(32);
-    win.crypto.getRandomValues(verifierBytes);
-    const verifier = base64UrlEncode(verifierBytes);
-    const digest = await win.crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-    const challenge = base64UrlEncode(new Uint8Array(digest));
-    return { verifier, challenge };
-  }
-
   async isConnected(): Promise<boolean> {
     const tokens = await this.storage.getKv<StoredOAuthTokens>(OAUTH_TOKENS_KV_KEY);
     if (!tokens || tokens.reconnectRequired) return false;
@@ -281,10 +275,8 @@ export class GoogleOAuthWebAuth implements Auth {
     }
 
     const win = this.getWindow();
-    const { verifier, challenge } = await this.createPkcePair();
-    const stateBytes = new Uint8Array(16);
-    win.crypto.getRandomValues(stateBytes);
-    const state = base64UrlEncode(stateBytes);
+    const { verifier, challenge } = await createPkcePair(win.crypto);
+    const state = randomBase64Url(16, win.crypto);
     const redirectUri = this.getRedirectUri();
 
     // Preserve non-OAuth query parameters (such as `?device=a`) across the redirect round-trip
@@ -440,46 +432,8 @@ export class GoogleOAuthWebAuth implements Auth {
     };
   }
 
-  async getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
-    const tokens = await this.storage.getKv<StoredOAuthTokens>(OAUTH_TOKENS_KV_KEY);
-    if (!tokens) {
-      throw new SyncTransportError('AUTH_REQUIRED', 'Google Drive is not connected.');
-    }
-    if (tokens.reconnectRequired) {
-      throw new SyncTransportError(
-        'AUTH_REQUIRED',
-        'Google Drive session expired. Please reconnect in Settings.',
-      );
-    }
-
-    const needsRefresh =
-      Boolean(opts?.forceRefresh) ||
-      !tokens.accessToken ||
-      tokens.expiresAt - this.nowMs() <= REFRESH_MARGIN_MS;
-
-    if (!needsRefresh) {
-      return tokens.accessToken;
-    }
-
-    if (!tokens.refreshToken || !this.tokenHelperUrl) {
-      if (tokens.accessToken && tokens.expiresAt > this.nowMs() && !opts?.forceRefresh) {
-        return tokens.accessToken;
-      }
-      throw new SyncTransportError(
-        'AUTH_REQUIRED',
-        'Google Drive access expired. Tap Reconnect to renew it.',
-      );
-    }
-
-    // Deduplicate concurrent refresh calls
-    if (!this.inFlightRefresh) {
-      this.inFlightRefresh = this.performRefresh(tokens, Boolean(opts?.forceRefresh)).finally(
-        () => {
-          this.inFlightRefresh = null;
-        },
-      );
-    }
-    return this.inFlightRefresh;
+  getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
+    return this.refresher.getValidAccessToken(opts);
   }
 
   private async performRefresh(tokens: StoredOAuthTokens, forced = false): Promise<string> {
@@ -523,12 +477,7 @@ export class GoogleOAuthWebAuth implements Auth {
 
       if (res.status === 400 || res.status === 401 || errCode === 'invalid_grant') {
         // Revoked / expired refresh token: clear invalid access token & mark reconnect required
-        await this.storage.setKv(OAUTH_TOKENS_KV_KEY, {
-          ...tokens,
-          accessToken: '',
-          expiresAt: 0,
-          reconnectRequired: true,
-        } satisfies StoredOAuthTokens);
+        await this.storage.setKv(OAUTH_TOKENS_KV_KEY, reconnectRequiredTokens(tokens));
         throw new SyncTransportError(
           'AUTH_REQUIRED',
           'Google Drive session was revoked or expired. Please reconnect in Settings.',
@@ -543,10 +492,7 @@ export class GoogleOAuthWebAuth implements Auth {
       );
     }
 
-    const accessToken = typeof data['access_token'] === 'string' ? data['access_token'] : '';
-    if (!accessToken) {
-      throw new SyncTransportError('AUTH_REQUIRED', 'Token refresh response missing access_token.');
-    }
+    const accessToken = requireAccessToken(data, 'Google');
 
     const expiresInSec =
       typeof data['expires_in'] === 'number' && data['expires_in'] > 0 ? data['expires_in'] : 3600;
@@ -598,7 +544,7 @@ export class GoogleOAuthWebAuth implements Auth {
   }
 
   async signOut(): Promise<void> {
-    this.inFlightRefresh = null;
+    this.refresher.reset();
     await this.storage.deleteKv(OAUTH_TOKENS_KV_KEY);
     await this.storage.deleteKv(OAUTH_PKCE_KV_KEY);
     await this.storage.deleteKv(OAUTH_HELPER_DOWN_KV_KEY);

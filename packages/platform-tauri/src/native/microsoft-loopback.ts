@@ -6,24 +6,15 @@
  * (RFC 8252), with no client secret. Microsoft rotates the refresh token on every redemption and
  * the newest one is written back to the OS keychain. Loaded only when the user connects OneDrive.
  */
-import {
-  cancel as cancelOAuthServer,
-  onUrl,
-  start as startOAuthServer,
-} from '@fabianlars/tauri-plugin-oauth';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   MicrosoftRefreshRejectedError,
   type MicrosoftPublicClientBridge,
   type MicrosoftTokenSet,
 } from '@flash/platform-web/onedrive';
 import type { RefreshTokenStore } from '../auth/refresh-token-store.ts';
-import {
-  awaitBrowserCallback,
-  createLatestAttempt,
-  OAUTH_CALLBACK_TIMEOUT_MS,
-} from './browser-callback.ts';
+import { createLatestAttempt } from './browser-callback.ts';
+import { runLoopbackSignIn } from './loopback-sign-in.ts';
 
 export interface MicrosoftLoopbackConfig {
   /** Entra application (client) ID with a "Mobile and desktop" `http://localhost` redirect URI. */
@@ -44,31 +35,6 @@ interface MicrosoftTokenResponse {
 const SUCCESS_HTML =
   '<!doctype html><meta charset="utf-8"><title>Signed in</title>' +
   '<body style="font-family:system-ui;padding:2rem">Signed in to OneDrive. You can close this tab and return to Flashcards.</body>';
-
-function base64Url(bytes: Uint8Array): string {
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-}
-
-async function createPkcePair(): Promise<{ verifier: string; challenge: string }> {
-  const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-  return { verifier, challenge: base64Url(new Uint8Array(digest)) };
-}
-
-/** Reads `code` from the loopback callback URL after checking `state` and `error`. */
-function codeFromCallback(callbackUrl: string, expectedState: string): string {
-  const returned = new URL(callbackUrl);
-  if (returned.searchParams.get('state') !== expectedState) {
-    throw new Error('OAuth state mismatch.');
-  }
-  const err = returned.searchParams.get('error');
-  if (err) throw new Error(`Microsoft sign-in failed: ${err}`);
-  const code = returned.searchParams.get('code');
-  if (!code) throw new Error('Microsoft sign-in returned no authorization code.');
-  return code;
-}
 
 export function createMicrosoftLoopbackBridge(
   config: MicrosoftLoopbackConfig,
@@ -106,46 +72,43 @@ export function createMicrosoftLoopbackBridge(
 
   return {
     authorize: (scopes) =>
-      latestAttempt(async (signal) => {
-        const { verifier, challenge } = await createPkcePair();
-        const state = base64Url(crypto.getRandomValues(new Uint8Array(16)));
-        const port = await startOAuthServer({ response: SUCCESS_HTML });
-        // Entra ignores the port of `http://localhost` redirect URIs registered for public clients.
-        const redirectUri = `http://localhost:${port}`;
-        try {
-          const authUrl = new URL(`${authority}/authorize`);
-          authUrl.search = new URLSearchParams({
-            client_id: config.clientId,
-            response_type: 'code',
-            redirect_uri: redirectUri,
-            response_mode: 'query',
-            scope: scopes.join(' '),
-            code_challenge: challenge,
-            code_challenge_method: 'S256',
-            state,
-          }).toString();
-          const callbackUrl = await awaitBrowserCallback({
-            subscribe: (cb) => onUrl(cb),
-            open: () => openUrl(authUrl.toString()),
-            timeoutMs: OAUTH_CALLBACK_TIMEOUT_MS,
-            signal,
+      latestAttempt((signal) =>
+        runLoopbackSignIn(
+          {
+            provider: 'Microsoft',
             label: 'OneDrive sign-in',
-          });
-          const code = codeFromCallback(callbackUrl, state);
-          return await tokenRequest(
-            {
-              grant_type: 'authorization_code',
-              code,
-              code_verifier: verifier,
-              redirect_uri: redirectUri,
-              scope: scopes.join(' '),
+            successHtml: SUCCESS_HTML,
+            // Entra ignores the port of `http://localhost` redirect URIs registered for public clients.
+            redirectHost: 'localhost',
+            signal,
+            buildAuthUrl: ({ redirectUri, challenge, state }) => {
+              const authUrl = new URL(`${authority}/authorize`);
+              authUrl.search = new URLSearchParams({
+                client_id: config.clientId,
+                response_type: 'code',
+                redirect_uri: redirectUri,
+                response_mode: 'query',
+                scope: scopes.join(' '),
+                code_challenge: challenge,
+                code_challenge_method: 'S256',
+                state,
+              }).toString();
+              return authUrl.toString();
             },
-            false,
-          );
-        } finally {
-          await cancelOAuthServer(port).catch(() => undefined);
-        }
-      }),
+          },
+          ({ code, verifier, redirectUri }) =>
+            tokenRequest(
+              {
+                grant_type: 'authorization_code',
+                code,
+                code_verifier: verifier,
+                redirect_uri: redirectUri,
+                scope: scopes.join(' '),
+              },
+              false,
+            ),
+        ),
+      ),
     refresh: async (scopes) => {
       const refreshToken = await config.tokenStore.get();
       if (!refreshToken) throw new MicrosoftRefreshRejectedError('Not signed in to OneDrive.');
