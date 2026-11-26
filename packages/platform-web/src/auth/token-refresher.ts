@@ -1,13 +1,14 @@
 import { SyncTransportError } from '@flash/core';
 
 /**
- * The access-token policy shared by the Google, Dropbox and Microsoft web auths (R2): use the
+ * The access-token policy shared by the Google, Dropbox and Microsoft web and native auths (R2): use the
  * stored token while it is fresh, otherwise refresh it, with one refresh in flight at a time.
  */
 
 export interface RefreshableTokens {
   accessToken: string;
-  refreshToken: string | null;
+  /** Absent on native shells, whose bridge keeps the refresh token (they pass `canRefresh`). */
+  refreshToken?: string | null;
   expiresAt: number;
   reconnectRequired?: boolean;
 }

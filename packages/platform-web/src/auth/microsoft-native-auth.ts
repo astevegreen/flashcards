@@ -1,11 +1,8 @@
 import { SyncTransportError } from '@flash/core';
 import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
 import { ONEDRIVE_NATIVE_SESSION_KV_KEY } from './microsoft-native-session-key.ts';
-import {
-  isNativeTokenFresh,
-  refreshNativeSession,
-  requireNativeSession,
-} from './native-token-session.ts';
+import { createNativeTokenRefresher } from './native-token-session.ts';
+import type { TokenRefresher } from './token-refresher.ts';
 import { MICROSOFT_PICKER_SCOPE, MICROSOFT_SYNC_SCOPES } from './microsoft-oauth-web.ts';
 
 /** Tokens returned by a native Microsoft public-client sign-in or refresh. */
@@ -63,7 +60,7 @@ export class NativeMicrosoftAuth implements Auth {
   private readonly bridge: MicrosoftPublicClientBridge | undefined;
   private readonly storage: Storage;
   private readonly nowMs: () => number;
-  private inFlightRefresh: Promise<string> | null = null;
+  private readonly refresher: TokenRefresher<NativeMicrosoftSession>;
 
   constructor(options: {
     bridge?: MicrosoftPublicClientBridge;
@@ -73,6 +70,15 @@ export class NativeMicrosoftAuth implements Auth {
     this.bridge = options.bridge;
     this.storage = options.storage;
     this.nowMs = options.nowMs ?? (() => Date.now());
+    this.refresher = createNativeTokenRefresher<NativeMicrosoftSession>({
+      label: 'OneDrive',
+      storage: this.storage,
+      kvKey: SESSION_KV_KEY,
+      nowMs: this.nowMs,
+      hasBridge: () => this.bridge !== undefined,
+      refresh: (session) => this.requireBridge().refresh(scopeList(session.scope)),
+      isRejected: isRefreshRejected,
+    });
   }
 
   isConfigured(): boolean {
@@ -145,32 +151,12 @@ export class NativeMicrosoftAuth implements Auth {
     return null;
   }
 
-  async getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
-    const session = requireNativeSession(await this.readSession(), 'OneDrive');
-    if (!opts?.forceRefresh && isNativeTokenFresh(session, this.nowMs())) {
-      return session.accessToken;
-    }
-    this.inFlightRefresh ??= this.refresh(session).finally(() => {
-      this.inFlightRefresh = null;
-    });
-    return this.inFlightRefresh;
-  }
-
-  private refresh(session: NativeMicrosoftSession): Promise<string> {
-    const bridge = this.requireBridge();
-    return refreshNativeSession({
-      label: 'OneDrive',
-      session,
-      storage: this.storage,
-      kvKey: SESSION_KV_KEY,
-      nowMs: this.nowMs,
-      refresh: () => bridge.refresh(scopeList(session.scope)),
-      isRejected: isRefreshRejected,
-    });
+  getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
+    return this.refresher.getValidAccessToken(opts);
   }
 
   async signOut(): Promise<void> {
-    this.inFlightRefresh = null;
+    this.refresher.reset();
     if (this.bridge) await this.bridge.signOut().catch(() => undefined);
     await this.storage.deleteKv(SESSION_KV_KEY);
   }

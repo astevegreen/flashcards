@@ -112,7 +112,18 @@ describe('DropboxAppFolderTransport (§4.3, §15 Phase 8)', () => {
   it('rejects unsafe paths before any request', async () => {
     const { transport } = setup();
     await expect(transport.read('../etc/passwd')).rejects.toThrow(/Unsafe Dropbox/);
-    for (const path of ['sync/../x.json', 'sync/v1/..', 'sync\\..\\x.json', '..', 'a\0b']) {
+    for (const path of [
+      'sync/../x.json',
+      'sync/v1/..',
+      'sync\\..\\x.json',
+      '..',
+      'a\0b',
+      // `.` segments too, like OneDrive.
+      'sync/./x.json',
+      './sync/x.json',
+      'sync\\.\\x.json',
+      '.',
+    ]) {
       await expect(transport.read(path)).rejects.toThrow(/Unsafe Dropbox/);
       await expect(transport.write(path, new Uint8Array([1]))).rejects.toThrow(/Unsafe Dropbox/);
       await expect(transport.list(`${path}/seg-`)).rejects.toThrow(/Unsafe Dropbox/);

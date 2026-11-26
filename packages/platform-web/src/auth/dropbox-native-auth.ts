@@ -1,11 +1,8 @@
 import { SyncTransportError } from '@flash/core';
 import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
 import { DROPBOX_NATIVE_SESSION_KV_KEY } from './dropbox-native-session-key.ts';
-import {
-  isNativeTokenFresh,
-  refreshNativeSession,
-  requireNativeSession,
-} from './native-token-session.ts';
+import { createNativeTokenRefresher } from './native-token-session.ts';
+import type { TokenRefresher } from './token-refresher.ts';
 
 /** Tokens returned by a native Dropbox public-client sign-in or refresh. */
 export interface DropboxTokenSet {
@@ -55,7 +52,7 @@ export class NativeDropboxAuth implements Auth {
   private readonly bridge: DropboxPublicClientBridge | undefined;
   private readonly storage: Storage;
   private readonly nowMs: () => number;
-  private inFlightRefresh: Promise<string> | null = null;
+  private readonly refresher: TokenRefresher<NativeDropboxSession>;
 
   constructor(options: {
     bridge?: DropboxPublicClientBridge;
@@ -65,6 +62,15 @@ export class NativeDropboxAuth implements Auth {
     this.bridge = options.bridge;
     this.storage = options.storage;
     this.nowMs = options.nowMs ?? (() => Date.now());
+    this.refresher = createNativeTokenRefresher<NativeDropboxSession>({
+      label: 'Dropbox',
+      storage: this.storage,
+      kvKey: SESSION_KV_KEY,
+      nowMs: this.nowMs,
+      hasBridge: () => this.bridge !== undefined,
+      refresh: () => this.requireBridge().refresh(),
+      isRejected: isRefreshRejected,
+    });
   }
 
   isConfigured(): boolean {
@@ -121,32 +127,12 @@ export class NativeDropboxAuth implements Auth {
     return null;
   }
 
-  async getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
-    const session = requireNativeSession(await this.readSession(), 'Dropbox');
-    if (!opts?.forceRefresh && isNativeTokenFresh(session, this.nowMs())) {
-      return session.accessToken;
-    }
-    this.inFlightRefresh ??= this.refresh(session).finally(() => {
-      this.inFlightRefresh = null;
-    });
-    return this.inFlightRefresh;
-  }
-
-  private refresh(session: NativeDropboxSession): Promise<string> {
-    const bridge = this.requireBridge();
-    return refreshNativeSession({
-      label: 'Dropbox',
-      session,
-      storage: this.storage,
-      kvKey: SESSION_KV_KEY,
-      nowMs: this.nowMs,
-      refresh: () => bridge.refresh(),
-      isRejected: isRefreshRejected,
-    });
+  getValidAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
+    return this.refresher.getValidAccessToken(opts);
   }
 
   async signOut(): Promise<void> {
-    this.inFlightRefresh = null;
+    this.refresher.reset();
     if (this.bridge) await this.bridge.signOut().catch(() => undefined);
     await this.storage.deleteKv(SESSION_KV_KEY);
   }

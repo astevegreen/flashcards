@@ -44,6 +44,7 @@ import { DROPBOX_FILES, ONEDRIVE_FILES } from './cloudFileProviders.ts';
 import {
   applyCloudFileReconciliation,
   archivedDeckRefreshMessage,
+  excelUnreadableMessage,
   refreshCloudFileRow,
   refreshCloudFiles,
   type CloudFileRowOutcome,
@@ -51,6 +52,7 @@ import {
 import { deckLimitReason, newDeckIds } from './deckLimit.ts';
 import {
   GOOGLE_DRIVE_FILES,
+  GOOGLE_RECONNECT_MESSAGE,
   markGoogleDriveFilesDisconnected,
   refreshLinkedGoogleDriveFiles,
 } from './googleDriveFileSource.ts';
@@ -574,6 +576,27 @@ function skipArchivedGoogleSheet(source: LinkedGoogleSource, state: CollectionSt
 }
 
 /**
+ * "Refresh all" while Google is disconnected: like the Drive file rows, each Sheet and Doc row
+ * says why it was not refreshed, and the `name: why` lines go in the summary. A Sheet whose deck
+ * is archived keeps saying so. A build without Google marks nothing.
+ */
+function markGoogleSourcesDisconnected(
+  sources: readonly LinkedGoogleSource[],
+  ctx: SourceRunContext,
+): string[] {
+  if (!ctx.platform.googleOAuthConfigured) return [];
+  const state = ctx.getState();
+  return sources.map((src) => {
+    if (!skipArchivedGoogleSheet(src, state)) {
+      src.lastStatus = 'permission_required';
+      src.lastError = GOOGLE_RECONNECT_MESSAGE;
+      delete src.skipReason;
+    }
+    return `${src.name}: ${src.lastError ?? GOOGLE_RECONNECT_MESSAGE}`;
+  });
+}
+
+/**
  * Refreshes a single Google Sheet or Google Doc with cheap `modifiedTime` short-circuiting
  * and race-safe `Card ID` `batchUpdate` write-back (§3.1). A Sheet whose deck is archived is left
  * alone (`skipReason`).
@@ -1036,6 +1059,17 @@ export async function scanSingleLocalFolder(
         cached.lastModified === file.lastModified &&
         cached.size === file.size
       ) {
+        continue;
+      }
+
+      // An `.xlsx` this device can't read is left alone before reading it, like a linked cloud
+      // file. It isn't cached, so a later scan tries again.
+      if (file.kind === 'xlsx' && adapter.canParseXlsx?.() === false) {
+        warnings.push({
+          code: 'xlsx_unreadable',
+          message: excelUnreadableMessage(file.name),
+          file: file.relativePath,
+        });
         continue;
       }
 
@@ -1644,8 +1678,11 @@ export async function refreshAllSources(
           skipped.push(...gd.skipped);
         }
       } else {
-        // Sheets keep their last state; a Drive file row says it was not refreshed and why.
-        skipped.push(...markGoogleDriveFilesDisconnected(driveFiles, ctx));
+        // Each Sheet, Doc and Drive file row says it was not refreshed and why.
+        skipped.push(
+          ...markGoogleSourcesDisconnected(registry.googleSources, ctx),
+          ...markGoogleDriveFilesDisconnected(driveFiles, ctx),
+        );
       }
     }
 

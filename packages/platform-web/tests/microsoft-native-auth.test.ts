@@ -86,6 +86,18 @@ describe('NativeMicrosoftAuth (public client via platform bridge)', () => {
     expect(await auth.getSession()).toBeNull();
   });
 
+  it('runs one bridge refresh for concurrent callers, through the shared TokenRefresher', async () => {
+    const bridge = createBridge();
+    let clock = 0;
+    const auth = new NativeMicrosoftAuth({ bridge, storage: createStorage(), nowMs: () => clock });
+    await auth.signIn();
+    clock += 10_000_000;
+    const tokens = await Promise.all([auth.getValidAccessToken(), auth.getValidAccessToken()]);
+    expect(tokens).toEqual(['native-acc-1', 'native-acc-1']);
+    expect(bridge.refresh).toHaveBeenCalledTimes(1);
+    expect(await auth.getValidAccessToken({ forceRefresh: true })).toBe('native-acc-2');
+  });
+
   it('builds transport and picker on the native auth', () => {
     const services = createNativeOneDriveServices({
       bridge: createBridge(),

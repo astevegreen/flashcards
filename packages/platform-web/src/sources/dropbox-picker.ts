@@ -1,4 +1,5 @@
-import { compareCodeUnits, hasTraversalSegment, SyncTransportError } from '@flash/core';
+import { compareCodeUnits, SyncTransportError } from '@flash/core';
+import { isUnsafeCloudPath } from '../sync/cloud-path.ts';
 import type {
   Auth,
   DropboxBrowseItem,
@@ -96,7 +97,7 @@ function normalizeFolderPath(folderPath?: string): string {
   if (!folderPath) return '';
   const trimmed = trimTrailingSlashes(folderPath.trim().replaceAll('\\', '/'));
   if (!trimmed || trimmed === '/') return '';
-  if (hasTraversalSegment(trimmed)) {
+  if (isUnsafeCloudPath(trimmed)) {
     throw new SyncTransportError('UNKNOWN', `Unsafe Dropbox folder path "${folderPath}".`);
   }
   return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
@@ -109,7 +110,7 @@ function normalizeFileSelector(fileIdOrPath: string): string {
   }
   if (trimmed.startsWith('id:')) return trimmed;
   const clean = trimmed.replaceAll('\\', '/');
-  if (hasTraversalSegment(clean)) {
+  if (isUnsafeCloudPath(clean)) {
     throw new SyncTransportError('UNKNOWN', `Unsafe Dropbox file path "${fileIdOrPath}".`);
   }
   return clean.startsWith('/') ? clean : `/${clean}`;

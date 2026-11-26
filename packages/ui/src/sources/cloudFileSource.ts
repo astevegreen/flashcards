@@ -218,9 +218,11 @@ export function markCloudFileSynced(source: CloudFileRow, nowMs: number): void {
   delete source.skipReason;
 }
 
+/** The row can't be refreshed until access is given; an older skip reason no longer applies. */
 export function markPermissionRequired(source: CloudFileRow, message: string): void {
   source.lastStatus = 'permission_required';
   source.lastError = message;
+  delete source.skipReason;
 }
 
 /**
@@ -495,6 +497,9 @@ export async function refreshCloudFile<
   }
 }
 
+/** Linking stopped because this device has no access to the file (the row says why). */
+class NoAccessError extends Error {}
+
 /** A first pull that failed leaves nothing to refresh, so don't keep a row without a deck. */
 function recordFailedLink<
   S extends CloudFileRow,
@@ -515,8 +520,11 @@ function recordFailedLink<
     );
     return;
   }
-  source.lastStatus = 'error';
-  source.lastError = err instanceof Error ? err.message : String(err);
+  // No access: the row already says so and offers to reconnect, as a refresh would.
+  if (!(err instanceof NoAccessError)) {
+    source.lastStatus = 'error';
+    source.lastError = err instanceof Error ? err.message : String(err);
+  }
   // The chosen mapping was already written to this device's copy: keep it winning.
   if (chosenColumnMap) source.columnMapUnsaved = true;
 }
@@ -561,9 +569,10 @@ export async function linkCloudFile<
         force: true,
         ...(options?.columnMap ? { columnMap: options.columnMap } : {}),
       });
-      if (res.unreadable || source.lastStatus === 'permission_required') {
-        throw new Error(source.lastError ?? 'This file cannot be read here.');
+      if (source.lastStatus === 'permission_required') {
+        throw new NoAccessError(source.lastError ?? 'This file cannot be read here.');
       }
+      if (res.unreadable) throw new Error(source.lastError ?? 'This file cannot be read here.');
       await saveSourcesRegistry(ctx.platform, registry);
       return {
         source,
@@ -668,7 +677,7 @@ function describeRefresh(source: CloudFileRow, res: CloudFileRefreshResult): Clo
 }
 
 /** The panel's Refresh button for one row: refresh, save, and say what happened. */
-export async function refreshCloudFileRow<
+export function refreshCloudFileRow<
   S extends CloudFileRow,
   I extends CloudFileInfo,
   C,
@@ -679,9 +688,24 @@ export async function refreshCloudFileRow<
   ctx: SourceRunContext,
   opts?: Pick<CloudFileRefreshOptions, 'renameMap'>,
 ): Promise<{ registry: SourcesRegistry; outcome: CloudFileRowOutcome } | null> {
+  return refreshMatchingRow(p, (s) => s.id === id, ctx, opts);
+}
+
+/** Finds the row inside the registry lock, refreshes it, and saves. `null` when it is gone. */
+function refreshMatchingRow<
+  S extends CloudFileRow,
+  I extends CloudFileInfo,
+  C,
+  F extends { id: string; name: string },
+>(
+  p: CloudFileProvider<S, I, C, F>,
+  matches: (row: S) => boolean,
+  ctx: SourceRunContext,
+  opts?: Pick<CloudFileRefreshOptions, 'renameMap'>,
+): Promise<{ registry: SourcesRegistry; outcome: CloudFileRowOutcome } | null> {
   return withSourcesLock(async () => {
     const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
-    const target = p.rows(registry)?.find((s) => s.id === id);
+    const target = p.rows(registry)?.find(matches);
     if (!target) return null;
     let outcome: CloudFileRowOutcome;
     try {
@@ -713,10 +737,8 @@ export async function applyCloudFileReconciliation<
   ctx: SourceRunContext,
 ): Promise<{ registry: SourcesRegistry; applied: boolean; message: string } | null> {
   const fileId = rec.folderId.slice(p.prefix.length);
-  const registry = await loadSourcesRegistry(ctx.platform, ctx.getState());
-  const row = p.rows(registry)?.find((s) => p.idOf(s) === fileId);
-  if (!row) return null;
-  const res = await refreshCloudFileRow(p, row.id, ctx, { renameMap });
+  // The row is looked up inside the lock, with the registry the refresh saves.
+  const res = await refreshMatchingRow(p, (s) => p.idOf(s) === fileId, ctx, { renameMap });
   if (!res) return null;
   const { outcome } = res;
   if (outcome.kind !== 'ok') {

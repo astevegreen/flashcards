@@ -157,7 +157,9 @@ export async function downloadGoogleDriveFile(
   return (await getDriveFilesClient(platform)).downloadDriveFile(fileId);
 }
 
-const RECONNECT_MESSAGE = 'Connect Google to refresh this file.';
+/** A Drive file, Sheet or Doc row while Google is disconnected. */
+export const GOOGLE_RECONNECT_MESSAGE = 'Connect Google to refresh this file.';
+const RECONNECT_MESSAGE = GOOGLE_RECONNECT_MESSAGE;
 
 function lostAccessMessage(name: string): string {
   return `This app can no longer open "${name}" in Google Drive. Pick it again with Link from Google Drive to restore access.`;

@@ -8,6 +8,7 @@ import {
   deriveNoteId,
   encodeUtf8,
   SyncTransportError,
+  type CollectionState,
   type KnownEvent,
 } from '@flash/core';
 import { exportFlashpkg } from '@flash/core/flashpkg';
@@ -29,6 +30,7 @@ import {
   refreshSingleGoogleDriveFileSource,
 } from '../src/sources/googleDriveFileSource.ts';
 import { hasLinkedSources } from '../src/sources/hasLinkedSources.ts';
+import { hasSyncedLinkedSource } from '../src/sources/hasSyncedLinkedSource.ts';
 import {
   applyLinkedFileReconciliation,
   createAndLinkGoogleSheetTemplate,
@@ -46,7 +48,9 @@ import {
   linkPickedGoogleFiles,
   loadSourcesRegistry,
   refreshSingleGoogleSource,
+  saveSourcesRegistry,
   scanSingleLocalFolder,
+  withSourcesLock,
 } from '../src/sources/sourceRunner.ts';
 
 function createEmptySourcesRegistry(): SourcesRegistry {
@@ -1028,11 +1032,150 @@ describe('launch check for linked sources (hasAny)', () => {
     const saved = await ctx.platform.storage.getKv<SourcesRegistry>(LINKED_SOURCES_KV_KEY);
     expect(hasLinkedSources(saved)).toBe(true);
   });
+
+  it.each(CLOUD_CASES)(
+    'hasSyncedLinkedSource is true when a synced $name deck carries its source',
+    async (c) => {
+      const { state, ctx } = cloudSetup(c);
+      expect(hasSyncedLinkedSource(state)).toBe(false);
+      const { source } = await c.link(FILE, ctx);
+      // Another device synced the deck but never opened Sources: its registry is empty, and
+      // loading it rebuilds the row from the deck, so the launch check must refresh.
+      expect(hasSyncedLinkedSource(state)).toBe(true);
+      const fresh = await loadSourcesRegistry(
+        { ...ctx.platform, storage: makeInMemoryStorage() },
+        state,
+      );
+      expect(hasLinkedSources(fresh)).toBe(true);
+      const deck = state.decks.get(source.deckId ?? '');
+      if (!deck) throw new Error('missing deck');
+      deck.archived = true;
+      expect(hasSyncedLinkedSource(state)).toBe(false);
+    },
+  );
 });
 
 describe('Refresh all with Google disconnected (linked Drive files)', () => {
   const drive = CLOUD_CASES[2];
   if (!drive) throw new Error('missing case');
+
+  /** A saved Sheet row whose deck is in the collection, and a saved Doc row. */
+  async function withSheetAndDoc(ctx: SourceRunContext, state: CollectionState) {
+    const factory = ctx.getEventFactory();
+    ctx.emitEvents([
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: 'deck-sheet-1',
+          name: 'Sheet One',
+          note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+          language: 'ko',
+          source: { kind: 'google_sheets', external_id: 'sheet-1', read_only: false },
+          created_at: 1000,
+        },
+        1000,
+      ),
+    ]);
+    const registry = await loadSourcesRegistry(ctx.platform, state);
+    registry.googleSources = [
+      {
+        id: 'gsheet:sheet-1',
+        kind: 'google_sheets',
+        fileId: 'sheet-1',
+        name: 'Sheet One',
+        uri: 'https://docs.google.com/spreadsheets/d/sheet-1/edit',
+        deckId: 'deck-sheet-1',
+        lastStatus: 'synced',
+      },
+      {
+        id: 'gdoc:doc-1',
+        kind: 'google_docs',
+        fileId: 'doc-1',
+        name: 'Doc One',
+        uri: 'https://docs.google.com/document/d/doc-1/edit',
+        lastStatus: 'synced',
+      },
+    ];
+    await saveSourcesRegistry(ctx.platform, registry);
+  }
+
+  it('keeps an archived Sheet’s reason, and still marks the Doc', async () => {
+    const { drive: fake, ctx, state } = cloudSetup(drive);
+    await withSheetAndDoc(ctx, state);
+    const deck = state.decks.get('deck-sheet-1');
+    if (!deck) throw new Error('missing deck');
+    deck.archived = true;
+    fake.connected = false;
+    const summary = await refreshAllSources(ctx, { force: true });
+    const [sheet, doc] = summary.registry.googleSources;
+    expect(sheet).toMatchObject({ lastStatus: 'idle', skipReason: 'archived' });
+    expect(sheet?.lastError).toMatch(/archived/);
+    expect(doc).toMatchObject({ lastStatus: 'permission_required' });
+    expect(summary.skipped).toEqual([
+      `Sheet One: ${sheet?.lastError}`,
+      'Doc One: Connect Google to refresh this file.',
+    ]);
+  });
+
+  it('marks no Sheet or Doc in a build without Google', async () => {
+    const { ctx, state } = cloudSetup(drive);
+    await withSheetAndDoc(ctx, state);
+    const noGoogle: SourceRunContext = {
+      ...ctx,
+      platform: {
+        ...ctx.platform,
+        googleOAuthConfigured: false,
+        getGoogleAuth: async () => {
+          throw new Error('Google is not configured in this build.');
+        },
+      } as PlatformServices,
+    };
+    const summary = await refreshAllSources(noGoogle, { force: true });
+    expect(summary.registry.googleSources.map((s) => [s.lastStatus, s.lastError])).toEqual([
+      ['synced', undefined],
+      ['synced', undefined],
+    ]);
+    expect(summary.skipped).toEqual([]);
+  });
+
+  it('says why each Sheet and Doc was not refreshed, with the Drive row message', async () => {
+    const { drive: fake, ctx, state } = cloudSetup(drive);
+    await drive.link(FILE, ctx);
+    const registry = await loadSourcesRegistry(ctx.platform, state);
+    registry.googleSources.push(
+      {
+        id: 'gsheet:sheet-1',
+        kind: 'google_sheets',
+        fileId: 'sheet-1',
+        name: 'Sheet One',
+        uri: 'https://docs.google.com/spreadsheets/d/sheet-1/edit',
+        lastStatus: 'synced',
+      },
+      {
+        id: 'gdoc:doc-1',
+        kind: 'google_docs',
+        fileId: 'doc-1',
+        name: 'Doc One',
+        uri: 'https://docs.google.com/document/d/doc-1/edit',
+        lastStatus: 'synced',
+      },
+    );
+    await saveSourcesRegistry(ctx.platform, registry);
+    fake.connected = false;
+    const summary = await refreshAllSources(ctx, { force: true });
+    const message = 'Connect Google to refresh this file.';
+    expect(summary.registry.googleSources.map((s) => [s.lastStatus, s.lastError])).toEqual([
+      ['permission_required', message],
+      ['permission_required', message],
+    ]);
+    expect(summary.registry.googleDriveFiles?.[0]?.lastError).toBe(message);
+    expect(summary.skipped).toEqual([
+      `Sheet One: ${message}`,
+      `Doc One: ${message}`,
+      `vocab: ${message}`,
+    ]);
+    expect(summary.errors).toEqual([]);
+  });
 
   it('keeps an archived deck’s reason instead of asking to connect Google', async () => {
     const { drive: fake, state, ctx } = cloudSetup(drive);
@@ -1072,9 +1215,13 @@ describe('Refresh all with Google disconnected (linked Drive files)', () => {
   });
 });
 
-const ROW_KINDS = { OneDrive: 'onedrive', Dropbox: 'dropbox' } as const;
+const ROW_KINDS = {
+  OneDrive: 'onedrive',
+  Dropbox: 'dropbox',
+  'Google Drive': 'gdrive_file',
+} as const;
 
-describe.each(CLOUD_CASES.slice(0, 2))('Sources panel row routing — $name', (c) => {
+describe.each(CLOUD_CASES)('Sources panel row routing — $name', (c) => {
   const rowKind = ROW_KINDS[c.name as keyof typeof ROW_KINDS];
 
   it('refreshLinkedFileRow refreshes the right row and says what happened', async () => {
@@ -1125,15 +1272,125 @@ describe.each(CLOUD_CASES.slice(0, 2))('Sources panel row routing — $name', (c
     expect(state.decks.size).toBe(0);
   });
 
-  it('linking again without access marks the existing row as an error', async () => {
+  it('linking again without access marks the existing row as needing permission', async () => {
     const { drive, ctx, state } = cloudSetup(c);
     await c.link(FILE, ctx);
     drive.connected = false;
     await expect(c.link(FILE, ctx)).rejects.toThrow();
     const registry = await loadSourcesRegistry(ctx.platform, state);
     const row = c.rows(registry)?.[0];
-    expect(row?.lastStatus).toBe('error');
+    expect(row?.lastStatus).toBe('permission_required');
     expect(row?.lastError).toBeTruthy();
     expect(row?.deckId).toBeTruthy();
+  });
+
+  it('linking again when the file is gone still marks the existing row as an error', async () => {
+    const { drive, ctx, state } = cloudSetup(c);
+    await c.link(FILE, ctx);
+    drive.files.delete('file-1');
+    await expect(c.link(FILE, ctx)).rejects.toThrow();
+    const row = c.rows(await loadSourcesRegistry(ctx.platform, state))?.[0];
+    expect(row?.lastStatus).toBe('error');
+  });
+
+  it('a lost-access row drops an archived reason that no longer applies', async () => {
+    const { drive, state, ctx } = cloudSetup(c);
+    const { source } = await c.link(FILE, ctx);
+    const deck = state.decks.get(source.deckId ?? '');
+    if (!deck) throw new Error('missing deck');
+    deck.archived = true;
+    await c.refresh(source, ctx, { force: true });
+    expect(source.skipReason).toBe('archived');
+    deck.archived = false;
+    drive.connected = false;
+    await c.refresh(source, ctx, { force: true });
+    expect(source.lastStatus).toBe('permission_required');
+    expect(source.skipReason).toBeUndefined();
+  });
+
+  it('applyLinkedFileReconciliation finds the row inside the lock (null once it is gone)', async () => {
+    const { drive, state, ctx } = cloudSetup(c);
+    await c.link(FILE, ctx);
+    drive.put('file-1', 'vocab.csv', 'word,meaning\n나모,tree\n강,river\n');
+    const held = await refreshLinkedFileRow(rowKind, `${c.prefix}file-1`, ctx);
+    if (held?.outcome.kind !== 'pending') throw new Error('expected a held rename');
+    const rec = held.outcome.pending;
+    // An unlink already holding the lock wins: the reconciliation must not see the old row.
+    const unlink = withSourcesLock(async () => {
+      const registry = await loadSourcesRegistry(ctx.platform, state);
+      const deck = state.decks.get(rec.deckId);
+      if (deck) delete deck.source;
+      const rows = c.rows(registry);
+      rows?.splice(0, rows.length);
+      await saveSourcesRegistry(ctx.platform, registry);
+    });
+    const res = await applyLinkedFileReconciliation(rec, {}, ctx);
+    await unlink;
+    expect(res).toBeNull();
+  });
+});
+
+describe('local folder .xlsx on a device that cannot read Excel', () => {
+  it('leaves the file alone before reading it, says why, and reads it once it can', async () => {
+    let canParse = false;
+    const reads: string[] = [];
+    const rows = [
+      ['Word', 'Meaning'],
+      ['나무', 'tree'],
+    ];
+    const adapter = {
+      isSupported: () => true,
+      pickFolder: async () => ({ id: 'folder-x', name: 'Decks' }),
+      removeFolder: async () => {},
+      ensurePermission: async () => true,
+      listFolderFiles: async (): Promise<ScannedLocalFileDescriptor[]> => [
+        {
+          relativePath: 'words.xlsx',
+          name: 'words.xlsx',
+          kind: 'xlsx',
+          isInbox: false,
+          size: 10,
+          lastModified: 1000,
+        },
+      ],
+      readFileBytes: async (_fid: string, relPath: string) => {
+        reads.push(relPath);
+        return encodeUtf8(JSON.stringify(rows));
+      },
+      canParseXlsx: () => canParse,
+      parseXlsxBytes: async (bytes: Uint8Array) =>
+        JSON.parse(new TextDecoder().decode(bytes)) as string[][],
+      readRelativeMedia: async () => null,
+      writeFileText: async () => {},
+      moveInboxFileToImported: async () => true,
+    } as unknown as LocalFolderSourcesAdapter;
+    const state = createEmptyState();
+    const factory = createEventFactory('dev-x', 0, createHlcState('dev-x', 1000));
+    const ctx: SourceRunContext = {
+      platform: {
+        storage: makeInMemoryStorage(),
+        getLocalFolderSources: async () => adapter,
+      } as unknown as PlatformServices,
+      getState: () => state,
+      getEventFactory: () => factory,
+      emitEvents: (events) => applyEvents(state, events),
+    };
+
+    const linked = await linkAndScanLocalFolder(ctx);
+    if (!linked.folder) throw new Error('no folder');
+    expect(reads).toEqual([]);
+    expect(state.decks.size).toBe(0);
+    expect(linked.folder.warnings).toEqual([
+      {
+        code: 'xlsx_unreadable',
+        message: `Excel files can't be read on this device. Save "words.xlsx" as CSV in Excel and link that instead.`,
+        file: 'words.xlsx',
+      },
+    ]);
+
+    canParse = true;
+    await scanSingleLocalFolder(linked.folder, ctx);
+    expect(reads).toEqual(['words.xlsx']);
+    expect(state.decks.size).toBe(1);
   });
 });
