@@ -167,10 +167,10 @@ test("an analysis of an older commit than the pull request's head exits 2, even 
   assert.match(r.lines[0], /the analysis is of 0123456, but the pull request's head is b58186d/);
 });
 
-test("when GitHub can't say the head commit, the gate still answers and says the commit was not checked", async () => {
+test("when GitHub can't say the head commit, the gate asks to run again: it never prints OK unchecked", async () => {
   const r = await gate({ 'qualitygates/': [200, OK_GATE] }, null);
-  assert.equal(r.code, 0);
-  assert.match(r.lines[1], /Could not read the pull request's head commit/);
+  assert.equal(r.code, 2);
+  assert.match(r.lines[0], /did not say the pull request's head commit/);
   assert.ok(!r.asked.some((u) => u.includes('project_pull_requests')));
 });
 

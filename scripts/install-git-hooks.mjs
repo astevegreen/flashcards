@@ -4,7 +4,7 @@
 // build) it does nothing.
 import { spawnSync } from 'node:child_process';
 
-const git = (args) => spawnSync('git', args, { encoding: 'utf8', windowsHide: true });
+const git = (args) => spawnSync('git', args, { encoding: 'utf8', windowsHide: true }); // NOSONAR (javascript:S4036)
 if (git(['rev-parse', '--is-inside-work-tree']).stdout?.trim() !== 'true') process.exit(0);
 const current = git(['config', '--get', 'core.hooksPath']).stdout?.trim();
 if (current !== '.githooks') {

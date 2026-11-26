@@ -19,7 +19,7 @@ export function toPosix(p) {
 }
 
 export function git(args, cwd) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true }); // NOSONAR (javascript:S4036)
   return r.status === 0 ? r.stdout.trim() : null;
 }
 

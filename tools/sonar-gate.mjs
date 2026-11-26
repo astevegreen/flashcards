@@ -111,9 +111,8 @@ export async function sonarGate(n, { fetch = globalThis.fetch, head = headCommit
       );
     if (!analysed) notes.push('(SonarCloud did not say which commit it analysed.)');
   } else
-    notes.push(
-      "(Could not read the pull request's head commit from GitHub, so the analysis may be older.)",
-    );
+    // CLAUDE.md merges on `Sonar: OK`, so an analysis that may be of an older commit is not an answer yet.
+    return later("GitHub did not say the pull request's head commit, so the analysis may be older");
 
   if (status === 'OK') return { code: 0, lines: ['Sonar: OK', ...notes] };
 

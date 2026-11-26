@@ -104,6 +104,9 @@ test("deleting a branch or a worktree asks: it may be another agent's work (AGEN
     'git push origin --delete feat/x',
     'git push origin -d feat/x',
     'git push origin :feat/x',
+    'git push origin --prune refs/heads/*:refs/heads/*',
+    'git push origin --mirror',
+    'git push origin --all',
   ]) {
     assert.equal(verdict('Bash', cmd), 'ask', `Bash ${cmd}`);
     assert.equal(verdict('PowerShell', cmd), 'ask', `PowerShell ${cmd}`);
@@ -144,6 +147,15 @@ test('opening, readying and auto-merging a pull request run without asking', () 
 test('settings and the hooks they wire ask before an edit, and every wired script exists', () => {
   assert.ok(permissions.ask.includes('Edit(/.claude/settings.json)'));
   assert.ok(permissions.ask.includes('Edit(/tools/hooks/**)'));
+  // The merge gate's own code and CI: an agent loosening them would otherwise meet only the audit they drive.
+  for (const rule of [
+    'Edit(/tools/gemini/**)',
+    'Edit(/tools/gemini-audit.mjs)',
+    'Edit(/tools/sonar-gate.mjs)',
+    'Edit(/.github/workflows/**)',
+    'Edit(/scripts/install-git-hooks.mjs)',
+  ])
+    assert.ok(permissions.ask.includes(rule), rule);
   const wired = [...JSON.stringify(hooks).matchAll(/CLAUDE_PROJECT_DIR\}\/([^"]+)/g)];
   assert.ok(wired.length > 0);
   for (const [, script] of wired) {

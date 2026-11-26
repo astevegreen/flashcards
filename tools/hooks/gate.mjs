@@ -72,7 +72,7 @@ const hasGate = (() => {
 })();
 const pnpm =
   hasGate &&
-  spawnSync('pnpm --version', { shell: true, encoding: 'utf8', windowsHide: true }).status === 0;
+  spawnSync('pnpm --version', { shell: true, encoding: 'utf8', windowsHide: true }).status === 0; // NOSONAR (javascript:S4036)
 if (!pnpm) {
   const why = hasGate ? 'pnpm is not installed or not on PATH' : 'package.json has no gate script';
   process.stdout.write(
@@ -83,14 +83,16 @@ if (!pnpm) {
   process.exit(0);
 }
 
-const r = spawnSync('pnpm --silent gate', {
+// Dev tooling runs the developer's own pnpm and git from PATH, as every hook here does (S4036).
+const gateOptions = {
   cwd: root,
   shell: true,
   encoding: 'utf8',
   timeout: 570_000,
   windowsHide: true,
   env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1', CI: process.env.CI ?? '' },
-});
+};
+const r = spawnSync('pnpm --silent gate', gateOptions); // NOSONAR (javascript:S4036)
 if (r.status === 0) {
   state.blocks = 0;
   state.green = fingerprint;
