@@ -408,7 +408,7 @@ Defaults picked while building the checks. Each stays shipped until the owner de
 - [ ] **What counts as used:** any `media:<sha256>` anywhere in notes (archived ones too), pages, decks, note types, layouts, courses and options. Spoken-audio caches are never offered for removal.
 - [ ] **Backups win over cleanup:** a file a kept backup lists stays on the device after removal from the collection, until that backup rolls off.
 - [ ] **Sync folder:** removed files stay in the sync folder (no delete in the transport). A device that downloads the history before the removal may store the file again; Check media there removes it.
-- [ ] **Rebuild from history:** offered only after a full rebuild finds differences. It rewrites this device's local snapshot and cards cache and reloads, without touching the event log or other devices. No automatic check runs at launch. The reload waits for this tab's queued writes. Other open tabs of the same device show a "Reload now" prompt instead of reloading, so an open draft is not lost, and from then on they stop syncing and their edits write no snapshot over the rebuild. The rebuild and the compare run in steps, so the screen keeps responding.
+- [ ] **Rebuild from history:** offered only after a full rebuild finds differences. It rewrites this device's local snapshot and reloads, without touching the event log or other devices. No automatic check runs at launch. The reload waits for this tab's queued writes. Other open tabs of the same device show a "Reload now" prompt instead of reloading, so an open draft is not lost, and from then on they stop syncing and their edits write no snapshot over the rebuild. The rebuild and the compare run in steps, so the screen keeps responding.
 - [ ] **Re-add on edit:** every edit that starts using a `media:` file emits one `MediaAdded` for it, even when the file is still listed (one small event per newly used file). If the code for it or a stored-file lookup fails, that re-add waits and is tried again on the next edit or sync, three tries at most; after that Check media's "Add back to the collection" covers the file.
 - [ ] **Snapshots from before media removal:** the collection snapshot format is now version 2. A version 1 snapshot with media is not used to start a new device from the cloud (the segments are replayed instead), and at launch this device replays its own log instead when the log is complete. Otherwise the version 1 snapshot is used, and saved again as version 2 right away so later launches don't read the whole log first. Loading it gives an add record at its newest change for each file: a removal decided after the add but before that snapshot, arriving late, then keeps the file here while a full replay drops it (the safe side: nothing a note uses is lost).
 
@@ -637,7 +637,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [ ] The front auto-speak absence check waits only two frames.
 - [ ] The `flash-cli mcp` child-process test has no explicit timeout or kill.
 - [ ] The retry reporter doesn't escape `%` in `::warning` messages, and has no automated test.
-- [ ] The 26 MiB snapshot fixture is heavy. Shrink it or build it lazily.
+- [x] The 26 MiB snapshot fixture is heavy: moved to "Left over from wave 3" (#90) below.
 - [ ] `sw-picker.spec.ts` matches the exact regex text of the denylist.
 - [ ] The `listFolderDecks` coverage (hide archived, name and id order) was dropped with the function.
 - [x] UI render tests still to write once `happy-dom` is in: `rateCard`, `undoLastReview`, `redoLastUndo`, `emitEvents` with a failed persist, the P3 render-count test, and the effect wiring in `ReminderRuntime`, `MediaImage` and Browse (see the decision below). Done in #90: 16 render tests.
@@ -658,7 +658,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [ ] #88: S6 stays partly fixed until a UI offers the "for other apps" CSV (`stripRichText: true`). The default CSV (Browse bar, category panel) is round-trip and unguarded by design. Fullwidth lookalikes (＝, ＋) are not guarded.
 - [ ] #89: `tests/e2e/sync.spec.ts` now compares event ids only, not each device's derived schedules. Add a state-level check (replay the stored logs, or read in-app state through a test hook).
 - [ ] #90: shrink or lazily build the 26 MiB D12 snapshot fixture in `sync-engine.test.ts`, then the coverage-only 15 s `testTimeout` could go back toward 5 s.
-- [ ] #90: fake `Date` as well as timers in the web badge test (`packages/ui/tests/effect-wiring.test.tsx` ~416). Wait for a ready signal rather than `flush(5)` in the P3 render test. Put a floor (≥ 50) on each threshold in `tools/hooks/settings.test.mjs`. `apps/*` shell code sits in the coverage denominator.
+- [ ] #90: fake `Date` as well as timers in the web badge test (`packages/ui/tests/effect-wiring.test.tsx` ~39). Wait for a ready signal rather than `flush(5)` in the P3 render test. Put a floor (≥ 50) on each threshold in `tools/hooks/settings.test.mjs`. `apps/*` shell code sits in the coverage denominator.
 - [ ] #90: `pnpm gate` runs plain `pnpm test`, so parallel branches can each pass and together drop under the coverage thresholds (like the bundle budget). Run `pnpm coverage` after merging main.
 
 ## Decisions needed (burn-down, 2026-11-26)
