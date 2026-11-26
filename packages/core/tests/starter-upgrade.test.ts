@@ -6,6 +6,7 @@ import {
   createEventFactory,
   createHlcState,
   getDeckDescription,
+  isKnownEventType,
   type CollectionState,
   type EventFactory,
   type KnownEvent,
@@ -405,6 +406,18 @@ describe('starter-deck upgrade', () => {
 
   it('knows the older values of the catalog release (bump STARTER_UPGRADE_TARGET with them)', () => {
     for (const info of STARTER_DECKS) expect(info.version).toBe(STARTER_UPGRADE_TARGET);
+  });
+
+  it('records the release in a log-retained event that older builds keep verbatim', async () => {
+    const factory = device('dev-a');
+    const state = replay(await legacySeed(factory, 'starter-ko-core', '1.0.0'));
+    const events = await upgrade(factory, state);
+    const marker = events.at(-1);
+    expect(marker?.type).toBe('StarterDeckUpgraded');
+    // Not a type replay applies: every build (older ones too) keeps it in `unknownEvents`.
+    expect(isKnownEventType('StarterDeckUpgraded')).toBe(false);
+    applyEvents(state, events);
+    expect(state.unknownEvents.map((e) => e.id)).toContain(marker?.id);
   });
 
   it('a device that syncs the first device’s upgrade first does not run it again', async () => {
