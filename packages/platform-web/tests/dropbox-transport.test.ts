@@ -112,6 +112,20 @@ describe('DropboxAppFolderTransport (§4.3, §15 Phase 8)', () => {
   it('rejects unsafe paths before any request', async () => {
     const { transport } = setup();
     await expect(transport.read('../etc/passwd')).rejects.toThrow(/Unsafe Dropbox/);
+    for (const path of ['sync/../x.json', 'sync/v1/..', 'sync\\..\\x.json', '..', 'a\0b']) {
+      await expect(transport.read(path)).rejects.toThrow(/Unsafe Dropbox/);
+      await expect(transport.write(path, new Uint8Array([1]))).rejects.toThrow(/Unsafe Dropbox/);
+      await expect(transport.list(`${path}/seg-`)).rejects.toThrow(/Unsafe Dropbox/);
+    }
+  });
+
+  it('accepts names that only contain `..` inside a segment (review §11)', async () => {
+    const { transport } = setup();
+    await transport.write('sync/v1/a..b/seg..1.json', new Uint8Array([7]));
+    expect(await transport.read('sync/v1/a..b/seg..1.json')).toEqual(new Uint8Array([7]));
+    expect((await transport.list('sync/v1/a..b/')).map((f) => f.path)).toEqual([
+      'sync/v1/a..b/seg..1.json',
+    ]);
   });
 
   it('carries a real core sync run on an empty App Folder: B pulls what A pushed', async () => {

@@ -1,4 +1,4 @@
-import { compareCodeUnits, SyncTransportError } from '@flash/core';
+import { compareCodeUnits, hasTraversalSegment, SyncTransportError } from '@flash/core';
 import type { Auth, SyncFileInfo, SyncTransport } from '@flash/platform';
 import {
   codeForGraphStatus,
@@ -40,7 +40,7 @@ function stripLeadingSlashes(value: string): string {
 export function oneDrivePathSegments(path: string, allowEmpty = false): string[] {
   const clean = stripLeadingSlashes(path.replaceAll('\\', '/'));
   const segments = clean.split('/').filter((s) => s.length > 0);
-  if (path.includes('\0') || segments.some((s) => s === '..' || s === '.')) {
+  if (hasTraversalSegment(clean) || segments.includes('.')) {
     throw new SyncTransportError('UNKNOWN', `Unsafe OneDrive sync path "${path}".`);
   }
   if (segments.length === 0 && !allowEmpty) {

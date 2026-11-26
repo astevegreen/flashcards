@@ -1,4 +1,5 @@
 export * from './ids.ts';
+export * from './paths.ts';
 export * from './utf8-decode.ts';
 // Explicit lists where a module has `@internal` helpers (HLC_MAX_COUNTER, planNoteCards,
 // tagAddIndex, …) that only sibling modules may import.

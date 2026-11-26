@@ -1,4 +1,4 @@
-import { SyncTransportError } from '@flash/core';
+import { hasTraversalSegment, SyncTransportError } from '@flash/core';
 import type { SyncFileInfo, SyncTransport } from '@flash/platform';
 import { AuthorizedHttpClient } from './authorized-http.ts';
 import { dropboxFailure } from './dropbox-errors.ts';
@@ -20,7 +20,7 @@ export interface DropboxTransportOptions {
 
 function normalizeSyncPath(path: string, rootPrefix = ''): string {
   const clean = path.replace(/\\/g, '/').replace(/^\/+/, '');
-  if (!clean || clean.includes('..') || clean.includes('\0')) {
+  if (!clean || hasTraversalSegment(clean)) {
     throw new SyncTransportError('UNKNOWN', `Unsafe Dropbox sync path "${path}".`);
   }
   const base = rootPrefix.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');

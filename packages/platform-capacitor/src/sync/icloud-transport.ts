@@ -1,4 +1,4 @@
-import { SyncTransportError, type SyncTransportErrorCode } from '@flash/core';
+import { hasTraversalSegment, SyncTransportError, type SyncTransportErrorCode } from '@flash/core';
 import type { SyncFileInfo, SyncTransport } from '@flash/platform';
 
 /**
@@ -38,7 +38,7 @@ function toSyncError(err: unknown): unknown {
 
 function validateRelativeSyncPath(path: string): string {
   const clean = path.replace(/\\/g, '/').replace(/^\/+/, '');
-  if (!clean || clean.split('/').includes('..') || clean.includes('\0')) {
+  if (!clean || hasTraversalSegment(clean)) {
     throw new Error(`Unsafe iCloud Drive sync path "${path}".`);
   }
   return clean;

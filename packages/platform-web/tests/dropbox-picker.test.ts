@@ -120,10 +120,22 @@ describe('DropboxAppFolderFilePicker', () => {
       }),
     ).rejects.toThrow(/not a \.csv/);
     await expect(picker.listFolder('../escape')).rejects.toThrow(/Unsafe/);
+    for (const path of ['Decks/../..', 'Decks\\..', '/..', 'Decks\0']) {
+      await expect(picker.listFolder(path)).rejects.toThrow(/Unsafe/);
+      await expect(picker.getFileInfo(`${path}/korean.csv`)).rejects.toThrow(/Unsafe|Invalid/);
+    }
     const docx = server.findByIdOrPath('/Decks/notes.docx');
     await expect(picker.downloadById(docx?.id ?? '')).rejects.toThrow(/not a \.csv/);
     expect(isPickableDropboxFile('Deck.FLASHPKG')).toBe(true);
     expect(isPickableDropboxFile('archive.zip')).toBe(false);
+  });
+
+  it('accepts folder and file names that only contain `..` inside a segment (review §11)', async () => {
+    const { server, picker } = setup();
+    server.put('Decks..old/a..b.csv', enc.encode('Front,Back\n개,dog\n'), 1_700_000_000_000);
+    const items = await picker.listFolder('Decks..old/');
+    expect(items.map((i) => i.name)).toEqual(['a..b.csv']);
+    expect((await picker.getFileInfo('Decks..old/a..b.csv')).name).toBe('a..b.csv');
   });
 
   it('escapes non-ASCII characters in Dropbox-API-Arg header', () => {
