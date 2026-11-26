@@ -46,6 +46,8 @@ export interface CachedPackCatalogRecord {
 
 const CUSTOM_CATALOG_URL_KEY = 'custom_pack_catalog_url';
 const CACHED_CATALOG_KEY = 'cached_pack_catalog';
+/** kv key of the latest `putSingleStroke` time per script (see `deckStrokesVersion`). */
+const DECK_STROKES_WRITTEN_KEY_PREFIX = 'deck_strokes_written:';
 const BROWSE_SUMMARY_KEY_PREFIX = 'browse_summary:';
 const SHARD_STATE_KEY_PREFIX = 'dict_shards:';
 
@@ -266,11 +268,17 @@ export class DexiePackStorage {
   }
 
   async putSingleStroke(script: StrokeScript, char: string, data: HanziStrokeData): Promise<void> {
-    await this.db.strokes.put({
-      script,
-      char,
-      data,
-      updatedAt: Date.now(),
+    const now = Date.now();
+    await this.db.transaction('rw', [this.db.strokes, this.db.kv], async () => {
+      await this.db.strokes.put({ script, char, data, updatedAt: now });
+      // The latest deck-stroke write, kept apart so the recognizer can check it without reading
+      // every row. Always moves forward, even if the clock stepped back.
+      const key = DECK_STROKES_WRITTEN_KEY_PREFIX + script;
+      const last = (await this.db.kv.get(key))?.value;
+      await this.db.kv.put({
+        key,
+        value: Math.max(now, (typeof last === 'number' ? last : 0) + 1),
+      });
     });
   }
 
@@ -278,8 +286,16 @@ export class DexiePackStorage {
     return this.db.strokes.where('script').equals(script).toArray();
   }
 
-  countStrokesByScript(script: StrokeScript): Promise<number> {
-    return this.db.strokes.where('script').equals(script).count();
+  /**
+   * Version of the strokes cached one by one for a script: their count plus the latest write, so
+   * re-caching a character with corrected strokes changes it too (P6).
+   */
+  async deckStrokesVersion(script: StrokeScript): Promise<string> {
+    const [count, written] = await Promise.all([
+      this.db.strokes.where('script').equals(script).count(),
+      this.db.kv.get(DECK_STROKES_WRITTEN_KEY_PREFIX + script),
+    ]);
+    return `${count}@${typeof written?.value === 'number' ? written.value : 0}`;
   }
 
   async getStrokeIndex(script: StrokeScript): Promise<StrokeLookupIndex | undefined> {

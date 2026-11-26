@@ -15,6 +15,7 @@ import {
   verifyBackupMedia,
   withBackupMediaStream,
   type BackupKind,
+  type BackupMediaLoader,
   type BackupReason,
   type ReadBackupResult,
   type RestorePlan,
@@ -111,22 +112,16 @@ function totalMediaBytes(state: CollectionState): number {
   return total;
 }
 
-async function loadMediaBlobs(
-  storage: Storage,
-  hashes: Iterable<string>,
-): Promise<Map<string, Uint8Array>> {
-  const blobs = new Map<string, Uint8Array>();
-  for (const hash of hashes) {
-    const blob = await storage.getMedia(hash);
-    if (blob) blobs.set(hash.toLowerCase(), blob.bytes);
-  }
-  return blobs;
+/** Reads one media file at a time, as the backup packer writes it (never all of them at once). */
+function mediaLoader(storage: Storage): BackupMediaLoader {
+  return async (hash) => (await storage.getMedia(hash))?.bytes;
 }
 
 /**
  * Saves a full backup file (media included) off the device; nothing is stored here. The archive
  * is streamed: into Blob parts on web, chunk by chunk into the chosen file on desktop and phones
- * (`Files.saveStream`), so it is never held as one array next to the media it packs.
+ * (`Files.saveStream`), so it is never held as one array, and each media file is read only as it
+ * is written.
  */
 export async function saveFullBackupFile(
   platform: PlatformServices,
@@ -143,13 +138,13 @@ export async function saveFullBackupFile(
       nowMs,
       deviceId: opts.deviceId,
       ...(opts.collectionId !== undefined ? { collectionId: opts.collectionId } : {}),
-      mediaBlobs: await loadMediaBlobs(platform.storage, state.media.keys()),
     },
     yieldToHost,
   );
   const { saveStreamedZip } = await import('../export/saveStreamedZip.ts');
   await saveStreamedZip(platform, 'application/zip', opts.fileName, async (emit) => {
-    await packBackupStream(built, { withMedia: true }, emit, yieldToHost);
+    const loadMedia = mediaLoader(platform.storage);
+    await packBackupStream(built, { withMedia: true, loadMedia }, emit, yieldToHost);
     return { fileName: opts.fileName };
   });
 }
@@ -171,12 +166,13 @@ export async function saveStoredBackupFile(
   const bytes = await (await openBackupStore(storage))?.getBytes(info.backup_id);
   if (!bytes) throw new Error('This backup is no longer on the device.');
   const addMedia = !info.media_included && info.media_hashes.length > 0;
-  const blobs = addMedia ? await loadMediaBlobs(storage, info.media_hashes) : undefined;
   const { saveStreamedZip } = await import('../export/saveStreamedZip.ts');
   let missingMedia = 0;
   await saveStreamedZip(platform, 'application/zip', fileName, async (emit) => {
-    if (blobs) {
-      missingMedia = (await withBackupMediaStream(bytes, blobs, emit, yieldToHost)).missingMedia;
+    if (addMedia) {
+      const loadMedia = mediaLoader(storage);
+      missingMedia = (await withBackupMediaStream(bytes, loadMedia, emit, yieldToHost))
+        .missingMedia;
     } else {
       // One slice at a time, so the sink is never handed more than it has taken.
       for (let at = 0; at < bytes.byteLength; at += SAVE_STEP_BYTES) {
@@ -327,8 +323,6 @@ async function writeSnapshot(
     (lastFailed && !store.measuredByStorageEstimate
       ? 'daily'
       : chooseBackupKind(existing, totalMediaBytes(state), nowMs));
-  const mediaBlobs =
-    kind === 'full' ? await loadMediaBlobs(storage, state.media.keys()) : undefined;
   const built = await buildBackupAsync(
     state,
     {
@@ -338,11 +332,14 @@ async function writeSnapshot(
       nowMs,
       deviceId: meta.deviceId,
       ...(meta.collectionId !== undefined ? { collectionId: meta.collectionId } : {}),
-      ...(mediaBlobs ? { mediaBlobs } : {}),
     },
     pause,
   );
-  const packed = await packBackupAsync(built, { withMedia: true }, pause);
+  const packed = await packBackupAsync(
+    built,
+    { withMedia: true, loadMedia: mediaLoader(storage) },
+    pause,
+  );
   const info: StoredBackupInfo = { ...packed.manifest, size_bytes: packed.bytes.byteLength };
 
   const free = store.measuredByStorageEstimate ? await freeStorageBytes() : null;

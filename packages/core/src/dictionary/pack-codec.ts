@@ -26,6 +26,7 @@ import type {
   StrokePackManifest,
 } from './types.ts';
 import { buildEntryBrowseKeys } from './browse.ts';
+import { PACK_SECURITY_LIMITS } from './limits.ts';
 import { buildEntrySearchTokens } from './search.ts';
 import {
   findShardForHeadword,
@@ -33,12 +34,7 @@ import {
   type RawDictionaryEntry,
 } from './shards.ts';
 
-export const PACK_SECURITY_LIMITS = {
-  maxCatalogBytes: 1 * 1024 * 1024, // 1 MB
-  maxCompressedBytes: 50 * 1024 * 1024, // 50 MB
-  maxUncompressedBytes: 150 * 1024 * 1024, // 150 MB (supports full JMdict)
-  maxEntries: 400_000,
-} as const;
+export { PACK_SECURITY_LIMITS };
 
 export class PackValidationError extends Error {
   readonly errors: SchemaValidationError[];

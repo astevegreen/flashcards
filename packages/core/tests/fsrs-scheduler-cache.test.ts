@@ -17,78 +17,14 @@ vi.mock('ts-fsrs', async (importOriginal) => {
 
 const { applyReviewToSchedule, createInitialSchedule, previewIntervals } =
   await import('../src/fsrs/scheduler.ts');
-const { replayAllEvents, createEventFactory, replaySingleCard } =
-  await import('../src/events/replay.ts');
-const { createHlcState } = await import('../src/hlc.ts');
-const { deriveCardId, deriveNoteId } = await import('../src/ids.ts');
-const { BUILTIN_NOTE_TYPE_IDS } = await import('../src/model/presets.ts');
+const { replayAllEvents } = await import('../src/events/replay.ts');
+const { buildCollection, DAY, T0 } = await import('./helpers/review-collection.ts');
 
-const DAY = 86_400_000;
-const T0 = Date.UTC(2026, 0, 1, 10);
 // Default FSRS-6 weights with w[2] (initial stability after Good) changed.
 const W = [
   0.212, 1.2931, 3.1, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614,
   0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542,
 ];
-
-function buildCollection(cards: number, reviewsPerCard: number) {
-  const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', T0));
-  const deckId = 'deck-p4';
-  const events = [
-    factory.create(
-      'DeckCreated',
-      {
-        deck_id: deckId,
-        name: 'P4',
-        note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
-        language: 'ko',
-        created_at: T0,
-      },
-      T0,
-    ),
-  ];
-  const cardIds: string[] = [];
-  for (let i = 0; i < cards; i++) {
-    const noteId = deriveNoteId(deckId, `n${i}`);
-    cardIds.push(deriveCardId(noteId, 'layout:vocab-ko:recognition', 0));
-    events.push(
-      factory.create(
-        'NoteUpserted',
-        {
-          note_id: noteId,
-          deck_id: deckId,
-          source_key: `n${i}`,
-          fields: { word: `w${i}`, meaning: `m${i}` },
-          tags: [],
-        },
-        T0,
-      ),
-    );
-  }
-  for (let r = 0; r < reviewsPerCard; r++) {
-    const at = T0 + (r + 1) * DAY;
-    cardIds.forEach((cardId, i) => {
-      events.push(
-        factory.create(
-          'ReviewRecorded',
-          {
-            review_id: `rev-${i}-${r}`,
-            card_id: cardId,
-            rating: (((i + r) % 4) + 1) as ReviewRating,
-            reviewed_at: at,
-            tz_offset: 0,
-            duration_ms: 1000,
-            answer_mode: 'flip',
-            fsrs_params_version: 0,
-            resulting_due_at: at,
-          },
-          at,
-        ),
-      );
-    });
-  }
-  return { events, cardIds, deckId, factory };
-}
 
 describe('FSRS scheduler cache (P4)', () => {
   beforeEach(() => {
@@ -128,17 +64,33 @@ describe('FSRS scheduler cache (P4)', () => {
     expect(built.count).toBeLessThanOrEqual(1);
   });
 
-  it('reports replay timings for 20k reviews', () => {
-    const { events, cardIds } = buildCollection(2000, 10);
-    const t0 = performance.now();
-    const state = replayAllEvents(events);
-    const full = performance.now() - t0;
-    const t1 = performance.now();
-    for (const id of cardIds) replaySingleCard(state, id);
-    const single = performance.now() - t1;
-    console.info(
-      `[P4] replayAllEvents, 20k reviews: ${full.toFixed(0)} ms; replaySingleCard x2000: ${single.toFixed(0)} ms`,
+  it('stays deterministic with fuzz on: the call order of a shared scheduler never matters', () => {
+    const fuzz = { request_retention: 0.9, enable_fuzz: true };
+    const start = createInitialSchedule(T0);
+    // Graduated schedules, where fuzz spreads the interval.
+    const grown = [0, 1, 2].map((i) => {
+      let schedule = start;
+      for (let r = 0; r < 4 + i; r++) {
+        schedule = applyReviewToSchedule(schedule, 3, T0 + (r + 1) * 5 * DAY, fuzz).next;
+      }
+      return schedule;
+    });
+    const at = T0 + 90 * DAY;
+    const ratings: ReviewRating[] = [2, 3, 4];
+    const inOrder = grown.map((s, i) => applyReviewToSchedule(s, ratings[i] ?? 3, at, fuzz));
+    // The same inputs again, in reverse and interleaved with unrelated reviews on the shared
+    // scheduler, give the same results.
+    const reversed = [2, 1, 0].map((i) => {
+      applyReviewToSchedule(start, 1, at - DAY, fuzz);
+      const s = grown[i];
+      if (!s) throw new Error('missing schedule');
+      return applyReviewToSchedule(s, ratings[i] ?? 3, at, fuzz);
+    });
+    expect(reversed.reverse()).toEqual(inOrder);
+    // Fuzz really is on for these: without it at least one interval differs.
+    const plain = grown.map((s, i) =>
+      applyReviewToSchedule(s, ratings[i] ?? 3, at, { request_retention: 0.9 }),
     );
-    expect(state.cards.size).toBe(2000);
+    expect(plain.map((r) => r.next.due)).not.toEqual(inOrder.map((r) => r.next.due));
   });
 });

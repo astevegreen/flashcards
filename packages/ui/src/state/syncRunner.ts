@@ -27,9 +27,8 @@ import type {
 } from '@flash/platform';
 import type { MutableRefObject } from 'react';
 import type { SyncUiState, SyncUiStatus } from './useSyncController.ts';
+import { localSnapshotDue } from './localSnapshotCounter.ts';
 import { snapshotWriteAllowed } from './rebuildSignal.ts';
-
-const LOCAL_SNAPSHOT_EVENT_THRESHOLD = 200;
 
 function isNavigatorOnline(): boolean {
   return typeof navigator === 'undefined' ? true : navigator.onLine;
@@ -452,7 +451,7 @@ export async function runSyncCycle(
 
       const totalNow = getTotalAppliedEventCount(ctx.stateRef.current);
       const shouldSaveLocalSnapshot =
-        totalNow - ctx.lastLocalSnapshotCountRef.current >= LOCAL_SNAPSHOT_EVENT_THRESHOLD ||
+        localSnapshotDue(ctx.lastLocalSnapshotCountRef, totalNow) ||
         result.pulledEvents.length >= 100;
       const localSnapPayload = shouldSaveLocalSnapshot
         ? serializeCollectionState(
@@ -460,6 +459,9 @@ export async function runSyncCycle(
             buildWatermarks(deviceId, nextMeta.seq, result.cursor),
           )
         : null;
+      // Moved when the snapshot is decided, as a local edit does, so an edit queued before this
+      // write runs doesn't take a second snapshot of the same events (R10).
+      if (localSnapPayload) ctx.lastLocalSnapshotCountRef.current = totalNow;
 
       void ctx.enqueuePersist(async () => {
         await ctx.platform.storage.appendEvents(result.pulledEvents);
@@ -483,7 +485,6 @@ export async function runSyncCycle(
             localSeq: maxLocalSeq,
             savedAt: Date.now(),
           });
-          ctx.lastLocalSnapshotCountRef.current = totalNow;
         }
       });
     } else {

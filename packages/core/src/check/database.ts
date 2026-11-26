@@ -164,35 +164,19 @@ function finishComparison(
   };
 }
 
-/** Compares the rebuilt collection (`expected`) with the running one (`actual`). */
-export function compareCollectionStates(
-  expected: CollectionState,
-  actual: CollectionState,
-  opts: { limit?: number } = {},
-): CollectionComparison {
-  const tally: DifferenceTally = {
-    differences: [],
-    byArea: {},
-    total: 0,
-    limit: opts.limit ?? 200,
-  };
-  const want = areaMaps(serializeCollectionState(expected));
-  const have = areaMaps(serializeCollectionState(actual));
-  for (const area of AREA_ORDER) compareArea(tally, area, want[area], have[area]);
-  return finishComparison(tally, expected, actual);
-}
-
 /** Lets the host run (paint, input) between steps of a long check. */
 export type Pause = () => Promise<void>;
 
+const noPause: Pause = () => Promise.resolve();
+
 /**
- * {@link compareCollectionStates} in steps, pausing between the heavy ones, so a large collection
- * doesn't freeze the screen (§8). Same result.
+ * Compares the rebuilt collection (`expected`) with the running one (`actual`), in steps, pausing
+ * between the heavy ones so a large collection doesn't freeze the screen (§8).
  */
 export async function compareCollectionStatesAsync(
   expected: CollectionState,
   actual: CollectionState,
-  pause: Pause,
+  pause: Pause = noPause,
   opts: { limit?: number } = {},
 ): Promise<CollectionComparison> {
   const tally: DifferenceTally = {
@@ -252,11 +236,6 @@ export function checkLogCoverage(
   return { complete: devicesWithGaps.length === 0, devicesWithGaps, maxSeqByDevice };
 }
 
-/** The collection rebuilt from nothing but the event log. */
-export function rebuildFromEvents(events: readonly FlashEvent[]): CollectionState {
-  return applyEvents(createEmptyState(), events);
-}
-
 const REBUILD_CHUNK = 2000;
 
 function byHlcThenId(a: FlashEvent, b: FlashEvent): number {
@@ -264,13 +243,13 @@ function byHlcThenId(a: FlashEvent, b: FlashEvent): number {
 }
 
 /**
- * {@link rebuildFromEvents} in chunks of the log in (hlc, id) order, pausing between them. Replay
- * converges whatever the delivery order (that is what lets sync deliver in batches), so the
- * result equals the one-batch rebuild.
+ * The collection rebuilt from nothing but the event log, in chunks of the log in (hlc, id) order,
+ * pausing between them. Replay converges whatever the delivery order (that is what lets sync
+ * deliver in batches), so the result equals a one-batch rebuild.
  */
 export async function rebuildFromEventsAsync(
   events: readonly FlashEvent[],
-  pause: Pause,
+  pause: Pause = noPause,
   chunk = REBUILD_CHUNK,
 ): Promise<CollectionState> {
   const sorted = [...events].sort(byHlcThenId);

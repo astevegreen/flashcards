@@ -2,13 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BackupArchiveError,
   BACKUP_KEEP_COUNT,
-  buildBackup,
   buildBackupAsync,
   chooseBackupKind,
   FULL_BACKUP_INTERVAL_MS,
   isAutoBackupDue,
   mediaHashesUsedByBackups,
-  packBackup,
   packBackupAsync,
   packBackupStream,
   parseSyncFolderBackupPath,
@@ -19,7 +17,6 @@ import {
   selectBackupsToPrune,
   syncFolderBackupPath,
   verifyBackupMedia,
-  withBackupMedia,
   withBackupMediaStream,
   type BackupManifest,
 } from '../src/backup/index.ts';
@@ -103,19 +100,35 @@ function buildCollection(): {
   return { events, state, factory };
 }
 
-function backupOf(state: CollectionState, kind: 'daily' | 'full' = 'daily', nowMs = T0 + DAY) {
-  return packBackup(
-    buildBackup(state, {
-      backupId: `b-${nowMs}`,
-      kind,
-      reason: 'auto',
-      nowMs,
-      deviceId: 'dev-a',
-      collectionId: 'col-1',
-      mediaBlobs: new Map([[PNG_HASH, PNG]]),
-    }),
-    { withMedia: true },
-  );
+/** This device's media, read one file at a time as the packer asks for it. */
+const loadPng = (hash: string) => Promise.resolve(hash === PNG_HASH ? PNG : undefined);
+const loadNothing = () => Promise.resolve(undefined);
+
+async function packBackupAsyncWith(
+  archive: Uint8Array,
+  loadMedia: (hash: string) => Promise<Uint8Array | undefined>,
+) {
+  const chunks: Uint8Array[] = [];
+  const { manifest, missingMedia } = await withBackupMediaStream(archive, loadMedia, (chunk) => {
+    chunks.push(chunk.slice());
+  });
+  return { manifest, missingMedia, bytes: join(chunks) };
+}
+
+async function backupOf(
+  state: CollectionState,
+  kind: 'daily' | 'full' = 'daily',
+  nowMs = T0 + DAY,
+) {
+  const built = await buildBackupAsync(state, {
+    backupId: `b-${nowMs}`,
+    kind,
+    reason: 'auto',
+    nowMs,
+    deviceId: 'dev-a',
+    collectionId: 'col-1',
+  });
+  return packBackupAsync(built, { withMedia: true, loadMedia: loadPng });
 }
 
 function activeNotes(state: CollectionState) {
@@ -149,9 +162,9 @@ function restore(
 }
 
 describe('backup archive', () => {
-  it('round-trips the full state and stays an importable .flashpkg', () => {
+  it('round-trips the full state and stays an importable .flashpkg', async () => {
     const { state } = buildCollection();
-    const { bytes, manifest } = backupOf(state);
+    const { bytes, manifest } = await backupOf(state);
     expect(manifest.kind).toBe('daily');
     expect(manifest.media_included).toBe(false);
     expect(manifest.media_hashes).toEqual([PNG_HASH]);
@@ -167,19 +180,40 @@ describe('backup archive', () => {
     expect(imported.notesImported).toBe(manifest.counts.notes);
   });
 
-  it('packs media only in a full backup, and can add it to a daily one', () => {
+  it('packs media only in a full backup, and can add it to a daily one', async () => {
     const { state } = buildCollection();
-    const full = backupOf(state, 'full');
+    const full = await backupOf(state, 'full');
     expect(full.manifest.media_included).toBe(true);
     const read = readBackupArchive(full.bytes);
     const file = read.media.get(PNG_HASH);
     expect(file && verifyBackupMedia(file)).toBe(true);
 
-    const daily = backupOf(state, 'daily');
-    const added = withBackupMedia(daily.bytes, new Map([[PNG_HASH, PNG]]));
+    const daily = await backupOf(state, 'daily');
+    const added = await packBackupAsyncWith(daily.bytes, loadPng);
     expect(added.missingMedia).toBe(0);
     expect(readBackupArchive(added.bytes).media.has(PNG_HASH)).toBe(true);
-    expect(withBackupMedia(daily.bytes, new Map()).missingMedia).toBe(1);
+    expect((await packBackupAsyncWith(daily.bytes, loadNothing)).missingMedia).toBe(1);
+  });
+
+  it('writes a full backup that finds no media as a daily one, as before', async () => {
+    const { state } = buildCollection();
+    const built = await buildBackupAsync(state, {
+      backupId: 'b-empty',
+      kind: 'full',
+      reason: 'auto',
+      nowMs: T0,
+      deviceId: 'dev-a',
+    });
+    for (const loadMedia of [loadNothing, undefined]) {
+      const packed = await packBackupAsync(built, {
+        withMedia: true,
+        ...(loadMedia ? { loadMedia } : {}),
+      });
+      expect(packed.manifest).toMatchObject({ kind: 'daily', media_included: false });
+      expect(readBackupArchive(packed.bytes).manifest).toEqual(packed.manifest);
+    }
+    const full = await packBackupAsync(built, { withMedia: true, loadMedia: loadPng });
+    expect(full.manifest).toMatchObject({ kind: 'full', media_included: true });
   });
 
   it('rejects a plain .flashpkg and damaged archives', () => {
@@ -304,14 +338,13 @@ describe('backup archive validation and async packing', () => {
       reason: 'auto' as const,
       nowMs: T0,
       deviceId: 'dev-a',
-      mediaBlobs: new Map([[PNG_HASH, PNG]]),
     };
     let pauses = 0;
     const built = await buildBackupAsync(state, options, async () => {
       pauses += 1;
     });
     expect(pauses).toBeGreaterThan(0);
-    const packed = await packBackupAsync(built, { withMedia: true });
+    const packed = await packBackupAsync(built, { withMedia: true, loadMedia: loadPng });
     const read = readBackupArchive(packed.bytes);
     expect(read.manifest.media_included).toBe(true);
     expect(read.media.get(PNG_HASH)?.bytes).toEqual(PNG);
@@ -358,22 +391,22 @@ describe('backup archive validation and async packing', () => {
       reason: 'auto',
       nowMs: T0,
       deviceId: 'dev-a',
-      mediaBlobs: new Map([[PNG_HASH, PNG]]),
     });
     expect(built.entries['backup/state.json']?.byteLength).toBeGreaterThan(160 * 1024);
     let pauses = 0;
-    const packed = await packBackupAsync(built, { withMedia: true }, async () => {
-      pauses += 1;
-    });
+    const packed = await packBackupAsync(
+      built,
+      { withMedia: true, loadMedia: loadPng },
+      async () => {
+        pauses += 1;
+      },
+    );
     expect(workers).not.toHaveBeenCalled();
     expect(objectUrls).not.toHaveBeenCalled();
     expect(pauses).toBeGreaterThan(1);
     const read = readBackupArchive(packed.bytes);
     expect(read.state.reviewsByCard.size).toBe(state.reviewsByCard.size);
     expect(read.media.get(PNG_HASH)?.bytes).toEqual(PNG);
-    // The synchronous packer reads back the same.
-    const sync = readBackupArchive(packBackup(built, { withMedia: true }).bytes);
-    expect(activeNotes(sync.state)).toEqual(activeNotes(read.state));
   });
 
   it('streams the archive to a slow sink, waiting for each write before packing more', async () => {
@@ -384,14 +417,20 @@ describe('backup archive validation and async packing', () => {
       reason: 'manual',
       nowMs: T0,
       deviceId: 'dev-a',
-      mediaBlobs: new Map([[PNG_HASH, PNG]]),
     });
     const chunks: Uint8Array[] = [];
     let inFlight = 0;
     let maxInFlightAtPause = 0;
+    let loads = 0;
     const { manifest } = await packBackupStream(
       built,
-      { withMedia: true },
+      {
+        withMedia: true,
+        loadMedia: (hash) => {
+          loads += 1;
+          return loadPng(hash);
+        },
+      },
       (chunk) => {
         inFlight += 1;
         chunks.push(chunk.slice());
@@ -409,51 +448,46 @@ describe('backup archive validation and async packing', () => {
     expect(inFlight).toBe(0);
     expect(maxInFlightAtPause).toBe(0);
     expect(manifest.media_included).toBe(true);
+    // Media is read one file at a time while the archive is written, never up front.
+    expect(loads).toBe(1);
     const read = readBackupArchive(join(chunks));
     expect(read.media.get(PNG_HASH)?.bytes).toEqual(PNG);
     expect(activeNotes(read.state)).toEqual(activeNotes(state));
     // Same contents as the one-array packer.
-    const whole = readBackupArchive((await packBackupAsync(built, { withMedia: true })).bytes);
+    const whole = readBackupArchive(
+      (await packBackupAsync(built, { withMedia: true, loadMedia: loadPng })).bytes,
+    );
     expect(activeNotes(whole.state)).toEqual(activeNotes(read.state));
   });
 
   it('streams a daily snapshot with the media from this device added', async () => {
     const { state } = buildCollection();
-    const daily = packBackup(
-      buildBackup(state, {
-        backupId: 'b-daily',
-        kind: 'daily',
-        reason: 'auto',
-        nowMs: T0,
-        deviceId: 'dev-a',
-      }),
-      { withMedia: false },
-    ).bytes;
+    const built = await buildBackupAsync(state, {
+      backupId: 'b-daily',
+      kind: 'daily',
+      reason: 'auto',
+      nowMs: T0,
+      deviceId: 'dev-a',
+    });
+    const daily = (await packBackupAsync(built, { withMedia: false })).bytes;
     const chunks: Uint8Array[] = [];
-    const streamed = await withBackupMediaStream(
-      daily,
-      new Map([[PNG_HASH, PNG]]),
-      async (chunk) => {
-        chunks.push(chunk.slice());
-      },
-    );
-    const sync = withBackupMedia(daily, new Map([[PNG_HASH, PNG]]));
-    expect(streamed.manifest).toEqual(sync.manifest);
-    expect(streamed.missingMedia).toBe(sync.missingMedia);
+    const streamed = await withBackupMediaStream(daily, loadPng, async (chunk) => {
+      chunks.push(chunk.slice());
+    });
+    expect(streamed.manifest.media_included).toBe(true);
+    expect(streamed.missingMedia).toBe(0);
     const read = readBackupArchive(join(chunks));
     expect(read.manifest.media_included).toBe(true);
     expect(read.media.get(PNG_HASH)?.bytes).toEqual(PNG);
     await expect(
-      withBackupMediaStream(daily, new Map([[PNG_HASH, PNG]]), () =>
-        Promise.reject(new Error('disk full')),
-      ),
+      withBackupMediaStream(daily, loadPng, () => Promise.reject(new Error('disk full'))),
     ).rejects.toThrow('disk full');
   });
 
-  it('rejects a malformed state.json before any of it becomes an event', () => {
+  it('rejects a malformed state.json before any of it becomes an event', async () => {
     const { state } = buildCollection();
-    const tamper = (edit: (raw: Record<string, unknown>) => void) => {
-      const built = buildBackup(state, {
+    const tamper = async (edit: (raw: Record<string, unknown>) => void) => {
+      const built = await buildBackupAsync(state, {
         backupId: 'b-bad',
         kind: 'daily',
         reason: 'auto',
@@ -465,43 +499,44 @@ describe('backup archive validation and async packing', () => {
       ) as Record<string, unknown>;
       edit(raw);
       built.entries['backup/state.json'] = encodeUtf8(JSON.stringify(raw));
-      return () => readBackupArchive(packBackup(built, { withMedia: false }).bytes);
+      const { bytes } = await packBackupAsync(built, { withMedia: false });
+      return () => readBackupArchive(bytes);
     };
     const notes = (raw: Record<string, unknown>) => raw['notes'] as Record<string, unknown>[];
     const firstReviews = (raw: Record<string, unknown>) =>
       Object.values(raw['reviewsByCard'] as Record<string, Record<string, unknown>[]>)[0] ?? [];
     expect(
-      tamper((raw) => {
+      await tamper((raw) => {
         const n = notes(raw)[0];
         if (n) n['fields'] = { front: 42 };
       }),
     ).toThrow(BackupArchiveError);
     expect(
-      tamper((raw) => {
+      await tamper((raw) => {
         const r = firstReviews(raw)[0];
         if (r) r['rating'] = 9;
       }),
     ).toThrow(/rating/);
     expect(
-      tamper((raw) => {
+      await tamper((raw) => {
         const r = firstReviews(raw)[0];
         if (r) r['reviewed_at'] = null;
       }),
     ).toThrow(BackupArchiveError);
     expect(
-      tamper((raw) => {
+      await tamper((raw) => {
         raw['decks'] = 'nope';
       }),
     ).toThrow(BackupArchiveError);
     // The untouched archive still reads.
-    expect(() => tamper(() => undefined)()).not.toThrow();
+    expect(await tamper(() => undefined)).not.toThrow();
   });
 });
 
 describe('backup restore', () => {
-  it('rebuilds the whole collection on an empty device', () => {
+  it('rebuilds the whole collection on an empty device', async () => {
     const { state } = buildCollection();
-    const read = readBackupArchive(backupOf(state).bytes);
+    const read = readBackupArchive((await backupOf(state)).bytes);
     const fresh = createEmptyState();
     restore(fresh, read.state, factoryFor('dev-new'));
     expect(activeNotes(fresh)).toEqual(activeNotes(state));
@@ -511,9 +546,9 @@ describe('backup restore', () => {
     expect(planBackupRestore(fresh, read.state).steps).toHaveLength(0);
   });
 
-  it('undoes a bad import, a deletion and an edit, and keeps newer reviews', () => {
+  it('undoes a bad import, a deletion and an edit, and keeps newer reviews', async () => {
     const { state, factory } = buildCollection();
-    const read = readBackupArchive(backupOf(state).bytes);
+    const read = readBackupArchive((await backupOf(state)).bytes);
     const notes = [...state.notes.values()];
     const victim = notes[0];
     const edited = notes[1];
@@ -568,7 +603,7 @@ describe('backup restore', () => {
     expect(planBackupRestore(kept, read.state).steps).toHaveLength(0);
   });
 
-  it('brings a leech suspension back as a leech one', () => {
+  it('brings a leech suspension back as a leech one', async () => {
     const { state, factory } = buildCollection();
     const card = [...state.cards.values()][5];
     const note = card ? state.notes.get(card.note_id) : undefined;
@@ -577,15 +612,15 @@ describe('backup restore', () => {
       factory.create('NoteTagsAdded', { note_id: note.id, tags: ['leech'], reason: 'leech' }, T0),
       factory.create('CardSuspended', { card_id: card.id, reason: 'leech' }, T0),
     ]);
-    const read = readBackupArchive(backupOf(state).bytes);
+    const read = readBackupArchive((await backupOf(state)).bytes);
     applyEvents(state, [factory.create('CardUnsuspended', { card_id: card.id }, T0 + DAY)]);
     const step = planBackupRestore(state, read.state).steps.find((s) => s.type === 'CardSuspended');
     expect(step?.payload).toEqual({ card_id: card.id, reason: 'leech' });
   });
 
-  it('restores while another device edits offline: both converge, the offline edit survives', () => {
+  it('restores while another device edits offline: both converge, the offline edit survives', async () => {
     const { events, state, factory } = buildCollection();
-    const read = readBackupArchive(backupOf(state).bytes);
+    const read = readBackupArchive((await backupOf(state)).bytes);
     const note = [...state.notes.values()][3];
     if (!note) throw new Error('sample data changed');
     const b = factoryFor('dev-b');
@@ -604,9 +639,9 @@ describe('backup restore', () => {
     expect(state.notes.get(note.id)?.fields['extra']).toBe('offline');
   });
 
-  it('converges: a device that never saw the damage ends in the same state', () => {
+  it('converges: a device that never saw the damage ends in the same state', async () => {
     const { events, state, factory } = buildCollection();
-    const read = readBackupArchive(backupOf(state).bytes);
+    const read = readBackupArchive((await backupOf(state)).bytes);
     const victim = [...state.notes.values()][2];
     if (!victim) throw new Error('sample data changed');
     const damage = [factory.create('NoteArchived', { note_id: victim.id }, T0 + 2 * DAY)];

@@ -6,10 +6,21 @@ import type {
   PackInstallProgress,
 } from '@flash/platform';
 import { isPackForActiveLanguages } from '@flash/core';
+import { PACK_SECURITY_LIMITS } from '@flash/core/pack-limits';
+import { tooLargeMessage } from '../components/pickedFileLimit.ts';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { ShowAllLanguagesSwitch, useShowAllLanguages } from './ShowAllLanguagesSwitch.tsx';
+
+/**
+ * A picked pack may be gzip or plain JSON, so the larger of the two caps (uncompressed) applies
+ * before the file is read (P8).
+ */
+const MAX_PACK_PICK_BYTES = Math.max(
+  PACK_SECURITY_LIMITS.maxCompressedBytes,
+  PACK_SECURITY_LIMITS.maxUncompressedBytes,
+);
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -185,8 +196,16 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
     setError(null);
     setStatus(null);
     try {
-      const picked = await platform.files.pickFile({ accept: '.gz,.json' });
+      const picked = await platform.files.pickFile({
+        accept: '.gz,.json',
+        maxBytes: MAX_PACK_PICK_BYTES,
+      });
       if (!picked) return;
+      const tooLarge = tooLargeMessage(picked, MAX_PACK_PICK_BYTES, 'for a dictionary pack');
+      if (tooLarge) {
+        setError(tooLarge);
+        return;
+      }
       setBusyPackId('local-import');
       setProgress({ phase: 'verifying' });
       const mgr = await platform.getPackManager();

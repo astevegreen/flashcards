@@ -1,5 +1,5 @@
 import { findBackupStateProblem } from '@flash/content-schema/backup-state';
-import { Zip, ZipDeflate, ZipPassThrough, zipSync, type Zippable } from 'fflate';
+import { Zip, ZipDeflate, ZipPassThrough } from 'fflate';
 import type { CollectionState } from '../events/replay.ts';
 import { getTotalAppliedEventCount } from '../events/replay.ts';
 import {
@@ -76,16 +76,26 @@ export interface BuildBackupOptions {
   collectionId?: string;
   /** Sync watermarks merged into the serialized state (as local snapshots do). */
   watermarks?: Record<string, number>;
-  /** Media blobs by hash. Used only for a `full` backup; a missing blob is left out. */
-  mediaBlobs?: ReadonlyMap<string, Uint8Array>;
+}
+
+/** Reads one media file by content hash; `undefined` when this device lacks it. */
+export type BackupMediaLoader = (hash: string) => Promise<Uint8Array | undefined>;
+
+/** A media file a backup can pack: its hash as the collection keys it, and its archive path. */
+export interface BackupMediaPath {
+  hash: string;
+  path: string;
 }
 
 export interface BuiltBackup {
   manifest: BackupManifest;
   /** Archive entries without `backup/backup.json` and without media. */
   entries: Record<string, Uint8Array>;
-  /** `media/<sha256>.<ext>` entries (empty for a daily backup). */
-  mediaEntries: Record<string, Uint8Array>;
+  /**
+   * Every media file of the collection a full backup can pack (safe types only), in order. The
+   * packer reads each one only as it writes it (`loadMedia`).
+   */
+  mediaFiles: readonly BackupMediaPath[];
 }
 
 export class BackupArchiveError extends Error {
@@ -135,16 +145,14 @@ function finishBackup(
   options: BuildBackupOptions,
   entries: Record<string, Uint8Array>,
 ): BuiltBackup {
-  const mediaEntries: Record<string, Uint8Array> = {};
+  const mediaFiles: BackupMediaPath[] = [];
   const mediaHashes: string[] = [];
   for (const [hash, entry] of state.media) {
     const normHash = hash.toLowerCase();
     mediaHashes.push(normHash);
-    if (options.kind !== 'full' || !options.mediaBlobs) continue;
     const ext = entry.ext.toLowerCase().replace(/^\./, '');
     if (!safeMediaMimeForExt(ext)) continue;
-    const blob = options.mediaBlobs.get(normHash) ?? options.mediaBlobs.get(hash);
-    if (blob) mediaEntries[`media/${normHash}.${ext}`] = blob;
+    mediaFiles.push({ hash, path: `media/${normHash}.${ext}` });
   }
   mediaHashes.sort(compareCodeUnits);
 
@@ -159,22 +167,16 @@ function finishBackup(
     total_events: getTotalAppliedEventCount(state),
     counts: countBackupContents(state),
     media_hashes: mediaHashes,
-    media_included: options.kind === 'full' && Object.keys(mediaEntries).length > 0,
+    // Set by the packer, once it knows which media files made it in.
+    media_included: false,
   };
-  return { manifest, entries, mediaEntries };
-}
-
-/** Builds the entries of a backup archive; {@link packBackup} zips them. */
-export function buildBackup(state: CollectionState, options: BuildBackupOptions): BuiltBackup {
-  const entries = backupEntries(state, options.nowMs);
-  const serialized = serializeCollectionState(state, options.watermarks ?? {});
-  entries[BACKUP_STATE_PATH] = encodeUtf8(JSON.stringify(serialized));
-  return finishBackup(state, options, entries);
+  return { manifest, entries, mediaFiles };
 }
 
 /**
- * {@link buildBackup} in steps, awaiting `pause` between them so a caller on the UI thread can
- * yield to rendering (§8). The result is the same.
+ * Builds the entries of a backup archive in steps, awaiting `pause` between them so a caller on
+ * the UI thread can yield to rendering (§8). {@link packBackupStream} or {@link packBackupAsync}
+ * zips them.
  */
 export async function buildBackupAsync(
   state: CollectionState,
@@ -190,34 +192,6 @@ export async function buildBackupAsync(
   return finishBackup(state, options, entries);
 }
 
-function packedManifest(built: BuiltBackup, withMedia: boolean): BackupManifest {
-  return withMedia ? built.manifest : { ...built.manifest, kind: 'daily', media_included: false };
-}
-
-/** Archive files: text compressed, media stored as is (already compressed formats). */
-function archiveFiles(built: BuiltBackup, withMedia: boolean, manifest: BackupManifest): Zippable {
-  const files: Zippable = { ...built.entries };
-  if (withMedia) {
-    for (const [path, bytes] of Object.entries(built.mediaEntries))
-      files[path] = [bytes, { level: 0 }];
-  }
-  files[BACKUP_MANIFEST_PATH] = encodeUtf8(JSON.stringify(manifest, null, 2));
-  return files;
-}
-
-/**
- * Zips a built backup. `withMedia: false` writes the same snapshot as a daily one (no media), for
- * example for the copy in the sync folder, whose `media/` store already holds the files.
- */
-export function packBackup(
-  built: BuiltBackup,
-  opts: { withMedia: boolean },
-): { manifest: BackupManifest; bytes: Uint8Array } {
-  const withMedia = opts.withMedia && built.manifest.media_included;
-  const manifest = packedManifest(built, withMedia);
-  return { manifest, bytes: zipSync(archiveFiles(built, withMedia, manifest), { level: 6 }) };
-}
-
 /** Bytes fed to the zip stream between two pauses. */
 const PACK_STEP_BYTES = 512 * 1024;
 
@@ -228,17 +202,20 @@ const PACK_STEP_BYTES = 512 * 1024;
  */
 export type BackupChunkSink = (chunk: Uint8Array) => void | PromiseLike<void>;
 
+interface ZipWriter {
+  /** Adds one file; `stored` skips compression (media formats are compressed already). */
+  add(path: string, bytes: Uint8Array, stored: boolean): Promise<void>;
+  finish(): Promise<void>;
+}
+
 /**
- * Zips `files` in steps on the calling thread, pausing between 512 KB pieces of each file, and
- * hands each chunk to `emit` as it is made. fflate's async `zip` is not used: it compresses in a
- * `blob:` worker, which the app's CSP (`worker-src 'self'`) refuses, and it reports no error when
- * the worker can't start, so the promise would never settle.
+ * Zips files one by one on the calling thread, pausing between 512 KB pieces of each file, and
+ * hands each chunk to `emit` as it is made, so a caller can drop a file once it is written.
+ * fflate's async `zip` is not used: it compresses in a `blob:` worker, which the app's CSP
+ * (`worker-src 'self'`) refuses, and it reports no error when the worker can't start, so the
+ * promise would never settle.
  */
-async function streamZippable(
-  files: Zippable,
-  emit: BackupChunkSink,
-  pause: () => Promise<void>,
-): Promise<void> {
+function createZipWriter(emit: BackupChunkSink, pause: () => Promise<void>): ZipWriter {
   let failure: Error | null = null;
   let done = false;
   let pending: PromiseLike<void>[] = [];
@@ -256,43 +233,70 @@ async function streamZippable(
     pending = [];
     await Promise.all(waiting);
   };
-  for (const [path, value] of Object.entries(files)) {
-    const stored = Array.isArray(value);
-    const bytes = (stored ? value[0] : value) as Uint8Array;
-    const file = stored ? new ZipPassThrough(path) : new ZipDeflate(path, { level: 6 });
-    archive.add(file);
-    if (bytes.byteLength === 0) file.push(bytes, true);
-    for (let at = 0; at < bytes.byteLength; at += PACK_STEP_BYTES) {
-      const end = Math.min(at + PACK_STEP_BYTES, bytes.byteLength);
-      file.push(bytes.subarray(at, end), end === bytes.byteLength);
-      // Sequential on purpose: backpressure, then a yield to rendering.
-      await drain(); // NOSONAR (S9382)
-      await pause(); // NOSONAR (S9382)
-    }
-    await drain(); // NOSONAR (S9382)
-    if (failure) throw failure;
-  }
-  archive.end();
-  await drain();
-  if (failure) throw failure;
-  if (!done) throw new Error('The backup archive did not finish.');
+  return {
+    async add(path, bytes, stored) {
+      const file = stored ? new ZipPassThrough(path) : new ZipDeflate(path, { level: 6 });
+      archive.add(file);
+      if (bytes.byteLength === 0) file.push(bytes, true);
+      for (let at = 0; at < bytes.byteLength; at += PACK_STEP_BYTES) {
+        const end = Math.min(at + PACK_STEP_BYTES, bytes.byteLength);
+        file.push(bytes.subarray(at, end), end === bytes.byteLength);
+        // Sequential on purpose: backpressure, then a yield to rendering.
+        await drain(); // NOSONAR (S9382)
+        await pause(); // NOSONAR (S9382)
+      }
+      await drain();
+      if (failure) throw failure;
+    },
+    async finish() {
+      archive.end();
+      await drain();
+      if (failure) throw failure;
+      if (!done) throw new Error('The backup archive did not finish.');
+    },
+  };
 }
 
 /**
- * {@link packBackup} in steps, streaming: each chunk of the archive goes to `emit` as it is
- * made, so a caller can write it to a file without ever holding the whole archive (§8: the
- * same steps and pauses as {@link packBackupAsync}). Resolves with the manifest once the last
- * chunk has been taken.
+ * Zips a built backup in steps, streaming: each chunk of the archive goes to `emit` as it is made,
+ * so a caller can write it to a file without ever holding the whole archive (§8). Resolves with
+ * the manifest once the last chunk has been taken.
+ *
+ * A full backup packs its media when given `loadMedia`, which is called for one file at a time as
+ * it is written, so the collection's media is never all in memory at once; a missing file is left
+ * out. The manifest goes last, once it is known which files made it in. `withMedia: false` writes
+ * the same snapshot as a daily one (no media), for example for the copy in the sync folder, whose
+ * `media/` store already holds the files.
  */
 export async function packBackupStream(
   built: BuiltBackup,
-  opts: { withMedia: boolean },
+  opts: { withMedia: boolean; loadMedia?: BackupMediaLoader },
   emit: BackupChunkSink,
   pause: () => Promise<void> = () => Promise.resolve(),
 ): Promise<{ manifest: BackupManifest }> {
-  const withMedia = opts.withMedia && built.manifest.media_included;
-  const manifest = packedManifest(built, withMedia);
-  await streamZippable(archiveFiles(built, withMedia, manifest), emit, pause);
+  const loadMedia = opts.withMedia && built.manifest.kind === 'full' ? opts.loadMedia : undefined;
+  const zip = createZipWriter(emit, pause);
+  // One file at a time on purpose (S9382): each waits for the sink before the next is read.
+  for (const [path, bytes] of Object.entries(built.entries)) {
+    await zip.add(path, bytes, false); // NOSONAR (S9382)
+  }
+  let packedMedia = 0;
+  if (loadMedia) {
+    for (const { hash, path } of built.mediaFiles) {
+      const bytes = await loadMedia(hash); // NOSONAR (S9382): one media file in memory at a time
+      if (!bytes) continue;
+      await zip.add(path, bytes, true); // NOSONAR (S9382)
+      packedMedia += 1;
+    }
+  }
+  // A full snapshot that ended up holding no media is written as a daily one, as before: the
+  // weekly full backup is then tried again (`chooseBackupKind` looks for a full one with media).
+  const manifest: BackupManifest =
+    packedMedia > 0
+      ? { ...built.manifest, media_included: true }
+      : { ...built.manifest, kind: 'daily', media_included: false };
+  await zip.add(BACKUP_MANIFEST_PATH, encodeUtf8(JSON.stringify(manifest, null, 2)), false);
+  await zip.finish();
   return { manifest };
 }
 
@@ -307,13 +311,12 @@ function joinChunks(parts: readonly Uint8Array[]): Uint8Array {
 }
 
 /**
- * {@link packBackup} in steps on the calling thread, pausing between pieces of each file, so a
- * large snapshot doesn't freeze the screen (§8). The archive comes back as one array; use
- * {@link packBackupStream} to write it out as it is made.
+ * {@link packBackupStream} collected into one array, for a snapshot kept on the device; use
+ * {@link packBackupStream} to write an archive out as it is made.
  */
 export async function packBackupAsync(
   built: BuiltBackup,
-  opts: { withMedia: boolean },
+  opts: { withMedia: boolean; loadMedia?: BackupMediaLoader },
   pause: () => Promise<void> = () => Promise.resolve(),
 ): Promise<{ manifest: BackupManifest; bytes: Uint8Array }> {
   const parts: Uint8Array[] = [];
@@ -447,18 +450,18 @@ export function readBackupArchive(bytes: Uint8Array): ReadBackupResult {
   return { manifest, serialized, state, media };
 }
 
-interface BackupWithMedia {
-  manifest: BackupManifest;
-  files: Record<string, Uint8Array>;
-  /** Paths of the media files added (stored, not deflated, when streamed). */
-  added: Set<string>;
-  missingMedia: number;
-}
-
-function planBackupWithMedia(
+/**
+ * Re-streams a backup archive that lacks its media (a daily snapshot being saved off the device),
+ * adding this device's copies of the files it lists. Each media file is read with `loadMedia` only
+ * as it is written (stored as is); hashes the device lacks stay out and are counted in
+ * `missingMedia`. Pauses between pieces like {@link packBackupStream}.
+ */
+export async function withBackupMediaStream(
   archiveBytes: Uint8Array,
-  mediaBlobs: ReadonlyMap<string, Uint8Array>,
-): BackupWithMedia {
+  loadMedia: BackupMediaLoader,
+  emit: BackupChunkSink,
+  pause: () => Promise<void> = () => Promise.resolve(),
+): Promise<{ manifest: BackupManifest; missingMedia: number }> {
   const extracted = safeUnzip(
     archiveBytes,
     BACKUP_ARCHIVE_LIMITS,
@@ -474,58 +477,33 @@ function planBackupWithMedia(
   const serialized = parseSerializedState(
     parseJson(extracted.get(BACKUP_STATE_PATH), BACKUP_STATE_PATH),
   );
-  const files: Record<string, Uint8Array> = Object.fromEntries(extracted);
-  const added = new Set<string>();
+  const zip = createZipWriter(emit, pause);
+  for (const [path, bytes] of extracted) {
+    if (path !== BACKUP_MANIFEST_PATH) await zip.add(path, bytes, false); // NOSONAR (S9382)
+  }
+  const written = new Set(extracted.keys());
+  let added = 0;
   let missingMedia = 0;
   for (const entry of serialized.media) {
     const hash = entry.hash.toLowerCase();
     const ext = entry.ext.toLowerCase().replace(/^\./, '');
     if (!safeMediaMimeForExt(ext)) continue;
     const path = `media/${hash}.${ext}`;
-    if (files[path]) continue;
-    const blob = mediaBlobs.get(hash);
+    if (written.has(path)) continue;
+    written.add(path);
+    const blob = await loadMedia(hash); // NOSONAR (S9382): one media file in memory at a time
     if (!blob) {
       missingMedia += 1;
       continue;
     }
-    files[path] = blob;
-    added.add(path);
+    await zip.add(path, blob, true); // NOSONAR (S9382)
+    added += 1;
   }
   const next: BackupManifest =
-    added.size > 0 || manifest.media_included ? { ...manifest, media_included: true } : manifest;
-  files[BACKUP_MANIFEST_PATH] = encodeUtf8(JSON.stringify(next, null, 2));
-  return { manifest: next, files, added, missingMedia };
-}
-
-/**
- * Adds media files to a backup archive that lacks them (a daily snapshot being saved off the
- * device). `mediaBlobs` maps a content hash to its bytes; hashes without a blob stay out.
- */
-export function withBackupMedia(
-  archiveBytes: Uint8Array,
-  mediaBlobs: ReadonlyMap<string, Uint8Array>,
-): { manifest: BackupManifest; bytes: Uint8Array; missingMedia: number } {
-  const { manifest, files, missingMedia } = planBackupWithMedia(archiveBytes, mediaBlobs);
-  return { manifest, bytes: zipSync(files, { level: 6 }), missingMedia };
-}
-
-/**
- * {@link withBackupMedia}, streaming: the new archive goes to `emit` chunk by chunk (added media
- * stored as is), pausing between pieces like {@link packBackupStream}.
- */
-export async function withBackupMediaStream(
-  archiveBytes: Uint8Array,
-  mediaBlobs: ReadonlyMap<string, Uint8Array>,
-  emit: BackupChunkSink,
-  pause: () => Promise<void> = () => Promise.resolve(),
-): Promise<{ manifest: BackupManifest; missingMedia: number }> {
-  const { manifest, files, added, missingMedia } = planBackupWithMedia(archiveBytes, mediaBlobs);
-  const zippable: Zippable = {};
-  for (const [path, bytes] of Object.entries(files)) {
-    zippable[path] = added.has(path) ? [bytes, { level: 0 }] : bytes;
-  }
-  await streamZippable(zippable, emit, pause);
-  return { manifest, missingMedia };
+    added > 0 || manifest.media_included ? { ...manifest, media_included: true } : manifest;
+  await zip.add(BACKUP_MANIFEST_PATH, encodeUtf8(JSON.stringify(next, null, 2)), false);
+  await zip.finish();
+  return { manifest: next, missingMedia };
 }
 
 /** True when the file's bytes match its declared content hash. */

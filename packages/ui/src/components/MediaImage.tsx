@@ -10,6 +10,25 @@ export interface MediaImageProps {
 const MEDIA_URI_RE = /^media:([0-9a-f]{64})$/i;
 
 /**
+ * A missing file is looked for again after a collection change (a sync may have brought it), but at
+ * most this often: a study session must not re-read IndexedDB after every rating (P9).
+ */
+export const MISSING_MEDIA_RETRY_MS = 5_000;
+
+/**
+ * How long to wait before reading `hash` again: 0 to read now (a new hash, or the last look was
+ * over {@link MISSING_MEDIA_RETRY_MS} ago), else the rest of the interval since it was found missing.
+ */
+export function missingMediaRetryDelay(
+  missing: { hash: string; atMs: number } | null,
+  hash: string,
+  nowMs: number,
+): number {
+  if (missing?.hash !== hash) return 0;
+  return Math.max(0, missing.atMs + MISSING_MEDIA_RETRY_MS - nowMs);
+}
+
+/**
  * Safe declarative image renderer (§13 + Option 1 CSP `img-src 'self' blob: data:`).
  * Resolves `media:<sha256>` from IndexedDB into a ref-cleaned `ObjectURL` that works 100% offline.
  * Blocks unsafe schemes (`javascript:`, `data:`, `http:`) and never triggers external network requests.
@@ -20,6 +39,8 @@ export function MediaImage({ src, alt = '', className = '' }: MediaImageProps) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing' | 'blocked'>('loading');
   const objectUrlRef = useRef<string | null>(null);
   const loadedHashRef = useRef<string | null>(null);
+  // The hash last found missing, and when it was looked for.
+  const missingRef = useRef<{ hash: string; atMs: number } | null>(null);
 
   const trimmed = src.trim();
   const mediaMatch = MEDIA_URI_RE.exec(trimmed);
@@ -54,45 +75,54 @@ export function MediaImage({ src, alt = '', className = '' }: MediaImageProps) {
     }
 
     let cancelled = false;
-    setStatus('loading');
+    const missing = missingRef.current?.hash === hash ? missingRef.current : null;
+    const markMissing = () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+      loadedHashRef.current = null;
+      missingRef.current = { hash, atMs: Date.now() };
+      setObjectUrl(null);
+      setStatus('missing');
+    };
 
-    void platform.storage
-      .getMedia(hash)
-      .then((blob) => {
-        if (cancelled) return;
-        if (!blob) {
+    const load = () =>
+      platform.storage
+        .getMedia(hash)
+        .then((blob) => {
+          if (cancelled) return;
+          if (!blob) {
+            markMissing();
+            return;
+          }
+          const copy = new Uint8Array(blob.bytes.byteLength);
+          copy.set(blob.bytes);
+          const url = URL.createObjectURL(new Blob([copy], { type: blob.mime }));
           if (objectUrlRef.current) {
             URL.revokeObjectURL(objectUrlRef.current);
-            objectUrlRef.current = null;
           }
-          loadedHashRef.current = null;
-          setObjectUrl(null);
-          setStatus('missing');
-          return;
-        }
-        const copy = new Uint8Array(blob.bytes.byteLength);
-        copy.set(blob.bytes);
-        const url = URL.createObjectURL(new Blob([copy], { type: blob.mime }));
-        if (objectUrlRef.current) {
-          URL.revokeObjectURL(objectUrlRef.current);
-        }
-        objectUrlRef.current = url;
-        loadedHashRef.current = hash;
-        setObjectUrl(url);
-        setStatus('ready');
-      })
-      .catch(() => {
-        if (!cancelled) {
-          if (objectUrlRef.current) {
-            URL.revokeObjectURL(objectUrlRef.current);
-            objectUrlRef.current = null;
-          }
-          loadedHashRef.current = null;
-          setObjectUrl(null);
-          setStatus('missing');
-        }
-      });
+          objectUrlRef.current = url;
+          loadedHashRef.current = hash;
+          missingRef.current = null;
+          setObjectUrl(url);
+          setStatus('ready');
+        })
+        .catch(() => {
+          if (!cancelled) markMissing();
+        });
 
+    // Still missing: keep showing that, and look again only once the retry interval has passed.
+    const waitMs = missingMediaRetryDelay(missing, hash, Date.now());
+    if (waitMs > 0) {
+      const timer = window.setTimeout(() => void load(), waitMs);
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timer);
+      };
+    }
+    if (!missing) setStatus('loading');
+    void load();
     return () => {
       cancelled = true;
     };
