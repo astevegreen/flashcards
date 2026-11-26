@@ -164,10 +164,6 @@ describe.each([
       x.hlc === y.hlc ? (x.id < y.id ? -1 : 1) : x.hlc < y.hlc ? -1 : 1,
     );
     expect((await storage.getAllEvents()).map((e) => e.id)).toEqual(byHlcThenId.map((e) => e.id));
-    const since = byHlcThenId[700]?.hlc ?? '';
-    expect((await storage.getEvents(since)).map((e) => e.id)).toEqual(
-      byHlcThenId.filter((e) => e.hlc >= since).map((e) => e.id),
-    );
 
     const all = await storage.getEventsAfterLocalSeq(0);
     expect(all.events.map((e) => e.id)).toEqual(batch.map((e) => e.id));

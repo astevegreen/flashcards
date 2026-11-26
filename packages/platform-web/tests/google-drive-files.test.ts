@@ -6,7 +6,8 @@ import {
   fetchDriveFileInfo,
   GOOGLE_DRIVE_PICKER_MIME_TYPES,
 } from '../src/sources/google-drive-files.ts';
-import { WebGooglePicker, WebGoogleSourcesClient } from '../src/sources/google-index.ts';
+import { WebGooglePicker } from '../src/sources/google-picker.ts';
+import { WebGoogleSourcesClient } from '../src/sources/google-sheets-docs.ts';
 
 const enc = new TextEncoder();
 

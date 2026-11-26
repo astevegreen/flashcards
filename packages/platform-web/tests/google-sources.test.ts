@@ -1,13 +1,12 @@
 import { isSyncTransportError } from '@flash/core';
 import type { Auth, AuthSession } from '@flash/platform';
 import { describe, expect, it, vi } from 'vitest';
+import { extractGoogleAppId, WebGooglePicker } from '../src/sources/google-picker.ts';
 import {
-  extractGoogleAppId,
   GOOGLE_DOC_MIME,
   GOOGLE_SHEET_MIME,
-  WebGooglePicker,
   WebGoogleSourcesClient,
-} from '../src/sources/google-index.ts';
+} from '../src/sources/google-sheets-docs.ts';
 
 function makeMockAuth(token = 'tok-1'): Auth & { forceRefreshCalls: number } {
   const auth = {

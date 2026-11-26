@@ -164,6 +164,10 @@ export class GoogleOAuthWebAuth implements Auth {
     return Boolean(this.clientId);
   }
 
+  /**
+   * True when the normal refresh path is unavailable (e.g. the token-helper Worker is down or
+   * unconfigured) and access can only be renewed with a user tap (§4.3 GIS fallback).
+   */
   async needsInteractiveRenew(): Promise<boolean> {
     if (!this.clientId) return false;
     const needed =

@@ -66,8 +66,6 @@ function makeInMemoryStorage(): Storage & { mediaStore: Map<string, MediaBlob> }
   return {
     mediaStore,
     appendEvents: async () => {},
-    getEvents: async () => [],
-    getEventsForCard: async () => [],
     getAllEvents: async () => [],
     getDeviceEventsAfterSeq: async () => [],
     getEventsAfterLocalSeq: async () => ({ events: [], maxLocalSeq: 0 }),

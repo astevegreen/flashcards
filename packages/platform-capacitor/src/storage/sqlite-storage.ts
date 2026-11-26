@@ -236,12 +236,12 @@ export class CapacitorSqliteStorage implements Storage {
     }
   }
 
-  async getEvents(sinceHlc?: string): Promise<FlashEvent[]> {
+  async getAllEvents(): Promise<FlashEvent[]> {
     await this.ensureReady();
     const out: FlashEvent[] = [];
     // Keyset pages on (hlc, id): each page starts from an index seek, not an OFFSET scan. The
-    // first page's empty `afterId` takes every row at `sinceHlc` (ids are never empty).
-    let afterHlc = sinceHlc ?? '';
+    // first page's empty `afterHlc` and `afterId` take every row (ids are never empty).
+    let afterHlc = '';
     let afterId = '';
     for (;;) {
       const rows = await this.driver.query<StoredEventDbRow>(
@@ -255,19 +255,6 @@ export class CapacitorSqliteStorage implements Storage {
       afterId = last.id;
     }
     return out;
-  }
-
-  async getEventsForCard(cardId: string): Promise<FlashEvent[]> {
-    await this.ensureReady();
-    const rows = await this.driver.query<StoredEventDbRow>(
-      `SELECT * FROM events WHERE card_id = ? ORDER BY hlc ASC, id ASC`,
-      [cardId],
-    );
-    return rows.map(rowToEvent);
-  }
-
-  async getAllEvents(): Promise<FlashEvent[]> {
-    return this.getEvents();
   }
 
   async getDeviceEventsAfterSeq(deviceId: string, afterSeq: number): Promise<FlashEvent[]> {
