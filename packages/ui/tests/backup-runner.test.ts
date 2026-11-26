@@ -37,6 +37,58 @@ afterEach(() => {
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/**
+ * Fakes only the clock the snapshot timeout uses (`setTimeout`, `Date`). fake-indexeddb keeps
+ * running on the real `setImmediate`, so storage still works while the test owns the time (§9:
+ * these tests used to race 100 ms timeouts against 300 ms real-time writes).
+ */
+function useFakeClock(): void {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+}
+
+/** The snapshot timeout in these tests: far more than the steps `runUntil` takes. */
+const TIMEOUT_MS = 60_000;
+
+/**
+ * Lets the snapshot's yields and IndexedDB work run until `done()`. Each step moves the fake
+ * clock by 1 ms (a zero-delay timer set during a tick is due 1 ms later), and fails long before
+ * the steps could add up to {@link TIMEOUT_MS}.
+ */
+async function runUntil(done: () => boolean): Promise<void> {
+  for (let i = 0; i < 2_000 && !done(); i++) {
+    await vi.advanceTimersByTimeAsync(1);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  if (!done()) throw new Error('condition never became true');
+}
+
+/**
+ * Holds every `store.put` open until `release()`, and records which backup ids were written and
+ * deleted, so a test decides exactly when a slow write finishes.
+ */
+function gateWrites(store: NonNullable<Awaited<ReturnType<typeof openBackupStore>>>) {
+  const realPut = store.put.bind(store);
+  const realDelete = store.delete.bind(store);
+  const waiting: Array<() => void> = [];
+  const started: string[] = [];
+  const deleted: string[] = [];
+  store.put = (info, bytes) => {
+    started.push(info.backup_id);
+    return new Promise<void>((resolve) => waiting.push(resolve)).then(() => realPut(info, bytes));
+  };
+  store.delete = async (id) => {
+    await realDelete(id);
+    deleted.push(id);
+  };
+  return {
+    started,
+    deleted,
+    release: () => {
+      for (const resolve of waiting.splice(0)) resolve();
+    },
+  };
+}
+
 function setup(provider: SyncProviderKind = 'none') {
   const storage = new DexieStorage(`backup-runner-${Date.now()}-${Math.random()}`);
   opened.push(storage);
@@ -262,18 +314,20 @@ describe('rolling backups on a device', () => {
     if (!store) throw new Error('no store');
     await takeBackup(ctx, 'manual'); // warm up, so only the write is slow
     const before = (await store.list()).map((b) => b.backup_id);
-    const realPut = store.put.bind(store);
-    let writeDone: Promise<void> | undefined;
-    // A write that finishes only after the snapshot was given up on.
-    store.put = (info, bytes) => {
-      writeDone = new Promise<void>((resolve) => setTimeout(resolve, 300)).then(() =>
-        realPut(info, bytes),
-      );
-      return writeDone;
-    };
-    await expect(takeBackup(ctx, 'manual', { timeoutMs: 100 })).rejects.toThrow(/too long/);
-    await writeDone;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    const slow = gateWrites(store);
+
+    useFakeClock();
+    const pending = takeBackup(ctx, 'manual', { timeoutMs: TIMEOUT_MS });
+    await runUntil(() => slow.started.length === 1);
+    // The write is still open when the clock runs out.
+    const stopped = expect(pending).rejects.toThrow(/too long/);
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
+    await stopped;
+
+    // The write lands only after the snapshot was given up on: it is deleted again.
+    slow.release();
+    await runUntil(() => slow.deleted.length === 1);
+    expect(slow.deleted).toEqual(slow.started);
     expect((await store.list()).map((b) => b.backup_id)).toEqual(before);
   });
 
@@ -286,15 +340,26 @@ describe('rolling backups on a device', () => {
     expect(await runAutoBackupIfDue(ctx)).toBeNull();
     expect(await store.list()).toEqual([]);
     await takeBackup(ctx, 'manual'); // warm up
-    const realPut = store.put.bind(store);
-    store.put = (info, bytes) =>
-      new Promise<void>((resolve) => setTimeout(resolve, 300)).then(() => realPut(info, bytes));
-    // Hidden for the whole slow write: the 100 ms clock never runs out.
-    const result = await takeBackup(ctx, 'manual', { timeoutMs: 100 });
+    const slow = gateWrites(store);
+
+    useFakeClock();
+    // Hidden for the whole slow write: ten timeouts pass, and the clock never runs out.
+    const hidden = takeBackup(ctx, 'manual', { timeoutMs: TIMEOUT_MS });
+    await runUntil(() => slow.started.length === 1);
+    await vi.advanceTimersByTimeAsync(10 * TIMEOUT_MS);
+    slow.release();
+    const result = await hidden;
     expect((await store.list()).map((b) => b.backup_id)).toContain(result?.info.backup_id);
+
     // Visible again: the clock runs.
     page.hidden = false;
     page.dispatchEvent(new Event('visibilitychange'));
-    await expect(takeBackup(ctx, 'manual', { timeoutMs: 100 })).rejects.toThrow(/too long/);
+    const visible = takeBackup(ctx, 'manual', { timeoutMs: TIMEOUT_MS });
+    await runUntil(() => slow.started.length === 2);
+    const stopped = expect(visible).rejects.toThrow(/too long/);
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
+    await stopped;
+    slow.release();
+    await runUntil(() => slow.deleted.length === 1);
   });
 });
