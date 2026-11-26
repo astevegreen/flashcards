@@ -5,6 +5,7 @@ import type {
   TtsProviderConfig,
   TtsSynthesisResult,
 } from '@flash/platform';
+import { base64ToBytes } from '../base64.ts';
 
 export class TtsProviderError extends Error {
   readonly status?: number;
@@ -33,12 +34,7 @@ function redactSecret(text: string, secret: string): string {
 function decodeBase64ToBytes(base64: string): Uint8Array {
   const cleaned = base64.replace(/\s+/g, '');
   if (!cleaned) return new Uint8Array(0);
-  const binary = atob(cleaned);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    out[i] = binary.charCodeAt(i);
-  }
-  return out;
+  return base64ToBytes(cleaned);
 }
 
 export function escapeSsmlXml(text: string): string {

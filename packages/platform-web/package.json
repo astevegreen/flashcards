@@ -28,6 +28,10 @@
     "./native-support": {
       "types": "./src/native-support.ts",
       "default": "./src/native-support.ts"
+    },
+    "./base64": {
+      "types": "./src/base64.ts",
+      "default": "./src/base64.ts"
     }
   },
   "scripts": {

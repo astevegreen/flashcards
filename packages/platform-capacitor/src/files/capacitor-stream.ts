@@ -1,4 +1,5 @@
 import type { FileSink } from '@flash/platform';
+import { bytesToBase64 } from '@flash/platform-web/base64';
 
 /** The slice of `@capacitor/filesystem` and `@capacitor/share` that a streamed save uses. */
 export interface CapacitorStreamDeps {
@@ -10,15 +11,6 @@ export interface CapacitorStreamDeps {
 
 /** Bridge calls cost more than bytes, so small chunks are joined up to about this size. */
 const FLUSH_BYTES = 512 * 1024;
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = '';
-  const step = 0x8000;
-  for (let i = 0; i < bytes.length; i += step) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + step));
-  }
-  return btoa(bin);
-}
 
 /** Subfolder inside `Directory.Cache` that holds temporary export files handed to the share sheet. */
 export const EXPORT_CACHE_DIR = 'flashcards-exports';

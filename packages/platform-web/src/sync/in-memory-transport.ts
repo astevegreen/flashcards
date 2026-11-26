@@ -1,5 +1,6 @@
 import { SyncTransportError } from '@flash/core';
 import type { SyncFileInfo, SyncTransport } from '@flash/platform';
+import { base64ToBytes, bytesToBase64 } from '../base64.ts';
 
 interface StoredObject {
   data: Uint8Array;
@@ -108,12 +109,7 @@ export class DevChannelSyncTransport implements SyncTransport {
       );
     }
     const parsed = JSON.parse(raw) as { b64: string };
-    const bin = atob(parsed.b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) {
-      bytes[i] = bin.charCodeAt(i);
-    }
-    return bytes;
+    return base64ToBytes(parsed.b64);
   }
 
   async write(path: string, data: Uint8Array, opts?: { ifAbsent?: boolean }): Promise<void> {
@@ -125,11 +121,7 @@ export class DevChannelSyncTransport implements SyncTransport {
         `DevChannelSyncTransport: file already exists at "${path}"`,
       );
     }
-    let bin = '';
-    for (let i = 0; i < data.length; i++) {
-      bin += String.fromCharCode(data[i] ?? 0);
-    }
-    const payload = JSON.stringify({ b64: btoa(bin), updatedAt: Date.now() });
+    const payload = JSON.stringify({ b64: bytesToBase64(data), updatedAt: Date.now() });
     localStorage.setItem(key, payload);
     this.channel?.postMessage({ type: 'write', path });
   }

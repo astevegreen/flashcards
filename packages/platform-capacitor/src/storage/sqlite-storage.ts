@@ -9,6 +9,7 @@ import type {
   Storage,
   SyncConfig,
 } from '@flash/platform';
+import { base64ToBytes, bytesToBase64 } from '@flash/platform-web/base64';
 
 export interface SqliteDriver {
   execute(sql: string, params?: readonly unknown[]): Promise<void>;
@@ -94,23 +95,6 @@ const SNAPSHOT_META_KV_KEY = '__local_snapshot_meta';
 const SNAPSHOT_CHUNK_CHARS = 512 * 1024;
 const EVENT_QUERY_PAGE = 500;
 const CARD_CACHE_QUERY_PAGE = 2000;
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) {
-    bin += String.fromCharCode(bytes[i] ?? 0);
-  }
-  return btoa(bin);
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) {
-    out[i] = bin.charCodeAt(i);
-  }
-  return out;
-}
 
 function extractCardId(event: FlashEvent): string | null {
   if (

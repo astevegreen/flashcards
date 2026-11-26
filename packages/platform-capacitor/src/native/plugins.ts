@@ -20,6 +20,7 @@ import { SocialLogin } from '@capgo/capacitor-social-login';
 import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
 import { FlashSecureStorage } from '@flash/capacitor-secure-storage';
 import type { PickedFile } from '@flash/platform';
+import { base64ToBytes, bytesToBase64 } from '@flash/platform-web/base64';
 import {
   CapacitorDeviceSpeechPlayer,
   type NativeTtsPlugin,
@@ -200,22 +201,6 @@ export function createAddDeviceUrlSource(
 // ---------------------------------------------------------------------------
 // Files (@capawesome/capacitor-file-picker + @capacitor/filesystem + @capacitor/share)
 // ---------------------------------------------------------------------------
-
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(bin);
-}
 
 function acceptToTypes(accept: string | undefined): string[] | undefined {
   if (!accept) return undefined;
