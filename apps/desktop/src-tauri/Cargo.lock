@@ -1348,11 +1348,13 @@ name = "flashcards-desktop"
 version = "0.1.0"
 dependencies = [
  "keyring",
+ "libsqlite3-sys",
  "objc2",
  "objc2-foundation",
  "plist",
  "serde",
  "serde_json",
+ "sqlx",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",

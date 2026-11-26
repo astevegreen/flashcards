@@ -9,6 +9,7 @@
 
 mod icloud;
 mod secure_store;
+mod sqlite_hardening;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -57,6 +58,9 @@ pub fn run() {
                 if let Err(err) = app.deep_link().register_all() {
                     eprintln!("deep-link registration failed: {err}");
                 }
+            }
+            if !sqlite_hardening::secure_delete_by_default() {
+                eprintln!("SQLite was built without SQLITE_SECURE_DELETE; deleted rows stay on disk");
             }
             let _ = app;
             Ok(())

@@ -1,0 +1,5 @@
+# Built into the bundled SQLite that tauri-plugin-sql (sqlx) links (N9): every pooled
+# connection then starts with `secure_delete = ON`. See src-tauri/src/sqlite_hardening.rs.
+# Covers cargo runs from apps/desktop (tauri CLI) and from src-tauri (cargo test).
+[env]
+LIBSQLITE3_FLAGS = { value = "SQLITE_SECURE_DELETE", force = true }
