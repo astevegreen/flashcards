@@ -7,8 +7,8 @@ import {
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
 import { RichText, renderRichNodes } from '../../components/RichText.tsx';
-import { CardFieldValue } from './CardFieldValue.tsx';
 import { RevealedAnswer } from './AnswerShell.tsx';
+import { CardFieldValue } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 import { cardTextFitClass } from '../fitText.ts';
 

@@ -47,11 +47,10 @@ function normalizeUmlaut(syllable: string, isNumbered: boolean): string {
 }
 
 /**
- * One Hanyu Pinyin syllable: an optional initial, a final, and an optional erhua `r`. A word
- * followed by a digit that is not a syllable (`Windows1`, `mp3`) keeps its digit unmarked.
+ * The shape of a Hanyu Pinyin syllable: an optional initial, vowels, then an optional `n`/`ng`
+ * and erhua `r`. A word followed by a digit that has another shape (`Windows1`) keeps its digit.
  */
-const PINYIN_SYLLABLE =
-  /^(?:[bpmfdtnlgkhjqxrzcsyw]|zh|ch|sh)?(?:a|ai|an|ang|ao|e|ê|ei|en|eng|er|o|ong|ou|i|ia|ian|iang|iao|ie|in|ing|io|iong|iou|iu|u|ua|uai|uan|uang|ue|uei|uen|ueng|ui|un|uo|ü|üan|üe|ün|v|ve|m|n|ng)r?$/;
+const PINYIN_SYLLABLE = /^([b-df-hj-np-tw-z]|[csz]h)?[aeiouvüê]+(ng?)?r?$/;
 
 /**
  * Standard Hanyu Pinyin tone placement rule:

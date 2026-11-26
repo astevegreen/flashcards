@@ -256,7 +256,7 @@ export function isSafeRelativePackPath(raw: string): boolean {
   if (raw.includes('\\') || raw.includes(':')) return false;
   // No `..` segment, percent-encoded or not (URL parsing resolves `%2e%2e` too); a file name
   // such as `a..b.json` is fine.
-  return !raw.split('/').some((segment) => segment.replaceAll(/%2e/gi, '.') === '..');
+  return !/(?:^|\/)(?:\.|%2e){2}(?:\/|$)/i.test(raw);
 }
 
 export function isSafePackUrl(raw: string, allowRelative = false): boolean {

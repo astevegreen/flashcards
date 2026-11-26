@@ -45,7 +45,6 @@ import {
   type StudySession,
 } from '../study/filterStore.ts';
 import { RatingBar } from '../study/RatingBar.tsx';
-import { StudyAnnouncer } from '../study/StudyAnnouncer.tsx';
 import { StudyCard } from '../study/StudyCard.tsx';
 import {
   canVerticalSwipeFromScroll,
@@ -62,6 +61,11 @@ import { shouldShowSwipeGuide, storeSwipeGuideDismissed } from '../study/swipeGu
 
 const LazySwipeGuideBanner = lazyWithRetry(() =>
   import('../study/SwipeGuideBanner.tsx').then((m) => ({ default: m.SwipeGuideBanner })),
+);
+
+// The screen-reader live region (§10); it only has to be there before the first reveal.
+const LazyStudyAnnouncer = lazyWithRetry(() =>
+  import('../study/StudyAnnouncer.tsx').then((m) => ({ default: m.StudyAnnouncer })),
 );
 
 const LazyNoteEditDialog = lazyWithRetry(
@@ -910,7 +914,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               setStudyFilter(undefined);
               e.currentTarget.blur();
             }}
-            className="max-w-[14rem] truncate pointer-coarse:min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none sm:max-w-xs"
+            className="max-w-[14rem] truncate rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--fg)] focus:border-[var(--accent)] focus:outline-none sm:max-w-xs"
           >
             <option value="">All Decks</option>
             {decks.map((d) => (
@@ -931,7 +935,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
                 data-testid="study-filter-clear"
                 aria-label="Clear study filter"
                 onClick={() => setStudyFilter(undefined)}
-                className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 rounded-full px-1 hover:bg-[var(--surface-2)]"
+                className="rounded-full px-1 hover:bg-[var(--surface-2)]"
               >
                 ×
               </button>
@@ -943,7 +947,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               aria-expanded={showFilterPanel}
               onClick={() => setShowFilterPanel((v) => !v)}
               title="Study sets, filters and custom study (review ahead, extra new, practice)"
-              className="pointer-coarse:min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
             >
               Filter
             </button>
@@ -992,7 +996,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
                   : 'Toggle furigana / reading hints (F)'
               }
               aria-pressed={!hideFrontRuby}
-              className={`pointer-coarse:min-h-11 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+              className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
                 !hideFrontRuby
                   ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
                   : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--fg)]'
@@ -1007,7 +1011,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
             onClick={handleUndo}
             disabled={!undoAvailable}
             title="Undo last review (Z / →)"
-            className="pointer-coarse:min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)] disabled:opacity-40"
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)] disabled:opacity-40"
           >
             Undo
           </button>
@@ -1018,7 +1022,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               data-testid="study-redo"
               onClick={handleRedo}
               title="Redo the undone review (Ctrl+Shift+Z)"
-              className="pointer-coarse:min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
             >
               Redo
             </button>
@@ -1029,7 +1033,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
               type="button"
               onClick={() => setEditingNote(currentNote)}
               title="Edit note (E)"
-              className="pointer-coarse:min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:bg-[var(--surface-2)]"
             >
               Edit
             </button>
@@ -1037,12 +1041,14 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         </div>
       </header>
 
-      <StudyAnnouncer
-        cardId={currentCard?.id}
-        caughtUp={caughtUp}
-        revealStep={revealStep}
-        totalRevealSteps={totalRevealSteps}
-      />
+      <Suspense fallback={null}>
+        <LazyStudyAnnouncer
+          cardId={currentCard?.id}
+          caughtUp={caughtUp}
+          revealStep={revealStep}
+          totalRevealSteps={totalRevealSteps}
+        />
+      </Suspense>
 
       {showFilterPanel && !studyFilter && (
         <Suspense
