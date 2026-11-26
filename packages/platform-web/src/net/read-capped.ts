@@ -10,6 +10,11 @@ export interface ReadCappedOptions {
   onProgress?: (loaded: number, total?: number) => void;
 }
 
+/** "12 > 10 bytes" when the header gave the size, else "more than 10 bytes", for error text. */
+export function overCapText(declared: number | undefined, maxBytes: number): string {
+  return declared === undefined ? `more than ${maxBytes} bytes` : `${declared} > ${maxBytes} bytes`;
+}
+
 function declaredLength(res: Response): number | undefined {
   const declared = Number.parseInt(res.headers.get('content-length') ?? '', 10);
   return Number.isFinite(declared) && declared > 0 ? declared : undefined;

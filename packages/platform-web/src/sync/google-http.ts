@@ -14,6 +14,8 @@ export interface GoogleFetchOptions {
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
+  /** Longest `Retry-After` to wait (default 30 s, for background sync). */
+  maxRetryAfterMs?: number;
   /** Names the service in network errors ("Google Drive", "Google API"). */
   label: string;
   messages: {
@@ -36,6 +38,9 @@ export function createGoogleFetch(options: GoogleFetchOptions): GoogleFetch {
       ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
       ...(options.sleep ? { sleep: options.sleep } : {}),
       ...(options.random ? { random: options.random } : {}),
+      ...(options.maxRetryAfterMs === undefined
+        ? {}
+        : { maxRetryAfterMs: options.maxRetryAfterMs }),
       maxAttempts: GOOGLE_MAX_ATTEMPTS,
       baseDelayMs: GOOGLE_BASE_DELAY_MS,
       isRetryable: isGoogleRateLimited,

@@ -130,6 +130,35 @@ describe('@flash/token-helper stateless Cloudflare Worker', () => {
     expect(await res.json()).toEqual({ error: 'invalid_upstream_response' });
   });
 
+  it('drops wrongly typed token fields and coerces a numeric-string expires_in', async () => {
+    const refresh = (reply: Record<string, unknown>) => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify(reply), { status: 200 }),
+      );
+      return worker.fetch(
+        new Request('https://worker.example/auth/refresh', {
+          method: 'POST',
+          headers: { Origin: 'http://localhost:5173', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: 'rt' }),
+        }),
+        TEST_ENV,
+      );
+    };
+    const typed = await refresh({
+      access_token: 'a',
+      expires_in: '3599',
+      scope: 42,
+      token_type: ['Bearer'],
+      refresh_token: { nested: true },
+      id_token: 'never-forwarded',
+    });
+    expect(typed.status).toBe(200);
+    expect(await typed.json()).toEqual({ access_token: 'a', expires_in: 3599 });
+
+    const badExpiry = await refresh({ access_token: 'a', expires_in: 'soon', scope: 's' });
+    expect(await badExpiry.json()).toEqual({ access_token: 'a', scope: 's' });
+  });
+
   it('rejects malformed JSON payloads', async () => {
     const req = new Request('https://worker.example/auth/exchange', {
       method: 'POST',

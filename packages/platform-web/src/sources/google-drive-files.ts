@@ -1,6 +1,6 @@
 import { SyncTransportError } from '@flash/core';
 import type { GoogleDriveFileInfo, PickedFile } from '@flash/platform';
-import { readBodyCapped } from '../net/read-capped.ts';
+import { readBodyCapped, readTextCapped } from '../net/read-capped.ts';
 
 /**
  * Plain Google Drive files (`.csv` / `.tsv` / `.xlsx` / `.flashpkg`) for linked sources (§3.1).
@@ -12,6 +12,8 @@ const DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
 
 /** Same cap as linked local-folder and OneDrive files. */
 export const MAX_DRIVE_FILE_BYTES = 50 * 1024 * 1024;
+/** One file's metadata reply is a few hundred bytes. */
+const MAX_DRIVE_META_BYTES = 1024 * 1024;
 
 /**
  * MIME types Google Picker shows for "Link from Google Drive". Drive stores what the uploader
@@ -79,7 +81,10 @@ export async function fetchDriveFileInfo(
       res.status,
     );
   }
-  const data = (await res.json()) as DriveFileResponse;
+  const text = await readTextCapped(res, MAX_DRIVE_META_BYTES, {
+    tooLarge: () => new SyncTransportError('UNKNOWN', 'Google Drive file details are too large.'),
+  });
+  const data = JSON.parse(text) as DriveFileResponse;
   const size = data.size !== undefined ? Number.parseInt(data.size, 10) : Number.NaN;
   const contentTag = driveContentTag(data);
   return {

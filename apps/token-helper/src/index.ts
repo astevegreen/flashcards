@@ -113,6 +113,12 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
   }
 }
 
+/** `expires_in` as a positive number; Entra has sent it as a numeric string. */
+function expiresInSeconds(raw: unknown): number | undefined {
+  const value = typeof raw === 'string' && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : raw;
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
 /**
  * Posts a token request upstream and returns only the token fields (never the client secret or
  * any upstream extras such as ID tokens). Nothing is stored or logged.
@@ -144,6 +150,7 @@ async function forwardTokenRequest(
       origin,
     );
   }
+  const expiresIn = expiresInSeconds(raw.expires_in);
   // A 200 without a token is a broken upstream reply: never pass it on as a success (§11).
   if (typeof raw.access_token !== 'string' || !raw.access_token) {
     return jsonResponse({ error: 'invalid_upstream_response' }, 502, origin);
@@ -152,7 +159,7 @@ async function forwardTokenRequest(
     {
       access_token: raw.access_token,
       ...(typeof raw.refresh_token === 'string' ? { refresh_token: raw.refresh_token } : {}),
-      ...(typeof raw.expires_in === 'number' ? { expires_in: raw.expires_in } : {}),
+      ...(expiresIn === undefined ? {} : { expires_in: expiresIn }),
       ...(typeof raw.scope === 'string' ? { scope: raw.scope } : {}),
       ...(typeof raw.token_type === 'string' ? { token_type: raw.token_type } : {}),
     },

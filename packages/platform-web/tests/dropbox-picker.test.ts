@@ -11,7 +11,14 @@ import { FakeDropboxServer } from './fakes/fake-dropbox.ts';
 
 const enc = new TextEncoder();
 
-function setup(options: { connected?: boolean; maxBytes?: number; pageSize?: number } = {}) {
+function setup(
+  options: {
+    connected?: boolean;
+    maxBytes?: number;
+    pageSize?: number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+) {
   const server = new FakeDropboxServer({ pageSize: options.pageSize ?? 2 });
   // Internal sync folders at root — must be hidden from the user's file browser.
   server.put('sync/v1/manifest.json', enc.encode('{}'), 1_700_000_000_000);
@@ -34,11 +41,35 @@ function setup(options: { connected?: boolean; maxBytes?: number; pageSize?: num
     auth,
     fetchImpl: server.fetch,
     ...(options.maxBytes ? { maxBytes: options.maxBytes } : {}),
+    ...(options.sleep ? { sleep: options.sleep, random: () => 0 } : {}),
   });
   return { server, auth, picker };
 }
 
 describe('DropboxAppFolderFilePicker', () => {
+  it('retries a 429 on listing, metadata and download through the shared client (R1)', async () => {
+    const sleeps: number[] = [];
+    const { server, picker } = setup({
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+    for (const endpoint of ['/files/list_folder', '/files/get_metadata', '/files/download']) {
+      let throttled = 0;
+      server.inject({
+        match: (req) => new URL(req.url).pathname.endsWith(endpoint) && throttled++ === 0,
+        status: 429,
+        body: { error_summary: 'too_many_requests/' },
+      });
+    }
+    const decks = await picker.listFolder('/Decks');
+    const csv = decks.find((i) => i.name === 'korean.csv');
+    if (!csv) throw new Error('korean.csv is missing from the listing');
+    const file = await picker.downloadFile(csv);
+    expect(new TextDecoder().decode(file.bytes)).toContain('개,dog');
+    expect(sleeps).toHaveLength(3);
+  });
+
   it('lists folders first then pickable files, hides root sync/ and media/, and follows pagination', async () => {
     const { picker } = setup();
     const root = await picker.listFolder();

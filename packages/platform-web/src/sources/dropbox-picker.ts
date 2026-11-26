@@ -7,7 +7,7 @@ import type {
   PickedFile,
 } from '@flash/platform';
 import { readBodyCapped } from '../net/read-capped.ts';
-import { AuthorizedHttpClient } from '../sync/authorized-http.ts';
+import { AuthorizedHttpClient, INTERACTIVE_MAX_RETRY_AFTER_MS } from '../sync/authorized-http.ts';
 import { dropboxFailure } from '../sync/dropbox-errors.ts';
 
 const DROPBOX_API_BASE = 'https://api.dropboxapi.com/2';
@@ -177,6 +177,8 @@ export class DropboxAppFolderFilePicker implements DropboxFilePicker {
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
         ...(options.sleep ? { sleep: options.sleep } : {}),
         ...(options.random ? { random: options.random } : {}),
+        // A user is waiting on the picker: fail a long Retry-After fast.
+        maxRetryAfterMs: INTERACTIVE_MAX_RETRY_AFTER_MS,
       },
       'Dropbox',
     );

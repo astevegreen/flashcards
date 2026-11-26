@@ -10,8 +10,13 @@ import type { Auth } from '@flash/platform';
 
 const DEFAULT_MAX_ATTEMPTS = 4;
 const BASE_RETRY_DELAY_MS = 500;
-/** A Retry-After longer than this fails the call (sync retries later) instead of hanging. */
-const MAX_RETRY_AFTER_MS = 30_000;
+/**
+ * A Retry-After longer than this fails the call (sync retries later) instead of hanging. Fine for
+ * background sync; clients a user is waiting on pass a lower `maxRetryAfterMs`.
+ */
+export const BACKGROUND_MAX_RETRY_AFTER_MS = 30_000;
+/** The Retry-After ceiling for requests a user is watching (pickers, Sheets/Docs). */
+export const INTERACTIVE_MAX_RETRY_AFTER_MS = 2_000;
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 export interface AuthorizedHttpClientOptions {
@@ -28,6 +33,8 @@ export interface AuthorizedHttpClientOptions {
    * rate-limit reason in the body (C22), so its clients pass {@link isGoogleRateLimited}.
    */
   isRetryable?: (res: Response) => boolean | Promise<boolean>;
+  /** Longest `Retry-After` to wait out; a longer one returns the 429 at once (default 30 s). */
+  maxRetryAfterMs?: number;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -52,6 +59,7 @@ export class AuthorizedHttpClient {
   private readonly random: () => number;
   private readonly maxAttempts: number;
   private readonly baseDelayMs: number;
+  private readonly maxRetryAfterMs: number;
   private readonly isRetryable: ((res: Response) => boolean | Promise<boolean>) | undefined;
 
   /** `label` names the service in network-error messages ("OneDrive", "Dropbox"). */
@@ -65,12 +73,13 @@ export class AuthorizedHttpClient {
     this.random = options.random ?? Math.random;
     this.maxAttempts = Math.max(1, options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
     this.baseDelayMs = options.baseDelayMs ?? BASE_RETRY_DELAY_MS;
+    this.maxRetryAfterMs = options.maxRetryAfterMs ?? BACKGROUND_MAX_RETRY_AFTER_MS;
     this.isRetryable = options.isRetryable;
   }
 
   private retryDelayMs(res: Response, attempt: number): number | null {
     const retryAfter = parseRetryAfterMs(res.headers.get('Retry-After'), Date.now());
-    if (retryAfter !== null) return retryAfter <= MAX_RETRY_AFTER_MS ? retryAfter : null;
+    if (retryAfter !== null) return retryAfter <= this.maxRetryAfterMs ? retryAfter : null;
     const base = this.baseDelayMs * 2 ** attempt;
     return base + Math.floor(this.random() * base);
   }

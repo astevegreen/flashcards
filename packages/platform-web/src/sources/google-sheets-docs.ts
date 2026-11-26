@@ -10,11 +10,18 @@ import type {
 } from '@flash/platform';
 import { readTextCapped } from '../net/read-capped.ts';
 import { downloadDriveFileBytes, fetchDriveFileInfo } from './google-drive-files.ts';
+import { INTERACTIVE_MAX_RETRY_AFTER_MS } from '../sync/authorized-http.ts';
 import { createGoogleFetch, type GoogleFetch } from '../sync/google-http.ts';
 
 const DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const MAX_DOC_MARKDOWN_BYTES = 10 * 1024 * 1024; // 10 MB
+/** File and spreadsheet metadata (titles, tab names): small even for a sheet with many tabs. */
+const MAX_META_JSON_BYTES = 1024 * 1024;
+/** `values.get` of A1:ZZ; the same cap as a linked .csv/.xlsx file, so big decks still load. */
+const MAX_VALUES_JSON_BYTES = 50 * 1024 * 1024;
+/** The best-effort embedded-image scan reads one column. */
+const MAX_IMAGE_GRID_JSON_BYTES = 10 * 1024 * 1024;
 
 export const GOOGLE_SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
 export const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
@@ -24,6 +31,18 @@ export interface GoogleSourcesClientOptions {
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
+}
+
+/** Parses a JSON reply, refusing one over `maxBytes` before it is all in memory (P8). */
+async function readJsonCapped(res: Response, maxBytes: number, what: string): Promise<unknown> {
+  const text = await readTextCapped(res, maxBytes, {
+    tooLarge: () =>
+      new SyncTransportError(
+        'UNKNOWN',
+        `Google ${what} reply exceeds ${maxBytes} byte safety limit.`,
+      ),
+  });
+  return JSON.parse(text) as unknown;
 }
 
 function quoteSheetTab(sheetTitle: string): string {
@@ -75,6 +94,8 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
     this.authorizedFetch = createGoogleFetch({
       ...options,
       label: 'Google API',
+      // A user is waiting on Sheets/Docs reads, so a long Retry-After fails fast instead.
+      maxRetryAfterMs: INTERACTIVE_MAX_RETRY_AFTER_MS,
       messages: {
         authRequired: 'Google session expired. Please reconnect Google in Settings or Library.',
         permissionDenied:
@@ -98,7 +119,7 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
         res.status,
       );
     }
-    const data = (await res.json()) as {
+    const data = (await readJsonCapped(res, MAX_META_JSON_BYTES, 'file metadata')) as {
       id?: string;
       name?: string;
       mimeType?: string;
@@ -129,7 +150,11 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
         sheetInfoRes.status,
       );
     }
-    const sheetInfo = (await sheetInfoRes.json()) as SpreadsheetMetaResponse;
+    const sheetInfo = (await readJsonCapped(
+      sheetInfoRes,
+      MAX_META_JSON_BYTES,
+      'spreadsheet metadata',
+    )) as SpreadsheetMetaResponse;
     const availableTabs = (sheetInfo.sheets ?? [])
       .map((s) => s.properties?.title)
       .filter((t): t is string => Boolean(t));
@@ -147,7 +172,11 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
         valuesRes.status,
       );
     }
-    const valuesData = (await valuesRes.json()) as SpreadsheetValuesResponse;
+    const valuesData = (await readJsonCapped(
+      valuesRes,
+      MAX_VALUES_JSON_BYTES,
+      'sheet values',
+    )) as SpreadsheetValuesResponse;
     const values: string[][] = (valuesData.values ?? []).map((row) => row.map(cellToString));
 
     // Optional lightweight check for unsupported embedded in-cell images when an Image/Picture column exists
@@ -191,7 +220,11 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
         `${SHEETS_API}/${encodeURIComponent(fileId)}?${params.toString()}`,
       );
       if (!res.ok) return [];
-      const data = (await res.json()) as EmbeddedImageGridResponse;
+      const data = (await readJsonCapped(
+        res,
+        MAX_IMAGE_GRID_JSON_BYTES,
+        'embedded image scan',
+      )) as EmbeddedImageGridResponse;
       const rows = data.sheets?.[0]?.data?.[0]?.rowData ?? [];
       const flagged: number[] = [];
       for (let i = 0; i < rows.length; i++) {
@@ -274,7 +307,7 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
       );
     }
 
-    const created = (await createRes.json()) as {
+    const created = (await readJsonCapped(createRes, MAX_META_JSON_BYTES, 'created sheet')) as {
       spreadsheetId?: string;
       spreadsheetUrl?: string;
       properties?: { title?: string };
