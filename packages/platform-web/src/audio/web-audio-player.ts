@@ -229,7 +229,10 @@ export class WebAudioPlayer implements AudioPlayer {
   async play(bytes: Uint8Array, mime: string, rate = 1.0, cacheHash?: string): Promise<void> {
     if (cacheHash) {
       this.preload(cacheHash, bytes, mime);
-      await this.playPreloaded(cacheHash, rate);
+      // A playback failure rejects, as it does without `cacheHash` (C25).
+      if (!(await this.playPreloaded(cacheHash, rate)) && this.audio) {
+        throw new Error('Audio playback failed');
+      }
       return;
     }
 

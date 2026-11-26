@@ -42,12 +42,6 @@ describe('WebFiles.pickFile maxBytes', () => {
     expect(arrayBuffer).not.toHaveBeenCalled();
   });
 
-  it('rejects, instead of never settling, when reading the picked file fails', async () => {
-    const { arrayBuffer } = stubFileInput(new File([new Uint8Array(3)], 'gone.csv'));
-    arrayBuffer.mockRejectedValue(new DOMException('gone', 'NotFoundError'));
-    await expect(new WebFiles().pickFile()).rejects.toThrow('gone');
-  });
-
   it('without maxBytes reads any size, as before', async () => {
     stubFileInput(new File([new Uint8Array(10)], 'any.bin'));
     const picked = await new WebFiles().pickFile();

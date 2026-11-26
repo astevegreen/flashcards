@@ -14,7 +14,6 @@ export class WebFiles implements Files {
         settled = true;
         resolve(val);
       };
-      // Not an async listener: a failed read must reject the pick, not leave it pending forever.
       input.addEventListener('change', () => {
         const file = input.files?.[0];
         if (!file) {
@@ -33,6 +32,7 @@ export class WebFiles implements Files {
               bytes: new Uint8Array(buf),
               ...(file.type ? { mime: file.type } : {}),
             }),
+          // The file went away or lost permission after it was picked (C25).
           reject,
         );
       });

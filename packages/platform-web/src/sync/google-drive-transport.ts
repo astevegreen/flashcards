@@ -1,4 +1,4 @@
-import { SyncTransportError } from '@flash/core';
+import { compareCodeUnits, SyncTransportError } from '@flash/core';
 import type { Auth, SyncFileInfo, SyncTransport } from '@flash/platform';
 import { isGoogleRateLimited } from './google-errors.ts';
 
@@ -12,6 +12,8 @@ interface DriveFileRecord {
   name: string;
   size?: string;
   modifiedTime?: string;
+  createdTime?: string;
+  appProperties?: Record<string, string>;
 }
 
 interface DriveListResponse {
@@ -23,6 +25,39 @@ export interface GoogleDriveTransportOptions {
   auth: Auth;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+}
+
+/** `appProperties` mark on files created with `ifAbsent` (write-once), see {@link pickDriveCopy}. */
+const WRITE_ONCE_PROPERTY = 'flashWriteOnce';
+const FILE_FIELDS = 'id,name,size,createdTime,modifiedTime,appProperties';
+
+function driveTime(value: string | undefined): number {
+  const ms = value ? Date.parse(value) : Number.NaN;
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+/**
+ * The copy every device uses when Drive holds several files with one name (C23). Drive has no
+ * create-if-absent, so two devices can both create a write-once file; those copies carry
+ * {@link WRITE_ONCE_PROPERTY} and the first created wins, the same rule `write` uses to decide
+ * which racer keeps its file. Files without the mark (mutable `head.json`, or from older builds)
+ * keep the newest-modified rule. Ties go to the smaller id, so the pick never depends on the
+ * order Drive lists them in.
+ */
+function pickDriveCopy(files: readonly DriveFileRecord[]): DriveFileRecord | undefined {
+  const writeOnce = files.every((f) => f.appProperties?.[WRITE_ONCE_PROPERTY] === '1');
+  let best: DriveFileRecord | undefined;
+  for (const f of files) {
+    if (!best) {
+      best = f;
+      continue;
+    }
+    const byTime = writeOnce
+      ? driveTime(f.createdTime) - driveTime(best.createdTime)
+      : driveTime(best.modifiedTime) - driveTime(f.modifiedTime);
+    if (byTime < 0 || (byTime === 0 && f.id < best.id)) best = f;
+  }
+  return best;
 }
 
 function escapeDriveQuery(value: string): string {
@@ -163,12 +198,23 @@ export class GoogleDriveAppDataTransport implements SyncTransport {
       if (cached) return cached;
     }
 
+    const best = pickDriveCopy(await this.lookupByName(path));
+    if (!best) {
+      this.pathToId.delete(path);
+      return null;
+    }
+    this.pathToId.set(path, best.id);
+    return best.id;
+  }
+
+  /** Every non-trashed file named `path` (Drive allows several). */
+  private async lookupByName(path: string): Promise<DriveFileRecord[]> {
     const q = `name = '${escapeDriveQuery(path)}' and trashed = false`;
     const params = new URLSearchParams({
       spaces: 'appDataFolder',
-      pageSize: '10',
+      pageSize: '100',
       q,
-      fields: 'files(id,name,modifiedTime)',
+      fields: `files(${FILE_FIELDS})`,
     });
     const res = await this.authorizedFetch(`${DRIVE_FILES_API}?${params.toString()}`);
     if (!res.ok) {
@@ -180,25 +226,11 @@ export class GoogleDriveAppDataTransport implements SyncTransport {
     }
 
     const data = (await res.json()) as DriveListResponse;
-    const matches = (data.files ?? []).filter((f) => f.name === path);
-    if (matches.length === 0) {
-      this.pathToId.delete(path);
-      return null;
-    }
-
-    matches.sort((a, b) => {
-      const ta = a.modifiedTime ? Date.parse(a.modifiedTime) : 0;
-      const tb = b.modifiedTime ? Date.parse(b.modifiedTime) : 0;
-      return tb - ta;
-    });
-    const best = matches[0];
-    if (!best) return null;
-    this.pathToId.set(path, best.id);
-    return best.id;
+    return (data.files ?? []).filter((f) => f.name === path);
   }
 
   async list(prefix: string): Promise<SyncFileInfo[]> {
-    const byPath = new Map<string, SyncFileInfo>();
+    const byPath = new Map<string, DriveFileRecord[]>();
     let pageToken: string | undefined;
 
     do {
@@ -208,7 +240,7 @@ export class GoogleDriveAppDataTransport implements SyncTransport {
         spaces: 'appDataFolder',
         pageSize: '1000',
         q: 'trashed = false',
-        fields: 'nextPageToken,files(id,name,size,modifiedTime)',
+        fields: `nextPageToken,files(${FILE_FIELDS})`,
       });
       if (pageToken) {
         params.set('pageToken', pageToken);
@@ -225,24 +257,28 @@ export class GoogleDriveAppDataTransport implements SyncTransport {
 
       const data = (await res.json()) as DriveListResponse;
       for (const file of data.files ?? []) {
-        const updatedAt = file.modifiedTime ? Date.parse(file.modifiedTime) : undefined;
         if (!file.name.startsWith(prefix)) continue;
-        const size = file.size ? Number.parseInt(file.size, 10) || 0 : 0;
-        const existing = byPath.get(file.name);
-        if (!existing || (updatedAt ?? 0) >= (existing.updatedAt ?? 0)) {
-          byPath.set(file.name, {
-            path: file.name,
-            size,
-            ...(updatedAt !== undefined && !Number.isNaN(updatedAt) ? { updatedAt } : {}),
-          });
-          this.pathToId.set(file.name, file.id);
-        }
+        const copies = byPath.get(file.name);
+        if (copies) copies.push(file);
+        else byPath.set(file.name, [file]);
       }
 
       pageToken = data.nextPageToken;
     } while (pageToken);
 
-    return [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const out: SyncFileInfo[] = [];
+    for (const [path, copies] of byPath) {
+      const file = pickDriveCopy(copies);
+      if (!file) continue;
+      this.pathToId.set(path, file.id);
+      const updatedAt = file.modifiedTime ? Date.parse(file.modifiedTime) : Number.NaN;
+      out.push({
+        path,
+        size: file.size ? Number.parseInt(file.size, 10) || 0 : 0,
+        ...(Number.isNaN(updatedAt) ? {} : { updatedAt }),
+      });
+    }
+    return out.sort((a, b) => compareCodeUnits(a.path, b.path));
   }
 
   async read(path: string): Promise<Uint8Array> {
@@ -321,7 +357,11 @@ export class GoogleDriveAppDataTransport implements SyncTransport {
         : `${Date.now().toString(16)}_${Math.random().toString(36).slice(2, 12)}`;
     const boundary = `flash_sync_${rand}`;
     const multipartBody = buildMultipartRelatedBody(
-      { name: path, parents: ['appDataFolder'] },
+      {
+        name: path,
+        parents: ['appDataFolder'],
+        ...(opts?.ifAbsent ? { appProperties: { [WRITE_ONCE_PROPERTY]: '1' } } : {}),
+      },
       data,
       boundary,
     );
@@ -346,6 +386,35 @@ export class GoogleDriveAppDataTransport implements SyncTransport {
     const created = (await createRes.json().catch(() => null)) as { id?: string } | null;
     if (created?.id) {
       this.pathToId.set(path, created.id);
+      if (opts?.ifAbsent) await this.keepFirstCopy(path, created.id);
     }
+  }
+
+  /**
+   * Drive's create cannot fail on an existing name, so a write-once create is checked after the
+   * fact (C23): when another device created the same file first, this device removes its own copy
+   * and reports `ALREADY_EXISTS`, as the contract asks, and reads then go to the first copy. A
+   * copy the lookup does not show yet counts as kept. When this lookup fails, the error stands and
+   * the copy stays; the retry's own lookup finds it (or the first one), so it creates no other.
+   */
+  private async keepFirstCopy(path: string, createdId: string): Promise<void> {
+    const copies = await this.lookupByName(path);
+    const first = pickDriveCopy(copies);
+    if (!first || first.id === createdId || !copies.some((f) => f.id === createdId)) return;
+    this.pathToId.set(path, first.id);
+    // Best effort: a copy a failed delete leaves is harmless, since every device reads the first.
+    try {
+      const res = await this.authorizedFetch(
+        `${DRIVE_FILES_API}/${encodeURIComponent(createdId)}`,
+        { method: 'DELETE' },
+      );
+      await res.body?.cancel();
+    } catch {
+      // Ignored, as above.
+    }
+    throw new SyncTransportError(
+      'ALREADY_EXISTS',
+      `Google Drive write-once file was created first by another device: "${path}"`,
+    );
   }
 }

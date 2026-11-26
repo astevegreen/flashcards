@@ -50,6 +50,23 @@ function restoreMediaAddRecords(state: CollectionState): void {
 }
 
 /**
+ * Snapshots from before per-field media registers (D20) hold `tts_key` / `tts_lang_key` with no
+ * `media:<hash>:<field>` register. Each gets the entry's add register: the key came from an add no
+ * newer than that, so a late older add cannot overwrite it, and a removal older than the newest
+ * add keeps it, which is what a full replay does whenever the newest add carried the key.
+ */
+function restoreMediaFieldRecords(state: CollectionState): void {
+  for (const [hash, entry] of state.media) {
+    const addedAt = state.fieldHlcs.get(`media:${hash}:added`);
+    if (addedAt === undefined) continue;
+    for (const f of ['tts_key', 'tts_lang_key'] as const) {
+      const key = `media:${hash}:${f}`;
+      if (entry[f] !== undefined && !state.fieldHlcs.has(key)) state.fieldHlcs.set(key, addedAt);
+    }
+  }
+}
+
+/**
  * Pure JS JSON-safe and structured-cloneable snapshot of `CollectionState`.
  * Zero `fflate` dependency so cold-start local snapshot hydration stays inside
  * the initial bundle budget (§8).
@@ -511,6 +528,7 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
   };
   // Before folding removals: a version 1 snapshot has no add registers for its media.
   if (serialized.formatVersion < 2) restoreMediaAddRecords(state);
+  restoreMediaFieldRecords(state);
   // Snapshots from builds that predate `NoteTagsAdded` carry those events as unknown.
   state.unknownEvents = foldMediaRemovedFromUnknown(
     state,

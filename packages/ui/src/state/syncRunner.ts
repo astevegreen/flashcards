@@ -387,13 +387,23 @@ export async function runSyncCycle(
         applyEventsWithDiff(hydrated, result.pulledEvents);
       }
       if (ctx.metaRef.current.seq > localOwnSeq) {
-        await ctx.enqueuePersist(async () => {});
-        const concurrentLocal = await ctx.platform.storage.getDeviceEventsAfterSeq(
-          deviceId,
-          localOwnSeq,
-        );
-        if (concurrentLocal.length > 0) {
-          applyEventsWithDiff(hydrated, concurrentLocal);
+        // Local events made since the sync started are replayed over the snapshot. Each read
+        // awaits, and a rating made during it is persisted after it, so read again until no new
+        // local event appeared; the last check and `onReplaceState` run with no await between (D20).
+        let caughtUpSeq = localOwnSeq;
+        while (ctx.metaRef.current.seq > caughtUpSeq) {
+          const targetSeq = ctx.metaRef.current.seq;
+          await ctx.enqueuePersist(async () => {});
+          const concurrentLocal = await ctx.platform.storage.getDeviceEventsAfterSeq(
+            deviceId,
+            caughtUpSeq,
+          );
+          if (concurrentLocal.length > 0) {
+            applyEventsWithDiff(hydrated, concurrentLocal);
+          }
+          // Events up to `targetSeq` were queued before the barrier, so they are on disk now (a
+          // failed write is the persist queue's to report); later ones go round again.
+          caughtUpSeq = concurrentLocal.reduce((max, e) => Math.max(max, e.seq), targetSeq);
         }
         nextMeta = {
           ...nextMeta,
