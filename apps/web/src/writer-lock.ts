@@ -2,61 +2,70 @@
  * One writer per browser profile. Two tabs writing at once would reuse `(device, seq)`, and each
  * keeps only its own events in memory, so a snapshot saved by one could drop the other's events.
  * The tab that holds a Web Lock named after its IndexedDB database writes; any other tab waits on
- * the "open in another tab" screen until the user takes the lock over (`steal`).
+ * the "open in another tab" screen until the user takes it over (`writer-handoff.ts`, lazy). Only
+ * this gate is in the initial chunk.
  */
+
+export interface LockOptions {
+  ifAvailable?: boolean;
+  steal?: boolean;
+  signal?: AbortSignal;
+}
 
 /** The part of `navigator.locks` used here (a fake in unit tests). */
 export interface WriterLocks {
   request(
     name: string,
-    options: { ifAvailable?: boolean; steal?: boolean; signal?: AbortSignal },
+    options: LockOptions,
     callback: (lock: unknown) => unknown,
   ): Promise<unknown>;
 }
 
+/** Releases the held lock. */
+export type ReleaseLock = () => void;
+
+/** Waits up to `ms` for the lock; without `AbortSignal.timeout`, takes it only if free now. */
+export function waitUpTo(ms: number): LockOptions {
+  const signal = AbortSignal.timeout?.(ms);
+  return signal ? { signal } : { ifAvailable: true };
+}
+
 /**
- * Asks for the writer lock and holds it while the page lives. Resolves true when held, false when
- * another tab still has it after `waitMs` (a reload can briefly race its own old page's release;
- * a steal always gets it). `onLost` runs if another tab steals it later. A lock manager that fails
- * any other way resolves true: the tab writes as it did before locks.
+ * Asks for the writer lock and holds it until released or the page closes. Resolves with the
+ * release function when held, or null when another tab still has it (a timed-out wait). `onLost`
+ * runs if another tab steals it. A lock manager that fails any other way resolves with a no-op:
+ * the tab writes as it did before locks.
  */
 export function holdWriterLock(
   locks: WriterLocks,
   name: string,
-  steal: boolean,
+  options: LockOptions,
   onLost: () => void,
-  waitMs = 500,
-): Promise<boolean> {
+): Promise<ReleaseLock | null> {
   return new Promise((resolve) => {
-    let held = false;
-    const signal = steal ? undefined : AbortSignal.timeout?.(waitMs);
-    let options: { steal?: boolean; signal?: AbortSignal; ifAvailable?: boolean } = { steal };
-    if (!steal) options = signal ? { signal } : { ifAvailable: true };
-    locks
-      .request(name, options, (lock) => {
-        held = lock !== null;
-        resolve(held);
-        // A promise that never settles keeps the lock until the page closes.
-        return held && new Promise(() => undefined);
-      })
-      .catch(() => (held ? onLost() : resolve(signal?.aborted !== true)));
+    let release: ReleaseLock | undefined;
+    const failed = () => {
+      if (release) onLost();
+      else resolve(options.signal?.aborted ? null : () => undefined);
+    };
+    try {
+      locks
+        .request(name, options, (lock) => {
+          if (lock === null) return resolve(null);
+          return new Promise<void>((done) => {
+            release = done;
+            resolve(done);
+          });
+        })
+        .catch(failed);
+    } catch {
+      failed();
+    }
   });
 }
 
-/**
- * Stops a tab that lost the lock from writing at once: every write method of its storage now
- * rejects, and the hide events that flush a sync push no longer reach the app. Then reload, so
- * the tab boots again on the "open in another tab" screen.
- */
-export function stopWriting(storage: object, win: Window): void {
-  const target = storage as Record<string, unknown>;
-  for (const key of Object.getOwnPropertyNames(Object.getPrototypeOf(storage))) {
-    if (/^(append|set|put|delete|clear|open)/.test(key)) {
-      target[key] = () => Promise.reject(new Error('Flashcards is open in another tab.'));
-    }
-  }
-  for (const type of ['pagehide', 'visibilitychange', 'focus']) {
-    win.addEventListener(type, (e) => e.stopImmediatePropagation(), true);
-  }
-  win.location.reload();
+/** `navigator.locks` when it can be used; otherwise the tab writes without a lock, as before. */
+export function usableLocks(nav: Navigator): WriterLocks | undefined {
+  const locks = (nav as { locks?: Partial<WriterLocks> }).locks;
+  return typeof locks?.request === 'function' ? (locks as WriterLocks) : undefined;
 }

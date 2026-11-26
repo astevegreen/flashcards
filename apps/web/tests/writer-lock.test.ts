@@ -1,79 +1,28 @@
 import { describe, expect, it, vi } from 'vitest';
-import { holdWriterLock, stopWriting, type WriterLocks } from '../src/writer-lock.ts';
-
-interface Holder {
-  reject: (err: Error) => void;
-}
-
-/**
- * A small `navigator.locks` for one exclusive lock name per test: `ifAvailable`, a waiting request
- * with an abort `signal`, and `steal` (the holder's request rejects with an AbortError).
- */
-function fakeLocks() {
-  const held = new Map<string, Holder>();
-  const waiting = new Map<string, Array<() => void>>();
-  const release = (name: string) => {
-    held.delete(name);
-    waiting.get(name)?.shift()?.();
-  };
-  const grant = (
-    name: string,
-    callback: (lock: unknown) => unknown,
-    resolve: (v: unknown) => void,
-    reject: (err: Error) => void,
-  ) => {
-    held.set(name, { reject });
-    void Promise.resolve(callback({ name })).then((v) => {
-      if (held.get(name)?.reject === reject) release(name);
-      resolve(v);
-    });
-  };
-  const locks: WriterLocks = {
-    request: (name, options, callback) =>
-      new Promise((resolve, reject) => {
-        const current = held.get(name);
-        if (options.steal) {
-          current?.reject(new DOMException('stolen', 'AbortError'));
-          grant(name, callback, resolve, reject);
-        } else if (!current) {
-          grant(name, callback, resolve, reject);
-        } else if (options.ifAvailable) {
-          resolve(callback(null));
-        } else {
-          const turn = () => grant(name, callback, resolve, reject);
-          waiting.set(name, [...(waiting.get(name) ?? []), turn]);
-          options.signal?.addEventListener('abort', () => {
-            waiting.set(
-              name,
-              (waiting.get(name) ?? []).filter((t) => t !== turn),
-            );
-            reject(new DOMException('timed out', 'TimeoutError'));
-          });
-        }
-      }),
-  };
-  return { locks, release, held };
-}
+import { holdWriterLock, usableLocks, waitUpTo, type WriterLocks } from '../src/writer-lock.ts';
+import { fakeLocks } from './helpers/fake-locks.ts';
 
 describe('holdWriterLock', () => {
   it('lets the first tab write and makes the second wait on the screen', async () => {
     const { locks } = fakeLocks();
-    expect(await holdWriterLock(locks, 'flashcards-db', false, vi.fn(), 10)).toBe(true);
-    expect(await holdWriterLock(locks, 'flashcards-db', false, vi.fn(), 10)).toBe(false);
+    expect(await holdWriterLock(locks, 'flashcards-db', waitUpTo(10), vi.fn())).toBeTypeOf(
+      'function',
+    );
+    expect(await holdWriterLock(locks, 'flashcards-db', waitUpTo(10), vi.fn())).toBeNull();
   });
 
   it('keeps device-a and device-b as two separate writers', async () => {
     const { locks } = fakeLocks();
-    expect(await holdWriterLock(locks, 'flashcards-db-a', false, vi.fn(), 10)).toBe(true);
-    expect(await holdWriterLock(locks, 'flashcards-db-b', false, vi.fn(), 10)).toBe(true);
+    expect(await holdWriterLock(locks, 'flashcards-db-a', waitUpTo(10), vi.fn())).not.toBeNull();
+    expect(await holdWriterLock(locks, 'flashcards-db-b', waitUpTo(10), vi.fn())).not.toBeNull();
   });
 
-  it('gets the lock when the old holder releases it within the wait (a reload)', async () => {
-    const { locks, release } = fakeLocks();
-    await holdWriterLock(locks, 'flashcards-db', false, vi.fn(), 10);
-    const second = holdWriterLock(locks, 'flashcards-db', false, vi.fn(), 1000);
-    release('flashcards-db');
-    expect(await second).toBe(true);
+  it('gets the lock when the holder releases it within the wait (a reload, a handoff)', async () => {
+    const { locks } = fakeLocks();
+    const release = await holdWriterLock(locks, 'flashcards-db', waitUpTo(10), vi.fn());
+    const second = holdWriterLock(locks, 'flashcards-db', waitUpTo(1000), vi.fn());
+    release?.();
+    expect(await second).not.toBeNull();
   });
 
   it('falls back to ifAvailable without AbortSignal.timeout', async () => {
@@ -81,96 +30,53 @@ describe('holdWriterLock', () => {
     const timeout = AbortSignal.timeout;
     Object.defineProperty(AbortSignal, 'timeout', { value: undefined, configurable: true });
     try {
-      expect(await holdWriterLock(locks, 'flashcards-db', false, vi.fn())).toBe(true);
-      expect(await holdWriterLock(locks, 'flashcards-db', false, vi.fn())).toBe(false);
+      expect(waitUpTo(500)).toEqual({ ifAvailable: true });
+      expect(await holdWriterLock(locks, 'flashcards-db', waitUpTo(500), vi.fn())).not.toBeNull();
+      expect(await holdWriterLock(locks, 'flashcards-db', waitUpTo(500), vi.fn())).toBeNull();
     } finally {
       Object.defineProperty(AbortSignal, 'timeout', { value: timeout, configurable: true });
     }
   });
 
-  it('moves the lock on "Use here instead" and tells the old writer once', async () => {
+  it('tells the holder once when another tab steals the lock', async () => {
     const { locks } = fakeLocks();
     const firstLost = vi.fn();
     const secondLost = vi.fn();
-    await holdWriterLock(locks, 'flashcards-db', false, firstLost, 10);
-    expect(await holdWriterLock(locks, 'flashcards-db', true, secondLost)).toBe(true);
+    await holdWriterLock(locks, 'flashcards-db', waitUpTo(10), firstLost);
+    expect(
+      await holdWriterLock(locks, 'flashcards-db', { steal: true }, secondLost),
+    ).not.toBeNull();
     await vi.waitFor(() => expect(firstLost).toHaveBeenCalledTimes(1));
     expect(secondLost).not.toHaveBeenCalled();
-    // ...and the first tab can take it back the same way.
-    expect(await holdWriterLock(locks, 'flashcards-db', true, vi.fn())).toBe(true);
-    await vi.waitFor(() => expect(secondLost).toHaveBeenCalledTimes(1));
   });
 
-  it('writes as before when the lock manager fails outright', async () => {
+  it('writes as before when the lock manager rejects outright', async () => {
     const locks: WriterLocks = { request: () => Promise.reject(new Error('SecurityError')) };
     const onLost = vi.fn();
-    expect(await holdWriterLock(locks, 'flashcards-db', false, onLost)).toBe(true);
+    expect(await holdWriterLock(locks, 'flashcards-db', waitUpTo(10), onLost)).toBeTypeOf(
+      'function',
+    );
     expect(onLost).not.toHaveBeenCalled();
+  });
+
+  it('writes as before when the lock manager throws synchronously', async () => {
+    const locks: WriterLocks = {
+      request: () => {
+        throw new TypeError('locks unavailable');
+      },
+    };
+    expect(await holdWriterLock(locks, 'flashcards-db', waitUpTo(10), vi.fn())).toBeTypeOf(
+      'function',
+    );
   });
 });
 
-describe('stopWriting', () => {
-  class FakeStorage {
-    writes = 0;
-    async appendEvents() {
-      this.writes++;
-    }
-    async appendEventsWithMeta() {
-      this.writes++;
-    }
-    async setDeviceMeta() {
-      this.writes++;
-    }
-    async setLocalSnapshot() {
-      this.writes++;
-    }
-    async putMedia() {
-      this.writes++;
-    }
-    async deleteKv() {
-      this.writes++;
-    }
-    async clearAll() {
-      this.writes++;
-    }
-    async openBackupStore() {
-      this.writes++;
-    }
-    async getAllEvents() {
-      return ['kept'];
-    }
-  }
-
-  it('rejects every write, keeps reads, swallows hide events and reloads', async () => {
-    const storage = new FakeStorage();
-    const listeners: Array<[string, boolean | AddEventListenerOptions | undefined]> = [];
-    const reload = vi.fn();
-    const win = {
-      addEventListener: (type: string, _l: unknown, opts?: boolean | AddEventListenerOptions) =>
-        listeners.push([type, opts]),
-      location: { reload },
-    } as unknown as Window;
-
-    stopWriting(storage, win);
-
-    const writes = [
-      storage.appendEvents(),
-      storage.appendEventsWithMeta(),
-      storage.setDeviceMeta(),
-      storage.setLocalSnapshot(),
-      storage.putMedia(),
-      storage.deleteKv(),
-      storage.clearAll(),
-      storage.openBackupStore(),
-    ];
-    for (const write of writes) await expect(write).rejects.toThrow('open in another tab');
-    expect(storage.writes).toBe(0);
-    expect(await storage.getAllEvents()).toEqual(['kept']);
-    expect(listeners).toEqual([
-      ['pagehide', true],
-      ['visibilitychange', true],
-      ['focus', true],
-    ]);
-    expect(reload).toHaveBeenCalledTimes(1);
+describe('usableLocks', () => {
+  it('returns navigator.locks only when it has a request function', () => {
+    const locks = { request: vi.fn() };
+    expect(usableLocks({ locks } as unknown as Navigator)).toBe(locks);
+    expect(usableLocks({} as Navigator)).toBeUndefined();
+    expect(usableLocks({ locks: undefined } as unknown as Navigator)).toBeUndefined();
+    expect(usableLocks({ locks: {} } as unknown as Navigator)).toBeUndefined();
   });
 });

@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+export { takeOver, yieldWriter } from './writer-handoff.ts';
+
 /** Shown instead of the app while another tab of this browser profile is the writer (lazy). */
 export function OtherTab({ onUse }: Readonly<{ onUse: () => void }>) {
   const [busy, setBusy] = useState(false);

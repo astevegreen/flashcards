@@ -88,6 +88,10 @@ export interface LocalSnapshotRecord {
 }
 
 export interface Storage {
+  /** The IndexedDB database name (web only); the single-writer tab lock is named after it. */
+  readonly dbName?: string;
+  /** Closes the database for good: every later read or write, backups included, fails. */
+  close?(): void;
   appendEvents(events: readonly FlashEvent[]): Promise<void>;
   /**
    * Stores local events and the device meta that counts them together (D11), so a session killed

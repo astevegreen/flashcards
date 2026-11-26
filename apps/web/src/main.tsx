@@ -13,7 +13,13 @@ import { FlashcardsApp } from '@flash/ui';
 import { StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import './styles.css';
-import { holdWriterLock, stopWriting } from './writer-lock.ts';
+import {
+  holdWriterLock,
+  usableLocks,
+  waitUpTo,
+  type ReleaseLock,
+  type WriterLocks,
+} from './writer-lock.ts';
 
 // Public OAuth Web Client ID & stateless token-helper Worker URL (never secret)
 const DEFAULT_GOOGLE_CLIENT_ID =
@@ -66,16 +72,23 @@ async function handleOAuthRedirect(
 
 /**
  * Holds the writer lock, or shows "open in another tab" until the user takes it over. Storage is
- * read only after this, so a takeover boots from the latest stored state.
+ * read only after this, so a takeover boots from the latest stored state. Then gives the lock up
+ * when another tab asks (`writer-handoff.ts`, lazy with the screen in one chunk).
  */
-async function waitForWriterLock(root: Root, name: string, onLost: () => void): Promise<void> {
-  if (await holdWriterLock(navigator.locks, name, false, onLost)) return;
-  const { OtherTab } = await import('./other-tab.tsx');
-  await new Promise<void>((resolve) => {
-    const onUse = () =>
-      void holdWriterLock(navigator.locks, name, true, onLost).then(() => resolve());
-    root.render(<OtherTab onUse={onUse} />);
-  });
+async function holdWriter(root: Root, locks: WriterLocks, storage: object, name: string) {
+  const yieldHere = (release?: ReleaseLock) =>
+    void import('./other-tab.tsx').then((m) => m.yieldWriter(storage, name, window, release));
+  const onLost = () => yieldHere();
+  let release = await holdWriterLock(locks, name, waitUpTo(500), onLost);
+  if (!release) {
+    const { OtherTab, takeOver } = await import('./other-tab.tsx');
+    release = await new Promise<ReleaseLock>((resolve) => {
+      const onUse = () => void takeOver(locks, name, onLost).then(resolve);
+      root.render(<OtherTab onUse={onUse} />);
+    });
+  }
+  const held = release;
+  new BroadcastChannel(`${name}:writer`).onmessage = (e) => e.data === 'take' && yieldHere(held);
 }
 
 async function boot(): Promise<void> {
@@ -168,9 +181,10 @@ async function boot(): Promise<void> {
   const root = createRoot(rootEl);
   // One writer per browser profile, before anything reads or writes storage. Native shells are
   // single-window, and browsers without Web Locks write as before.
-  if (nativeRuntime === null && 'locks' in navigator) {
-    const dbName = resolved.slug ? 'flashcards-db-' + resolved.slug : 'flashcards-db';
-    await waitForWriterLock(root, dbName, () => stopWriting(platform.storage, window));
+  const locks = usableLocks(navigator);
+  const dbName = platform.storage.dbName;
+  if (nativeRuntime === null && locks && dbName) {
+    await holdWriter(root, locks, platform.storage, dbName);
   }
 
   // Zero-overhead OAuth redirect callback check (only lazy-loads GoogleAuth if `?code=` / `?error=` is present)
