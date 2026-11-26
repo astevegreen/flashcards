@@ -21,18 +21,23 @@ function pushText(segments: ClozeSegment[], value: string): void {
 /**
  * Finds the matching `}}` for a cloze marker starting after `{{cN::`, respecting nested
  * single-brace ruby syntax `{base|reading}` so `{{c1::{今日|きょう}}}` closes at the outer `}}`!
+ * When the braces inside never balance (`{{c1::{a}}`), it closes at the first `}}`, as Anki
+ * reads it (C19).
  */
 function findClozeClose(input: string, bodyStart: number): number {
   let i = bodyStart;
   let singleBraceDepth = 0;
+  let firstClose = -1;
 
   while (i < input.length - 1) {
     const ch = input[i];
     const next = input[i + 1];
 
+    if (firstClose === -1 && ch === '}' && next === '}') firstClose = i;
+
     if (ch === '{' && next === '{') {
-      // Unclosed outer cloze before a new `{{`
-      return -1;
+      // A new `{{` before this cloze balanced: unbalanced body, or an unclosed outer cloze.
+      return firstClose;
     }
 
     if (ch === '{') {
@@ -55,7 +60,7 @@ function findClozeClose(input: string, bodyStart: number): number {
     i += 1;
   }
 
-  return -1;
+  return firstClose;
 }
 
 /**
@@ -63,19 +68,26 @@ function findClozeClose(input: string, bodyStart: number): number {
  */
 function splitAnswerAndHint(body: string): { answer: string; hint?: string } {
   let depth = 0;
+  let firstSeparator = -1;
   for (let i = 0; i < body.length - 1; i++) {
+    if (firstSeparator === -1 && body[i] === ':' && body[i + 1] === ':') firstSeparator = i;
     const ch = body[i];
     if (ch === '{') {
       depth += 1;
     } else if (ch === '}' && depth > 0) {
       depth -= 1;
     } else if (depth === 0 && ch === ':' && body[i + 1] === ':') {
-      const answer = body.slice(0, i);
-      const hint = body.slice(i + 2);
-      return hint.length > 0 ? { answer, hint } : { answer };
+      return splitAt(body, i);
     }
   }
-  return { answer: body };
+  // Braces that never balance (`a{b::hint`) don't hide the separator (C19).
+  return depth > 0 && firstSeparator !== -1 ? splitAt(body, firstSeparator) : { answer: body };
+}
+
+function splitAt(body: string, i: number): { answer: string; hint?: string } {
+  const answer = body.slice(0, i);
+  const hint = body.slice(i + 2);
+  return hint.length > 0 ? { answer, hint } : { answer };
 }
 
 /**

@@ -223,6 +223,51 @@ describe('.flashpkg export keeps categories', () => {
   });
 });
 
+describe('exports never write one record id twice (C19)', () => {
+  // Two notes of one deck can share a source key (one moved in from a deck linked to the same
+  // sheet); a third note's own id can equal that key too.
+  function sharedKeyState(): CollectionState {
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', T0));
+    const note = (id: string, sourceKey: string, word: string, order: number) =>
+      factory.create(
+        'NoteUpserted',
+        {
+          note_id: id,
+          deck_id: DECK,
+          source_key: sourceKey,
+          fields: { word, meaning: word },
+          tags: [],
+          provenance: { source: 'import', reviewed: true },
+          created_order: order,
+        },
+        T0 + order + 1,
+      );
+    return replayAllEvents([
+      ...deckEvents(factory),
+      note('n1', 'k', 'one', 0),
+      note('n2', 'k', 'two', 1),
+      note('k', '', 'three', 2),
+    ]);
+  }
+
+  it('.flashpkg keeps every note', () => {
+    const bytes = exportFlashpkg(sharedKeyState(), { deckId: DECK });
+    const f2 = createEventFactory('dev-y', 0, createHlcState('dev-y', T0 + 20_000));
+    const res = importFlashpkg(bytes, replayAllEvents([]), f2, { nowMs: T0 + 20_000 });
+    const words = [...replayAllEvents(res.events).notes.values()].map((n) => n.fields['word']);
+    expect(words.sort()).toEqual(['one', 'three', 'two']);
+  });
+
+  it('CSV keeps every note without a duplicate Card ID warning', () => {
+    const exported = exportCsv(sharedKeyState(), { deckId: DECK });
+    expect(notesOf(importCsv(exported.text)).map((n) => n.fields['word'])).toEqual([
+      'one',
+      'two',
+      'three',
+    ]);
+  });
+});
+
 describe('CSV round trip keeps whitespace and separator characters (C17)', () => {
   it('export -> import keeps padded fields and tags that contain , ; or a backslash', () => {
     const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', T0));

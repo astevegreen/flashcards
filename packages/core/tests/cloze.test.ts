@@ -62,6 +62,20 @@ describe('Cloze parser golden tests (§5.2)', () => {
     ]);
     expect(extractClozeNumbers('plain text without cloze')).toEqual([]);
   });
+
+  it('closes a cloze whose body has an unmatched { at the first }} as Anki does (C19)', () => {
+    expect(parseCloze('{{c1::{a}}')).toEqual([{ type: 'cloze', index: 1, answer: '{a' }]);
+    expect(parseCloze('x {{c2::a{b::hint}} y')).toEqual([
+      { type: 'text', value: 'x ' },
+      { type: 'cloze', index: 2, answer: 'a{b', hint: 'hint' },
+      { type: 'text', value: ' y' },
+    ]);
+    // Balanced ruby braces still close at the outer `}}`; no `}}` at all stays text.
+    expect(parseCloze('{{c1::{今日|きょう}}}')).toEqual([
+      { type: 'cloze', index: 1, answer: '{今日|きょう}' },
+    ]);
+    expect(parseCloze('{{c1::{a}')).toEqual([{ type: 'text', value: '{{c1::{a}' }]);
+  });
 });
 
 describe('Multi-variant Cloze card derivation, sibling burying & convergence', () => {

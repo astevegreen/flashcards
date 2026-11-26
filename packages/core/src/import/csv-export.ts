@@ -2,6 +2,7 @@ import type { CollectionState } from '../events/replay.ts';
 import type { Note, NoteType } from '../model/types.ts';
 import { stripRichText as stripRichTextMarkup } from '../parsers/rich-text.ts';
 import { normalizeTagList } from '../tags/index.ts';
+import { uniqueRecordIds } from './record-ids.ts';
 
 export interface CsvExportOptions {
   deckId: string;
@@ -118,10 +119,11 @@ export function exportCsv(state: CollectionState, options: CsvExportOptions): Cs
   ];
 
   const lines = [headers.map((h) => escapeCell(h, delimiter)).join(delimiter)];
+  const recordIds = uniqueRecordIds(notes);
   notes.forEach((note, idx) => {
     const tags = tagLists[idx] ?? [];
     const cells = [
-      note.source_key || note.id,
+      recordIds[idx] ?? note.id,
       ...fields.map((f) => {
         const value = note.fields[f.key] ?? '';
         return options.stripRichText ? stripRichTextMarkup(value) : value;
