@@ -1,4 +1,4 @@
-import type { CollectionState, SourceKind } from '@flash/core';
+import type { CollectionState, SourceKind, SourceRef } from '@flash/core';
 import type { SourcesRegistry } from '@flash/platform';
 
 /** Deck source kinds the registry rebuilds a row for from synced decks (`loadSourcesRegistry`). */
@@ -24,16 +24,18 @@ export function hasSyncedLinkedSource(
 ): boolean {
   const unlinkedOneDrive = new Set(saved?.unlinkedOneDriveIds ?? []);
   for (const deck of state.decks.values()) {
-    const src = deck.source;
-    if (deck.archived || !src || !SYNCED_DECK_SOURCE_KINDS.has(src.kind)) continue;
-    if (src.kind === 'package_url') {
-      if (src.uri) return true;
-    } else if (src.external_id) {
-      if (src.kind !== 'onedrive_file' || !unlinkedOneDrive.has(src.external_id)) return true;
-    }
+    if (!deck.archived && deck.source && rebuildsRow(deck.source, unlinkedOneDrive)) return true;
   }
   for (const page of state.pages.values()) {
     if (page.source?.kind === 'google_docs' && page.source.external_id) return true;
   }
   return false;
+}
+
+/** True when `loadSourcesRegistry` would add a row for a deck carrying `src`. */
+function rebuildsRow(src: SourceRef, unlinkedOneDrive: ReadonlySet<string>): boolean {
+  if (!SYNCED_DECK_SOURCE_KINDS.has(src.kind)) return false;
+  if (src.kind === 'package_url') return Boolean(src.uri);
+  if (!src.external_id) return false;
+  return src.kind !== 'onedrive_file' || !unlinkedOneDrive.has(src.external_id);
 }
