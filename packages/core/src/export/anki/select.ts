@@ -40,6 +40,6 @@ export function escapeCsvCell(value: string, delimiter: string): string {
  */
 export function guardHtmlFormula(html: string): string {
   if (!startsLikeFormula(html)) return html;
-  const i = html.search(/\S/);
+  const i = html.search(/[^ \t\r\n]/);
   return `${html.slice(0, i)}&#${html.charCodeAt(i)};${html.slice(i + 1)}`;
 }

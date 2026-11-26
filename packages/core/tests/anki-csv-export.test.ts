@@ -171,6 +171,9 @@ describe('Export for Anki CSV', () => {
     const line = plan.text.split('\r\n')[7] ?? '';
     const row = parseDelimitedText(line, { delimiter: ',' }).headers;
     expect(row.slice(3, 8)).toEqual(['&#61;HYPERLINK(1)', '&#45;1', '', '', '-(으)ㄴ']);
+    // The app's own Anki importer reads the entities back as the typed text.
+    const back = [row[3], row[4]].map((c) => ankiHtmlToText(c ?? '', { furigana: false }).text);
+    expect(back).toEqual(['=HYPERLINK(1)', '-1']);
   });
 
   it('only names media whose extension is on the importers allow-list', () => {
