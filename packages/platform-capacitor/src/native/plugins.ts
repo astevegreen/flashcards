@@ -65,7 +65,8 @@ export async function openCapacitorSqliteDriver(dbName = 'flashcards'): Promise<
   await db.query('PRAGMA secure_delete = ON;');
   return {
     execute: async (sql, params) => {
-      // `transaction: false` — `CapacitorSqliteStorage` issues its own BEGIN/COMMIT when needed.
+      // `transaction: false`: each statement runs on its own; `CapacitorSqliteStorage` opens no
+      // transactions, so a multi-statement write is not atomic.
       await db.run(sql, params ? [...params] : [], false);
     },
     query: async <T = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {

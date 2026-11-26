@@ -364,7 +364,7 @@ function resolveOwnParamsVersion(
   return own;
 }
 
-/** Returns the active FSRS params version number for a deck at `nowMs`. */
+/** Returns the FSRS params version a deck uses now: the newest one in its version list. */
 export function getActiveFsrsParamsVersion(state: CollectionState, deckId: string): number {
   const versions = state.deckFsrsParams.get(deckId);
   const latest = versions?.[versions.length - 1];
