@@ -132,14 +132,8 @@ async function discoverLexemes(niklText) {
     .map(([id, revision]) => ({ id, revision }));
 }
 
-async function fetchLexeme(pin, dir, force) {
-  const dest = join(dir, 'wikidata', `${pin.id}-r${pin.revision}.json`);
-  let buf;
-  if (!force && existsSync(dest)) buf = readFileSync(dest);
-  else {
-    buf = await download(WIKIDATA.entityDataUrl(pin.id, pin.revision));
-    writeFileSync(dest, buf);
-  }
+/** Checks one lexeme revision against its pin; returns the pin with its normalized sha256. */
+function verifyLexeme(pin, buf) {
   const normalized = normalizeLexeme(JSON.parse(buf.toString('utf8')), pin.id);
   if (normalized.revision !== pin.revision) {
     throw new Error(`${pin.id}: got revision ${normalized.revision}, pinned ${pin.revision}`);
@@ -149,6 +143,27 @@ async function fetchLexeme(pin, dir, force) {
     throw new Error(`${pin.id}@${pin.revision}: normalized sha256 ${hash} ≠ pinned ${pin.sha256}`);
   }
   return { ...pin, sha256: hash };
+}
+
+/**
+ * Like fetchPinned: a cached revision that no longer verifies is downloaded again, and a download
+ * is written to the cache only after it verifies, so the cache never holds an unverified file.
+ */
+async function fetchLexeme(pin, dir, force) {
+  const dest = join(dir, 'wikidata', `${pin.id}-r${pin.revision}.json`);
+  if (!force && existsSync(dest)) {
+    try {
+      return verifyLexeme(pin, readFileSync(dest));
+    } catch (err) {
+      console.warn(
+        `! ${pin.id}: cached copy failed verification, downloading again (${err.message})`,
+      );
+    }
+  }
+  const buf = await download(WIKIDATA.entityDataUrl(pin.id, pin.revision));
+  const verified = verifyLexeme(pin, buf);
+  writeFileSync(dest, buf);
+  return verified;
 }
 
 /** Fetches pinned lexeme revisions a few at a time (Wikimedia asks clients to stay gentle). */
