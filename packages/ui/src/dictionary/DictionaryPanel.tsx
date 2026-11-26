@@ -5,6 +5,7 @@ import {
   stripRichText,
   stripRuby,
   type Deck,
+  type Note,
   type NoteType,
 } from '@flash/core';
 import { canCreateOrImportDeck } from '@flash/core/license';
@@ -281,6 +282,48 @@ const SELECTED_ROW_CLASS =
 interface DeckPresence {
   exact: Set<string>;
   sourceKeys: Set<string>;
+}
+
+/** Duplicate detection per deck, built for a deck only when a row first asks about it. */
+interface DeckPresenceIndex {
+  get(deckId: string): DeckPresence | undefined;
+}
+
+/** Matches `source_key`, an exact field, or a parenthesized Hanja token. */
+function buildDeckPresence(notes: Iterable<Note>, deckId: string): DeckPresence {
+  const presence: DeckPresence = { exact: new Set<string>(), sourceKeys: new Set<string>() };
+  for (const note of notes) {
+    if (note.archived || note.deck_id !== deckId) continue;
+    if (note.source_key) presence.sourceKeys.add(note.source_key);
+    for (const val of Object.values(note.fields)) {
+      const plain = stripRuby(stripRichText(val)).trim();
+      if (!plain) continue;
+      presence.exact.add(plain);
+      // Extract parenthesized Hanja/compound tokens like `한 일 (一)` -> `一`
+      for (const m of plain.matchAll(/\(([^)]+)\)/g)) {
+        if (m[1]?.trim()) presence.exact.add(m[1].trim());
+      }
+    }
+  }
+  return presence;
+}
+
+/**
+ * A lazy index: only the decks the visible rows point at are indexed, once per collection change,
+ * instead of every field of every note on each `stateVersion` (P9).
+ */
+export function createDeckPresenceIndex(notes: ReadonlyMap<string, Note>): DeckPresenceIndex {
+  const cache = new Map<string, DeckPresence>();
+  return {
+    get(deckId) {
+      let presence = cache.get(deckId);
+      if (!presence) {
+        presence = buildDeckPresence(notes.values(), deckId);
+        cache.set(deckId, presence);
+      }
+      return presence;
+    },
+  };
 }
 
 function isEntryInDeck(entry: DictionaryEntry, presence: DeckPresence | undefined): boolean {
@@ -726,7 +769,7 @@ interface DictionaryResultRowProps extends AddToDeckBarProps {
   pinyinToneColors: boolean;
   isSelected: boolean;
   isAdding: boolean;
-  deckPresenceByDeck: ReadonlyMap<string, DeckPresence>;
+  deckPresenceByDeck: DeckPresenceIndex;
   onLookup: (text: string) => void;
   onSelect: () => void;
   onToggleAdd: () => void;
@@ -930,30 +973,12 @@ export function DictionaryPanel({
     [state, stateVersion],
   );
 
-  // Build fast duplicate-detection index per deck (matches `source_key`, exact field, or parenthesized Hanja)
-  const deckPresenceByDeck = useMemo(() => {
-    const map = new Map<string, { exact: Set<string>; sourceKeys: Set<string> }>();
-    for (const note of state.notes.values()) {
-      if (note.archived) continue;
-      let bucket = map.get(note.deck_id);
-      if (!bucket) {
-        bucket = { exact: new Set<string>(), sourceKeys: new Set<string>() };
-        map.set(note.deck_id, bucket);
-      }
-      if (note.source_key) bucket.sourceKeys.add(note.source_key);
-      for (const val of Object.values(note.fields)) {
-        const plain = stripRuby(stripRichText(val)).trim();
-        if (!plain) continue;
-        bucket.exact.add(plain);
-        // Extract parenthesized Hanja/compound tokens like `한 일 (一)` -> `一`
-        for (const m of plain.matchAll(/\(([^)]+)\)/g)) {
-          if (m[1]?.trim()) bucket.exact.add(m[1].trim());
-        }
-      }
-    }
-    return map;
+  // Duplicate detection, built per deck on first use after each collection change.
+  const deckPresenceByDeck = useMemo(
+    () => createDeckPresenceIndex(state.notes),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, stateVersion]);
+    [state, stateVersion],
+  );
 
   useEffect(() => {
     let cancelled = false;

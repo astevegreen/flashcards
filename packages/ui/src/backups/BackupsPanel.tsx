@@ -1,5 +1,6 @@
 import {
   anyBackupHoldsMedia,
+  BACKUP_ARCHIVE_LIMITS,
   FULL_BACKUP_MAX_MEDIA_BYTES,
   planBackupRestore,
   type RestoreSummary,
@@ -7,6 +8,7 @@ import {
 import type { StoredBackupInfo } from '@flash/platform';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { tooLargeMessage } from '../components/pickedFileLimit.ts';
 import {
   applyRestore,
   listSyncFolderBackups,
@@ -223,8 +225,17 @@ export function BackupsPanel() {
 
   const previewFile = () =>
     run(async () => {
-      const picked = await platform.files.pickFile({ accept: '.flashpkg,.zip' });
+      const picked = await platform.files.pickFile({
+        accept: '.flashpkg,.zip',
+        maxBytes: BACKUP_ARCHIVE_LIMITS.maxCompressedBytes,
+      });
       if (!picked) return;
+      const tooLarge = tooLargeMessage(
+        picked,
+        BACKUP_ARCHIVE_LIMITS.maxCompressedBytes,
+        'to restore',
+      );
+      if (tooLarge) throw new Error(tooLarge);
       try {
         await preview(picked.name, picked.bytes);
       } catch (err) {

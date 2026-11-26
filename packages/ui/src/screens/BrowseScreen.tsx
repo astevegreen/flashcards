@@ -15,7 +15,7 @@ import {
   type Note,
 } from '@flash/core';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { NoteEditDialog } from '../components/NoteEditDialog.tsx';
 import { RichText } from '../components/RichText.tsx';
@@ -189,6 +189,9 @@ export function BrowseScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, stateVersion, deckFilter]);
 
+  // Typing stays responsive on a large collection: the list filters on the deferred query, which
+  // React lets lag behind a fast typist (P9).
+  const deferredQuery = useDeferredValue(query);
   const filteredNotes = useMemo(() => {
     const nowMs = Date.now();
     // "Due today" leaves suspended cards out, like Study (Phase 9).
@@ -203,13 +206,13 @@ export function BrowseScreen({
       if (!matchingNoteIds.has(note.id)) continue;
       if (needsReviewOnly && !isUnreviewedAiNote(note)) continue;
       // One search rule with MCP `search_notes` (core `noteMatchesSearchText`).
-      if (!noteMatchesSearchText(note, query)) continue;
+      if (!noteMatchesSearchText(note, deferredQuery)) continue;
       list.push(note);
     }
     list.sort((a, b) => a.created_order - b.created_order || (a.id < b.id ? -1 : 1));
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, stateVersion, query, cardFilter, needsReviewOnly, showArchivedOnly]);
+  }, [state, stateVersion, deferredQuery, cardFilter, needsReviewOnly, showArchivedOnly]);
 
   /** Suspends / unsuspends every card of a note (one `CardSuspended` event per changed card). */
   const setNoteCardsSuspended = (noteId: string, suspended: boolean) => {

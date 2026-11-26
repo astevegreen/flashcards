@@ -89,12 +89,12 @@ export class WebStrokeRecognizer implements HandwritingRecognizer {
     const installs = [...packs.values()]
       .filter((p) => p.kind === 'strokes' && p.script === script)
       .map((p) => `${p.id}@${p.installedAt}`);
-    // With no stroke pack, the index is built from deck strokes cached one by one: their count
-    // changes when one is added.
+    // With no stroke pack, the index is built from deck strokes cached one by one: their count and
+    // latest write change when one is added or re-cached.
     const version =
       installs.length > 0
         ? installs.join(',')
-        : `deck:${await this.packStorage.countStrokesByScript(script)}`;
+        : `deck:${await this.packStorage.deckStrokesVersion(script)}`;
     return this.loadOnce(`strokes:${script}`, version, () => this.readScriptIndex(script));
   }
 

@@ -89,6 +89,14 @@
       "types": "./src/optimizer/fsrs-optimizer.ts",
       "default": "./src/optimizer/fsrs-optimizer.ts"
     },
+    "./anki-limits": {
+      "types": "./src/import/anki/limits.ts",
+      "default": "./src/import/anki/limits.ts"
+    },
+    "./pack-limits": {
+      "types": "./src/dictionary/limits.ts",
+      "default": "./src/dictionary/limits.ts"
+    },
     "./anki": {
       "types": "./src/import/anki/index.ts",
       "default": "./src/import/anki/index.ts"

@@ -67,6 +67,7 @@ import { buildWatermarks, createSyncShell, initialSyncUiState } from './syncShel
 import type { SyncUiState } from './useSyncController.ts';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
+import { localSnapshotDue } from './localSnapshotCounter.ts';
 import { hasLinkedSources } from '../sources/hasLinkedSources.ts';
 import { putMediaTracked } from './recentMedia.ts';
 import { hasNewerReview, inStudyScope } from './undoGuard.ts';
@@ -187,8 +188,6 @@ const LazySyncRuntime = lazyWithRetry(
   { quiet: true },
 );
 
-const LOCAL_SNAPSHOT_INTERVAL = 200;
-
 const DEFAULT_PERSONAL_ENTITLEMENT: EntitlementState = {
   unlocked: true,
   source: 'personal_build',
@@ -276,7 +275,9 @@ export function AppProvider({
   const [persistQueue] = useState<PersistQueue>(() =>
     createPersistQueue(() => setPersistFailed(true)),
   );
-  const lastLocalSnapEventsRef = useRef<number>(getTotalAppliedEventCount(collectionState));
+  // Events applied when the last local snapshot was taken, by a local edit or by a sync (one
+  // counter for both, so neither writes a snapshot the other just wrote).
+  const lastLocalSnapshotCountRef = useRef<number>(getTotalAppliedEventCount(collectionState));
   // A Check database rebuild saved after this start keeps its snapshot (see rebuildSignal.ts).
   const [startedAtMs] = useState(() => Date.now());
 
@@ -372,7 +373,7 @@ export function AppProvider({
   const handleReplaceState = useCallback((nextState: CollectionState, nextMeta: DeviceMeta) => {
     stateRef.current = nextState;
     metaRef.current = nextMeta;
-    lastLocalSnapEventsRef.current = getTotalAppliedEventCount(nextState);
+    lastLocalSnapshotCountRef.current = getTotalAppliedEventCount(nextState);
     setMeta(nextMeta);
     setUndoStack([]);
     setRedoStack([]);
@@ -407,6 +408,7 @@ export function AppProvider({
       {...(initialSyncConfig !== undefined ? { initialSyncConfig } : {})}
       {...(initialSyncCursor !== undefined ? { initialSyncCursor } : {})}
       enqueuePersist={enqueuePersist}
+      lastLocalSnapshotCountRef={lastLocalSnapshotCountRef}
       {...(startedAtMs !== undefined ? { startedAtMs } : {})}
       onStateMutated={handleRemoteStateMutated}
       onReplaceState={handleReplaceState}
@@ -450,7 +452,7 @@ export function AppProvider({
 
       const totalNow = getTotalAppliedEventCount(st);
       let snapshot: SerializedSnapshot | undefined;
-      if (totalNow - lastLocalSnapEventsRef.current >= LOCAL_SNAPSHOT_INTERVAL) {
+      if (localSnapshotDue(lastLocalSnapshotCountRef, totalNow)) {
         if (snapshotModule) {
           // Serialized now, with the watermarks read now, so a later edit applied before this
           // write runs can't end up in a snapshot whose localSeq predates it (D18).
@@ -458,7 +460,7 @@ export function AppProvider({
             st,
             syncController.getCurrentWatermarks(),
           );
-          lastLocalSnapEventsRef.current = totalNow;
+          lastLocalSnapshotCountRef.current = totalNow;
         } else {
           // The next edit takes the snapshot.
           loadSnapshotModule().catch(() => undefined);
@@ -1057,7 +1059,7 @@ export function AppProvider({
     metaRef.current = freshMeta;
     stateRef.current = createEmptyState();
     factoryRef.current = createEventFactory(freshMeta.deviceId, 0, freshMeta.hlc);
-    lastLocalSnapEventsRef.current = 0;
+    lastLocalSnapshotCountRef.current = 0;
     syncController.resetSyncState();
     audio.resetLocalState();
     setMeta(freshMeta);

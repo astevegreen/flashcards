@@ -451,11 +451,10 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
   }
 
   const fieldHlcs = new Map<string, string>(Object.entries(serialized.fieldHlcs));
-  // Snapshots from builds that predate card suspension carry those events as unknown.
-  const unknownEvents = foldSuspensionEventsFromUnknown(
-    fieldHlcs,
-    serialized.unknownEvents.map((ev) => cloneJsonValue(ev)),
-  );
+  // Snapshots from builds that predate card suspension carry those events as unknown. The events
+  // themselves are shared, not deep-cloned (P9): replay and the folds only read them, and the
+  // serialized snapshot is a fresh parse or a stored copy that nothing else holds.
+  const unknownEvents = foldSuspensionEventsFromUnknown(fieldHlcs, serialized.unknownEvents);
   const noteArchivedState = new Map<string, boolean>(Object.entries(serialized.noteArchivedState));
 
   const pendingDeckPatches = new Map<string, PendingDeckPatch>();

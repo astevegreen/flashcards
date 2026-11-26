@@ -3,11 +3,9 @@ import {
   checkLogCoverage,
   checkMedia,
   collectMediaReferences,
-  compareCollectionStates,
   compareCollectionStatesAsync,
   mediaFilesToDelete,
   planMediaRemoval,
-  rebuildFromEvents,
   rebuildFromEventsAsync,
 } from '../src/check/index.ts';
 import { newlyReferencedMedia } from '../src/events/media-refs.ts';
@@ -173,7 +171,7 @@ describe('media re-adds and old snapshots', () => {
     expect(without.media.has(A)).toBe(false);
   });
 
-  it('hydrates a snapshot from before media removal the way a full replay does', () => {
+  it('hydrates a snapshot from before media removal the way a full replay does', async () => {
     const { events, f } = sample();
     const deckId = [...applyEvents(createEmptyState(), events).decks.keys()][0] ?? '';
     const b = factoryFor('dev-b');
@@ -193,7 +191,7 @@ describe('media re-adds and old snapshots', () => {
     const hydrated = deserializeCollectionState(old);
     applyEvents(hydrated, [removal]);
     expect(hydrated.media.has(A)).toBe(true);
-    expect(compareCollectionStates(full, hydrated).byArea.media ?? 0).toBe(0);
+    expect((await compareCollectionStatesAsync(full, hydrated)).byArea.media ?? 0).toBe(0);
     // Saved again, it is a current snapshot.
     expect(snapshotLacksMediaRecords(serializeCollectionState(hydrated))).toBe(false);
 
@@ -263,10 +261,10 @@ describe('checkMedia', () => {
 });
 
 describe('check database', () => {
-  it('reports no differences for a rebuild of the same log, however it was built', () => {
+  it('reports no differences for a rebuild of the same log, however it was built', async () => {
     const { events, f } = sample();
     const more = [mediaAdded(f, A, T0), f.create('MediaRemoved', { hash: A }, T0 + 1)];
-    const rebuilt = rebuildFromEvents([...events, ...more]);
+    const rebuilt = await rebuildFromEventsAsync([...events, ...more]);
 
     // Running collection: snapshot of the first part, the rest applied through a worker patch.
     const running = deserializeCollectionState(
@@ -275,15 +273,15 @@ describe('check database', () => {
     const worker = deserializeCollectionState(serializeCollectionState(running));
     mergeStatePatch(running, computeStatePatch(worker, more));
 
-    const cmp = compareCollectionStates(rebuilt, running);
+    const cmp = await compareCollectionStatesAsync(rebuilt, running);
     expect(cmp.total).toBe(0);
     expect(cmp.rebuiltEvents).toBe(cmp.currentEvents);
   });
 
-  it('lists drifted entries by area', () => {
+  it('lists drifted entries by area', async () => {
     const { events } = sample();
-    const rebuilt = rebuildFromEvents(events);
-    const running = rebuildFromEvents(events);
+    const rebuilt = await rebuildFromEventsAsync(events);
+    const running = await rebuildFromEventsAsync(events);
     const card = [...running.cards.values()][0];
     const note = [...running.notes.values()][0];
     const deck = [...running.decks.values()][0];
@@ -295,7 +293,7 @@ describe('check database', () => {
     running.notes.delete(note.id);
     running.decks.set('ghost', { ...deck, id: 'ghost' });
 
-    const cmp = compareCollectionStates(rebuilt, running);
+    const cmp = await compareCollectionStatesAsync(rebuilt, running);
     expect(cmp.byArea.cards).toBeGreaterThanOrEqual(1);
     expect(cmp.differences).toContainEqual({ area: 'cards', id: card.id, kind: 'changed' });
     expect(cmp.differences).toContainEqual({ area: 'notes', id: note.id, kind: 'missing' });
@@ -317,17 +315,14 @@ describe('check database', () => {
     };
     const stepped = await rebuildFromEventsAsync(log, pause, 7);
     expect(pauses).toBeGreaterThan(1);
-    const whole = rebuildFromEvents(log);
-    expect(compareCollectionStates(whole, stepped).total).toBe(0);
-    expect(await compareCollectionStatesAsync(whole, stepped, pause)).toEqual(
-      compareCollectionStates(whole, stepped),
-    );
+    const whole = applyEvents(createEmptyState(), log);
+    expect((await compareCollectionStatesAsync(whole, stepped, pause)).total).toBe(0);
     const card = [...stepped.cards.values()][0];
     if (!card) throw new Error('no cards');
     stepped.cards.delete(card.id);
-    expect(await compareCollectionStatesAsync(whole, stepped, pause)).toEqual(
-      compareCollectionStates(whole, stepped),
-    );
+    const cmp = await compareCollectionStatesAsync(whole, stepped, pause);
+    expect(cmp.total).toBe(1);
+    expect(cmp.differences).toEqual([{ area: 'cards', id: card.id, kind: 'missing' }]);
   });
 
   it('knows when the log lacks history another device folded into a snapshot', () => {
