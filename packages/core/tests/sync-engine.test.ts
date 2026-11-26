@@ -23,7 +23,6 @@ import {
   encodeEventsSegment,
   encodeManifest,
   encodeReadableSyncSnapshot,
-  encodeSyncSnapshot,
   manifestPath,
   safeGunzip,
   sanitizeDeviceId,
@@ -1012,6 +1011,8 @@ describe('snapshots past the decoder limits (D12)', () => {
     });
     expect(pushed.status).toBe('ok');
 
+    // Written as an older build did, with no size check (not `encodeReadableSyncSnapshot`).
+    const gzipSnapshot = (snap: SyncSnapshot) => gzipSync(encodeUtf8(JSON.stringify(snap)));
     const snapshotAt = (seq: number, state: SyncSnapshot['state']): SyncSnapshot => ({
       format_version: 1,
       snapshot_version: 1,
@@ -1033,8 +1034,8 @@ describe('snapshots past the decoder limits (D12)', () => {
     });
     // A readable older snapshot, then a newer one an older build wrote past the 25 MiB cap. Its
     // padding compresses well, so only the inflated size is over the limit.
-    await transport.write(snapshotPath('dev-a', 1), encodeSyncSnapshot(snapshotAt(1, afterFirst)));
-    const oversized = encodeSyncSnapshot(
+    await transport.write(snapshotPath('dev-a', 1), gzipSnapshot(snapshotAt(1, afterFirst)));
+    const oversized = gzipSnapshot(
       snapshotAt(2, { ...afterBoth, padding: 'x'.repeat(26 * 1024 * 1024) } as typeof afterBoth),
     );
     await transport.write(snapshotPath('dev-a', 2), oversized);
