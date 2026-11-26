@@ -17,8 +17,9 @@ node scripts/license-keygen.mjs --out E:\keys\flash-license-private-key.pem
 It prints `VITE_LICENSE_PUBLIC_KEY=` followed by 64 hex characters, and writes the private key to
 the file. It refuses to overwrite a file or to write inside a git working tree, and it never
 prints the private key. The file is limited to your user account (mode `0600`; on Windows, a single
-access entry). Drives without permissions, such as FAT32 or exFAT, cannot do that, and the script
-warns you.
+access entry). Drives without permissions, such as FAT32 or exFAT, cannot do that. The script warns
+you when it sees that the limit did not take, but some systems report such a drive as private: treat
+a key on one as readable by anyone who has the drive.
 
 ## 2. Keep the private key safe
 

@@ -11,7 +11,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { existsSync, lstatSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -66,14 +66,17 @@ function runSystemTool(name, args) {
 
 /** Leaves the current user as the only one with access. Returns false when that cannot be done. */
 function restrictToOwner(file) {
-  // POSIX: the file was created with mode 0600.
-  if (process.platform !== 'win32') return true;
+  // POSIX: the file was created with mode 0600, which a drive without permissions ignores.
+  if (process.platform !== 'win32') {
+    return (statSync(file).mode & 0o077) === 0; // NOSONAR (jssecurity:S8707)
+  }
   // Windows ignores the mode: replace the inherited access list with one entry for this user.
   try {
     const sid = /S-1-[\d-]+/.exec(runSystemTool('whoami.exe', ['/user', '/fo', 'csv', '/nh']));
     if (!sid) return false;
     runSystemTool('icacls.exe', [file, '/inheritance:r', '/grant:r', `*${sid[0]}:F`]);
-    return true;
+    // Read the list back: exactly one "<account>:(...)" entry.
+    return runSystemTool('icacls.exe', [file]).match(/:\(/g)?.length === 1;
   } catch {
     return false;
   }

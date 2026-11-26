@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   usableLicensePublicKey,
@@ -81,7 +81,37 @@ describe('license-keygen', () => {
       expect(generated.stderr).not.toContain('Warning');
     } else {
       expect(statSync(keyFile).mode & 0o777).toBe(0o600);
+      expect(generated.stderr).not.toContain('Warning');
     }
+  });
+
+  it('warns on POSIX when the drive leaves the file open to others', () => {
+    // No such drive here: a preload plays a POSIX system whose `stat` reports mode 0644.
+    const preload = join(tmp, 'open-mode.mjs');
+    writeFileSync(
+      preload,
+      [
+        "import fs from 'node:fs';",
+        "import { syncBuiltinESMExports } from 'node:module';",
+        "Object.defineProperty(process, 'platform', { value: 'linux' });",
+        'const statSync = fs.statSync;',
+        'fs.statSync = (...args) => Object.assign(statSync(...args), { mode: 0o100644 });',
+        'syncBuiltinESMExports();',
+      ].join('\n'),
+    );
+    const res = spawnSync(
+      process.execPath,
+      [
+        '--import',
+        pathToFileURL(preload).href,
+        join(ROOT, 'scripts', 'license-keygen.mjs'),
+        '--out',
+        join(tmp, 'open.pem'),
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(res.status, res.stderr).toBe(0);
+    expect(res.stderr).toContain('Warning: could not limit the file to your user account');
   });
 
   it('refuses to overwrite a file', () => {
