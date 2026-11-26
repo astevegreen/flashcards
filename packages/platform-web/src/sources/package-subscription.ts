@@ -1,64 +1,23 @@
 import { SyncTransportError } from '@flash/core';
 import { FLASHPKG_SECURITY_LIMITS } from '@flash/core/flashpkg';
 import { assertSafeHttpsUrl, FAMILY_CATALOG_LIMITS } from '@flash/core/sources';
+import { readBodyCapped } from '../net/read-capped.ts';
 import type { PackageFetchResult, PackageSubscriptionFetcher } from '@flash/platform';
 
 export interface WebPackageSubscriptionFetcherOptions {
   fetchImpl?: typeof fetch;
 }
 
-async function readBodyWithByteCap(res: Response, maxBytes: number): Promise<Uint8Array> {
-  const contentLengthHeader = res.headers.get('content-length');
-  if (contentLengthHeader) {
-    const declared = Number.parseInt(contentLengthHeader, 10);
-    if (!Number.isNaN(declared) && declared > maxBytes) {
-      throw new SyncTransportError(
+function readBodyWithByteCap(res: Response, maxBytes: number): Promise<Uint8Array> {
+  return readBodyCapped(res, maxBytes, {
+    tooLarge: (declared) =>
+      new SyncTransportError(
         'UNKNOWN',
-        `Remote resource exceeds maximum allowed size (${maxBytes} bytes).`,
-      );
-    }
-  }
-
-  if (res.body && typeof res.body.getReader === 'function') {
-    const reader = res.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value && value.byteLength > 0) {
-          total += value.byteLength;
-          if (total > maxBytes) {
-            await reader.cancel().catch(() => {});
-            throw new SyncTransportError(
-              'UNKNOWN',
-              `Remote download exceeded maximum allowed size (${maxBytes} bytes).`,
-            );
-          }
-          chunks.push(value);
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    const out = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      out.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return out;
-  }
-
-  const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.byteLength > maxBytes) {
-    throw new SyncTransportError(
-      'UNKNOWN',
-      `Remote download exceeded maximum allowed size (${maxBytes} bytes).`,
-    );
-  }
-  return buf;
+        declared === undefined
+          ? `Remote download exceeded maximum allowed size (${maxBytes} bytes).`
+          : `Remote resource exceeds maximum allowed size (${maxBytes} bytes).`,
+      ),
+  });
 }
 
 /**
