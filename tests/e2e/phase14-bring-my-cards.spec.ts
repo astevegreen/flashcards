@@ -171,6 +171,31 @@ test.describe('Phase 14 Bring my cards: format detection routes to the existing 
     await expect(page.getByTestId('bring-csv-deck-name')).toHaveValue('sea');
   });
 
+  test('a picked or dropped file that cannot be read says so (C25)', async ({ page }) => {
+    await openBringMyCards(page, 'p14bringunreadable');
+    // The file moved or lost permission between choosing it and reading it.
+    await page.evaluate(() => {
+      File.prototype.arrayBuffer = () =>
+        Promise.reject(new DOMException('The file could not be read.', 'NotReadableError'));
+    });
+    const status = page.getByTestId('bring-status');
+    await pick(page, { name: 'gone.csv', mimeType: 'text/csv', buffer: Buffer.from('a,b') });
+    await expect(route(page)).toHaveAttribute('data-kind', 'input');
+    await expect(status).toContainText('Could not read that file: The file could not be read.');
+
+    // Another message first, so the drop's own message is what the next check sees.
+    await page.getByTestId('bring-link-input').fill('https://example.com/cards.csv');
+    await page.getByTestId('bring-link-submit').click();
+    await expect(status).toContainText("isn't a Google Sheets link");
+    await page.getByTestId('bring-drop-zone').evaluate((zone) => {
+      const data = new DataTransfer();
+      data.items.add(new File(['x,y'], 'dropped.csv', { type: 'text/csv' }));
+      zone.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true }));
+    });
+    await expect(status).toContainText('Could not read that file');
+    await expect(page.getByTestId('bring-drop-zone')).toBeVisible();
+  });
+
   test('.flashpkg (even named .zip) goes to the .flashpkg importer', async ({ page }) => {
     await openBringMyCards(page, 'p14bringpkg');
     await pick(page, { name: 'backup.zip', mimeType: 'application/zip', buffer: buildFlashpkg() });
