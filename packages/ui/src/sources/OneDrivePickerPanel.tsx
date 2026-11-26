@@ -1,6 +1,5 @@
 import type { OneDriveBrowseItem, PendingXlsxReconciliation } from '@flash/platform';
 import { CloudFilePickerPanel, type CloudPickerProvider } from './CloudFilePickerPanel.tsx';
-import { linkedOneDriveDeck } from './oneDriveLinkedDeck.ts';
 
 const ONEDRIVE: CloudPickerProvider<OneDriveBrowseItem> = {
   key: 'onedrive',
@@ -17,7 +16,7 @@ const ONEDRIVE: CloudPickerProvider<OneDriveBrowseItem> = {
     };
   },
   folderOf: (item) => item.id,
-  linkedDeck: linkedOneDriveDeck,
+  sourceKind: 'onedrive_file',
   async link(item, ctx, choice) {
     const { linkOneDriveFile } = await import('./sourceRunner.ts');
     return linkOneDriveFile({ id: item.id, name: item.name }, ctx, choice);

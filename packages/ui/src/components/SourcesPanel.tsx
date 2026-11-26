@@ -336,11 +336,8 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         : await picker.pickSheetsAndDocs();
       if (picked.length === 0) return;
 
-      const [{ linkPickedGoogleFiles }, { rejectedDriveFilesMessage, splitPickedGoogleFiles }] =
-        await Promise.all([
-          import('../sources/sourceRunner.ts'),
-          import('../sources/googleDriveFileSource.ts'),
-        ]);
+      const { linkPickedGoogleFiles, rejectedDriveFilesMessage, splitPickedGoogleFiles } =
+        await import('../sources/sourceRunner.ts');
       const { workspace, files, rejected } = splitPickedGoogleFiles(picked);
       // Plain files get their own link step (column mapping / package) below the action row.
       if (files.length > 0) setDriveFileQueue(files);
@@ -571,81 +568,13 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
-  /** Refresh one linked OneDrive or Dropbox file and report the outcome (D8: under the lock). */
-  const refreshCloudFileOne = (
-    kind: 'onedrive' | 'dropbox',
-    id: string,
-    permissionMessage: string,
-  ) =>
-    lockedSources(async () => {
-      setBusy(true);
-      onErrorMessage(null);
-      try {
-        const runner = await import('../sources/sourceRunner.ts');
-        const nextReg = await runner.loadSourcesRegistry(platform, state);
-        const list = kind === 'onedrive' ? nextReg.oneDriveSources : nextReg.dropboxSources;
-        const target = list?.find((s) => s.id === id);
-        if (!target) return;
-        try {
-          const res =
-            kind === 'onedrive'
-              ? await runner.refreshSingleOneDriveSource(
-                  target as LinkedOneDriveSource,
-                  makeRunnerCtx(),
-                  { force: true },
-                )
-              : await runner.refreshSingleDropboxSource(
-                  target as LinkedDropboxSource,
-                  makeRunnerCtx(),
-                  { force: true },
-                );
-          if (res.pending) {
-            const held = res.pending;
-            setPendingReconciliations((prev) => [
-              ...prev.filter(
-                (r) => !(r.folderId === held.folderId && r.relativePath === held.relativePath),
-              ),
-              held,
-            ]);
-            onStatusMessage(
-              `"${target.name}" has rows that may be renamed. Match them below to keep review history.`,
-            );
-          } else if (target.lastStatus === 'permission_required') {
-            onErrorMessage(target.lastError ?? permissionMessage);
-          } else if (target.lastError) {
-            onErrorMessage(target.lastError);
-          } else if (target.lastStatus === 'offline') {
-            onErrorMessage('You are offline. Try again when you are back online.');
-          } else {
-            onStatusMessage(
-              res.updated
-                ? `Refreshed "${target.name}" (${res.notesTouched} note change(s)).`
-                : `"${target.name}" is already up to date.`,
-            );
-          }
-        } catch (err) {
-          target.lastStatus = 'error';
-          target.lastError = err instanceof Error ? err.message : String(err);
-          onErrorMessage(target.lastError);
-        }
-        await runner.saveSourcesRegistry(platform, nextReg);
-        setRegistry(nextReg);
-      } catch (err) {
-        onErrorMessage(err instanceof Error ? err.message : String(err));
-      } finally {
-        setBusy(false);
-      }
-    });
-
-  const handleRefreshOneDriveOne = (src: LinkedOneDriveSource) =>
-    refreshCloudFileOne('onedrive', src.id, 'Allow OneDrive file access to refresh this source.');
-
-  const handleRefreshDriveFileOne = async (src: LinkedGoogleDriveFileSource) => {
+  /** Refresh one linked OneDrive, Dropbox or Drive file row and report the outcome. */
+  const refreshLinkedFileOne = async (kind: SourceRunner.CloudFileRowKind, id: string) => {
     setBusy(true);
     onErrorMessage(null);
     try {
-      const { refreshGoogleDriveFileRow } = await import('../sources/googleDriveFileSource.ts');
-      const res = await refreshGoogleDriveFileRow(src.id, makeRunnerCtx());
+      const { refreshLinkedFileRow } = await import('../sources/sourceRunner.ts');
+      const res = await refreshLinkedFileRow(kind, id, makeRunnerCtx());
       if (!res) return;
       setRegistry(res.registry);
       const { outcome } = res;
@@ -670,6 +599,12 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     }
   };
 
+  const handleRefreshOneDriveOne = (src: LinkedOneDriveSource) =>
+    refreshLinkedFileOne('onedrive', src.id);
+
+  const handleRefreshDriveFileOne = (src: LinkedGoogleDriveFileSource) =>
+    refreshLinkedFileOne('gdrive_file', src.id);
+
   const handleConnectDropbox = async () => {
     onErrorMessage(null);
     try {
@@ -683,7 +618,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
   };
 
   const handleRefreshDropboxOne = (src: LinkedDropboxSource) =>
-    refreshCloudFileOne('dropbox', src.id, 'Connect Dropbox to refresh this source.');
+    refreshLinkedFileOne('dropbox', src.id);
 
   const handleRefreshFolderOne = (folder: LinkedLocalFolder) =>
     lockedSources(async () => {
@@ -776,83 +711,6 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     );
   };
 
-  /** Applies a held OneDrive pull with the user's matches (`renameMap`). */
-  const applyOneDriveReconciliation = (
-    rec: PendingXlsxReconciliation,
-    renameMap: Record<string, string>,
-    runner: typeof SourceRunner,
-  ) =>
-    lockedSources(async () => {
-      const nextReg = await runner.loadSourcesRegistry(platform, state);
-      const itemId = rec.folderId.slice(runner.ONEDRIVE_RECONCILE_PREFIX.length);
-      const od = nextReg.oneDriveSources?.find((s) => s.itemId === itemId);
-      if (!od) return;
-      const res = await runner.refreshSingleOneDriveSource(od, makeRunnerCtx(), {
-        force: true,
-        renameMap,
-      });
-      await runner.saveSourcesRegistry(platform, nextReg);
-      setRegistry(nextReg);
-      const notApplied =
-        od.lastStatus === 'offline' ||
-        od.lastStatus === 'permission_required' ||
-        res.unreadable ||
-        od.lastError;
-      if (notApplied) {
-        // Nothing was applied (an archived deck says so here): keep the prompt for later.
-        onErrorMessage(
-          od.lastStatus === 'offline'
-            ? 'You are offline. Try again when you are back online.'
-            : (od.lastError ?? 'OneDrive could not be read. Try Refresh on the source.'),
-        );
-        return;
-      }
-      dropPendingReconciliation(rec);
-      onStatusMessage(
-        res.updated
-          ? `Applied the OneDrive changes to "${rec.deckName}".`
-          : `"${rec.deckName}" is already up to date.`,
-      );
-    });
-
-  /** Applies a held Dropbox pull with the user's matches (`renameMap`). */
-  const applyDropboxReconciliation = (
-    rec: PendingXlsxReconciliation,
-    renameMap: Record<string, string>,
-    runner: typeof SourceRunner,
-  ) =>
-    lockedSources(async () => {
-      const nextReg = await runner.loadSourcesRegistry(platform, state);
-      const fileId = rec.folderId.slice(runner.DROPBOX_RECONCILE_PREFIX.length);
-      const dbx = nextReg.dropboxSources?.find((s) => s.fileId === fileId);
-      if (!dbx) return;
-      const res = await runner.refreshSingleDropboxSource(dbx, makeRunnerCtx(), {
-        force: true,
-        renameMap,
-      });
-      await runner.saveSourcesRegistry(platform, nextReg);
-      setRegistry(nextReg);
-      const notApplied =
-        dbx.lastStatus === 'offline' ||
-        dbx.lastStatus === 'permission_required' ||
-        res.unreadable ||
-        dbx.lastError;
-      if (notApplied) {
-        onErrorMessage(
-          dbx.lastStatus === 'offline'
-            ? 'You are offline. Try again when you are back online.'
-            : (dbx.lastError ?? 'Dropbox could not be read. Try Refresh on the source.'),
-        );
-        return;
-      }
-      dropPendingReconciliation(rec);
-      onStatusMessage(
-        res.updated
-          ? `Applied the Dropbox changes to "${rec.deckName}".`
-          : `"${rec.deckName}" is already up to date.`,
-      );
-    });
-
   const handleApplyReconciliation = async (rec: PendingXlsxReconciliation) => {
     setBusy(true);
     onErrorMessage(null);
@@ -864,26 +722,17 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       }
 
       const runner = await import('../sources/sourceRunner.ts');
-      if (rec.folderId.startsWith(runner.ONEDRIVE_RECONCILE_PREFIX)) {
-        await applyOneDriveReconciliation(rec, renameMap, runner);
-        return;
-      }
-      if (rec.folderId.startsWith(runner.DROPBOX_RECONCILE_PREFIX)) {
-        await applyDropboxReconciliation(rec, renameMap, runner);
-        return;
-      }
-      const drive = await import('../sources/googleDriveFileSource.ts');
-      if (rec.folderId.startsWith(drive.GDRIVE_RECONCILE_PREFIX)) {
-        const res = await drive.applyGoogleDriveReconciliation(rec, renameMap, makeRunnerCtx());
-        if (!res) return;
-        setRegistry(res.registry);
-        if (!res.applied) {
+      const linked = await runner.applyLinkedFileReconciliation(rec, renameMap, makeRunnerCtx());
+      if (linked !== undefined) {
+        if (!linked) return;
+        setRegistry(linked.registry);
+        if (!linked.applied) {
           // Nothing was applied (offline, no access, archived deck): keep the prompt for later.
-          onErrorMessage(res.message);
+          onErrorMessage(linked.message);
           return;
         }
         dropPendingReconciliation(rec);
-        onStatusMessage(res.message);
+        onStatusMessage(linked.message);
         return;
       }
       const archivedDeck = state.decks.get(rec.deckId);
