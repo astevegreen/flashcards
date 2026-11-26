@@ -15,12 +15,13 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "packs:check": "node scripts/build-packs.mjs --starter --check",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:tools": "node --test \"tools/hooks/*.test.mjs\" \"tools/gemini/*.test.mjs\" \"tools/*.test.mjs\"",
     "size": "size-limit && node scripts/check-no-fonts.mjs",
-    "gate": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:tools",
+    "gate": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm packs:check && pnpm test && pnpm test:tools",
     "prepare": "node scripts/install-git-hooks.mjs"
   },
   "devDependencies": {

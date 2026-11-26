@@ -43,7 +43,7 @@ jobs:
         run: pnpm format:check
 
       - name: Starter packs match a rebuild
-        run: node scripts/build-packs.mjs --starter --check
+        run: pnpm packs:check
 
       - name: Unit & property tests
         run: pnpm test

@@ -16,7 +16,7 @@ Run from repository root using `pnpm`:
 - `pnpm test` — Vitest unit, golden, and `fast-check` property tests
 - `pnpm size` — enforce §8 bundle budget (`<= 160 KB` gzipped initial study-screen JS, 0 web fonts)
 - `pnpm test:e2e` — Playwright end-to-end tests (study, undo, import/export, offline, multi-device isolation)
-- `node scripts/build-packs.mjs --starter` — regenerate the tiny attributed dictionary/stroke fixtures in `apps/web/public/packs/` (used by dev, `pnpm test`, and `pnpm test:e2e`; never needs network); `--check` fails when the committed files differ from a rebuild (CI runs it)
+- `node scripts/build-packs.mjs --starter` — regenerate the tiny attributed dictionary/stroke fixtures in `apps/web/public/packs/` (used by dev, `pnpm test`, and `pnpm test:e2e`; never needs network); `--check` (`pnpm packs:check`, part of `pnpm gate`) fails when the committed files differ from a rebuild
 - `node scripts/fetch-starter-sources.mjs && node scripts/build-starter-decks.mjs` — download the pinned open data for the onboarding starter decks into the gitignored cache, then rebuild `packages/core/src/starters/generated/` deterministically and offline; `--check` verifies the committed output (see `content/starters/README.md`). Never hand-edit the generated decks.
 - `node scripts/fetch-upstream-packs.mjs && node scripts/build-packs.mjs --full` — download real upstream open data (Unihan, KANJIDIC2, JMdict, CC-CEDICT, KanjiVG, Make Me a Hanzi) into gitignored `.cache/upstream-open-data/` and build real packs into gitignored `dist-packs/`; `pnpm exec vitest run packages/platform-web/tests/full-packs-smoke.test.ts` then smoke-tests them (it is skipped when `dist-packs/` is absent). Never commit full packs; CI publishes them via `.github/workflows/publish-packs.yml`.
 
@@ -58,7 +58,7 @@ These rules bind every agent here, Claude Code and Antigravity alike. Several ag
 - **Bundle budget is shared.** Each branch can pass `pnpm size` alone while the sum of open branches overflows 160 KB: aim for zero initial-bundle growth (lazy-load new screens) and give the size before and after in the pull request.
 - **Deterministic sorting:** compare strings with `compareCodeUnits` (`packages/core/src/study/queue.ts`). `localeCompare` differs by device locale and breaks replay, even where SonarCloud suggests it.
 - **`docs/follow-ups.md`** holds owner decisions and the backlog. Other agents commit to it often: edit it from your own worktree and merge `origin/main` just before you push.
-- **Gates:** `pnpm gate` (typecheck, lint, format, unit and tool tests) before every push; CI's required `verify` check adds build, size and e2e. SonarCloud's quality gate (3% duplication on new lines) can fail while `verify` is green: check it before merging (`node tools/sonar-gate.mjs <pr>`).
+- **Gates:** `pnpm gate` (typecheck, lint, format, starter-pack check, unit and tool tests) before every push; CI's required `verify` check adds build, size and e2e. SonarCloud's quality gate (3% duplication on new lines) can fail while `verify` is green: check it before merging (`node tools/sonar-gate.mjs <pr>`).
 - **Ask the owner only about design** (what to teach, study behaviour, scope, pricing), money, identity and accounts, and deleting data or history, each with your recommendation. Decide technical questions yourself and note the reason in the pull request.
 
 ## Workflow Checkpoints (Antigravity)
