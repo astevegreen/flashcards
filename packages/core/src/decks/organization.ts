@@ -178,17 +178,20 @@ export function nextPresetParamsVersion(
 
 /**
  * The per-deck `DeckSettingsChanged` payloads that copy a preset's daily limits and target
- * retention into the own settings of `deckIds`. Each payload carries only the `fields` given that
- * differ on that deck: deck settings merge per field, so copying a field the user did not change
- * could overwrite a newer value another device wrote. The study queue only reads `deck.settings`,
- * so this is how a preset's limits take effect, and a deck that leaves the preset simply keeps
- * them.
+ * retention into the own settings of `deckIds`. Each payload carries only the `fields` given:
+ * deck settings merge per field, so copying a field the user did not change could overwrite a
+ * newer value another device wrote. With no `fields` (catch-up, joining a preset) only fields that
+ * differ on a deck are copied. An edit names its `fields`, and those are copied even where the deck
+ * already holds the value: the copy is this device's vote in the per-field merge, so skipping it
+ * would let a concurrent edit from another device win on the deck while this edit wins on the
+ * preset. The study queue only reads `deck.settings`, so this is how a preset's limits take
+ * effect, and a deck that leaves the preset simply keeps them.
  */
 export function buildPresetSettingsPayloads(
   state: CollectionState,
   preset: Pick<DeckPreset, 'settings'>,
   deckIds: readonly string[],
-  fields: readonly PresetField[] = ALL_PRESET_FIELDS,
+  fields?: readonly PresetField[],
 ): DeckSettingsChangedPayload[] {
   const out: DeckSettingsChangedPayload[] = [];
   for (const deckId of [...deckIds].sort(cmpStr)) {
@@ -196,7 +199,8 @@ export function buildPresetSettingsPayloads(
     if (!own) continue;
     const settings: Partial<DeckPresetSettings> = {};
     for (const key of SETTINGS_FIELDS) {
-      if (fields.includes(key) && own[key] !== preset.settings[key]) {
+      const copy = fields === undefined ? own[key] !== preset.settings[key] : fields.includes(key);
+      if (copy) {
         settings[key] = preset.settings[key];
       }
     }

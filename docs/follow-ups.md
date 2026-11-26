@@ -108,7 +108,7 @@ Only Chromium Playwright with faked endpoints has covered these.
 
 ### Perf batch notes (PR #69, P2-P7 of the 2026-11-25 review)
 
-- [ ] `packages/core/tests/deck-organization.test.ts` "two devices' concurrent edits reach every member deck" fails on main too with seed -751377563, path "20:1:9:9" (counterexample: A sets `max_reviews_per_day` 1, B sets 200, no weights): a deck's settings don't match the merged preset. Find the merge-order bug, then pin the seed as a regression case.
+- [x] `packages/core/tests/deck-organization.test.ts` "two devices' concurrent edits reach every member deck" fails on main too with seed -751377563, path "20:1:9:9" (counterexample: A sets `max_reviews_per_day` 1, B sets 200, no weights): a deck's settings don't match the merged preset. Find the merge-order bug, then pin the seed as a regression case. Fixed: an edit skipped its deck copy where the deck already held the new value (200 is the default), so A's concurrent copy won on the decks while B won on the preset. Edits now always copy the fields they change; the case is pinned in the same file.
 - [ ] P6: with no stroke pack installed, the recognizer's cache key is the deck-stroke count, so re-caching a character with corrected strokes keeps the old index until reload. Key it by count plus latest `updatedAt`.
 - [ ] P4: no test pins that a shared ts-fsrs scheduler stays deterministic with `enable_fuzz: true` (same inputs in a different call order give the same output). Add one before the next ts-fsrs upgrade.
 - [ ] P3: only `keepSyncStateIfUnchanged` is tested; a render-count test of `useApp()` consumers on an unchanged sync tick would cover the wiring.
