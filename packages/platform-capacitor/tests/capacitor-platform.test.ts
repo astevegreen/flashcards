@@ -251,6 +251,9 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
       'odd failure',
     );
     await expect(transport.read('../outside')).rejects.toThrow(/Unsafe/);
+    await expect(transport.read('sync/a/../../outside')).rejects.toThrow(/Unsafe/);
+    // A name with two dots is not a `..` segment (§11 nit).
+    await expect(transport.read('sync/v1/a..b.json')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(await transport.list('sync/v1/')).toEqual([
       { path: 'sync/v1/manifest.json', size: 1, updatedAt: 1000 },
     ]);

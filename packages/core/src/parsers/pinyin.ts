@@ -47,15 +47,22 @@ function normalizeUmlaut(syllable: string, isNumbered: boolean): string {
 }
 
 /**
+ * The shape of a Hanyu Pinyin syllable: an optional initial, vowels, then an optional `n`/`ng`
+ * and erhua `r`. A word followed by a digit that has another shape (`Windows1`) keeps its digit.
+ */
+const PINYIN_SYLLABLE = /^([^aeiouvüê]h?)?[aeiouvüê]+(ng?)?r?$/;
+
+/**
  * Standard Hanyu Pinyin tone placement rule:
  * 1. If `a` or `e` is present, it takes the tone mark.
  * 2. If `ou` is present, `o` takes the tone mark.
  * 3. Otherwise, the last vowel (`a, e, i, o, u, ü`) takes the tone mark.
- * Returns `null` if the syllable has no vowel (e.g., "hsk3"), so callers preserve it verbatim.
+ * Returns `null` if it is not a syllable (e.g., "hsk3", "Windows1"), so callers keep it verbatim.
  */
 function applyToneMark(rawSyllable: string, tone: 1 | 2 | 3 | 4 | 5): string | null {
   const normalized = normalizeUmlaut(rawSyllable, true);
   const lower = normalized.toLowerCase();
+  if (!PINYIN_SYLLABLE.test(lower)) return null;
   let targetIndex = -1;
 
   const aIdx = lower.indexOf('a');

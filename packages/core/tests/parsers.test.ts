@@ -129,4 +129,15 @@ describe('Pinyin parser (§6.2)', () => {
     expect(formatPinyin('lu:e')).toBe('lüe');
     expect(formatPinyin('v3')).toBe('ǚ');
   });
+
+  it('leaves a word followed by a digit alone unless the word is a syllable (§11 nit)', () => {
+    expect(formatPinyin('Windows1')).toBe('Windows1');
+    expect(parsePinyin('Windows11')).toEqual([
+      { text: 'Windows1', tone: 0 },
+      { text: '1', tone: 0 },
+    ]);
+    expect(formatPinyin('mp3 player')).toBe('mp3 player');
+    expect(formatPinyin('Zhong1guo2 Windows1')).toBe('Zhōngguó Windows1');
+    expect(formatPinyin('nar3 er2 shuang1 xiong2 jue2 lve4')).toBe('nǎr ér shuāng xióng jué lüè');
+  });
 });

@@ -243,6 +243,51 @@ describe('resolveStudyKeyAction', () => {
     expect(resolveStudyKeyAction(keyEvent('Enter'), true, false, '3')).toBe('reveal');
     expect(resolveStudyKeyAction(keyEvent(' '), false, true, '3')).toBeUndefined();
   });
+
+  it('leaves Space and Enter to a focused button or link, so they press it (§9)', () => {
+    class FakeButton {
+      readonly tag = 'button';
+    }
+    class FakeAnchor {
+      readonly tag = 'a';
+    }
+    vi.stubGlobal('HTMLButtonElement', FakeButton);
+    vi.stubGlobal('HTMLAnchorElement', FakeAnchor);
+    for (const target of [new FakeButton(), new FakeAnchor()]) {
+      for (const key of [' ', 'Enter']) {
+        const e = keyEvent(key, { target: target as unknown as EventTarget });
+        expect(resolveStudyKeyAction(e, false, false, '4')).toBeUndefined();
+        expect(resolveStudyKeyAction(e, true, false, '4')).toBeUndefined();
+      }
+    }
+    // Letter and number shortcuts still work with a button focused.
+    const onButton = { target: new FakeButton() as unknown as EventTarget };
+    expect(resolveStudyKeyAction(keyEvent('z', onButton), true, false, '4')).toBe('undo');
+    expect(resolveStudyKeyAction(keyEvent('1', onButton), true, false, '4')).toEqual({
+      type: 'rate',
+      rating: 1,
+      allowUnrevealed: false,
+    });
+  });
+
+  it('ignores auto-repeat even where the first press would act (§9)', () => {
+    class FakeButton {
+      readonly tag = 'button';
+    }
+    vi.stubGlobal('HTMLButtonElement', FakeButton);
+    const held = { repeat: true };
+    // Redo held down, and a held Space on the card body.
+    for (const e of [
+      keyEvent('z', { ...held, ctrlKey: true, shiftKey: true }),
+      keyEvent('y', { ...held, metaKey: true }),
+      keyEvent(' ', held),
+      keyEvent('Enter', held),
+      keyEvent('e', held),
+      keyEvent('ArrowLeft', { ...held, target: new FakeButton() as unknown as EventTarget }),
+    ]) {
+      expect(resolveStudyKeyAction(e, true, false, '4')).toBeUndefined();
+    }
+  });
 });
 
 describe('swipe guide (device-local)', () => {

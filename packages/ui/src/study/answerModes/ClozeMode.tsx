@@ -7,7 +7,8 @@ import {
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
 import { RichText, renderRichNodes } from '../../components/RichText.tsx';
-import { CardFieldValue, RevealedBackSteps } from './CardFieldValue.tsx';
+import { RevealedAnswer } from './AnswerShell.tsx';
+import { CardFieldValue } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 import { cardTextFitClass } from '../fitText.ts';
 
@@ -87,20 +88,18 @@ function ClozeText({
   return <span lang={lang}>{renderRichNodes(parseRichText(text), leaf, '')}</span>;
 }
 
-function ClozeModeView({
-  card,
-  note,
-  deck,
-  layout,
-  fieldMetaByKey,
-  populatedRevealSteps,
-  revealStep,
-  isRevealed,
-  isFullyRevealed,
-  hideFrontRuby,
-  pinyinToneColors,
-  onEvaluateAndReveal,
-}: AnswerModeRenderProps) {
+function ClozeModeView(props: AnswerModeRenderProps) {
+  const {
+    card,
+    note,
+    deck,
+    layout,
+    fieldMetaByKey,
+    isRevealed,
+    hideFrontRuby,
+    pinyinToneColors,
+    onEvaluateAndReveal,
+  } = props;
   const [typedOverride, setTypedOverride] = useState<boolean | null>(null);
   useEffect(() => {
     setTypedOverride(null);
@@ -203,18 +202,7 @@ function ClozeModeView({
         </Suspense>
       )}
 
-      {isRevealed && (
-        <RevealedBackSteps
-          populatedRevealSteps={populatedRevealSteps}
-          revealStep={revealStep}
-          isFullyRevealed={isFullyRevealed}
-          fields={note.fields}
-          tags={note.tags}
-          fieldMetaByKey={fieldMetaByKey}
-          fallbackLang={deck.language}
-          pinyinToneColors={pinyinToneColors}
-        />
-      )}
+      <RevealedAnswer {...props} />
     </>
   );
 }

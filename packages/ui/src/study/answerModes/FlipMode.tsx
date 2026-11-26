@@ -1,19 +1,20 @@
-import { CardFieldValue, RevealedBackSteps } from './CardFieldValue.tsx';
+import { RevealedAnswer } from './AnswerShell.tsx';
+import { CardFieldValue } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
 import { cardTextFitClass } from '../fitText.ts';
 
-function FlipModeView({
-  note,
-  deck,
-  layout,
-  fieldMetaByKey,
-  populatedRevealSteps,
-  revealStep,
-  isRevealed,
-  isFullyRevealed,
-  hideFrontRuby,
-  pinyinToneColors,
-}: AnswerModeRenderProps) {
+function FlipModeView(props: AnswerModeRenderProps) {
+  const {
+    note,
+    deck,
+    layout,
+    fieldMetaByKey,
+    populatedRevealSteps,
+    isRevealed,
+    isFullyRevealed,
+    hideFrontRuby,
+    pinyinToneColors,
+  } = props;
   const isExtrasOpen = isRevealed && populatedRevealSteps.length > 1 && isFullyRevealed;
 
   return (
@@ -50,18 +51,7 @@ function FlipModeView({
         })}
       </div>
 
-      {isRevealed && (
-        <RevealedBackSteps
-          populatedRevealSteps={populatedRevealSteps}
-          revealStep={revealStep}
-          isFullyRevealed={isFullyRevealed}
-          fields={note.fields}
-          tags={note.tags}
-          fieldMetaByKey={fieldMetaByKey}
-          fallbackLang={deck.language}
-          pinyinToneColors={pinyinToneColors}
-        />
-      )}
+      <RevealedAnswer {...props} />
     </>
   );
 }
