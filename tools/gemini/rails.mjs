@@ -41,6 +41,14 @@ export const RAILS = [
   { test: oneOf('.sonarcloud.properties'), what: "SonarCloud's settings" },
   { test: oneOf('.prettierrc', '.prettierignore'), what: 'the Prettier config' },
   { test: (f) => /^tsconfig[^/]*\.json$/.test(f), what: 'a root TypeScript config' },
+  {
+    test: oneOf('packages/core/tsconfig.json'),
+    what: "core's tsconfig, whose lib (no DOM) holds the core purity boundary",
+  },
+  {
+    test: oneOf('scripts/install-git-hooks.mjs'),
+    what: 'the script that switches the git hooks on',
+  },
   { test: oneOf('package.json'), what: 'the root package.json, whose scripts run the gate' },
 ];
 
@@ -180,8 +188,9 @@ export function readVerdict(body) {
 
 // The verdict a second `pr <n>` may reuse instead of asking agy again: the newest one for this commit, in a comment
 // the audit's own account posted. `me` is the login gh is signed in as. A marker in anyone else's comment is
-// ignored, or a pasted marker could merge a pull request agy never saw. A retry is never reused: the audit runs
-// again. comments: { author: { login }, body }, oldest first.
+// ignored. Only a verdict that stops the merge (fix, hold) is reused: the agents post comments as that same login,
+// so a pasted `merge` marker could otherwise merge a pull request agy never saw. A merge or a retry is never reused:
+// the audit runs again. comments: { author: { login }, body }, oldest first.
 export function reusableVerdict(comments, sha, me) {
   if (!me) return null;
   const mine = (c) => String(c.author?.login ?? '').toLowerCase() === me.toLowerCase();
@@ -190,5 +199,5 @@ export function reusableVerdict(comments, sha, me) {
     .map((c) => readVerdict(c.body))
     .filter((x) => x?.sha === sha)
     .at(-1);
-  return v && v.verdict !== 'retry' ? v : null;
+  return v && v.verdict !== 'retry' && v.verdict !== 'merge' ? v : null;
 }

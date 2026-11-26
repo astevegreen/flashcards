@@ -66,11 +66,12 @@ jobs:
           retention-days: 7
 
   # The ruleset's one required check. It passes only when every job it needs passed, so a job added to
-  # `needs` gates merges with no ruleset change. `!cancelled()` makes it run, and fail, when a needed job
-  # failed or was skipped. starter-decks stays out on purpose (see below).
+  # `needs` gates merges with no ruleset change. `always()` makes it run, and fail, when a needed job
+  # failed, was skipped or was cancelled: a skipped required check counts as passed, so `verify` must
+  # never be skipped. starter-decks stays out on purpose (see below).
   verify:
     needs: [checks]
-    if: ${{ !cancelled() }}
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

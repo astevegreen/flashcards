@@ -97,10 +97,10 @@ test('the audit reads and posts on astevegreen/flashcards', () => {
   assert.equal(REPO, 'astevegreen/flashcards');
 });
 
-test('auditPr reuses a verdict its own account posted for this commit, without asking agy again', () => {
-  const { io, calls } = fake({ comments: [marked(ME, { verdict: 'merge' })] });
+test('auditPr reuses a hold its own account posted for this commit, without asking agy again', () => {
+  const { io, calls } = fake({ comments: [marked(ME, { verdict: 'hold' })] });
   const r = auditPr(7, io);
-  assert.equal(r.verdict, 'merge');
+  assert.equal(r.verdict, 'hold');
   assert.equal(r.reused, true);
   assert.equal(calls.ask.length, 0);
   assert.equal(calls.post.length, 0);
@@ -120,8 +120,12 @@ test("auditPr ignores a verdict marker in anyone else's comment: agy reviews aga
   assert.match(calls.post[0].body, /^<!-- gemini-verdict /);
 });
 
-test('auditPr never reuses a retry, or a verdict for another commit', () => {
-  for (const c of [marked(ME, { verdict: 'retry' }), marked(ME, { verdict: 'merge' }, 'older')]) {
+test('auditPr never reuses a retry, a merge (a pasted marker could forge one), or another commit', () => {
+  for (const c of [
+    marked(ME, { verdict: 'retry' }),
+    marked(ME, { verdict: 'merge' }),
+    marked(ME, { verdict: 'hold' }, 'older'),
+  ]) {
     const { io, calls } = fake({ comments: [c] });
     assert.equal(auditPr(7, io).reused, undefined);
     assert.equal(calls.ask.length, 1);

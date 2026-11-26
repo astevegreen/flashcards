@@ -62,12 +62,14 @@ test('every rail the owner named counts, wherever in it the change is', () => {
     '.prettierignore',
     'tsconfig.base.json',
     'tsconfig.e2e.json',
+    'packages/core/tsconfig.json',
+    'scripts/install-git-hooks.mjs',
     'package.json',
   ])
     assert.equal(railHits(diff(file, '+x')).length, 1, file);
 });
 
-test("ordinary code, docs, a package's own package.json or tsconfig and other tools are not rails", () => {
+test("ordinary code, docs, a package's own package.json, other tsconfigs and other tools are not rails", () => {
   for (const file of [
     'packages/core/src/events/replay.ts',
     'packages/ui/src/App.tsx',
@@ -78,7 +80,7 @@ test("ordinary code, docs, a package's own package.json or tsconfig and other to
     'tools/sonar-gate-notes.md',
     'scripts/build-packs.mjs',
     'packages/core/package.json',
-    'packages/core/tsconfig.json',
+    'packages/ui/tsconfig.json',
     'apps/web/vite.config.ts',
   ])
     assert.deepEqual(railHits(diff(file, '+Run the reviewer again.')), [], file);
@@ -258,9 +260,9 @@ test("a rail audit doesn't wait on any one model: Flash answers when Opus and Hy
   assert.equal(railAnswer(answer.response).loosens, false);
 });
 
-test("only a verdict the audit's own account posted for this commit, and not a retry, is reused", () => {
+test("only a stopping verdict the audit's own account posted for this commit is reused", () => {
   const c = (login, v, sha = 'abc') => ({ author: { login }, body: verdictMarker({ sha, ...v }) });
-  const merge = { verdict: 'merge', why: 'x' };
+  const merge = { verdict: 'hold', why: 'x' };
   assert.deepEqual(reusableVerdict([c('astevegreen-bot', merge)], 'abc', 'astevegreen-bot'), {
     sha: 'abc',
     ...merge,
@@ -297,6 +299,11 @@ test("only a verdict the audit's own account posted for this commit, and not a r
     reusableVerdict(later, 'abc', 'astevegreen-bot').verdict,
     'fix',
     'the newest of its own',
+  );
+  assert.equal(
+    reusableVerdict([c('astevegreen-bot', { verdict: 'merge' })], 'abc', 'astevegreen-bot'),
+    null,
+    'a merge is never reused: a pasted marker under the same login could forge one',
   );
 });
 

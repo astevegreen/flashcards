@@ -33,9 +33,10 @@ if (process.env.ANTHROPIC_API_KEY) {
   );
 }
 
-const major = Number(process.versions.node.split('.')[0]);
-if (major < 24)
-  problems.push(`Node ${process.versions.node} is too old; install Node 24 or newer.`);
+// import.meta.main (tools/gemini-audit.mjs, tools/sonar-gate.mjs) arrived in Node 24.2; older, they exit 0 silently.
+const [major, minor] = process.versions.node.split('.').map(Number);
+if (major < 24 || (major === 24 && minor < 2))
+  problems.push(`Node ${process.versions.node} is too old; install Node 24.2 or newer.`);
 
 // A new worktree starts without node_modules, so the gate and the edit checks would not run.
 const root = git(['rev-parse', '--show-toplevel'], input.cwd ?? process.cwd());

@@ -46,6 +46,7 @@ test('main takes no direct pushes, in Bash and PowerShell (AGENTS.md "Workflow")
     'git push -u origin main',
     'git push origin HEAD:main',
     'git push origin main --tags',
+    'git push origin HEAD:refs/heads/main',
     'git -C ../Korean push origin main',
   ]) {
     assert.equal(verdict('Bash', cmd), 'deny', `Bash ${cmd}`);
@@ -84,12 +85,39 @@ test('skipping git hooks always asks the owner, in Bash and PowerShell', () => {
   for (const cmd of [
     'git commit --no-verify -m x',
     'git commit -n -m x',
+    'git commit -m x -n -q',
     'git push --no-verify origin feat/x',
     'git config core.hooksPath /dev/null',
   ]) {
     assert.equal(verdict('Bash', cmd), 'ask', `Bash ${cmd}`);
     assert.equal(verdict('PowerShell', cmd), 'ask', `PowerShell ${cmd}`);
   }
+});
+
+test("deleting a branch or a worktree asks: it may be another agent's work (AGENTS.md Workflow)", () => {
+  for (const cmd of [
+    'git branch -D feat/x',
+    'git branch -d feat/x',
+    'git branch --delete feat/x',
+    'git worktree remove --force ../Korean-other',
+    'git push origin --delete feat/x',
+    'git push origin -d feat/x',
+    'git push origin :feat/x',
+  ]) {
+    assert.equal(verdict('Bash', cmd), 'ask', `Bash ${cmd}`);
+    assert.equal(verdict('PowerShell', cmd), 'ask', `PowerShell ${cmd}`);
+  }
+  for (const cmd of [
+    'git branch --show-current',
+    'git worktree list',
+    'git worktree add ../K -b x',
+  ])
+    assert.equal(verdict('Bash', cmd), 'allow', cmd);
+});
+
+test('a push the settings cannot read as main is left to .githooks/pre-push (githooks.test.mjs)', () => {
+  // `git push origin HEAD` while on main names no branch, so only the pre-push hook sees it is main.
+  assert.equal(verdict('Bash', 'git push origin HEAD'), 'allow');
 });
 
 test('opening, readying and auto-merging a pull request run without asking', () => {
@@ -121,4 +149,24 @@ test('the Stop hook runs a gate script that package.json defines', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.ok(pkg.scripts.gate, 'package.json has no gate script');
   assert.match(JSON.stringify(hooks.Stop), /tools\/hooks\/gate\.mjs/);
+});
+
+test("CI's required verify check aggregates checks, never skips, and checks runs the whole gate", () => {
+  const ci = read('.github/workflows/ci.yml');
+  const verify = ci.slice(ci.indexOf('\n  verify:'), ci.indexOf('\n  starter-decks:'));
+  const checks = ci.slice(ci.indexOf('\n  checks:'), ci.indexOf('\n  verify:'));
+  assert.match(verify, /needs: \[checks\]/);
+  // A skipped required check counts as passed, so verify runs (and fails) even when checks was cancelled.
+  assert.match(verify, /if: \$\{\{ always\(\) \}\}/);
+  for (const step of [
+    'typecheck',
+    'lint',
+    'format:check',
+    'test',
+    'test:tools',
+    'build',
+    'size',
+    'test:e2e',
+  ])
+    assert.match(checks, new RegExp(`run: pnpm ${step}\n`), step);
 });
