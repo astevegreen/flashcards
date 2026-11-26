@@ -648,14 +648,25 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [ ] knip still lists 60 unused value exports and 121 unused type exports, mostly component prop types and module constants. Un-export them in a later pass. A few are `default` exports used through `lazy()`.
 - [ ] R8 leftovers: the per-review FSRS loop (`stats.ts`, `replay.ts`), the `.flashpkg` layout and note-type payloads, and the device-speech wrappers.
 - [ ] Moving the shared SQLite code out of `@flash/platform-capacitor` needs a new workspace package. `platform-tauri` also takes `isPickerCallback`, `SystemBrowserLauncher` and `ICloudDocumentPlugin` from it.
-- [ ] Owner chores: delete `C:\Antigravity\Korean-w9-base` and `C:\Antigravity\Korean-w9-main` (locked `node_modules`), and the empty untracked `packages\ui\src\utils` in the main checkout.
+- [ ] Owner chores: delete the empty untracked `packages\ui\src\utils` in the main checkout. (`Korean-w9-base` and `Korean-w9-main` were gone by 2026-11-26.)
+
+### Korean 2 consolidation audit, app bugs (#93)
+
+The audit (`docs/Audit.md`, untracked in the main checkout) was about the plan for merging the Korean sheets; four of its findings were app bugs.
+
+- [x] **C8:** the Sentence, Cloze and Grammar presets now speak and render their target-language fields in the deck's language (`noteTypeForDeck`), and a linked sentence sheet's deck language comes from the script of its Sentence column.
+- [x] **C9:** a `.flashpkg` deck file with two records sharing an `id` keeps the first and warns; records whose field keys match none of the note type's import blank and warn. Library and OneDrive/Dropbox `.flashpkg` imports now show package warnings.
+- [x] **C1:** a CSV/TSV quote that never closes, or has text after its closing quote, is read as plain text, so the rows after it are kept.
+- [ ] **C9, third point:** re-importing with archive-on-upgrade archives every note whose `id` changed, with its review progress. Recommend a preview that counts the notes it would archive.
+- [x] Two CPU-heavy unit tests timed out under load and failed `pnpm gate` on main too: `backup-runner` "keeps pre-restore snapshots outside the rolling 14…" (~3.5 s alone, against the 5 s default) and `onedrive-transport` "retries a failed fragment…". Each now has a 30 s timeout.
 
 ### Left over from wave 3 (#87–#90)
 
 - [ ] #88 S6: the Export for Anki CSV leaves the GUID, note type, deck and tags columns unguarded. Try Anki's `#deck:` and `#notetype:` file headers for the deck and note type (check that Anki creates a missing deck), then record the remaining tag and GUID risk.
 - [ ] #88: the Anki path could entity-encode every leading `-` and drop the Hangul heuristic there.
 - [ ] #88: import an exported CSV into real Anki once, to check that `&#61;` and the like show as `=` and don't affect Anki's duplicate check or sort field.
-- [ ] #88: S6 stays partly fixed until a UI offers the "for other apps" CSV (`stripRichText: true`). The default CSV (Browse bar, category panel) is round-trip and unguarded by design. Fullwidth lookalikes (＝, ＋) are not guarded.
+- [x] #88: a UI now offers the "for other apps" CSV (`stripRichText: true`): the **For other apps** box in the Browse bar and the tag export (#93). Unticked, the CSV is the round-trip one, unguarded by design.
+- [ ] #88: fullwidth lookalikes (＝, ＋) are not guarded.
 - [ ] #89: `tests/e2e/sync.spec.ts` now compares event ids only, not each device's derived schedules. Add a state-level check (replay the stored logs, or read in-app state through a test hook).
 - [ ] #90: shrink or lazily build the 26 MiB D12 snapshot fixture in `sync-engine.test.ts`, then the coverage-only 15 s `testTimeout` could go back toward 5 s.
 - [ ] #90: fake `Date` as well as timers in the web badge test (`packages/ui/tests/effect-wiring.test.tsx` ~39). Wait for a ready signal rather than `flush(5)` in the P3 render test. Put a floor (≥ 50) on each threshold in `tools/hooks/settings.test.mjs`. `apps/*` shell code sits in the coverage denominator.

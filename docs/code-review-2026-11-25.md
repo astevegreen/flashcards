@@ -213,7 +213,7 @@ These are ranked by user impact. The IDs point to the full entries below.
 - **Measured:** the time grows quadratically. 20k spaces after `<a` take 137 ms, and a 1 MB input would take minutes. The input comes from `.flashpkg` and Google Docs.
 - **Fix:** use `\s[^<>]*` and an `indexOf` scan, or cap the page size first.
 
-**S6 [Medium] CSV export allows formula injection** (partly: the "for other apps" CSV is guarded (#88). The default CSV is unguarded by design, the Anki CSV still has unguarded GUID, note type, deck and tag columns, and no screen offers the "for other apps" CSV yet; `docs/follow-ups.md` has open items) — `packages/core/src/import/csv-export.ts:69`, `export/anki/select.ts:40`, `sources/tabular.ts:1039`
+**S6 [Medium] CSV export allows formula injection** (partly: the "for other apps" CSV is guarded (#88). The default CSV is unguarded by design, the Anki CSV still has unguarded GUID, note type, deck and tag columns, and the Browse bar and tag export offer it with a **For other apps** box (#93); `docs/follow-ups.md` has open items) — `packages/core/src/import/csv-export.ts:69`, `export/anki/select.ts:40`, `sources/tabular.ts:1039`
 
 - **The bug:** cells starting with `=`, `+`, `-` or `@` export as is, so `=HYPERLINK(...)` runs when the file is opened in Excel.
 - **Trade-off:** Korean grammar entries like `-(으)ㄴ` legitimately start with `-`.
