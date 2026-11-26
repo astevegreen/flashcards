@@ -23,6 +23,10 @@ Thumbs.db
 *.log
 *.local
 
+# Licence signing key (scripts/license-keygen.mjs): never commit it (docs/licensing.md)
+*license-private-key*
+*licence-private-key*
+
 # Personal CSV decks placed in workspace root (keep out of repo)
 /*.csv
 /*.tsv
