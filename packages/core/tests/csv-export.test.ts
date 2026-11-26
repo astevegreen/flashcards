@@ -298,6 +298,11 @@ describe('CSV round trip keeps whitespace and separator characters (C17)', () =>
     }
   });
 
+  it('keeps the spaces inside quotes but trims the ones after the closing quote', () => {
+    const [note] = notesOf(importCsv(['Word,Meaning', '"학교" ,"  school  "  ', ''].join('\n')));
+    expect(note?.fields).toEqual({ word: '학교', meaning: '  school  ' });
+  });
+
   it('reads row 1 like any other row when the file has no header row', () => {
     const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', T0));
     const res = buildEventsFromCsv(['"  학교 ", school', ' 나무 ,"  tree"'].join('\n'), {

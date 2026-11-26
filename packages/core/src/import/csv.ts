@@ -58,12 +58,16 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
   let rowQuoted: boolean[] = [];
   let field = '';
   let fieldQuoted = false;
+  // Where the closing quote fell: spaces after it are not content, so they go (C17).
+  let quoteEnd = -1;
   let inQuotes = false;
   const endField = () => {
+    if (quoteEnd >= 0) field = field.slice(0, quoteEnd) + field.slice(quoteEnd).trimEnd();
     row.push(field);
     rowQuoted.push(fieldQuoted);
     field = '';
     fieldQuoted = false;
+    quoteEnd = -1;
   };
   const endRow = () => {
     endField();
@@ -83,6 +87,7 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
           i += 1;
         } else {
           inQuotes = false;
+          quoteEnd = field.length;
         }
       } else {
         field += ch;
