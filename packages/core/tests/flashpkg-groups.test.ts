@@ -2,8 +2,8 @@ import { validatePackageManifest } from '@flash/content-schema';
 import { unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import {
-  packBackup,
-  buildBackup,
+  packBackupAsync,
+  buildBackupAsync,
   planBackupRestore,
   readBackupArchive,
   restoreStepsToEvents,
@@ -351,21 +351,17 @@ describe('.flashpkg presets and folders: import', () => {
 });
 
 describe('backup restore: presets, folders and descriptions', () => {
-  function backupOf(state: CollectionState) {
+  async function backupOf(state: CollectionState) {
     const nowMs = T0 + DAY;
-    return readBackupArchive(
-      packBackup(
-        buildBackup(state, {
-          backupId: `b-${nowMs}`,
-          kind: 'daily',
-          reason: 'auto',
-          nowMs,
-          deviceId: 'dev-a',
-          collectionId: 'col-1',
-        }),
-        { withMedia: false },
-      ).bytes,
-    ).state;
+    const built = await buildBackupAsync(state, {
+      backupId: `b-${nowMs}`,
+      kind: 'daily',
+      reason: 'auto',
+      nowMs,
+      deviceId: 'dev-a',
+      collectionId: 'col-1',
+    });
+    return readBackupArchive((await packBackupAsync(built, { withMedia: false })).bytes).state;
   }
 
   function restore(current: CollectionState, backup: CollectionState, factory: EventFactory) {
@@ -384,9 +380,9 @@ describe('backup restore: presets, folders and descriptions', () => {
     };
   }
 
-  it('brings back edited ones under their own ids, as they were at backup time', () => {
+  it('brings back edited ones under their own ids, as they were at backup time', async () => {
     const { state, factory } = organized();
-    const backup = backupOf(state);
+    const backup = await backupOf(state);
     const before = orgView(state);
     applyEvents(state, [
       factory.create(
@@ -411,9 +407,9 @@ describe('backup restore: presets, folders and descriptions', () => {
     expect(planBackupRestore(state, backup).steps).toHaveLength(0);
   });
 
-  it('brings deleted ones back under new, stable ids and puts the decks back in them', () => {
+  it('brings deleted ones back under new, stable ids and puts the decks back in them', async () => {
     const { state, factory } = organized();
-    const backup = backupOf(state);
+    const backup = await backupOf(state);
     const before = orgView(state);
     applyEvents(state, [
       factory.create('DeckPresetDeleted', { preset_id: 'preset-daily' }, T0 + 2 * DAY),
@@ -435,9 +431,9 @@ describe('backup restore: presets, folders and descriptions', () => {
     expect(planBackupRestore(state, backup).steps).toHaveLength(0);
   });
 
-  it('brings back a deck deleted since the backup, in its preset and folder', () => {
+  it('brings back a deck deleted since the backup, in its preset and folder', async () => {
     const { state, factory } = organized();
-    const backup = backupOf(state);
+    const backup = await backupOf(state);
     const before = orgView(state);
     applyEvents(state, [
       factory.create(
@@ -456,9 +452,9 @@ describe('backup restore: presets, folders and descriptions', () => {
     expect(planBackupRestore(state, backup).steps).toHaveLength(0);
   });
 
-  it('rebuilds them on an empty device', () => {
+  it('rebuilds them on an empty device', async () => {
     const { state } = organized();
-    const backup = backupOf(state);
+    const backup = await backupOf(state);
     const fresh = createEmptyState();
     restore(fresh, backup, factoryFor('dev-new'));
     expect(orgView(fresh)).toEqual(orgView(state));
@@ -466,14 +462,14 @@ describe('backup restore: presets, folders and descriptions', () => {
     expect(planBackupRestore(fresh, backup).steps).toHaveLength(0);
   });
 
-  it('puts a preset without weights back in place of one optimized since', () => {
+  it('puts a preset without weights back in place of one optimized since', async () => {
     const { factory, events } = organized();
     events.push(
       factory.create('DeckPresetSaved', { preset_id: 'preset-plain', name: 'Plain' }, T0 + 1),
       factory.create('DeckGroupingChanged', { deck_id: JA, preset_id: 'preset-plain' }, T0 + 1),
     );
     const state = replayAllEvents(events);
-    const backup = backupOf(state);
+    const backup = await backupOf(state);
     applyEvents(state, [
       factory.create('DeckPresetSaved', { preset_id: 'preset-plain', w: W21 }, T0 + 2 * DAY),
     ]);

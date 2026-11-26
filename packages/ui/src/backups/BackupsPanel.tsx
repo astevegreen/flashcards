@@ -1,5 +1,6 @@
 import {
   anyBackupHoldsMedia,
+  BACKUP_ARCHIVE_LIMITS,
   FULL_BACKUP_MAX_MEDIA_BYTES,
   planBackupRestore,
   type RestoreSummary,
@@ -223,8 +224,14 @@ export function BackupsPanel() {
 
   const previewFile = () =>
     run(async () => {
-      const picked = await platform.files.pickFile({ accept: '.flashpkg,.zip' });
+      const picked = await platform.files.pickFile({
+        accept: '.flashpkg,.zip',
+        maxBytes: BACKUP_ARCHIVE_LIMITS.maxCompressedBytes,
+      });
       if (!picked) return;
+      if (picked.tooLarge) {
+        throw new Error(`"${picked.name}" is too large to restore (the limit is 300 MB).`);
+      }
       try {
         await preview(picked.name, picked.bytes);
       } catch (err) {

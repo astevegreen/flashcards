@@ -11,6 +11,12 @@ import { useApp } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { ShowAllLanguagesSwitch, useShowAllLanguages } from './ShowAllLanguagesSwitch.tsx';
 
+/**
+ * A picked pack may be gzip (capped at 50 MB) or plain JSON (capped at 150 MB uncompressed,
+ * `PACK_SECURITY_LIMITS`), so the larger cap applies before the file is read.
+ */
+const MAX_PACK_PICK_BYTES = 150 * 1024 * 1024;
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -185,8 +191,15 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
     setError(null);
     setStatus(null);
     try {
-      const picked = await platform.files.pickFile({ accept: '.gz,.json' });
+      const picked = await platform.files.pickFile({
+        accept: '.gz,.json',
+        maxBytes: MAX_PACK_PICK_BYTES,
+      });
       if (!picked) return;
+      if (picked.tooLarge) {
+        setError(`"${picked.name}" is too large for a dictionary pack (the limit is 150 MB).`);
+        return;
+      }
       setBusyPackId('local-import');
       setProgress({ phase: 'verifying' });
       const mgr = await platform.getPackManager();

@@ -234,4 +234,54 @@ describe('native streamed backup file', () => {
     expect(read.manifest.reason).toBe('manual');
     expect(read.state.decks.size).toBe(state.decks.size);
   });
+
+  it('reads each media file only as it writes it, never all of them first (P8)', async () => {
+    const { readBackupArchive } = await import('@flash/core/backup');
+    const { saveFullBackupFile } = await import('../src/backups/backupRunner.ts');
+    const { state } = sampleState();
+    const blobs = new Map<string, Uint8Array>();
+    for (const n of [1, 2, 3]) {
+      const hash = String(n).repeat(64);
+      const bytes = new Uint8Array(1000).fill(n);
+      blobs.set(hash, bytes);
+      state.media.set(hash, { hash, ext: 'png', mime: 'image/png', size: bytes.length });
+    }
+    const log: string[] = [];
+    const chunks: Uint8Array[] = [];
+    const sink: FileSink = {
+      write: async (c) => {
+        chunks.push(c.slice());
+        log.push('write');
+      },
+      close: async () => void log.push('close'),
+      abort: async () => void log.push('abort'),
+    };
+    const platform = {
+      files: { downloadFile: noDownload, saveStream: async () => sink },
+      storage: {
+        getMedia: async (hash: string) => {
+          log.push('read');
+          const bytes = blobs.get(hash);
+          return bytes ? { bytes, mime: 'image/png' } : undefined;
+        },
+      },
+    } as unknown as PlatformServices;
+    await saveFullBackupFile(platform, state, { deviceId: 'dev', fileName: 'b.flashpkg' });
+    const reads = log.flatMap((l, i) => (l === 'read' ? [i] : []));
+    expect(reads).toHaveLength(3);
+    // The collection is written before any media is read, and a write separates each read.
+    expect(log.indexOf('write')).toBeLessThan(reads[0] ?? -1);
+    for (let i = 1; i < reads.length; i++) {
+      expect(log.slice(reads[i - 1], reads[i])).toContain('write');
+    }
+    const joined = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+    let at = 0;
+    for (const c of chunks) {
+      joined.set(c, at);
+      at += c.length;
+    }
+    const read = readBackupArchive(joined);
+    expect(read.manifest.media_included).toBe(true);
+    expect(read.media.size).toBe(3);
+  });
 });

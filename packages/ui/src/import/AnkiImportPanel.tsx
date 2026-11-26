@@ -16,6 +16,9 @@ import { useApp } from '../state/AppContext.tsx';
 import { ANKI_IMPORT_PANEL_HEIGHT } from './anki-import-layout.ts';
 import { putMediaListTracked } from '../state/recentMedia.ts';
 
+/** Matches `ANKI_IMPORT_LIMITS.maxCompressedBytes`: a bigger .apkg would be refused after reading it. */
+const MAX_APKG_PICK_BYTES = 300 * 1024 * 1024;
+
 const MAX_LISTED_WARNINGS = 5;
 
 /** `ready`: the package is read and summarized, waiting for Import. */
@@ -318,8 +321,15 @@ export function AnkiImportPanel({
 
   const handlePick = async () => {
     try {
-      const picked = await platform.files.pickFile({ accept: '.apkg' });
+      const picked = await platform.files.pickFile({
+        accept: '.apkg',
+        maxBytes: MAX_APKG_PICK_BYTES,
+      });
       if (!picked) return;
+      if (picked.tooLarge) {
+        fail(`"${picked.name}" is too large to import (the limit is 300 MB).`);
+        return;
+      }
       await prepareSafely(picked.bytes);
     } catch (err) {
       fail(describeImportError(err));
