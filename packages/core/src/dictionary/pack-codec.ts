@@ -512,6 +512,12 @@ function validateManifestCommon(raw: unknown): Record<string, unknown> {
       throw new PackValidationError(`Pack manifest missing required field "${field}".`);
     }
   }
+  // The licence and source links are shown to the user, so they must be plain https (S13).
+  for (const field of ['license_url', 'source_url']) {
+    if (!isSafePackUrl(String(m[field]).trim(), false)) {
+      throw new PackValidationError(`Pack manifest field "${field}" must be an https:// URL.`);
+    }
+  }
   return m;
 }
 

@@ -121,3 +121,33 @@ describe('Phase 8 License, Free-Tier Policy & Offline Ed25519 Verification (§12
     expect(canUseCloudSync(personal).allowed).toBe(true);
   });
 });
+
+describe('licence keys have one spelling (S13)', () => {
+  const payload = {
+    v: 1 as const,
+    product: 'flashcards-unlock-v1' as const,
+    edition: 'lifetime' as const,
+    keyId: 'KEY-1',
+    issuedAt: 1_760_000_000_000,
+  };
+  const key = encodeLicenseKey(payload, new Uint8Array(64).fill(7));
+  const [prefix, body, sig] = key.split('.') as [string, string, string];
+
+  it('accepts the canonical key', () => {
+    expect(parseLicenseKey(key).payload.keyId).toBe('KEY-1');
+  });
+
+  it('refuses padding and stray trailing bits', () => {
+    // 64 signature bytes end in one lone byte: two characters, the last with 4 unused bits.
+    const last = sig.charAt(sig.length - 1);
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const strayBits = alphabet.charAt(alphabet.indexOf(last) | 1);
+    expect(strayBits).not.toBe(last);
+    for (const variant of [
+      `${prefix}.${body}.${sig}==`,
+      `${prefix}.${body}.${sig.slice(0, -1)}${strayBits}`,
+    ]) {
+      expect(() => parseLicenseKey(variant), variant).toThrow(/canonical/);
+    }
+  });
+});

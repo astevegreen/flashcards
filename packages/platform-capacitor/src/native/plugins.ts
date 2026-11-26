@@ -43,12 +43,7 @@ import type { SystemBrowserLauncher } from '../sources/native-picker-bridge.ts';
 import type { SqliteDriver } from '../storage/sqlite-storage.ts';
 import { adaptSecureStoragePlugin, type NativeSecureStorage } from '../secure/secure-store.ts';
 import type { ICloudDocumentPlugin } from '../sync/icloud-transport.ts';
-import {
-  ADD_DEVICE_HOST,
-  APP_URL_SCHEME,
-  isAppDeepLink,
-  PICKER_CALLBACK_HOST,
-} from './deep-links.ts';
+import { ADD_DEVICE_HOST, APP_URL_SCHEME, isAppDeepLink, isPickerCallback } from './deep-links.ts';
 
 // ---------------------------------------------------------------------------
 // SQLite (@capacitor-community/sqlite)
@@ -129,7 +124,7 @@ export async function createGoogleSignInPlugin(
 /** Opens the hosted `picker.html` in the system browser and resolves with the deep-link URL. */
 export function createSystemBrowserLauncher(): SystemBrowserLauncher {
   return {
-    openAndAwaitDeepLink: async ({ url, callbackScheme }) => {
+    openAndAwaitDeepLink: async ({ url, callbackScheme, state }) => {
       return new Promise<string>((resolve, reject) => {
         let settled = false;
         const handles: Array<Promise<{ remove: () => Promise<void> }>> = [];
@@ -138,8 +133,9 @@ export function createSystemBrowserLauncher(): SystemBrowserLauncher {
         };
         handles.push(
           App.addListener('appUrlOpen', (event) => {
-            // Exact scheme + host: other deep links (e.g. the OneDrive sign-in redirect) are ignored.
-            if (settled || !isAppDeepLink(event.url, callbackScheme, PICKER_CALLBACK_HOST)) return;
+            // Exact scheme + host and this pick's `state`: other deep links (e.g. the OneDrive
+            // sign-in redirect, or a callback this pick did not start) are ignored.
+            if (settled || !isPickerCallback(event.url, callbackScheme, state)) return;
             settled = true;
             cleanup();
             void Browser.close().catch(() => undefined);

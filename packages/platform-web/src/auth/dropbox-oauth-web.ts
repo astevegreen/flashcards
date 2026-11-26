@@ -2,6 +2,7 @@ import { SyncTransportError } from '@flash/core';
 import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
 import { buildDropboxPkceAuthUrl } from '../sync/dropbox-transport.ts';
 import type { GoogleOAuthWindowLike } from './google-oauth-web.ts';
+import { isFreshPkce } from './pkce-expiry.ts';
 
 const DROPBOX_TOKEN_ENDPOINT = 'https://api.dropboxapi.com/oauth2/token';
 const DROPBOX_PKCE_KV_KEY = 'dropbox_oauth_pkce';
@@ -160,6 +161,12 @@ export class DropboxOAuthWebAuth implements Auth {
     );
     await this.storage.deleteKv(DROPBOX_PKCE_KV_KEY);
 
+    if (!isFreshPkce(pkce.createdAt, this.nowMs())) {
+      throw new SyncTransportError(
+        'AUTH_REQUIRED',
+        'Dropbox sign-in took too long. Please connect Dropbox again.',
+      );
+    }
     if (error) {
       throw new SyncTransportError(
         'AUTH_REQUIRED',

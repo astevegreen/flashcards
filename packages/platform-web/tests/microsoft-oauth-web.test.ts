@@ -208,3 +208,28 @@ describe('MicrosoftOAuthWebAuth (PKCE redirect + token helper /ms/*)', () => {
     await expect(unconfigured.signIn()).rejects.toThrow(/not configured/);
   });
 });
+
+describe('OneDrive PKCE record expiry (S13)', () => {
+  it('refuses a callback whose PKCE record is older than PKCE_MAX_AGE_MS', async () => {
+    const storage = createStorage('expiry');
+    const { win, assigned } = createMockWindow('https://app.example.com/');
+    const { calls, fetchImpl } = createHelperFetch([]);
+    let clock = 1_750_000_000_000;
+    const auth = new MicrosoftOAuthWebAuth({
+      clientId: 'ms-client-id',
+      tokenHelperUrl: `${HELPER}/`,
+      storage,
+      fetchImpl,
+      windowImpl: win,
+      nowMs: () => clock,
+    });
+    await auth.signIn({ intent: 'sync' });
+    const state = new URL(assigned[0] ?? '').searchParams.get('state') ?? '';
+    clock += 31 * 60_000;
+    win.location.search = `?code=ms-code&state=${encodeURIComponent(state)}`;
+    await expect(auth.handleRedirectCallback()).rejects.toThrow(/took too long/);
+    expect(calls).toHaveLength(0);
+    expect(win.location.search).toBe('');
+    storage.close();
+  });
+});

@@ -12,11 +12,33 @@ import type { Purchase, Storage } from '@flash/platform';
 export const LICENSE_KV_KEY = 'license_entitlement_v1';
 
 /**
- * Default Ed25519 public key (hex, 32 bytes) used for offline license verification (§12.1).
- * Can be overridden at build time via `VITE_LICENSE_PUBLIC_KEY` or in unit tests.
+ * The made-up key earlier builds shipped as their default (S12). It belongs to no signing key, so
+ * it is treated exactly like no key at all.
  */
-export const DEFAULT_LICENSE_PUBLIC_KEY_HEX =
+export const PLACEHOLDER_LICENSE_PUBLIC_KEY_HEX =
   '2f5e6f8c0b4a9d3e7c1f2a4b6d8e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a';
+
+/** Why a licence key is refused when the build carries no public key to check it against. */
+export const LICENSE_PUBLIC_KEY_MISSING_REASON =
+  'This build has no licence public key (VITE_LICENSE_PUBLIC_KEY), so licence keys cannot be checked.';
+
+/**
+ * The Ed25519 public key (hex, 32 bytes) licence keys are verified against (§12.1), or
+ * `undefined` when none is configured or it is the old placeholder. Set at build time with
+ * `VITE_LICENSE_PUBLIC_KEY`.
+ */
+export function usableLicensePublicKey(hex: string | undefined): string | undefined {
+  const trimmed = hex?.trim().toLowerCase() ?? '';
+  if (!/^[0-9a-f]{64}$/.test(trimmed) || trimmed === PLACEHOLDER_LICENSE_PUBLIC_KEY_HEX) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+/** Says that licence keys cannot work, rather than failing closed in silence (S12). */
+export function warnLicensePublicKeyMissing(): void {
+  console.warn(`Licence gate is on but ${LICENSE_PUBLIC_KEY_MISSING_REASON}`);
+}
 
 export interface StoredLicenseRecord {
   rawKey: string;
@@ -57,14 +79,15 @@ export interface WebLicensePurchaseOptions {
 export class WebLicensePurchase implements Purchase {
   readonly isPersonalBuild: boolean;
   private readonly storage: Storage;
-  private readonly publicKeyHex: string;
+  private readonly publicKeyHex: string | undefined;
   private readonly cryptoProvider: Ed25519CryptoProvider;
   private readonly onStartCheckout?: () => void;
 
   constructor(options: WebLicensePurchaseOptions) {
     this.storage = options.storage;
     this.isPersonalBuild = options.isPersonalBuild ?? true;
-    this.publicKeyHex = options.publicKeyHex?.trim() || DEFAULT_LICENSE_PUBLIC_KEY_HEX;
+    this.publicKeyHex = usableLicensePublicKey(options.publicKeyHex);
+    if (!this.publicKeyHex && !this.isPersonalBuild) warnLicensePublicKeyMissing();
     this.cryptoProvider = options.cryptoProvider ?? webCryptoEd25519Provider;
     if (options.onStartCheckout) {
       this.onStartCheckout = options.onStartCheckout;
@@ -76,7 +99,7 @@ export class WebLicensePurchase implements Purchase {
       return createPersonalEntitlement();
     }
     const stored = await this.storage.getKv<StoredLicenseRecord>(LICENSE_KV_KEY);
-    if (!stored?.rawKey) {
+    if (!stored?.rawKey || !this.publicKeyHex) {
       return createFreeTierEntitlement();
     }
     const verified = await verifyEd25519LicenseKey(
@@ -121,6 +144,13 @@ export class WebLicensePurchase implements Purchase {
   async activateLicenseKey(
     rawKey: string,
   ): Promise<LicenseVerifyResult & { entitlement: EntitlementState }> {
+    if (!this.publicKeyHex) {
+      return {
+        valid: false,
+        reason: LICENSE_PUBLIC_KEY_MISSING_REASON,
+        entitlement: await this.getEntitlement(),
+      };
+    }
     const verified = await verifyEd25519LicenseKey(rawKey, this.publicKeyHex, this.cryptoProvider);
     if (!verified.valid || !verified.payload) {
       return {

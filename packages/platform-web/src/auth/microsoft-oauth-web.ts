@@ -1,6 +1,7 @@
 import { SyncTransportError } from '@flash/core';
 import type { Auth, AuthSession, OAuthSignInIntent, Storage } from '@flash/platform';
 import type { GoogleOAuthWindowLike } from './google-oauth-web.ts';
+import { isFreshPkce } from './pkce-expiry.ts';
 
 /** OneDrive app-folder sync scopes (least privilege, §13). */
 export const MICROSOFT_SYNC_SCOPES = ['Files.ReadWrite.AppFolder', 'offline_access'] as const;
@@ -239,6 +240,12 @@ export class MicrosoftOAuthWebAuth implements Auth {
     );
     await this.storage.deleteKv(MS_PKCE_KV_KEY);
 
+    if (!isFreshPkce(pkce.createdAt, this.nowMs())) {
+      throw new SyncTransportError(
+        'AUTH_REQUIRED',
+        'OneDrive sign-in took too long. Please connect OneDrive again.',
+      );
+    }
     const error = params.get('error');
     if (error) {
       throw new SyncTransportError(

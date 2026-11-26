@@ -63,7 +63,8 @@ export {
 export interface CreateTauriPlatformOptions {
   deviceId: string;
   deviceLabel?: string;
-  sqlDb?: TauriSqlPluginDatabase;
+  /** The app database (required, N9: no in-memory fallback). */
+  sqlDb: TauriSqlPluginDatabase;
   fsBridge?: TauriFsBridge;
   oauthPlugin?: TauriLoopbackOAuthPlugin;
   googleClientId?: string;

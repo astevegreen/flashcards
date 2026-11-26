@@ -301,3 +301,30 @@ describe('GIS tap-to-renew fallback when the token helper is unavailable (§4.3)
     storage.close();
   });
 });
+
+describe('Google PKCE record expiry (S13)', () => {
+  it('refuses a callback whose PKCE record is older than PKCE_MAX_AGE_MS', async () => {
+    const storage = createStorage('pkce-expiry');
+    const { win, assignedUrls, setSearch } = createMockWindow('https://app.example.com/');
+    let now = 1_750_000_000_000;
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
+    const auth = new GoogleOAuthWebAuth({
+      clientId: 'cid',
+      tokenHelperUrl: 'https://th.example.com',
+      storage,
+      fetchImpl,
+      windowImpl: win,
+      nowMs: () => now,
+    });
+    await auth.signIn();
+    const state = new URL(assignedUrls[0] ?? '').searchParams.get('state') ?? '';
+    now += 31 * 60_000;
+    setSearch(`?code=abc&state=${encodeURIComponent(state)}`);
+    await expect(auth.handleRedirectCallback()).rejects.toSatisfy(
+      (err) => isSyncTransportError(err) && err.code === 'AUTH_REQUIRED',
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(await storage.getKv('oauth_pkce')).toBeUndefined();
+    storage.close();
+  });
+});

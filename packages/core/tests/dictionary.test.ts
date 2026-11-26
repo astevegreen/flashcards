@@ -200,3 +200,32 @@ describe('Phase 6 offline dictionary search, pack codec & security guards', () =
     }
   });
 });
+
+describe('pack manifest links (S13)', () => {
+  const manifest = {
+    format_version: 1,
+    id: 'dict-hanja-unihan',
+    kind: 'dictionary',
+    name: 'Hanja Test',
+    version: '1.0.0',
+    language: 'ko',
+    description: 'Test Hanja pack',
+    license_name: 'Unicode License v3',
+    license_url: 'https://www.unicode.org/license.txt',
+    attribution: 'Unicode, Inc.',
+    source_url: 'https://www.unicode.org/charts/unihan.html',
+  };
+  const pack = (m: Record<string, unknown>) =>
+    new TextEncoder().encode(JSON.stringify({ manifest: m, entries: [] }));
+
+  it('accepts https links and refuses any other scheme', () => {
+    expect(decodePackArchive(pack(manifest)).manifest.id).toBe('dict-hanja-unihan');
+    for (const field of ['license_url', 'source_url']) {
+      for (const bad of ['javascript:alert(1)', 'http://example.com/', 'data:text/html,x', '/x']) {
+        expect(() => decodePackArchive(pack({ ...manifest, [field]: bad })), bad).toThrow(
+          /must be an https/,
+        );
+      }
+    }
+  });
+});

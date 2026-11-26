@@ -10,6 +10,7 @@ import {
   TauriSqliteStorage,
   type TauriFsBridge,
 } from '../src/index.ts';
+import { memoryTauriDb } from './support/memory-tauri-db.ts';
 
 function bytesToHex(bytes: Uint8Array): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -62,7 +63,7 @@ describe('Phase 8 Tauri Desktop Platform Adapters (§3.2, §4.3, §12.1)', () =>
       },
     };
 
-    const storage = new TauriSqliteStorage();
+    const storage = new TauriSqliteStorage(memoryTauriDb());
     const watcher = new TauriLocalFolderWatcher({ storage, bridge });
     const picked = await watcher.pickFolder();
     expect(picked).toEqual({ id: 'tauri-folder:/notes', name: 'Flashcards Folder' });
@@ -114,7 +115,7 @@ describe('Phase 8 Tauri Desktop Platform Adapters (§3.2, §4.3, §12.1)', () =>
     );
     const signedKey = encodeLicenseKey(payload, sig);
 
-    const storage = new TauriSqliteStorage();
+    const storage = new TauriSqliteStorage(memoryTauriDb());
     const purchase = new TauriDesktopLicensePurchase({
       storage,
       isPersonalBuild: false,
@@ -144,6 +145,7 @@ describe('Phase 8 Tauri Desktop Platform Adapters (§3.2, §4.3, §12.1)', () =>
     expect((await auth.signIn())?.accessToken).toBe('loopback-tok');
 
     const tauriPlatform = createTauriPlatform({
+      sqlDb: memoryTauriDb(),
       deviceId: 'tauri-pc-1',
       isPersonalBuild: true,
     });
