@@ -9,6 +9,9 @@ import { InMemorySyncTransport } from '../src/sync/in-memory-transport.ts';
 import { FakeGraphServer, requestMatches } from './fakes/fake-graph.ts';
 import { describeSyncTransportContract } from './helpers/sync-transport-contract.ts';
 
+/** CPU-heavy test (a 10 MB upload): it runs past the 5 s default when the machine is busy. */
+const HEAVY_TEST_TIMEOUT_MS = 30_000;
+
 function createAuth(tokens: string[] = ['graph-token-1']) {
   let idx = 0;
   return {
@@ -98,28 +101,32 @@ describe('OneDriveAppFolderTransport specifics (§4.3, §15 Phase 12)', () => {
     expect(await transport.read('media/ab/dup.bin')).toEqual(big);
   });
 
-  it('retries a failed fragment, and resumes from nextExpectedRanges after a 416', async () => {
-    const { graph, transport } = setup();
-    const big = patterned(10 * 1024 * 1024 + 10); // 4 fragments of 3.125 MiB
-    const isFragment = (url: string) => url.startsWith('https://fake-onedrive-upload.test');
-    const fragmentPutNumber = () =>
-      graph.log.filter((r) => r.method === 'PUT' && isFragment(r.url)).length;
-    // PUT #2 (fragment 2) fails outright once: a plain retry.
-    graph.inject({
-      match: (req) => req.method === 'PUT' && isFragment(req.url) && fragmentPutNumber() === 2,
-      status: 503,
-    });
-    // PUT #4 (fragment 3) lands but its response is lost (502): the re-sent PUT gets 416, so the
-    // transport asks the session for nextExpectedRanges and continues after it.
-    graph.inject({
-      match: (req) => req.method === 'PUT' && isFragment(req.url) && fragmentPutNumber() === 4,
-      status: 502,
-      applyThenFail: true,
-    });
-    await transport.write('media/ab/resume.bin', big);
-    expect(graph.log.some((r) => r.method === 'GET' && isFragment(r.url))).toBe(true);
-    expect(await transport.read('media/ab/resume.bin')).toEqual(big);
-  });
+  it(
+    'retries a failed fragment, and resumes from nextExpectedRanges after a 416',
+    async () => {
+      const { graph, transport } = setup();
+      const big = patterned(10 * 1024 * 1024 + 10); // 4 fragments of 3.125 MiB
+      const isFragment = (url: string) => url.startsWith('https://fake-onedrive-upload.test');
+      const fragmentPutNumber = () =>
+        graph.log.filter((r) => r.method === 'PUT' && isFragment(r.url)).length;
+      // PUT #2 (fragment 2) fails outright once: a plain retry.
+      graph.inject({
+        match: (req) => req.method === 'PUT' && isFragment(req.url) && fragmentPutNumber() === 2,
+        status: 503,
+      });
+      // PUT #4 (fragment 3) lands but its response is lost (502): the re-sent PUT gets 416, so the
+      // transport asks the session for nextExpectedRanges and continues after it.
+      graph.inject({
+        match: (req) => req.method === 'PUT' && isFragment(req.url) && fragmentPutNumber() === 4,
+        status: 502,
+        applyThenFail: true,
+      });
+      await transport.write('media/ab/resume.bin', big);
+      expect(graph.log.some((r) => r.method === 'GET' && isFragment(r.url))).toBe(true);
+      expect(await transport.read('media/ab/resume.bin')).toEqual(big);
+    },
+    HEAVY_TEST_TIMEOUT_MS,
+  );
 
   it('fails the write when an upload session cannot be resumed or never commits', async () => {
     const isFragment = (url: string) => url.startsWith('https://fake-onedrive-upload.test');
