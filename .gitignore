@@ -31,3 +31,8 @@ Thumbs.db
 # Raw upstream open data for `build-packs.mjs --full` and its output
 .cache/
 dist-packs/
+
+# Agent worktrees and per-machine agent files
+.claude/worktrees/
+.claude/settings.local.json
+.claude/overnight/

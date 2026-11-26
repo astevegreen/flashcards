@@ -1,11 +1,26 @@
+# Weekly version updates for the workspace packages and the GitHub Actions the workflows use. Minor and
+# patch updates come grouped, one pull request per ecosystem; each major update gets its own. The 7-day
+# cooldown keeps proposals older than a week, past pnpm's minimum release age, so pnpm installs every
+# version proposed. Security updates are not delayed.
 version: 2
 updates:
-  - package-ecosystem: 'npm'
-    directory: '/'
+  - package-ecosystem: npm
+    directory: /
     schedule:
-      interval: 'weekly'
+      interval: weekly
     open-pull-requests-limit: 5
-  - package-ecosystem: 'github-actions'
-    directory: '/'
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: 'weekly'
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
