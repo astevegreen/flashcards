@@ -1800,8 +1800,15 @@ export function createEventFactory(
       }
     },
     getHlc: () => hlcState,
+    // Merges, never rewinds: a value read before this factory's latest event must not let the
+    // next event sort before it (D20).
     setHlc: (nextHlc: HlcState) => {
-      hlcState = nextHlc;
+      if (
+        nextHlc.wallMs > hlcState.wallMs ||
+        (nextHlc.wallMs === hlcState.wallMs && nextHlc.counter > hlcState.counter)
+      ) {
+        hlcState = { ...hlcState, wallMs: nextHlc.wallMs, counter: nextHlc.counter };
+      }
     },
     create<K extends KnownEventType>(
       type: K,
