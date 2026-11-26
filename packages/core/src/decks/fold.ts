@@ -20,6 +20,13 @@ import { DEFAULT_DECK_SETTINGS } from '../model/types.ts';
  * ordinary per-deck events (see `./organization.ts`).
  */
 
+/** The deck settings a preset holds, in one place for every copy, diff and import of them. */
+export const PRESET_SETTING_KEYS = [
+  'new_cards_per_day',
+  'max_reviews_per_day',
+  'target_retention',
+] as const satisfies readonly (keyof DeckPresetSettings)[];
+
 export interface DeckPreset {
   id: string;
   name: string;

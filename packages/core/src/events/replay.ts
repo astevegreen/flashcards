@@ -665,6 +665,30 @@ export function rebuildCardsForNote(
   }
 }
 
+/**
+ * Every `DeckSettings` field, in the order replay applies them (each its own LWW register). A
+ * `Record` so a new field fails to compile until it is listed here.
+ */
+const DECK_SETTING_FIELDS: Record<keyof DeckSettings, true> = {
+  new_cards_per_day: true,
+  max_reviews_per_day: true,
+  target_retention: true,
+  new_card_order: true,
+  enabled_layout_ids: true,
+  day_start_hour: true,
+};
+const DECK_SETTING_KEYS = Object.keys(DECK_SETTING_FIELDS) as (keyof DeckSettings)[];
+
+/** Copies one present setting (a fresh array for `enabled_layout_ids`). */
+function copyDeckSetting<K extends keyof DeckSettings>(
+  target: Partial<DeckSettings>,
+  source: Partial<DeckSettings>,
+  key: K,
+): void {
+  const value = source[key];
+  target[key] = (Array.isArray(value) ? [...value] : value) as DeckSettings[K];
+}
+
 function applyDeckSettingsPatchTarget(
   state: CollectionState,
   deckId: string,
@@ -674,45 +698,15 @@ function applyDeckSettingsPatchTarget(
   collector?: ApplyMutationCollector,
 ): boolean {
   let layoutsChanged = false;
-
-  if (
-    settings.new_cards_per_day !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:new_cards_per_day`, hlc, collector)
-  ) {
-    target.new_cards_per_day = settings.new_cards_per_day;
+  for (const key of DECK_SETTING_KEYS) {
+    if (
+      settings[key] !== undefined &&
+      shouldApplyLww(state, `deck:${deckId}:settings:${key}`, hlc, collector)
+    ) {
+      copyDeckSetting(target, settings, key);
+      if (key === 'enabled_layout_ids') layoutsChanged = true;
+    }
   }
-  if (
-    settings.max_reviews_per_day !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:max_reviews_per_day`, hlc, collector)
-  ) {
-    target.max_reviews_per_day = settings.max_reviews_per_day;
-  }
-  if (
-    settings.target_retention !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:target_retention`, hlc, collector)
-  ) {
-    target.target_retention = settings.target_retention;
-  }
-  if (
-    settings.new_card_order !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:new_card_order`, hlc, collector)
-  ) {
-    target.new_card_order = settings.new_card_order;
-  }
-  if (
-    settings.enabled_layout_ids !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:enabled_layout_ids`, hlc, collector)
-  ) {
-    target.enabled_layout_ids = [...settings.enabled_layout_ids];
-    layoutsChanged = true;
-  }
-  if (
-    settings.day_start_hour !== undefined &&
-    shouldApplyLww(state, `deck:${deckId}:settings:day_start_hour`, hlc, collector)
-  ) {
-    target.day_start_hour = settings.day_start_hour;
-  }
-
   return layoutsChanged;
 }
 
@@ -799,23 +793,8 @@ function applyLayoutChanged(
 function buildMergedDeckSettings(pendingSettings: Partial<DeckSettings> | undefined): DeckSettings {
   const mergedSettings: DeckSettings = { ...DEFAULT_DECK_SETTINGS };
   if (pendingSettings) {
-    if (pendingSettings.new_cards_per_day !== undefined) {
-      mergedSettings.new_cards_per_day = pendingSettings.new_cards_per_day;
-    }
-    if (pendingSettings.max_reviews_per_day !== undefined) {
-      mergedSettings.max_reviews_per_day = pendingSettings.max_reviews_per_day;
-    }
-    if (pendingSettings.target_retention !== undefined) {
-      mergedSettings.target_retention = pendingSettings.target_retention;
-    }
-    if (pendingSettings.new_card_order !== undefined) {
-      mergedSettings.new_card_order = pendingSettings.new_card_order;
-    }
-    if (pendingSettings.enabled_layout_ids !== undefined) {
-      mergedSettings.enabled_layout_ids = [...pendingSettings.enabled_layout_ids];
-    }
-    if (pendingSettings.day_start_hour !== undefined) {
-      mergedSettings.day_start_hour = pendingSettings.day_start_hour;
+    for (const key of DECK_SETTING_KEYS) {
+      if (pendingSettings[key] !== undefined) copyDeckSetting(mergedSettings, pendingSettings, key);
     }
   }
   return mergedSettings;

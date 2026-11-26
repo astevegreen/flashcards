@@ -14,6 +14,7 @@ import type { Deck } from '../model/types.ts';
 import {
   getDeckOrganization,
   normalizeDeckGroupName,
+  PRESET_SETTING_KEYS,
   validRetention,
   validWeights,
   type DeckFolder,
@@ -123,14 +124,7 @@ function sameWeights(a: readonly number[] | undefined, b: readonly number[] | un
 export type PresetField = keyof DeckPresetSettings | 'w';
 
 /** Every preset field: used when a deck joins a preset, and by the catch-up step. */
-export const ALL_PRESET_FIELDS: readonly PresetField[] = [
-  'new_cards_per_day',
-  'max_reviews_per_day',
-  'target_retention',
-  'w',
-];
-
-const SETTINGS_FIELDS = ['new_cards_per_day', 'max_reviews_per_day', 'target_retention'] as const;
+export const ALL_PRESET_FIELDS: readonly PresetField[] = [...PRESET_SETTING_KEYS, 'w'];
 
 /**
  * Preset copies write FSRS parameter versions `stamp * 1000 + salt`, where `salt` comes from the
@@ -184,7 +178,7 @@ export function buildPresetSettingsPayloads(
     const own = state.decks.get(deckId)?.settings;
     if (!own) continue;
     const settings: Partial<DeckPresetSettings> = {};
-    for (const key of SETTINGS_FIELDS) {
+    for (const key of PRESET_SETTING_KEYS) {
       const copy = fields === undefined ? own[key] !== preset.settings[key] : fields.includes(key);
       if (copy) {
         settings[key] = preset.settings[key];
