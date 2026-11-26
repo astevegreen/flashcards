@@ -185,11 +185,19 @@ test("CI's required verify check aggregates checks, never skips, and checks runs
     'lint',
     'format:check',
     'packs:check',
-    'test',
+    // `pnpm test` with coverage and its threshold (asserted below).
+    'coverage',
     'test:tools',
     'build',
     'size',
     'test:e2e',
   ])
     assert.match(checks, new RegExp(`run: pnpm ${step}\n`), step);
+  // CI runs the unit tests through `coverage`: exactly `pnpm test`'s command plus `--coverage`,
+  // against a config that keeps its thresholds, so the required step can't quietly get narrower.
+  const pkg = JSON.parse(read('package.json'));
+  assert.equal(pkg.scripts.coverage, `${pkg.scripts.test} --coverage`);
+  const vitestConfig = read('vitest.config.ts');
+  for (const metric of ['statements', 'branches', 'functions', 'lines'])
+    assert.match(vitestConfig, new RegExp(`thresholds: \\{[^}]*\\b${metric}: \\d+`), metric);
 });
