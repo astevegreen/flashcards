@@ -81,6 +81,13 @@ export interface BuildBackupOptions {
 /** Reads one media file by content hash; `undefined` when this device lacks it. */
 export type BackupMediaLoader = (hash: string) => Promise<Uint8Array | undefined>;
 
+/**
+ * How {@link packBackupStream} treats media. `withMedia: true` needs the loader: a full backup
+ * without one would hold no media and quietly be written as a daily one.
+ */
+export type BackupPackOptions =
+  { withMedia: false } | { withMedia: true; loadMedia: BackupMediaLoader };
+
 /** A media file a backup can pack: its hash as the collection keys it, and its archive path. */
 export interface BackupMediaPath {
   hash: string;
@@ -266,14 +273,18 @@ function createZipWriter(emit: BackupChunkSink, pause: () => Promise<void>): Zip
  * it is written, so the collection's media is never all in memory at once; a missing file is left
  * out. The manifest goes last, once it is known which files made it in. `withMedia: false` writes
  * the same snapshot as a daily one (no media), for example for the copy in the sync folder, whose
- * `media/` store already holds the files.
+ * `media/` store already holds the files. `withMedia: true` with no loader throws (a caller the
+ * types don't reach), rather than writing a full backup as a media-less daily one.
  */
 export async function packBackupStream(
   built: BuiltBackup,
-  opts: { withMedia: boolean; loadMedia?: BackupMediaLoader },
+  opts: BackupPackOptions,
   emit: BackupChunkSink,
   pause: () => Promise<void> = () => Promise.resolve(),
 ): Promise<{ manifest: BackupManifest }> {
+  if (opts.withMedia && typeof opts.loadMedia !== 'function') {
+    throw new BackupArchiveError('A backup with media needs a media loader.');
+  }
   const loadMedia = opts.withMedia && built.manifest.kind === 'full' ? opts.loadMedia : undefined;
   const zip = createZipWriter(emit, pause);
   // One file at a time on purpose (S9382): each waits for the sink before the next is read.
@@ -316,7 +327,7 @@ function joinChunks(parts: readonly Uint8Array[]): Uint8Array {
  */
 export async function packBackupAsync(
   built: BuiltBackup,
-  opts: { withMedia: boolean; loadMedia?: BackupMediaLoader },
+  opts: BackupPackOptions,
   pause: () => Promise<void> = () => Promise.resolve(),
 ): Promise<{ manifest: BackupManifest; bytes: Uint8Array }> {
   const parts: Uint8Array[] = [];

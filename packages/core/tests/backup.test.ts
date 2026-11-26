@@ -204,16 +204,33 @@ describe('backup archive', () => {
       nowMs: T0,
       deviceId: 'dev-a',
     });
-    for (const loadMedia of [loadNothing, undefined]) {
-      const packed = await packBackupAsync(built, {
-        withMedia: true,
-        ...(loadMedia ? { loadMedia } : {}),
-      });
-      expect(packed.manifest).toMatchObject({ kind: 'daily', media_included: false });
-      expect(readBackupArchive(packed.bytes).manifest).toEqual(packed.manifest);
-    }
+    const packed = await packBackupAsync(built, { withMedia: true, loadMedia: loadNothing });
+    expect(packed.manifest).toMatchObject({ kind: 'daily', media_included: false });
+    expect(readBackupArchive(packed.bytes).manifest).toEqual(packed.manifest);
     const full = await packBackupAsync(built, { withMedia: true, loadMedia: loadPng });
     expect(full.manifest).toMatchObject({ kind: 'full', media_included: true });
+  });
+
+  it('refuses media without a loader instead of writing a full backup as a daily one', async () => {
+    const { state } = buildCollection();
+    const built = await buildBackupAsync(state, {
+      backupId: 'b-no-loader',
+      kind: 'full',
+      reason: 'auto',
+      nowMs: T0,
+      deviceId: 'dev-a',
+    });
+    // A caller the types don't reach (desktop, CLI, plain JS) that never passed a loader.
+    const noLoader = { withMedia: true } as unknown as Parameters<typeof packBackupAsync>[1];
+    await expect(packBackupAsync(built, noLoader)).rejects.toThrow(BackupArchiveError);
+    const emitted: Uint8Array[] = [];
+    await expect(
+      packBackupStream(built, noLoader, (chunk) => void emitted.push(chunk)),
+    ).rejects.toThrow(/needs a media loader/);
+    expect(emitted).toHaveLength(0);
+    // Without media it is a daily snapshot on purpose, as for the sync-folder copy.
+    const daily = await packBackupAsync(built, { withMedia: false });
+    expect(daily.manifest).toMatchObject({ kind: 'daily', media_included: false });
   });
 
   it('rejects a plain .flashpkg and damaged archives', () => {

@@ -75,8 +75,8 @@ describe('a serialized snapshot is detached from the live state', () => {
 });
 
 /**
- * P9: hydrating no longer deep-clones the retained (unknown) events. Each hydration still gets its
- * own array, so an event appended to one state never shows up in another or in the snapshot.
+ * Each hydration gets its own retained (unknown) events, array and objects: the folds read the
+ * serialized events, and only the ones still unknown afterwards are copied (P9 keeps the rest).
  */
 describe('hydrating a snapshot twice', () => {
   it('gives each state its own retained-events array', () => {
@@ -110,5 +110,39 @@ describe('hydrating a snapshot twice', () => {
     expect(a.unknownEvents).toHaveLength(2);
     expect(b.unknownEvents).toHaveLength(1);
     expect(snapshot.unknownEvents).toHaveLength(1);
+  });
+
+  it('gives each state its own retained events, so changing one changes no other', () => {
+    const f = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const future = {
+      ...f.create(
+        'DeckCreated',
+        { deck_id: 'd1', name: 'D', note_type_id: 'x', language: 'ko' },
+        t0,
+      ),
+      type: 'FutureEvent',
+      payload: { x: 1, nested: { list: ['a'] } },
+    } as unknown as FlashEvent;
+    const snapshot = serializeCollectionState(replayAllEvents([future]), { 'dev-a': 1 });
+    const before = JSON.stringify(snapshot);
+
+    const a = deserializeCollectionState(snapshot);
+    const b = deserializeCollectionState(snapshot);
+    expect(a.unknownEvents[0]).not.toBe(snapshot.unknownEvents[0]);
+    expect(a.unknownEvents[0]).not.toBe(b.unknownEvents[0]);
+    expect(a.unknownEvents[0]).toEqual(snapshot.unknownEvents[0]);
+
+    // A later upgrade-in-place of a retained event (or any stray write) stays in its own state.
+    const ev = a.unknownEvents[0] as unknown as {
+      payload: { x: number; nested: { list: string[] } };
+    };
+    ev.payload.x = 99;
+    ev.payload.nested.list.push('b');
+    expect(JSON.stringify(snapshot)).toBe(before);
+    expect(b.unknownEvents[0]).toEqual(snapshot.unknownEvents[0]);
+
+    // ...and a write to the serialized input never reaches a live state.
+    (snapshot.unknownEvents[0] as unknown as { payload: { x: number } }).payload.x = 7;
+    expect((b.unknownEvents[0] as unknown as { payload: { x: number } }).payload.x).toBe(1);
   });
 });

@@ -66,7 +66,7 @@ import { buildWatermarks, createSyncShell, initialSyncUiState } from './syncShel
 import type { SyncUiState } from './useSyncController.ts';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
-import { localSnapshotDue } from './localSnapshotCounter.ts';
+import { claimLocalSnapshot, localSnapshotDue } from './localSnapshotCounter.ts';
 import { hasLinkedSources } from '../sources/hasLinkedSources.ts';
 import { putMediaTracked } from './recentMedia.ts';
 import { hasNewerReview, inStudyScope } from './undoGuard.ts';
@@ -203,7 +203,8 @@ const loadSnapshotModule = (): Promise<SnapshotModule> =>
 /**
  * Saves a snapshot serialized when its write was queued (D18): the queue has appended exactly the
  * events it holds by the time this runs, so `localSeq` matches it. Skipped when a newer Check
- * rebuild owns the snapshot (rebuildSignal.ts).
+ * rebuild owns the snapshot (rebuildSignal.ts); the counter stays claimed then, since this tab
+ * can write no snapshot again until it reloads.
  */
 async function saveLocalSnapshot(
   storage: PlatformServices['storage'],
@@ -412,6 +413,7 @@ export function AppProvider({
 
       const totalNow = getTotalAppliedEventCount(st);
       let snapshot: SerializedSnapshot | undefined;
+      let releaseSnapshot: (() => void) | undefined;
       if (localSnapshotDue(lastLocalSnapshotCountRef, totalNow)) {
         if (snapshotModule) {
           // Serialized now, with the watermarks read now, so a later edit applied before this
@@ -420,7 +422,7 @@ export function AppProvider({
             st,
             syncController.getCurrentWatermarks(),
           );
-          lastLocalSnapshotCountRef.current = totalNow;
+          releaseSnapshot = claimLocalSnapshot(lastLocalSnapshotCountRef, totalNow);
         } else {
           // The next edit takes the snapshot.
           loadSnapshotModule().catch(() => undefined);
@@ -429,13 +431,18 @@ export function AppProvider({
 
       void enqueuePersist(async () => {
         const storage = platform.storage;
-        if (storage.appendEventsWithMeta) {
-          await storage.appendEventsWithMeta(events, nextMeta);
-        } else {
-          await storage.appendEvents(events);
-          await storage.setDeviceMeta(nextMeta);
+        try {
+          if (storage.appendEventsWithMeta) {
+            await storage.appendEventsWithMeta(events, nextMeta);
+          } else {
+            await storage.appendEvents(events);
+            await storage.setDeviceMeta(nextMeta);
+          }
+          if (snapshot) await saveLocalSnapshot(storage, startedAtMs, snapshot);
+        } catch (err) {
+          releaseSnapshot?.();
+          throw err;
         }
-        if (snapshot) await saveLocalSnapshot(platform.storage, startedAtMs, snapshot);
       });
     },
     [enqueuePersist, platform.storage, startedAtMs, syncController],
