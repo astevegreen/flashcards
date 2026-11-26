@@ -40,6 +40,38 @@ export function isAppDeepLink(url: string, scheme: string, host: string): boolea
   return next === '' || AUTHORITY_END.has(next);
 }
 
+/**
+ * The value of query parameter `name` in a deep-link URL, read as plain text (see the note above on
+ * `new URL(...)`), or `null` when it is absent.
+ */
+export function deepLinkQueryParam(url: string, name: string): string | null {
+  const q = url.indexOf('?');
+  if (q < 0) return null;
+  const hash = url.indexOf('#', q);
+  return new URLSearchParams(url.slice(q + 1, hash < 0 ? undefined : hash)).get(name);
+}
+
+/**
+ * True when a Picker callback's `state` fits the pick waiting for it (S10): the same nonce, or
+ * none at all. A phone's browser may still serve an older cached `picker.js` that does not echo
+ * `state`, so a callback without one is accepted for now; one carrying a different `state` (another
+ * or a forged pick) is refused. Requiring `state` is a follow-up once the hosted page has been live
+ * a while.
+ */
+export function pickerStateMatches(url: string, state: string | undefined): boolean {
+  if (state === undefined) return true;
+  const echoed = deepLinkQueryParam(url, 'state');
+  return echoed === null || echoed === state;
+}
+
+/**
+ * True when `url` is the Picker callback for one request (S10): the exact `<scheme>://picker-callback`
+ * host and a `state` that fits (`pickerStateMatches`).
+ */
+export function isPickerCallback(url: string, scheme: string, state?: string): boolean {
+  return isAppDeepLink(url, scheme, PICKER_CALLBACK_HOST) && pickerStateMatches(url, state);
+}
+
 /** `flashcards://oauth/<provider>` and nothing else (no query, fragment or extra segments). */
 const NATIVE_OAUTH_REDIRECT = /^flashcards:\/\/oauth\/[a-z0-9-]+$/;
 

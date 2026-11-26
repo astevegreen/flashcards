@@ -8,6 +8,7 @@ import {
   resolveTauriICloudOptions,
   type TauriInvoke,
 } from '../src/index.ts';
+import { memoryTauriDb } from './support/memory-tauri-db.ts';
 
 interface Call {
   cmd: string;
@@ -61,6 +62,7 @@ describe('macOS iCloud Drive transport (Tauri)', () => {
   it('round-trips files through the Rust commands with raw bytes and the same paths as iOS', async () => {
     const rust = fakeRust();
     const platform = createTauriPlatform({
+      sqlDb: memoryTauriDb(),
       deviceId: 'mac',
       iCloudPlugin: createTauriICloudDocumentPlugin(rust.invoke),
     });
@@ -90,6 +92,7 @@ describe('macOS iCloud Drive transport (Tauri)', () => {
     const rust = fakeRust();
     const transport = await openICloud(
       createTauriPlatform({
+        sqlDb: memoryTauriDb(),
         deviceId: 'mac',
         iCloudPlugin: createTauriICloudDocumentPlugin(rust.invoke),
       }),
@@ -109,6 +112,7 @@ describe('macOS iCloud Drive transport (Tauri)', () => {
   it('asks the user to turn on iCloud Drive when it is off', async () => {
     const rust = fakeRust({ available: false });
     const platform = createTauriPlatform({
+      sqlDb: memoryTauriDb(),
       deviceId: 'mac',
       iCloudPlugin: createTauriICloudDocumentPlugin(rust.invoke),
     });
@@ -118,7 +122,7 @@ describe('macOS iCloud Drive transport (Tauri)', () => {
   });
 
   it('has no iCloud option unless the boot passes the plugin', () => {
-    const platform = createTauriPlatform({ deviceId: 'win' });
+    const platform = createTauriPlatform({ sqlDb: memoryTauriDb(), deviceId: 'win' });
     expect(platform.iCloudSyncSupported).toBeUndefined();
     expect(platform.createICloudTransport).toBeUndefined();
   });
@@ -157,7 +161,10 @@ describe('macOS iCloud Drive transport (Tauri)', () => {
         : (off.invoke as (...a: unknown[]) => Promise<unknown>)(cmd, ...rest)) as TauriInvoke;
     const offOptions = await resolveTauriICloudOptions(offInvoke);
     expect(offOptions).toMatchObject({ iCloudAvailableAtLaunch: false, iCloudOffAtLaunch: true });
-    expect(createTauriPlatform({ deviceId: 'mac', ...offOptions }).iCloudOffAtLaunch).toBe(true);
+    expect(
+      createTauriPlatform({ sqlDb: memoryTauriDb(), deviceId: 'mac', ...offOptions })
+        .iCloudOffAtLaunch,
+    ).toBe(true);
 
     const slowInvoke = (async (cmd: string) =>
       cmd === 'icloud_supported' ? true : new Promise(() => {})) as TauriInvoke;
@@ -165,7 +172,8 @@ describe('macOS iCloud Drive transport (Tauri)', () => {
     expect(slowOptions.iCloudAvailableAtLaunch).toBe(false);
     expect(slowOptions.iCloudOffAtLaunch).toBeUndefined();
     expect(
-      createTauriPlatform({ deviceId: 'mac', ...slowOptions }).iCloudOffAtLaunch,
+      createTauriPlatform({ sqlDb: memoryTauriDb(), deviceId: 'mac', ...slowOptions })
+        .iCloudOffAtLaunch,
     ).toBeUndefined();
   });
 });
@@ -186,7 +194,7 @@ describe('macOS desktop boot: iCloud options', () => {
     expect(options.iCloudPlugin).toBeDefined();
     expect(options.iCloudAvailableAtLaunch).toBe(false);
 
-    const platform = createTauriPlatform({ deviceId: 'mac', ...options });
+    const platform = createTauriPlatform({ sqlDb: memoryTauriDb(), deviceId: 'mac', ...options });
     expect(platform.iCloudSyncSupported).toBe(true);
     expect(platform.iCloudAvailableAtLaunch).toBe(false);
 
@@ -218,7 +226,7 @@ describe('macOS desktop boot: iCloud options', () => {
     const options = await resolveTauriICloudOptions(invoke);
     expect(options).toEqual({});
     expect(calls).toEqual(['icloud_supported']);
-    const platform = createTauriPlatform({ deviceId: 'mac', ...options });
+    const platform = createTauriPlatform({ sqlDb: memoryTauriDb(), deviceId: 'mac', ...options });
     expect(platform.iCloudSyncSupported).toBeUndefined();
     expect(platform.createICloudTransport).toBeUndefined();
   });

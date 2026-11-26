@@ -31,6 +31,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unzipSync } from 'fflate';
+import { assertPinnedDownload, cachedCopyMatches } from './packs/upstream-pins.mjs';
+import { UNICODE_LICENSE, UNIHAN } from './starters/sources.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -57,8 +59,6 @@ function parseArgs(argv) {
   }
   return out;
 }
-
-const sha256Hex = (buf) => createHash('sha256').update(buf).digest('hex');
 
 async function download(url) {
   const res = await fetch(url, {
@@ -200,15 +200,19 @@ async function main() {
 
   const kvg = await resolveKanjivgRelease();
   const targets = [
+    // Pinned with the starter decks' Unihan release and hash, not `latest` (S13).
     {
       key: 'unihan',
       file: 'Unihan.zip',
-      url: 'https://www.unicode.org/Public/UCD/latest/ucd/Unihan.zip',
+      url: UNIHAN.url,
+      version: UNIHAN.version,
+      sha256: UNIHAN.sha256,
     },
     {
       key: 'unicode_license',
       file: 'unicode-license.txt',
-      url: 'https://www.unicode.org/license.txt',
+      url: UNICODE_LICENSE.url,
+      sha256: UNICODE_LICENSE.sha256,
     },
     {
       key: 'kanjidic2',
@@ -248,19 +252,25 @@ async function main() {
     const dest = join(rawDir, t.file);
     const prev = sources[t.key];
     const stale = t.version && prev?.version && prev.version !== t.version;
-    if (!opts.force && !stale && existsSync(dest)) {
+    if (
+      !opts.force &&
+      !stale &&
+      existsSync(dest) &&
+      cachedCopyMatches(t, readFileSync(dest), prev)
+    ) {
       console.log(`✓ ${t.file} (cached)`);
       continue;
     }
     process.stdout.write(`↓ ${t.url} … `);
     const buf = await download(t.url);
+    const sha256 = assertPinnedDownload(t, buf, prev);
     writeFileSync(dest, buf);
     sources[t.key] = {
       file: `raw/${t.file}`,
       url: t.url,
       ...(t.version ? { version: t.version } : {}),
       bytes: buf.byteLength,
-      sha256: sha256Hex(buf),
+      sha256,
       fetched_at: new Date().toISOString(),
     };
     console.log(`${(buf.byteLength / 1024 / 1024).toFixed(1)} MB`);

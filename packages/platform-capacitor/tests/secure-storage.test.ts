@@ -15,7 +15,6 @@ import {
   CapacitorGoogleAuth,
   CapacitorSqliteStorage,
   createCapacitorPlatform,
-  InMemorySqliteDriver,
   type SqliteDriver,
 } from '../src/index.ts';
 import { assertNativeOAuthRedirect, isAppDeepLink } from '../src/native/deep-links.ts';
@@ -38,6 +37,7 @@ import {
   type NativeSecureStorage,
 } from '../src/secure/secure-store.ts';
 import { FlashSecureStorageWeb } from '../../capacitor-secure-storage/src/web.ts';
+import { InMemorySqliteDriver } from './support/in-memory-sqlite-driver.ts';
 
 /** In-memory stand-in for the Keychain / Keystore plugin. */
 class FakeSecureStorage implements NativeSecureStorage {
@@ -821,7 +821,7 @@ describe('native Google sign-in clears the plugin’s Android token copy', () =>
   });
 
   it('CapacitorGoogleAuth refreshes with the scopes of the stored session (N4)', async () => {
-    const storage = new CapacitorSqliteStorage();
+    const storage = new CapacitorSqliteStorage(new InMemorySqliteDriver());
     const refreshScopes: Array<string[] | undefined> = [];
     const auth = new CapacitorGoogleAuth({
       storage,

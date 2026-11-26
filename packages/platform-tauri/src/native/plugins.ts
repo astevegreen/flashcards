@@ -30,11 +30,12 @@ import {
 import { openUrl } from '@tauri-apps/plugin-opener';
 import Database from '@tauri-apps/plugin-sql';
 import type { Files, PickedFile } from '@flash/platform';
-import type { SystemBrowserLauncher } from '@flash/platform-capacitor';
+import { isPickerCallback, type SystemBrowserLauncher } from '@flash/platform-capacitor';
 import type { SecureSecretBackend } from '../auth/refresh-token-store.ts';
 import type { TauriLoopbackOAuthPlugin } from '../auth/tauri-google-auth.ts';
 import type { DesktopNotificationBridge } from '../reminders/desktop-reminders.ts';
 import { createAddDeviceUrlSourceFrom } from './add-device-url.ts';
+import { watchDirectoryWith } from './watch-directory.ts';
 import {
   awaitBrowserCallback,
   createLatestAttempt,
@@ -176,29 +177,8 @@ export function createFsBridge(): TauriFsBridge {
       await mkdir(parentDir(toPath), { recursive: true });
       await rename(fromPath, toPath);
     },
-    watchDirectory: (rootPath, onChange) => {
-      let stopped = false;
-      let unwatch: (() => void) | null = null;
-      const root = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
-      void watch(
-        rootPath,
-        (event) => {
-          const changed = event.paths
-            .map((p) => p.replace(/\\/g, '/'))
-            .filter((p) => p.startsWith(`${root}/`))
-            .map((p) => p.slice(root.length + 1));
-          if (changed.length > 0) onChange(changed);
-        },
-        { recursive: true, delayMs: 500 },
-      ).then((fn) => {
-        if (stopped) fn();
-        else unwatch = fn;
-      });
-      return () => {
-        stopped = true;
-        unwatch?.();
-      };
-    },
+    pathExists: (absPath) => exists(absPath),
+    watchDirectory: (rootPath, onChange) => watchDirectoryWith(watch, rootPath, onChange),
   };
 }
 
@@ -249,13 +229,13 @@ export function createSystemBrowserLauncher(): SystemBrowserLauncher {
   // Opening the picker again while an earlier one is still waiting replaces the earlier one (N6).
   const latestAttempt = createLatestAttempt();
   return {
-    openAndAwaitDeepLink: ({ url, callbackScheme }) =>
+    openAndAwaitDeepLink: ({ url, callbackScheme, state }) =>
       latestAttempt((signal) => {
-        const prefix = `${callbackScheme}://picker-callback`;
         return awaitBrowserCallback({
           subscribe: (cb) => onOpenUrl((urls) => urls.forEach(cb)),
           open: () => openUrl(url),
-          accept: (u) => u.startsWith(prefix),
+          // Exact host, not a prefix (`picker-callback.evil`), and this pick's `state` (S10).
+          accept: (u) => isPickerCallback(u, callbackScheme, state),
           timeoutMs: PICKER_CALLBACK_TIMEOUT_MS,
           signal,
           label: 'Choosing files in Google Drive',

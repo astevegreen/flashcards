@@ -12,12 +12,18 @@ export * from './commands/inbox.ts';
 export * from './commands/validate.ts';
 export * from './mcp.ts';
 
+/** Flags that never take a value, so they cannot swallow the positional after them (C28). */
+const BOOLEAN_FLAGS = new Set(['allow-relative', 'ai', 'overwrite', 'key-stdin']);
+
+/** Environment variable `audio` reads its provider key from (S11). */
+export const AUDIO_KEY_ENV = 'FLASH_TTS_API_KEY';
+
 interface ParsedFlags {
   positional: string[];
   flags: Record<string, string | boolean>;
 }
 
-function parseArgs(argv: readonly string[]): ParsedFlags {
+export function parseArgs(argv: readonly string[]): ParsedFlags {
   const positional: string[] = [];
   const flags: Record<string, string | boolean> = {};
   for (let i = 0; i < argv.length; i++) {
@@ -30,7 +36,7 @@ function parseArgs(argv: readonly string[]): ParsedFlags {
       } else {
         const key = tok.slice(2);
         const next = argv[i + 1];
-        if (next && !next.startsWith('-')) {
+        if (!BOOLEAN_FLAGS.has(key) && next && !next.startsWith('-')) {
           flags[key] = next;
           i += 1;
         } else {
@@ -58,6 +64,52 @@ function flagString(
   return undefined;
 }
 
+/** The parts of `process.stdin` / `process.stderr` that `readKeyFromStdin` uses. */
+export interface KeyPromptIo {
+  stdin: AsyncIterable<unknown> & { isTTY?: boolean };
+  stderr: { write(text: string): unknown };
+}
+
+/** Shown on stderr when `--key-stdin` reads from a terminal rather than a pipe. */
+export const KEY_STDIN_PROMPT = 'Paste the TTS API key, then press Enter: ';
+
+/**
+ * Reads the first line of standard input. At a terminal it first prints a prompt to stderr, so
+ * `--key-stdin` never sits waiting in silence; from a pipe it stays quiet.
+ */
+export async function readKeyFromStdin(
+  io: KeyPromptIo = { stdin: process.stdin, stderr: process.stderr },
+): Promise<string> {
+  if (io.stdin.isTTY) io.stderr.write(KEY_STDIN_PROMPT);
+  const decoder = new TextDecoder();
+  let text = '';
+  for await (const chunk of io.stdin) {
+    text +=
+      typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
+    if (text.includes('\n')) break;
+  }
+  return text + decoder.decode();
+}
+
+/**
+ * The `audio` provider key (S11): `--key-stdin` reads its first line from standard input, `--key`
+ * takes it inline (which leaves it in shell history), otherwise `FLASH_TTS_API_KEY`.
+ */
+export async function resolveAudioApiKey(
+  flags: Record<string, string | boolean>,
+  env: Record<string, string | undefined> = process.env,
+  readStdin: () => Promise<string> = readKeyFromStdin,
+): Promise<string | undefined> {
+  if (flags['key-stdin'] === true) {
+    const line = (await readStdin()).split(/\r?\n/, 1)[0]?.trim() ?? '';
+    return line.length > 0 ? line : undefined;
+  }
+  const inline = flagString(flags, 'key');
+  if (inline) return inline;
+  const fromEnv = env[AUDIO_KEY_ENV]?.trim();
+  return fromEnv ? fromEnv : undefined;
+}
+
 function usageText(): string {
   return [
     'Usage: flash-cli <command> [args]',
@@ -65,7 +117,8 @@ function usageText(): string {
     'Commands:',
     '  validate <file> [--allow-relative]',
     '  build <input-dir> [-o <out.flashpkg>] [--name <name>] [--lang <lang>] [--ai]',
-    '  audio <input.flashpkg> --provider <google|azure|mock> [--key <key>] [--region <region>] [-o <out.flashpkg>]',
+    '  audio <input.flashpkg> --provider <google|azure|mock> [--key-stdin | --key <key>] [--region <region>] [--overwrite] [-o <out.flashpkg>]',
+    `        (or set ${AUDIO_KEY_ENV}; --key leaves the key in shell history)`,
     '  inbox <inbox-dir> [-o <out.flashpkg>] [--lang <lang>] [--ai]',
     '  mcp [--mirror <sync-dir-or-flashpkg>] [--inbox <inbox-dir>]',
   ].join('\n');
@@ -140,7 +193,7 @@ export async function runCli(argv: readonly string[]): Promise<number> {
     }
     const provider: AudioProviderKind = providerRaw;
     const outPath = flagString(flags, 'out') ?? inFile;
-    const apiKey = flagString(flags, 'key');
+    const apiKey = await resolveAudioApiKey(flags);
     const azureRegion = flagString(flags, 'region');
     const res = await runAudioFileEnrichment(resolve(inFile), resolve(outPath), {
       provider,
@@ -156,11 +209,18 @@ export async function runCli(argv: readonly string[]): Promise<number> {
           reusedCount: res.reusedCount,
           skippedCount: res.skippedCount,
           totalMediaCount: res.totalMediaCount,
+          ...(res.failure ? { failure: res.failure } : {}),
         },
         null,
         2,
       ) + '\n',
     );
+    if (res.failure) {
+      process.stderr.write(
+        `Synthesis stopped at note ${res.failure.noteId}: ${res.failure.message}\nThe clips made so far are saved; run the command again to finish the rest.\n`,
+      );
+      return 1;
+    }
     return 0;
   }
 

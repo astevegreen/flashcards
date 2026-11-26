@@ -98,6 +98,13 @@ public class AndroidTtsPlugin extends Plugin implements TextToSpeech.OnInitListe
             call.reject("No speakable text provided.");
             return;
         }
+        // The engine refuses text longer than this (N8); speak the start instead of failing.
+        int maxLength = TextToSpeech.getMaxSpeechInputLength();
+        if (text.length() > maxLength) {
+            int end = maxLength;
+            if (Character.isHighSurrogate(text.charAt(end - 1))) end -= 1;
+            text = text.substring(0, end);
+        }
 
         try {
             tts.stop();
