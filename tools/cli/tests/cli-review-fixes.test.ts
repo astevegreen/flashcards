@@ -1,12 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import * as process from 'node:process';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AUDIO_KEY_ENV,
   buildPackageFromSpec,
   enrichPackageWithAudio,
+  KEY_STDIN_PROMPT,
   parseArgs,
+  readKeyFromStdin,
   resolveAudioApiKey,
+  runCli,
   type AudioSynthesizeFn,
 } from '../src/index.ts';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 function threeNotePackage(): Uint8Array {
   return buildPackageFromSpec({
@@ -115,5 +128,74 @@ describe('flash-cli review fixes (C28)', () => {
     expect(again.failure).toBeUndefined();
     expect(rerun).toBe(2);
     expect(again.skippedCount).toBe(1);
+  });
+});
+
+describe('--key-stdin at a terminal (S11)', () => {
+  async function* lines(...chunks: string[]) {
+    for (const c of chunks) yield new TextEncoder().encode(c);
+  }
+
+  it('prompts on stderr at a TTY and reads only the first line', async () => {
+    const written: string[] = [];
+    const stdin = Object.assign(lines('key-from-tty\n', 'never read'), { isTTY: true });
+    const text = await readKeyFromStdin({ stdin, stderr: { write: (t) => written.push(t) } });
+    expect(written).toEqual([KEY_STDIN_PROMPT]);
+    expect(text).toBe('key-from-tty\n');
+  });
+
+  it('stays quiet when the key is piped in', async () => {
+    const written: string[] = [];
+    const text = await readKeyFromStdin({
+      stdin: lines('piped', '-key\n'),
+      stderr: { write: (t) => written.push(t) },
+    });
+    expect(written).toEqual([]);
+    expect(text).toBe('piped-key\n');
+  });
+});
+
+describe('flash-cli audio exit code (C28)', () => {
+  it('exits 1 and still writes the clips made before a failed request', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'flash-audio-cli-'));
+    try {
+      const inFile = join(dir, 'in.flashpkg');
+      const outFile = join(dir, 'out.flashpkg');
+      writeFileSync(inFile, threeNotePackage());
+      vi.stubEnv(AUDIO_KEY_ENV, 'env-key');
+      let calls = 0;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          calls += 1;
+          return calls === 1
+            ? new Response(JSON.stringify({ audioContent: 'SUQz' }), { status: 200 })
+            : new Response('quota', { status: 429 });
+        }),
+      );
+      const stderr: string[] = [];
+      vi.spyOn(process.stderr, 'write').mockImplementation(
+        (chunk: string | Uint8Array) => stderr.push(String(chunk)) > 0,
+      );
+      vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+      const code = await runCli(['audio', inFile, '--provider', 'google', '-o', outFile]);
+      expect(code).toBe(1);
+      expect(stderr.join('')).toMatch(/Synthesis stopped at note .*429/s);
+
+      // The saved package keeps the first clip: a rerun pays only for the other two notes.
+      let rerun = 0;
+      await enrichPackageWithAudio(readFileSync(outFile), {
+        provider: 'google',
+        apiKey: 'k',
+        synthesizeFn: async () => {
+          rerun += 1;
+          return { bytes: new Uint8Array([rerun]), mime: 'audio/mpeg', ext: 'mp3', voiceId: 'v' };
+        },
+      });
+      expect(rerun).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

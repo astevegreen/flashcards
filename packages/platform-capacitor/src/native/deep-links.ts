@@ -52,13 +52,24 @@ export function deepLinkQueryParam(url: string, name: string): string | null {
 }
 
 /**
+ * True when a Picker callback's `state` fits the pick waiting for it (S10): the same nonce, or
+ * none at all. A phone's browser may still serve an older cached `picker.js` that does not echo
+ * `state`, so a callback without one is accepted for now; one carrying a different `state` (another
+ * or a forged pick) is refused. Requiring `state` is a follow-up once the hosted page has been live
+ * a while.
+ */
+export function pickerStateMatches(url: string, state: string | undefined): boolean {
+  if (state === undefined) return true;
+  const echoed = deepLinkQueryParam(url, 'state');
+  return echoed === null || echoed === state;
+}
+
+/**
  * True when `url` is the Picker callback for one request (S10): the exact `<scheme>://picker-callback`
- * host and, when `state` is given, the same `state` nonce echoed back by `picker.html`. A callback
- * from another (or a forged) pick is ignored rather than accepted.
+ * host and a `state` that fits (`pickerStateMatches`).
  */
 export function isPickerCallback(url: string, scheme: string, state?: string): boolean {
-  if (!isAppDeepLink(url, scheme, PICKER_CALLBACK_HOST)) return false;
-  return state === undefined || deepLinkQueryParam(url, 'state') === state;
+  return isAppDeepLink(url, scheme, PICKER_CALLBACK_HOST) && pickerStateMatches(url, state);
 }
 
 /** `flashcards://oauth/<provider>` and nothing else (no query, fragment or extra segments). */

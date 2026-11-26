@@ -64,12 +64,29 @@ function flagString(
   return undefined;
 }
 
-async function readAllStdin(): Promise<string> {
+/** The parts of `process.stdin` / `process.stderr` that `readKeyFromStdin` uses. */
+export interface KeyPromptIo {
+  stdin: AsyncIterable<unknown> & { isTTY?: boolean };
+  stderr: { write(text: string): unknown };
+}
+
+/** Shown on stderr when `--key-stdin` reads from a terminal rather than a pipe. */
+export const KEY_STDIN_PROMPT = 'Paste the TTS API key, then press Enter: ';
+
+/**
+ * Reads the first line of standard input. At a terminal it first prints a prompt to stderr, so
+ * `--key-stdin` never sits waiting in silence; from a pipe it stays quiet.
+ */
+export async function readKeyFromStdin(
+  io: KeyPromptIo = { stdin: process.stdin, stderr: process.stderr },
+): Promise<string> {
+  if (io.stdin.isTTY) io.stderr.write(KEY_STDIN_PROMPT);
   const decoder = new TextDecoder();
   let text = '';
-  for await (const chunk of process.stdin) {
+  for await (const chunk of io.stdin) {
     text +=
       typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
+    if (text.includes('\n')) break;
   }
   return text + decoder.decode();
 }
@@ -81,7 +98,7 @@ async function readAllStdin(): Promise<string> {
 export async function resolveAudioApiKey(
   flags: Record<string, string | boolean>,
   env: Record<string, string | undefined> = process.env,
-  readStdin: () => Promise<string> = readAllStdin,
+  readStdin: () => Promise<string> = readKeyFromStdin,
 ): Promise<string | undefined> {
   if (flags['key-stdin'] === true) {
     const line = (await readStdin()).split(/\r?\n/, 1)[0]?.trim() ?? '';

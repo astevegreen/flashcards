@@ -53,14 +53,18 @@ describe('native Picker bridge: state nonce (S10)', () => {
     expect(seen[1]?.fragment).not.toBe(seen[0]?.fragment);
   });
 
-  it('refuses a callback without the matching state', async () => {
-    for (const reply of [
-      'flashcards://picker-callback?files=%5B%5D',
-      'flashcards://picker-callback?files=%5B%5D&state=forged',
-    ]) {
-      const bridge = new CapacitorNativePickerBridge({ openAndAwaitDeepLink: async () => reply });
-      await expect(bridge.openSystemBrowserPicker(base)).rejects.toThrow(/did not come from/);
-    }
+  it('refuses a callback carrying another state', async () => {
+    const reply = 'flashcards://picker-callback?files=%5B%5D&state=forged';
+    const bridge = new CapacitorNativePickerBridge({ openAndAwaitDeepLink: async () => reply });
+    await expect(bridge.openSystemBrowserPicker(base)).rejects.toThrow(/did not come from/);
+  });
+
+  it('still accepts a callback with no state, from an older cached picker.js', async () => {
+    const files = encodeURIComponent(JSON.stringify([{ id: 'f1', name: 'Deck' }]));
+    const reply = `flashcards://picker-callback?files=${files}`;
+    const bridge = new CapacitorNativePickerBridge({ openAndAwaitDeepLink: async () => reply });
+    const picked = await bridge.openSystemBrowserPicker(base);
+    expect(picked.map((f) => f.id)).toEqual(['f1']);
   });
 
   it('isPickerCallback matches the exact host and the state', () => {
@@ -70,8 +74,9 @@ describe('native Picker bridge: state nonce (S10)', () => {
     expect(isPickerCallback('flashcards://picker-callback?state=s2', 'flashcards', 's1')).toBe(
       false,
     );
+    // No state at all: an older cached picker.js (accepted until strict mode).
     expect(isPickerCallback('flashcards://picker-callback?files=[]', 'flashcards', 's1')).toBe(
-      false,
+      true,
     );
     expect(isPickerCallback('flashcards://picker-callbackevil?state=s1', 'flashcards', 's1')).toBe(
       false,

@@ -1,10 +1,11 @@
 import type { GooglePickedFile, NativePickerBridge } from '@flash/platform';
-import { deepLinkQueryParam } from '../native/deep-links.ts';
+import { pickerStateMatches } from '../native/deep-links.ts';
 
 export interface SystemBrowserLauncher {
   /**
    * Opens `url` and resolves with the first `<callbackScheme>://picker-callback` deep link that
-   * carries `state` (S10); callbacks with another `state` are ignored.
+   * carries `state`, or no `state` at all (an older cached `picker.js`); callbacks with another
+   * `state` are ignored (S10).
    */
   openAndAwaitDeepLink(opts: {
     url: string;
@@ -64,7 +65,7 @@ export class CapacitorNativePickerBridge implements NativePickerBridge {
       callbackScheme,
       state,
     });
-    if (deepLinkQueryParam(callbackUrl, 'state') !== state) {
+    if (!pickerStateMatches(callbackUrl, state)) {
       throw new Error('Picker callback did not come from this request.');
     }
     return this.parseDeepLinkCallback(callbackUrl);
