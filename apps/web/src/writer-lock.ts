@@ -44,23 +44,18 @@ export function holdWriterLock(
 ): Promise<ReleaseLock | null> {
   return new Promise((resolve) => {
     let release: ReleaseLock | undefined;
-    const failed = () => {
+    const onLock = (lock: unknown) => {
+      if (lock === null) return resolve(null);
+      return new Promise<void>((done) => {
+        release = done;
+        resolve(done);
+      });
+    };
+    // A synchronous throw from `request` rejects this promise too, so both reach `.catch`.
+    new Promise((settle) => settle(locks.request(name, options, onLock))).catch(() => {
       if (release) onLost();
       else resolve(options.signal?.aborted ? null : () => undefined);
-    };
-    try {
-      locks
-        .request(name, options, (lock) => {
-          if (lock === null) return resolve(null);
-          return new Promise<void>((done) => {
-            release = done;
-            resolve(done);
-          });
-        })
-        .catch(failed);
-    } catch {
-      failed();
-    }
+    });
   });
 }
 
