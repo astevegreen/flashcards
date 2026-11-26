@@ -394,19 +394,24 @@ export class GoogleDriveAppDataTransport implements SyncTransport {
    * Drive's create cannot fail on an existing name, so a write-once create is checked after the
    * fact (C23): when another device created the same file first, this device removes its own copy
    * and reports `ALREADY_EXISTS`, as the contract asks, and reads then go to the first copy. A
-   * copy the lookup does not show yet counts as kept.
+   * copy the lookup does not show yet counts as kept. When this lookup fails, the error stands and
+   * the copy stays; the retry's own lookup finds it (or the first one), so it creates no other.
    */
   private async keepFirstCopy(path: string, createdId: string): Promise<void> {
     const copies = await this.lookupByName(path);
     const first = pickDriveCopy(copies);
     if (!first || first.id === createdId || !copies.some((f) => f.id === createdId)) return;
     this.pathToId.set(path, first.id);
-    // A failed delete throws and the sync retries; the copy it leaves is harmless, since every
-    // device reads the first one.
-    const res = await this.authorizedFetch(`${DRIVE_FILES_API}/${encodeURIComponent(createdId)}`, {
-      method: 'DELETE',
-    });
-    await res.body?.cancel();
+    // Best effort: a copy a failed delete leaves is harmless, since every device reads the first.
+    try {
+      const res = await this.authorizedFetch(
+        `${DRIVE_FILES_API}/${encodeURIComponent(createdId)}`,
+        { method: 'DELETE' },
+      );
+      await res.body?.cancel();
+    } catch {
+      // Ignored, as above.
+    }
     throw new SyncTransportError(
       'ALREADY_EXISTS',
       `Google Drive write-once file was created first by another device: "${path}"`,

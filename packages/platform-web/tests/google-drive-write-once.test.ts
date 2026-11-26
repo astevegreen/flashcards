@@ -38,6 +38,9 @@ function fakeDrive(holdLookups = 0) {
   let clock = Date.UTC(2026, 10, 25, 9, 0, 0);
   let nextId = 1;
   let waiting: (() => void)[] = [];
+  /** Fault injection: by-name lookups to fail once a file exists, and the DELETE status. */
+  const faults = { failLookupsAfterCreate: 0, deleteStatus: 204 };
+  let creates = 0;
   const row = (f: FakeFile) => ({
     id: f.id,
     name: f.name,
@@ -51,6 +54,10 @@ function fakeDrive(holdLookups = 0) {
     const method = init?.method ?? 'GET';
     if (method === 'GET' && url.pathname === '/drive/v3/files') {
       const exact = /name = '([^']+)'/.exec(url.searchParams.get('q') ?? '')?.[1];
+      if (exact !== undefined && creates > 0 && faults.failLookupsAfterCreate > 0) {
+        faults.failLookupsAfterCreate -= 1;
+        return new Response('Bad request', { status: 400 });
+      }
       if (exact !== undefined && holdLookups > 0) {
         holdLookups -= 1;
         await new Promise<void>((resolve) => {
@@ -73,6 +80,7 @@ function fakeDrive(holdLookups = 0) {
       const id = decodeURIComponent(url.pathname.slice('/drive/v3/files/'.length));
       const i = files.findIndex((x) => x.id === id);
       if (i < 0) return new Response('', { status: 404 });
+      if (faults.deleteStatus !== 204) return new Response('', { status: faults.deleteStatus });
       files.splice(i, 1);
       deleted.push(id);
       return new Response(null, { status: 204 });
@@ -81,6 +89,7 @@ function fakeDrive(holdLookups = 0) {
       const { meta, bytes } = parseUpload(init?.body as ArrayBuffer);
       const at = new Date((clock += 1)).toISOString();
       const id = `id-${nextId++}`;
+      creates += 1;
       files.push({
         id,
         name: String(meta['name']),
@@ -95,7 +104,7 @@ function fakeDrive(holdLookups = 0) {
     }
     return new Response('Unhandled', { status: 500 });
   }) as typeof fetch;
-  return { files, deleted, fetchImpl };
+  return { files, deleted, faults, creates: () => creates, fetchImpl };
 }
 
 const MANIFEST = 'sync/v1/manifest.json';
@@ -176,5 +185,68 @@ describe('Google Drive write-once files (C23)', () => {
     );
     const t = new GoogleDriveAppDataTransport({ auth, fetchImpl: drive.fetchImpl });
     expect(dec(await t.read(head))).toBe('fresh');
+  });
+  it('a failed delete of the losing copy still reports ALREADY_EXISTS', async () => {
+    const drive = fakeDrive(2);
+    drive.faults.deleteStatus = 503;
+    const opts = { auth, fetchImpl: drive.fetchImpl, sleep: async () => {} };
+    const a = new GoogleDriveAppDataTransport(opts);
+    const b = new GoogleDriveAppDataTransport(opts);
+    const results = await Promise.allSettled([
+      a.write(MANIFEST, enc('{"from":"a"}'), { ifAbsent: true }),
+      b.write(MANIFEST, enc('{"from":"b"}'), { ifAbsent: true }),
+    ]);
+    const lost = results.find((r) => r.status === 'rejected');
+    expect(
+      lost?.status === 'rejected' &&
+        isSyncTransportError(lost.reason) &&
+        lost.reason.code === 'ALREADY_EXISTS',
+    ).toBe(true);
+    // The loser's copy is still there, and every device reads the first one.
+    expect(drive.files).toHaveLength(2);
+    const fresh = new GoogleDriveAppDataTransport(opts);
+    for (const t of [a, b, fresh]) expect(dec(await t.read(MANIFEST))).toBe('{"from":"a"}');
+  });
+
+  it('a lookup failing right after the create: the retry finds that copy and creates no other', async () => {
+    const drive = fakeDrive();
+    drive.faults.failLookupsAfterCreate = 1;
+    const t = new GoogleDriveAppDataTransport({ auth, fetchImpl: drive.fetchImpl });
+    await expect(t.write(MANIFEST, enc('{"v":1}'), { ifAbsent: true })).rejects.toSatisfy(
+      (err) => isSyncTransportError(err) && err.code === 'UNKNOWN',
+    );
+    await expect(t.write(MANIFEST, enc('{"v":1}'), { ifAbsent: true })).rejects.toSatisfy(
+      (err) => isSyncTransportError(err) && err.code === 'ALREADY_EXISTS',
+    );
+    expect(drive.creates()).toBe(1);
+    expect(dec(await t.read(MANIFEST))).toBe('{"v":1}');
+  });
+
+  it('a mix of marked and unmarked copies falls back to the newest-modified rule', async () => {
+    const drive = fakeDrive();
+    const stamp = (s: number) => new Date(Date.UTC(2026, 10, 25, 9, 0, s)).toISOString();
+    drive.files.push(
+      {
+        id: 'marked',
+        name: MANIFEST,
+        bytes: enc('marked-first'),
+        createdTime: stamp(0),
+        modifiedTime: stamp(0),
+        appProperties: { flashWriteOnce: '1' },
+      },
+      // From an older build racing a newer one: no mark, created later.
+      {
+        id: 'plain',
+        name: MANIFEST,
+        bytes: enc('plain-later'),
+        createdTime: stamp(4),
+        modifiedTime: stamp(4),
+      },
+    );
+    const viaRead = new GoogleDriveAppDataTransport({ auth, fetchImpl: drive.fetchImpl });
+    expect(dec(await viaRead.read(MANIFEST))).toBe('plain-later');
+    const viaList = new GoogleDriveAppDataTransport({ auth, fetchImpl: drive.fetchImpl });
+    await viaList.list('sync/v1/');
+    expect(dec(await viaList.read(MANIFEST))).toBe('plain-later');
   });
 });
