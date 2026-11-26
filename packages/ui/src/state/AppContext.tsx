@@ -524,7 +524,7 @@ export function AppProvider({
           if (!hasLinkedSources(saved)) {
             // Decks synced from another device can carry sources Sources never saved here.
             const { hasSyncedLinkedSource } = await import('../sources/hasSyncedLinkedSource.ts');
-            if (!hasSyncedLinkedSource(stateRef.current)) return;
+            if (!hasSyncedLinkedSource(stateRef.current, saved)) return;
           }
           const { refreshAllSources } = await import('../sources/sourceRunner.ts');
           await refreshAllSources(

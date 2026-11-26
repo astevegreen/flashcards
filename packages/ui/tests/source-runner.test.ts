@@ -8,6 +8,7 @@ import {
   deriveNoteId,
   encodeUtf8,
   SyncTransportError,
+  type CollectionState,
   type KnownEvent,
 } from '@flash/core';
 import { exportFlashpkg } from '@flash/core/flashpkg';
@@ -1057,6 +1058,85 @@ describe('launch check for linked sources (hasAny)', () => {
 describe('Refresh all with Google disconnected (linked Drive files)', () => {
   const drive = CLOUD_CASES[2];
   if (!drive) throw new Error('missing case');
+
+  /** A saved Sheet row whose deck is in the collection, and a saved Doc row. */
+  async function withSheetAndDoc(ctx: SourceRunContext, state: CollectionState) {
+    const factory = ctx.getEventFactory();
+    ctx.emitEvents([
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: 'deck-sheet-1',
+          name: 'Sheet One',
+          note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+          language: 'ko',
+          source: { kind: 'google_sheets', external_id: 'sheet-1', read_only: false },
+          created_at: 1000,
+        },
+        1000,
+      ),
+    ]);
+    const registry = await loadSourcesRegistry(ctx.platform, state);
+    registry.googleSources = [
+      {
+        id: 'gsheet:sheet-1',
+        kind: 'google_sheets',
+        fileId: 'sheet-1',
+        name: 'Sheet One',
+        uri: 'https://docs.google.com/spreadsheets/d/sheet-1/edit',
+        deckId: 'deck-sheet-1',
+        lastStatus: 'synced',
+      },
+      {
+        id: 'gdoc:doc-1',
+        kind: 'google_docs',
+        fileId: 'doc-1',
+        name: 'Doc One',
+        uri: 'https://docs.google.com/document/d/doc-1/edit',
+        lastStatus: 'synced',
+      },
+    ];
+    await saveSourcesRegistry(ctx.platform, registry);
+  }
+
+  it('keeps an archived Sheet’s reason, and still marks the Doc', async () => {
+    const { drive: fake, ctx, state } = cloudSetup(drive);
+    await withSheetAndDoc(ctx, state);
+    const deck = state.decks.get('deck-sheet-1');
+    if (!deck) throw new Error('missing deck');
+    deck.archived = true;
+    fake.connected = false;
+    const summary = await refreshAllSources(ctx, { force: true });
+    const [sheet, doc] = summary.registry.googleSources;
+    expect(sheet).toMatchObject({ lastStatus: 'idle', skipReason: 'archived' });
+    expect(sheet?.lastError).toMatch(/archived/);
+    expect(doc).toMatchObject({ lastStatus: 'permission_required' });
+    expect(summary.skipped).toEqual([
+      `Sheet One: ${sheet?.lastError}`,
+      'Doc One: Connect Google to refresh this file.',
+    ]);
+  });
+
+  it('marks no Sheet or Doc in a build without Google', async () => {
+    const { ctx, state } = cloudSetup(drive);
+    await withSheetAndDoc(ctx, state);
+    const noGoogle: SourceRunContext = {
+      ...ctx,
+      platform: {
+        ...ctx.platform,
+        googleOAuthConfigured: false,
+        getGoogleAuth: async () => {
+          throw new Error('Google is not configured in this build.');
+        },
+      } as PlatformServices,
+    };
+    const summary = await refreshAllSources(noGoogle, { force: true });
+    expect(summary.registry.googleSources.map((s) => [s.lastStatus, s.lastError])).toEqual([
+      ['synced', undefined],
+      ['synced', undefined],
+    ]);
+    expect(summary.skipped).toEqual([]);
+  });
 
   it('says why each Sheet and Doc was not refreshed, with the Drive row message', async () => {
     const { drive: fake, ctx, state } = cloudSetup(drive);
