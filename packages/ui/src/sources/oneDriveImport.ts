@@ -37,7 +37,9 @@ function activeDeckCount(state: CollectionState): number {
   return count;
 }
 
-function csvField(value: string): string {
+/** Trimmed first: a spreadsheet cell has no quotes, so every `.xlsx` path trims it (C17). */
+function csvField(raw: string): string {
+  const value = raw.trim();
   return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 

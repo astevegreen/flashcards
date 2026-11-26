@@ -7,7 +7,11 @@ import {
   type KnownEvent,
 } from '../../core/src/index.ts';
 import type { PlatformServices } from '../../platform/src/index.ts';
-import { importPickedOneDriveFile, readXlsxGrid } from '../src/sources/oneDriveImport.ts';
+import {
+  gridToCsv,
+  importPickedOneDriveFile,
+  readXlsxGrid,
+} from '../src/sources/oneDriveImport.ts';
 
 function context() {
   const state = createEmptyState();
@@ -72,5 +76,16 @@ describe('readXlsxGrid, shared by cloud imports and Bring my cards (C21)', () =>
       ['Word'],
       ['나무'],
     ]);
+  });
+});
+
+describe('gridToCsv (every .xlsx import goes through it)', () => {
+  it('trims every cell, so a cell with a comma is trimmed like any other', () => {
+    expect(
+      gridToCsv([
+        [' Word ', ' a, b '],
+        [' x ', 'y '],
+      ]),
+    ).toBe(['Word,"a, b"', 'x,y'].join('\n'));
   });
 });
