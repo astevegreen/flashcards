@@ -32,16 +32,42 @@ export interface CsvParseResult {
  * - Drops completely empty trailing rows
  */
 export function parseDelimitedText(raw: string, options?: CsvParseOptions): CsvParseResult {
+  const { delimiter, headers, rows } = parseCells(raw, options);
+  return { delimiter, headers, rows };
+}
+
+interface ParsedCells extends CsvParseResult {
+  /** `quoted[r][c]`: cell `rows[r][c]` was written in quotes, so its spaces are content (C17). */
+  quoted: boolean[][];
+}
+
+function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
   const input = raw.startsWith('\uFEFF') ? raw.slice(1) : raw;
   if (input.trim().length === 0) {
-    return { delimiter: options?.delimiter ?? ',', headers: [], rows: [] };
+    return { delimiter: options?.delimiter ?? ',', headers: [], rows: [], quoted: [] };
   }
 
   const delimiter = options?.delimiter ?? detectDelimiter(input);
   const allRows: string[][] = [];
+  const allQuoted: boolean[][] = [];
   let row: string[] = [];
+  let rowQuoted: boolean[] = [];
   let field = '';
+  let fieldQuoted = false;
   let inQuotes = false;
+  const endField = () => {
+    row.push(field);
+    rowQuoted.push(fieldQuoted);
+    field = '';
+    fieldQuoted = false;
+  };
+  const endRow = () => {
+    endField();
+    allRows.push(row);
+    allQuoted.push(rowQuoted);
+    row = [];
+    rowQuoted = [];
+  };
 
   for (let i = 0; i < input.length; i++) {
     const ch = input[i];
@@ -60,36 +86,28 @@ export function parseDelimitedText(raw: string, options?: CsvParseOptions): CsvP
     } else {
       if (ch === '"' && field.length === 0) {
         inQuotes = true;
+        fieldQuoted = true;
       } else if (ch === delimiter) {
-        row.push(field);
-        field = '';
+        endField();
       } else if (ch === '\r') {
         if (input[i + 1] === '\n') i += 1;
-        row.push(field);
-        allRows.push(row);
-        row = [];
-        field = '';
+        endRow();
       } else if (ch === '\n') {
-        row.push(field);
-        allRows.push(row);
-        row = [];
-        field = '';
+        endRow();
       } else {
         field += ch;
       }
     }
   }
 
-  if (field.length > 0 || row.length > 0) {
-    row.push(field);
-    allRows.push(row);
-  }
+  if (field.length > 0 || row.length > 0) endRow();
 
   // Drop trailing empty rows
   while (allRows.length > 0) {
     const lastRow = allRows[allRows.length - 1];
     if (lastRow && lastRow.every((c) => c.trim() === '')) {
       allRows.pop();
+      allQuoted.pop();
     } else {
       break;
     }
@@ -97,12 +115,43 @@ export function parseDelimitedText(raw: string, options?: CsvParseOptions): CsvP
 
   const headerRow = allRows[0];
   if (!headerRow) {
-    return { delimiter, headers: [], rows: [] };
+    return { delimiter, headers: [], rows: [], quoted: [] };
   }
 
   const headers = headerRow.map((h) => h.trim());
-  const rows = allRows.slice(1).filter((r) => r.some((cell) => cell.trim() !== ''));
-  return { delimiter, headers, rows };
+  const rows: string[][] = [];
+  const quoted: boolean[][] = [];
+  for (let r = 1; r < allRows.length; r++) {
+    const cells = allRows[r];
+    if (!cells?.some((cell) => cell.trim() !== '')) continue;
+    rows.push(cells);
+    quoted.push(allQuoted[r] ?? []);
+  }
+  return { delimiter, headers, rows, quoted };
+}
+
+/**
+ * Splits a Tags / Category cell on `,` and `;`. `\,` `\;` and `\\` stand for the character itself,
+ * so a tag that contains a separator (from `.flashpkg` or Anki) survives `exportCsv` (C17).
+ */
+function splitTagCell(value: string): string[] {
+  const tags: string[] = [];
+  let tag = '';
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    const next = value[i + 1];
+    if (ch === '\\' && (next === ',' || next === ';' || next === '\\')) {
+      tag += next;
+      i += 1;
+    } else if (ch === ',' || ch === ';') {
+      tags.push(tag);
+      tag = '';
+    } else {
+      tag += ch;
+    }
+  }
+  tags.push(tag);
+  return tags;
 }
 
 function detectDelimiter(input: string): ',' | '\t' {
@@ -172,7 +221,7 @@ export function buildEventsFromCsv(
 ): CsvImportResult {
   const { deckId, noteType, eventFactory } = options;
   const nowMs = options.nowMs ?? Date.now();
-  const parsed = parseDelimitedText(
+  const parsed = parseCells(
     csvText,
     options.delimiter ? { delimiter: options.delimiter } : undefined,
   );
@@ -185,6 +234,7 @@ export function buildEventsFromCsv(
   const hasHeaderRow = options.hasHeaderRow ?? true;
   // Without a header row, row 1 is data: put it back in front of the rows.
   const dataRows = hasHeaderRow ? parsed.rows : [parsed.headers, ...parsed.rows];
+  const dataQuoted = hasHeaderRow ? parsed.quoted : [[], ...parsed.quoted];
   const headerNames = hasHeaderRow ? parsed.headers : [];
   // 1-based file row of `dataRows[i]`.
   const rowOffset = hasHeaderRow ? 2 : 1;
@@ -281,8 +331,10 @@ export function buildEventsFromCsv(
     for (let colIdx = 0; colIdx < columnRoles.length; colIdx++) {
       const role = columnRoles[colIdx];
       if (!role) continue;
-      const value = (row[colIdx] ?? '').trim();
-      if (!value) continue;
+      // A quoted cell keeps its spaces, so exportCsv round-trips them (C17); unquoted is trimmed.
+      const cell = row[colIdx] ?? '';
+      if (!cell.trim()) continue;
+      const value = dataQuoted[rowIdx]?.[colIdx] && role.kind !== 'card_id' ? cell : cell.trim();
 
       if (role.kind === 'field') {
         const text = options.ankiRuby ? convertAnkiRuby(value) : value;
@@ -290,7 +342,7 @@ export function buildEventsFromCsv(
         // Two columns into one field (only the mapping step allows it, for Notes) are joined.
         fields[role.fieldKey] = prev && explicitRoles ? `${prev}\n${text}` : text;
       } else if (role.kind === 'tags') {
-        rawTags.push(...value.split(/[;,]/));
+        rawTags.push(...splitTagCell(value));
       } else if (role.kind === 'card_id') {
         if (!rawSourceKey) rawSourceKey = value;
       } else if (role.kind === 'notes') {

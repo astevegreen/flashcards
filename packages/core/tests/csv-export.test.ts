@@ -222,3 +222,40 @@ describe('.flashpkg export keeps categories', () => {
     expect(note?.tags).toEqual(['한국어', '문법::조사']);
   });
 });
+
+describe('CSV round trip keeps whitespace and separator characters (C17)', () => {
+  it('export -> import keeps padded fields and tags that contain , ; or a backslash', () => {
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', T0));
+    const fields = { word: '  학교', meaning: 'school \n', example: ' a, b ' };
+    // Tags like these arrive from .flashpkg or Anki, where `,` and `;` are ordinary characters.
+    const tags = ['a,b', 'c;d', 'back\\slash', 'tail\\', 'esc\\,aped', 'plain'];
+    const first = replayAllEvents([
+      ...deckEvents(factory),
+      factory.create(
+        'NoteUpserted',
+        {
+          note_id: 'n1',
+          deck_id: DECK,
+          source_key: 'card-1',
+          fields,
+          tags,
+          provenance: { source: 'import', reviewed: true },
+          created_order: 0,
+        },
+        T0 + 1,
+      ),
+    ]);
+    for (const delimiter of [',', '\t'] as const) {
+      const exported = exportCsv(first, { deckId: DECK, delimiter });
+      const [note] = notesOf(importCsv(exported.text));
+      expect(note?.fields).toEqual(fields);
+      expect(note?.tags).toEqual(tags);
+    }
+  });
+
+  it('still trims unquoted cells and splits ; or , in a typed category cell', () => {
+    const [note] = notesOf(importCsv('Word,Meaning,Tags\n 학교 ,"  school  ", daily; topik-1 \n'));
+    expect(note?.fields).toEqual({ word: '학교', meaning: '  school  ' });
+    expect(note?.tags).toEqual(['daily', 'topik-1']);
+  });
+});

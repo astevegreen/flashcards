@@ -67,10 +67,24 @@ function fieldHeaders(noteType: NoteType): string[] {
 }
 
 function escapeCell(value: string, delimiter: string): string {
-  if (value.includes('"') || value.includes(delimiter) || /[\r\n]/.test(value)) {
+  // Import trims an unquoted cell, so a value with outer spaces is quoted too (C17).
+  if (
+    value.includes('"') ||
+    value.includes(delimiter) ||
+    /[\r\n]/.test(value) ||
+    value !== value.trim()
+  ) {
     return `"${value.replaceAll('"', '""')}"`;
   }
   return value;
+}
+
+/**
+ * Import splits a category cell on `,` and `;`, so a tag holding one (from `.flashpkg` or Anki)
+ * is written as `\,` or `\;`, and a backslash as `\\` (C17).
+ */
+function escapeTag(tag: string): string {
+  return tag.replaceAll(/[\\,;]/g, (ch) => `\\${ch}`);
 }
 
 /**
@@ -112,7 +126,7 @@ export function exportCsv(state: CollectionState, options: CsvExportOptions): Cs
         const value = note.fields[f.key] ?? '';
         return options.stripRichText ? stripRichTextMarkup(value) : value;
       }),
-      ...Array.from({ length: categoryColumns }, (_, i) => tags[i] ?? ''),
+      ...Array.from({ length: categoryColumns }, (_, i) => escapeTag(tags[i] ?? '')),
     ];
     lines.push(cells.map((c) => escapeCell(c, delimiter)).join(delimiter));
   });
