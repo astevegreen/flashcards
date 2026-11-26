@@ -184,6 +184,7 @@ test("CI's required verify check aggregates checks, never skips, and checks runs
     'typecheck',
     'lint',
     'format:check',
+    'packs:check',
     'test',
     'test:tools',
     'build',

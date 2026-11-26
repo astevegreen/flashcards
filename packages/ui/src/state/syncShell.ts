@@ -80,6 +80,13 @@ export function createSyncShell(bootWatermarks: () => Record<string, number>): S
     (...args: A) =>
       // `then` flattens R when R is a promise; TS can't see that through the generic.
       ready.then(() => pick(controller as SyncActions)(...args)) as Promise<Awaited<R>>;
+  // For the actions typed `() => void`: callers ignore the result, so the deferral is
+  // fire-and-forget, as calling the controller directly would be.
+  const laterVoid =
+    <A extends unknown[]>(pick: (c: SyncActions) => (...args: A) => void) =>
+    (...args: A): void => {
+      void later(pick)(...args);
+    };
   return {
     attach(next) {
       controller = next;
@@ -96,7 +103,7 @@ export function createSyncShell(bootWatermarks: () => Record<string, number>): S
     },
     getCurrentWatermarks: () => (controller ? controller.getCurrentWatermarks() : bootWatermarks()),
     syncNow: later((c) => c.syncNow),
-    flushPendingSync: later((c) => c.flushPendingSync),
+    flushPendingSync: laterVoid((c) => c.flushPendingSync),
     connectGoogleDrive: later((c) => c.connectGoogleDrive),
     connectDropbox: later((c) => c.connectDropbox),
     connectOneDrive: later((c) => c.connectOneDrive),
@@ -105,6 +112,6 @@ export function createSyncShell(bootWatermarks: () => Record<string, number>): S
     connectICloud: later((c) => c.connectICloud),
     disconnectSync: later((c) => c.disconnectSync),
     resolveCollectionChoice: later((c) => c.resolveCollectionChoice),
-    resetSyncState: later((c) => c.resetSyncState),
+    resetSyncState: laterVoid((c) => c.resetSyncState),
   };
 }

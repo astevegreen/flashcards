@@ -7,8 +7,11 @@ on:
     branches: [main]
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Pull requests share one group per branch, so a newer push cancels the older run. Every other
+  # event gets its own group per commit: GitHub also drops a *pending* run when a newer one joins
+  # its group, so a shared main group would leave the middle of three quick pushes unverified.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -38,6 +41,9 @@ jobs:
 
       - name: Format check
         run: pnpm format:check
+
+      - name: Starter packs match a rebuild
+        run: pnpm packs:check
 
       - name: Unit & property tests
         run: pnpm test

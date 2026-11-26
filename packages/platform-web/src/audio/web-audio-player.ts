@@ -120,7 +120,8 @@ export class WebAudioPlayer implements AudioPlayer {
       const gen = this.playGeneration;
       audio.muted = true;
       audio.src = this.silentUrl;
-      const playPromise = audio.play();
+      // Older WebViews return undefined from play(), so the promise check below is real.
+      const playPromise = audio.play() as Promise<void> | undefined;
       if (playPromise && typeof playPromise.then === 'function') {
         void playPromise
           .then(() => {
@@ -206,7 +207,7 @@ export class WebAudioPlayer implements AudioPlayer {
     applyPlaybackRate(audio, rate);
 
     try {
-      const p = audio.play();
+      const p = audio.play() as Promise<void> | undefined;
       if (p && typeof p.then === 'function') {
         return p.then(
           () => {

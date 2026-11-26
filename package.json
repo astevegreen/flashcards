@@ -6,7 +6,7 @@
   "packageManager": "pnpm@12.18.0",
   "engines": {
     "node": ">=24.2.0",
-    "pnpm": ">=10.0.0"
+    "pnpm": ">=12.18.0"
   },
   "scripts": {
     "dev": "pnpm --filter @flash/web dev",
@@ -15,12 +15,13 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "packs:check": "node scripts/build-packs.mjs --starter --check",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:tools": "node --test \"tools/hooks/*.test.mjs\" \"tools/gemini/*.test.mjs\" \"tools/*.test.mjs\"",
     "size": "size-limit && node scripts/check-no-fonts.mjs",
-    "gate": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:tools",
+    "gate": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm packs:check && pnpm test && pnpm test:tools",
     "prepare": "node scripts/install-git-hooks.mjs"
   },
   "devDependencies": {
@@ -32,6 +33,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "fake-indexeddb": "^6.2.8",
     "fast-check": "^4.10.3",
+    "fflate": "^0.8.3",
     "globals": "^17.14.0",
     "prettier": "^3.10.1",
     "size-limit": "^14.3.0",
