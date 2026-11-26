@@ -5,7 +5,6 @@ import {
   createEventFactory,
   createHlcState,
   uuidv7,
-  type Card,
   type CollectionState,
 } from '@flash/core';
 import type {
@@ -16,7 +15,7 @@ import type {
   SyncProviderKind,
 } from '@flash/platform';
 import { createWebPlatform, resolveDeviceFromUrl } from '@flash/platform-web';
-import { FlashcardsApp } from '@flash/ui';
+import { cardToRow, FlashcardsApp } from '@flash/ui';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
@@ -49,17 +48,6 @@ function detectNativeRuntime(): NativeRuntime {
   if (w.Capacitor?.isNativePlatform?.()) return 'capacitor';
   if (w.__TAURI_INTERNALS__ !== undefined) return 'tauri';
   return null;
-}
-
-function cardToRow(card: Card): MaterializedCardRow {
-  return {
-    id: card.id,
-    deck_id: card.deck_id,
-    note_id: card.note_id,
-    layout_id: card.layout_id,
-    due: card.schedule.due,
-    schedule: card.schedule,
-  };
 }
 
 /**
