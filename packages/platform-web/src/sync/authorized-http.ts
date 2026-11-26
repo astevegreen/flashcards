@@ -2,9 +2,10 @@ import { SyncTransportError } from '@flash/core';
 import type { Auth } from '@flash/platform';
 
 /**
- * Shared bearer-token request policy for the cloud transports and pickers (OneDrive / Graph and
- * Dropbox): a 401 refreshes the token once; 429 / 5xx retry with exponential backoff + jitter,
- * honoring `Retry-After`. A network failure becomes a `SyncTransportError('NETWORK')`.
+ * Shared bearer-token request policy for the cloud transports and pickers (R1): Google Drive,
+ * Sheets and Docs, OneDrive / Graph, and Dropbox. A 401 refreshes the token once; 429 / 5xx retry
+ * with exponential backoff + jitter, honoring `Retry-After`. A network failure becomes a
+ * `SyncTransportError('NETWORK')`.
  */
 
 const DEFAULT_MAX_ATTEMPTS = 4;
@@ -20,6 +21,13 @@ export interface AuthorizedHttpClientOptions {
   /** Returns a value in [0, 1) for backoff jitter (injectable for deterministic tests). */
   random?: () => number;
   maxAttempts?: number;
+  /** First backoff delay; doubles each attempt (default 500 ms). */
+  baseDelayMs?: number;
+  /**
+   * Extra statuses to retry, on top of 429 / 5xx. Google reports throttling as 403 with a
+   * rate-limit reason in the body (C22), so its clients pass {@link isGoogleRateLimited}.
+   */
+  isRetryable?: (res: Response) => boolean | Promise<boolean>;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -43,6 +51,8 @@ export class AuthorizedHttpClient {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly random: () => number;
   private readonly maxAttempts: number;
+  private readonly baseDelayMs: number;
+  private readonly isRetryable: ((res: Response) => boolean | Promise<boolean>) | undefined;
 
   /** `label` names the service in network-error messages ("OneDrive", "Dropbox"). */
   constructor(
@@ -54,12 +64,14 @@ export class AuthorizedHttpClient {
     this.sleep = options.sleep ?? defaultSleep;
     this.random = options.random ?? Math.random;
     this.maxAttempts = Math.max(1, options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
+    this.baseDelayMs = options.baseDelayMs ?? BASE_RETRY_DELAY_MS;
+    this.isRetryable = options.isRetryable;
   }
 
   private retryDelayMs(res: Response, attempt: number): number | null {
     const retryAfter = parseRetryAfterMs(res.headers.get('Retry-After'), Date.now());
     if (retryAfter !== null) return retryAfter <= MAX_RETRY_AFTER_MS ? retryAfter : null;
-    const base = BASE_RETRY_DELAY_MS * 2 ** attempt;
+    const base = this.baseDelayMs * 2 ** attempt;
     return base + Math.floor(this.random() * base);
   }
 
@@ -76,12 +88,18 @@ export class AuthorizedHttpClient {
     }
   }
 
+  private async shouldRetry(res: Response): Promise<boolean> {
+    if (RETRYABLE_STATUSES.has(res.status)) return true;
+    return this.isRetryable ? this.isRetryable(res) : false;
+  }
+
   /** Sends one request under the shared 401 / retry policy and returns the final response. */
   async send(url: string, init: RequestInit = {}, opts?: { withAuth: boolean }): Promise<Response> {
     const withAuth = opts?.withAuth ?? true;
     let token = withAuth ? await this.auth.getValidAccessToken() : '';
     let refreshed = false;
-    for (let attempt = 0; ; attempt += 1) {
+    // The one 401 refresh is not a retry attempt: only 429 / 5xx backoffs count.
+    for (let attempt = 0; ;) {
       const res = await this.fetchOnce(url, init, token);
       if (res.status === 401 && withAuth && !refreshed) {
         refreshed = true;
@@ -89,11 +107,12 @@ export class AuthorizedHttpClient {
         continue;
       }
       const delay =
-        RETRYABLE_STATUSES.has(res.status) && attempt + 1 < this.maxAttempts
+        attempt + 1 < this.maxAttempts && (await this.shouldRetry(res))
           ? this.retryDelayMs(res, attempt)
           : null;
       if (delay === null) return res;
       await this.sleep(delay);
+      attempt += 1;
     }
   }
 

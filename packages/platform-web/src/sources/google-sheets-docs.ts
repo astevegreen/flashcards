@@ -9,12 +9,10 @@ import type {
   PickedFile,
 } from '@flash/platform';
 import { downloadDriveFileBytes, fetchDriveFileInfo } from './google-drive-files.ts';
-import { isGoogleRateLimited } from '../sync/google-errors.ts';
+import { createGoogleFetch, type GoogleFetch } from '../sync/google-http.ts';
 
 const DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
-const MAX_RETRY_ATTEMPTS = 3;
-const BASE_RETRY_DELAY_MS = 250;
 const MAX_DOC_MARKDOWN_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export const GOOGLE_SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
@@ -24,12 +22,7 @@ export interface GoogleSourcesClientOptions {
   auth: Auth;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
-}
-
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+  random?: () => number;
 }
 
 function quoteSheetTab(sheetTitle: string): string {
@@ -75,83 +68,19 @@ interface EmbeddedImageGridResponse {
  * single `values:batchUpdate` Card ID write-back, and Docs `text/markdown` export.
  */
 export class WebGoogleSourcesClient implements GoogleSourcesClient {
-  private readonly auth: Auth;
-  private readonly fetchImpl: typeof fetch;
-  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly authorizedFetch: GoogleFetch;
 
   constructor(options: GoogleSourcesClientOptions) {
-    this.auth = options.auth;
-    this.fetchImpl = options.fetchImpl ?? ((...args) => fetch(...args));
-    this.sleep = options.sleep ?? defaultSleep;
-  }
-
-  private async authorizedFetch(url: string, init: RequestInit = {}): Promise<Response> {
-    let token = await this.auth.getValidAccessToken();
-    let refreshedOnce = false;
-    let attempts = 0;
-
-    while (attempts < MAX_RETRY_ATTEMPTS) {
-      const headers = new Headers(init.headers);
-      headers.set('Authorization', `Bearer ${token}`);
-
-      let res: Response;
-      try {
-        res = await this.fetchImpl(url, { ...init, headers });
-      } catch (err) {
-        throw new SyncTransportError(
-          'NETWORK',
-          `Google API network error: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-
-      if (res.status === 401) {
-        if (!refreshedOnce) {
-          refreshedOnce = true;
-          token = await this.auth.getValidAccessToken({ forceRefresh: true });
-          continue;
-        }
-        throw new SyncTransportError(
-          'AUTH_REQUIRED',
-          'Google session expired. Please reconnect Google in Settings or Library.',
-          401,
-        );
-      }
-
-      const rateLimited = await isGoogleRateLimited(res);
-      if (
-        (rateLimited || (res.status >= 500 && res.status <= 504)) &&
-        attempts + 1 < MAX_RETRY_ATTEMPTS
-      ) {
-        await this.sleep(BASE_RETRY_DELAY_MS * Math.pow(3, attempts));
-        attempts += 1;
-        continue;
-      }
-
-      if (rateLimited) {
-        throw new SyncTransportError('RATE_LIMITED', 'Google API rate limit exceeded.', res.status);
-      }
-      if (res.status === 404) {
-        throw new SyncTransportError('NOT_FOUND', 'Google Drive file was not found.', 404);
-      }
-      if (res.status === 403) {
-        throw new SyncTransportError(
-          'PERMISSION_DENIED',
+    this.authorizedFetch = createGoogleFetch({
+      ...options,
+      label: 'Google API',
+      messages: {
+        authRequired: 'Google session expired. Please reconnect Google in Settings or Library.',
+        permissionDenied:
           'Permission denied accessing Google Sheet/Doc (it may be read-only or revoked).',
-          403,
-        );
-      }
-      if (res.status >= 500) {
-        throw new SyncTransportError(
-          'NETWORK',
-          `Google API server error (HTTP ${res.status}).`,
-          res.status,
-        );
-      }
-
-      return res;
-    }
-
-    throw new SyncTransportError('NETWORK', 'Google API request failed after retries.');
+        notFound: 'Google Drive file was not found.',
+      },
+    });
   }
 
   async getFileMetadata(fileId: string): Promise<GoogleDriveFileMeta> {
@@ -435,11 +364,11 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
 
   /** Plain Drive file metadata, for linked `.csv` / `.tsv` / `.xlsx` / `.flashpkg` files. */
   async getDriveFileInfo(fileId: string): Promise<GoogleDriveFileInfo> {
-    return fetchDriveFileInfo((url, init) => this.authorizedFetch(url, init), fileId);
+    return fetchDriveFileInfo(this.authorizedFetch, fileId);
   }
 
   /** Downloads a plain Drive file (`alt=media`, 50 MB cap). */
   async downloadDriveFile(fileId: string): Promise<PickedFile> {
-    return downloadDriveFileBytes((url, init) => this.authorizedFetch(url, init), fileId);
+    return downloadDriveFileBytes(this.authorizedFetch, fileId);
   }
 }

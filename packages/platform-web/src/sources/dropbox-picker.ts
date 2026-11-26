@@ -6,6 +6,7 @@ import type {
   DropboxFilePicker,
   PickedFile,
 } from '@flash/platform';
+import { AuthorizedHttpClient } from '../sync/authorized-http.ts';
 import { dropboxFailure } from '../sync/dropbox-errors.ts';
 
 const DROPBOX_API_BASE = 'https://api.dropboxapi.com/2';
@@ -38,6 +39,9 @@ export type DropboxPickerAuth = Pick<
 export interface DropboxAppFolderFilePickerOptions {
   auth: DropboxPickerAuth;
   fetchImpl?: typeof fetch;
+  /** Backoff hooks (injectable for deterministic tests). */
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
   apiBaseUrl?: string;
   contentBaseUrl?: string;
   maxBytes?: number;
@@ -159,14 +163,22 @@ function toBrowseItem(entry: DropboxRawEntry, isRoot: boolean): DropboxBrowseIte
  */
 export class DropboxAppFolderFilePicker implements DropboxFilePicker {
   private readonly auth: DropboxPickerAuth;
-  private readonly fetchImpl: typeof fetch;
+  private readonly client: AuthorizedHttpClient;
   private readonly apiBase: string;
   private readonly contentBase: string;
   private readonly maxBytes: number;
 
   constructor(options: DropboxAppFolderFilePickerOptions) {
     this.auth = options.auth;
-    this.fetchImpl = options.fetchImpl ?? ((...args) => fetch(...args));
+    this.client = new AuthorizedHttpClient(
+      {
+        auth: options.auth,
+        ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+        ...(options.sleep ? { sleep: options.sleep } : {}),
+        ...(options.random ? { random: options.random } : {}),
+      },
+      'Dropbox',
+    );
     this.apiBase = trimTrailingSlashes(options.apiBaseUrl ?? DROPBOX_API_BASE);
     this.contentBase = trimTrailingSlashes(options.contentBaseUrl ?? DROPBOX_CONTENT_BASE);
     this.maxBytes = options.maxBytes ?? MAX_PICK_BYTES;
@@ -186,49 +198,22 @@ export class DropboxAppFolderFilePicker implements DropboxFilePicker {
     return session !== null && (await this.auth.isConnected());
   }
 
-  private async authedFetch(
-    url: string,
-    buildInit: (token: string) => RequestInit,
-  ): Promise<Response> {
-    let token = await this.auth.getValidAccessToken();
-    let res: Response;
-    try {
-      res = await this.fetchImpl(url, buildInit(token));
-    } catch (err) {
-      throw new SyncTransportError(
-        'NETWORK',
-        `Dropbox request failed (offline or unreachable): ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-    if (res.status === 401) {
-      token = await this.auth.getValidAccessToken({ forceRefresh: true });
-      try {
-        res = await this.fetchImpl(url, buildInit(token));
-      } catch (err) {
-        throw new SyncTransportError(
-          'NETWORK',
-          `Dropbox request failed (offline or unreachable): ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-    return res;
+  private postJson(url: string, body: unknown): Promise<Response> {
+    return this.client.send(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
   }
 
   async listFolder(folderPath?: string): Promise<DropboxBrowseItem[]> {
     const normalized = normalizeFolderPath(folderPath);
     const isRoot = normalized === '';
-    const res = await this.authedFetch(`${this.apiBase}/files/list_folder`, (token) => ({
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: normalized,
-        recursive: false,
-        include_deleted: false,
-      }),
-    }));
+    const res = await this.postJson(`${this.apiBase}/files/list_folder`, {
+      path: normalized,
+      recursive: false,
+      include_deleted: false,
+    });
 
     if (res.status === 409 && isRoot) {
       // Empty / freshly created App Folder
@@ -249,17 +234,9 @@ export class DropboxAppFolderFilePicker implements DropboxFilePicker {
     collect(page.entries ?? []);
 
     while (page.has_more && out.length < MAX_ITEMS_PER_FOLDER) {
-      const contRes = await this.authedFetch(
-        `${this.apiBase}/files/list_folder/continue`,
-        (token) => ({
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ cursor: page.cursor }),
-        }),
-      );
+      const contRes = await this.postJson(`${this.apiBase}/files/list_folder/continue`, {
+        cursor: page.cursor,
+      });
       if (!contRes.ok) throw await dropboxFailure(contRes, 'folder listing');
       page = (await contRes.json()) as DropboxListFolderResponse;
       collect(page.entries ?? []);
@@ -270,14 +247,7 @@ export class DropboxAppFolderFilePicker implements DropboxFilePicker {
 
   async getFileInfo(fileIdOrPath: string): Promise<DropboxFileInfo> {
     const selector = normalizeFileSelector(fileIdOrPath);
-    const res = await this.authedFetch(`${this.apiBase}/files/get_metadata`, (token) => ({
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ path: selector }),
-    }));
+    const res = await this.postJson(`${this.apiBase}/files/get_metadata`, { path: selector });
     if (!res.ok) throw await dropboxFailure(res, 'file lookup');
     const raw = (await res.json()) as DropboxRawEntry;
     if (raw['.tag'] !== 'file') {
@@ -328,13 +298,10 @@ export class DropboxAppFolderFilePicker implements DropboxFilePicker {
     }
 
     const selector = normalizeFileSelector(info.id || fileIdOrPath);
-    const res = await this.authedFetch(`${this.contentBase}/files/download`, (token) => ({
+    const res = await this.client.send(`${this.contentBase}/files/download`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Dropbox-API-Arg': encodeDropboxApiArg({ path: selector }),
-      },
-    }));
+      headers: { 'Dropbox-API-Arg': encodeDropboxApiArg({ path: selector }) },
+    });
     if (!res.ok) throw await dropboxFailure(res, `download of "${info.name}"`);
 
     const bytes = new Uint8Array(await res.arrayBuffer());
