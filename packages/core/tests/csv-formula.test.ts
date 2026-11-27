@@ -78,8 +78,28 @@ describe('formula guard rule (S6)', () => {
     expect(guardHtmlFormula('+x')).toBe('&#43;x');
     expect(guardHtmlFormula('-x')).toBe('&#45;x');
     expect(guardHtmlFormula(' @x')).toBe(' &#64;x');
-    expect(guardHtmlFormula('-(으)ㄴ')).toBe('-(으)ㄴ');
+    // No Korean-grammar exception on the Anki path: the entity shows as `-` in Anki.
+    expect(guardHtmlFormula('-(으)ㄴ')).toBe('&#45;(으)ㄴ');
     expect(guardHtmlFormula('<b>=x</b>')).toBe('<b>=x</b>');
+    expect(guardHtmlFormula('e-mail')).toBe('e-mail');
+  });
+
+  it.each(['＝1+1', '＋1', '＠SUM(A1)', ' ＝1', '－1', '－가+1'])(
+    'prefixes the fullwidth lookalike %j like its ASCII form',
+    (value) => {
+      expect(guardFormula(value)).toBe(`'${value}`);
+    },
+  );
+
+  it.each(['－(으)ㄴ', '－아/어요', 'a＝b'])('keeps %j like its ASCII form', (value) => {
+    expect(guardFormula(value)).toBe(value);
+  });
+
+  it('writes a fullwidth trigger as an entity on the Anki path', () => {
+    expect(guardHtmlFormula('＝1')).toBe('&#65309;1');
+    expect(guardHtmlFormula('＋1')).toBe('&#65291;1');
+    expect(guardHtmlFormula('－(으)ㄴ')).toBe('&#65293;(으)ㄴ');
+    expect(guardHtmlFormula('＠x')).toBe('&#65312;x');
   });
 });
 

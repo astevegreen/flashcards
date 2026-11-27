@@ -532,22 +532,26 @@ export interface MappedRow {
 /**
  * One row through a mapping, as the CSV importer stores it: fields (two columns into one field are
  * joined by a line break), `Header: value` lines appended to Notes, category cells split on `,`/`;`
- * into tags (`splitTagCell`). A grid carries no CSV quotes, so every cell is trimmed, like an
- * unquoted CSV cell.
+ * into tags (`splitTagCell`). A cell is trimmed, like an unquoted CSV cell, unless `quoted` says
+ * it was written in quotes (`parseDelimitedText`'s flags): then it keeps its spaces, and a field
+ * of spaces only stays, as `buildEventsFromCsv` imports it (C17). A Card ID is always trimmed.
  */
 export function applyColumnTargets(
   row: readonly string[],
   headers: readonly string[],
   targets: readonly ColumnTarget[],
   noteType: NoteType,
+  quoted?: readonly boolean[],
 ): MappedRow {
   const fields: Record<string, string> = {};
   const rawTags: string[] = [];
   const notes: string[] = [];
   let cardId = '';
   targets.forEach((target, i) => {
-    const value = (row[i] ?? '').trim();
-    if (!value) return;
+    const cell = row[i] ?? '';
+    const keep = quoted?.[i] === true && target.kind !== 'card_id';
+    const value = keep ? cell : cell.trim();
+    if (!value.trim() && !(keep && target.kind === 'field' && value)) return;
     if (target.kind === 'field') {
       const prev = fields[target.fieldKey];
       fields[target.fieldKey] = prev ? `${prev}\n${value}` : value;
@@ -564,18 +568,33 @@ export function applyColumnTargets(
   return { fields, tags: normalizeTagList(rawTags), cardId };
 }
 
+/** A CSV grid's quotes (`parseDelimitedTable`): which cells were quoted, and row 1 untrimmed. */
+export interface GridQuotes {
+  /** `quoted[r][c]`: grid cell `[r][c]` was written in quotes. */
+  quoted: readonly (readonly boolean[])[];
+  /** Row 1 untrimmed (the grid's row 0 holds trimmed headers), read when it is data. */
+  firstRow: readonly string[];
+}
+
 /** The first `limit` data rows as they would be imported (rows with no mapped value are skipped). */
 export function previewMappedRows(
   grid: readonly (readonly string[])[],
   targets: readonly ColumnTarget[],
   noteType: NoteType,
-  options: { hasHeaderRow: boolean; limit?: number },
+  options: {
+    hasHeaderRow: boolean;
+    limit?: number;
+    /** The CSV quotes behind `grid`, so the preview keeps what the import keeps. */
+    quotes?: GridQuotes;
+  },
 ): MappedRow[] {
   const headerCells = options.hasHeaderRow ? (grid[0] ?? []) : [];
   const headers = targets.map((_, i) => columnDisplayName(headerCells[i] ?? '', i));
   const out: MappedRow[] = [];
-  for (const row of options.hasHeaderRow ? grid.slice(1) : grid) {
-    const mapped = applyColumnTargets(row, headers, targets, noteType);
+  const first = options.hasHeaderRow ? 1 : 0;
+  for (let r = first; r < grid.length; r++) {
+    const row = (r === 0 ? options.quotes?.firstRow : undefined) ?? grid[r] ?? [];
+    const mapped = applyColumnTargets(row, headers, targets, noteType, options.quotes?.quoted[r]);
     if (Object.keys(mapped.fields).length === 0) continue;
     out.push(mapped);
     if (out.length >= (options.limit ?? SAMPLE_COUNT)) break;

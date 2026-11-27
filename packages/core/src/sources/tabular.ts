@@ -1083,6 +1083,10 @@ export function applyCardIdsToGridAndSerialize(
       .map((row) => {
         const padded = [...row];
         while (padded.length < colCount) padded.push('');
+        // No `quoteOuterSpace` here, unlike `exportCsv`. The grid carries no quote flags, so a
+        // cell padded with spaces can't be told from one that was written quoted.
+        // Quoting padded cells would make the user's unquoted `  word ` read back with its spaces
+        // (a quoted cell keeps them, C17), changing cells that were trimmed before the write-back.
         return padded.map((c) => escapeDelimitedCell(c ?? '', delimiter)).join(delimiter);
       })
       .join('\n') + '\n'

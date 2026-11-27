@@ -134,4 +134,22 @@ describe('folder paths reject `..` segments, not names with two dots (§11 nit)'
       expect(await watcher.readRelativeMedia(id, 'decks/words.csv', rel)).toBeNull();
     }
   });
+
+  it('returns null for a media path with a NUL, even when that file exists', async () => {
+    // The files exist at the joined paths, so only the NUL check stands between them and a read.
+    const files = new Map([
+      ['/notes/decks/img\0.png', new Uint8Array([1])],
+      ['/notes/decks/a\0/x.png', new Uint8Array([2])],
+      ['/notes/decks/x.png', new Uint8Array([3])],
+    ]);
+    const { watcher, id } = await pickedWatcher(files);
+    for (const rel of ['img\0.png', 'a\0/x.png', '\0x.png', 'x.png\0']) {
+      expect(await watcher.readRelativeMedia(id, 'decks/words.csv', rel), rel).toBeNull();
+    }
+    // A NUL in the deck file's own path is refused the same way.
+    expect(await watcher.readRelativeMedia(id, 'decks\0/words.csv', 'x.png')).toBeNull();
+    expect((await watcher.readRelativeMedia(id, 'decks/words.csv', 'x.png'))?.bytes).toEqual(
+      new Uint8Array([3]),
+    );
+  });
 });
