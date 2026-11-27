@@ -185,6 +185,8 @@ describe('Phase 8 Capacitor Platform Adapters (§4.3, §6.4, §11, §12.1)', () 
       isPersonalBuild: true,
     });
     expect(platform.deviceId).toBe('cap-device-1');
+    // Phones stay at the 25 MiB raw snapshot cap (SYNC_SNAPSHOT_LIMITS allows 128 MiB).
+    expect(platform.syncSnapshotLimits).toEqual({ maxUncompressedBytes: 25 * 1024 * 1024 });
     expect(await (await platform.getPurchase?.())?.isUnlocked()).toBe(true);
   });
 

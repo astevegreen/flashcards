@@ -9,6 +9,7 @@ import {
   decodeEventsSegment,
   deviceHeadPath,
   deviceSegmentPath,
+  encodeDeviceHead,
 } from '../src/sync/codec.ts';
 import { runSync, type SyncEngineOptions } from '../src/sync/engine.ts';
 import { createInitialSyncCursor, type SyncCursorState } from '../src/sync/types.ts';
@@ -229,17 +230,71 @@ describe('head.json segments compaction', () => {
     expect((await pullB(transport)).pulledEvents.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it('leaves ranges that are out of seq order alone', async () => {
+  it('a cursor not saved after a push neither drops that push from the head nor folds it away', async () => {
+    const transport = new MemorySyncTransport();
+    const events = makeEvents(8);
+    let cursor = createInitialSyncCursor();
+    for (let n = 1; n <= 4; n++) {
+      cursor = (await pushA(transport, cursor, events, n)).cursor;
+    }
+    // This push writes head.json (and compacts), but the app exits before saving its cursor.
+    await pushA(transport, cursor, events, 5);
+    await expectHeadConsistent(transport, 5);
+
+    // The next sync starts from the cursor saved after seq 4.
+    const res = await pushA(transport, cursor, events, 6);
+    expect(res.pushedEventCount).toBe(1);
+    await expectHeadConsistent(transport, 6);
+    expect(res.cursor.pushedSegments).toEqual((await readHead(transport)).segments);
+    expect((await pullB(transport)).pulledEvents.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('a crash after the folded segments are written but before head.json recovers', async () => {
+    for (const retryUpTo of [5, 6]) {
+      const transport = new MemorySyncTransport();
+      const events = makeEvents(8);
+      let cursor = createInitialSyncCursor();
+      for (let n = 1; n <= 4; n++) {
+        cursor = (await pushA(transport, cursor, events, n)).cursor;
+      }
+      const reader = await pullB(transport);
+      // The compacting push dies at the head write: its new segments stay, unlisted.
+      const write = transport.write.bind(transport);
+      transport.write = async (path, data, opts) => {
+        if (path === deviceHeadPath('dev-a')) throw new Error('crash');
+        return write(path, data, opts);
+      };
+      await expect(pushA(transport, cursor, events, 5)).rejects.toThrow('crash');
+      transport.write = write;
+      expect((await readHead(transport)).segments).toHaveLength(4);
+      const filesAfterCrash = transport.files.size;
+
+      // Same events again: the orphans are adopted. One more event: the last chunk differs,
+      // so that one moves to a fresh segment number.
+      const res = await pushA(transport, cursor, events, retryUpTo);
+      expect(res.status).toBe('ok');
+      const head = await expectHeadConsistent(transport, retryUpTo);
+      expect(head.segments?.map((s) => s.count)).toEqual(retryUpTo === 5 ? [4, 1] : [4, 2]);
+      // No new file when both orphans are adopted; one when the second chunk needs a new number.
+      expect(transport.files.size - filesAfterCrash).toBe(retryUpTo === 5 ? 0 : 1);
+      const next = await pullB(transport, reader.cursor);
+      expect(next.pulledEvents.map((e) => e.seq)).toEqual(retryUpTo === 5 ? [5] : [5, 6]);
+    }
+  });
+
+  it('leaves a head whose ranges overlap alone', async () => {
     const transport = new MemorySyncTransport();
     const events = makeEvents(6);
     let cursor = createInitialSyncCursor();
     for (let n = 1; n <= 4; n++) {
       cursor = (await pushA(transport, cursor, events, n)).cursor;
     }
-    const [a, b, c, d] = cursor.pushedSegments;
+    const head = await readHead(transport);
+    const [a, b, c, d] = head.segments ?? [];
     if (!a || !b || !c || !d) throw new Error('expected four ranges');
-    const overlapping = { ...cursor, pushedSegments: [a, { ...b, to_seq: 3 }, c, d] };
-    const res = await pushA(transport, overlapping, events, 5);
+    const overlapping = { ...head, segments: [a, { ...b, to_seq: 3 }, c, d] };
+    await transport.write(deviceHeadPath('dev-a'), encodeDeviceHead(overlapping));
+    const res = await pushA(transport, cursor, events, 5);
     expect((await readHead(transport)).segments).toHaveLength(5);
     expect(res.pushedSegments).toBe(1);
   });

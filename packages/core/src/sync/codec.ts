@@ -406,7 +406,10 @@ export function decodeSyncSnapshot(
   compressed: Uint8Array,
   limits?: Partial<typeof SYNC_SNAPSHOT_LIMITS>,
 ): SyncSnapshot {
-  const rawBytes = safeGunzip(compressed, { ...SYNC_SNAPSHOT_LIMITS, ...limits });
+  const rawBytes = safeGunzip(compressed, {
+    maxCompressedBytes: limits?.maxCompressedBytes ?? SYNC_SNAPSHOT_LIMITS.maxCompressedBytes,
+    maxUncompressedBytes: limits?.maxUncompressedBytes ?? SYNC_SNAPSHOT_LIMITS.maxUncompressedBytes,
+  });
   let parsed: unknown;
   try {
     parsed = JSON.parse(decodeUtf8(rawBytes));

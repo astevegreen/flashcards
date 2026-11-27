@@ -1103,6 +1103,13 @@ export interface PlatformServices {
    */
   onBackButton?: (handler: () => boolean) => () => void;
   onDevSyncNotification?: (listener: (path: string) => void) => () => void;
+  /**
+   * Snapshot size caps this platform syncs under, passed to the sync engine as `snapshotLimits`
+   * (unset: the engine's defaults). A snapshot past them is neither hydrated nor written; the
+   * device replays segments instead. Phones keep the older 25 MiB raw cap until hydrating a
+   * larger one is measured on a real device.
+   */
+  syncSnapshotLimits?: { maxCompressedBytes?: number; maxUncompressedBytes?: number };
   createReplayWorker?: () => Promise<ReplayWorkerClient | null>;
   processImage?: (
     bytes: Uint8Array,

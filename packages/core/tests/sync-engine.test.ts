@@ -931,6 +931,27 @@ describe('snapshots past the decoder limits (D12)', () => {
     expect(5.07 * 1024 * 1024).toBeLessThan(SYNC_SNAPSHOT_LIMITS.maxCompressedBytes);
   });
 
+  it('encodes and decodes a snapshot past 25 MiB raw with the default limits', () => {
+    const snap = {
+      format_version: 1,
+      snapshot_version: 1,
+      collection_id: 'c1',
+      created_by: 'dev-a',
+      created_at: t0,
+      total_events: 1,
+      watermarks: {},
+      // Compresses to a few dozen KiB, so the test stays fast.
+      state: { pad: 'x'.repeat(SYNC_CODEC_LIMITS.maxUncompressedBytes + 1024) },
+    } as unknown as SyncSnapshot;
+    const gz = encodeReadableSyncSnapshot(snap);
+    expect(gz).not.toBeNull();
+    if (!gz) return;
+    expect(() => decodeSyncSnapshot(gz, SYNC_CODEC_LIMITS)).toThrow(SyncCodecError);
+    expect(decodeSyncSnapshot(gz).created_by).toBe('dev-a');
+    // Overriding only the compressed cap keeps the snapshot default for the raw one.
+    expect(decodeSyncSnapshot(gz, { maxCompressedBytes: 1024 * 1024 }).created_by).toBe('dev-a');
+  });
+
   it('a snapshot past the old raw cap is read by new builds and skipped by older ones', async () => {
     // Scaled down: `oldCap` stands for the 25 MiB cap of older builds, `newCap` for 128 MiB.
     const oldCap = { maxUncompressedBytes: 64 * 1024 };

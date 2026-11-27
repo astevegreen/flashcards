@@ -203,6 +203,22 @@ function planHeadCompaction(
   return { keep: segments.slice(0, keep), fold: segments.slice(keep) };
 }
 
+function sameRanges(a: readonly SegmentRange[], b: readonly SegmentRange[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((r, i) => {
+      const o = b[i];
+      return (
+        o !== undefined &&
+        r.seg === o.seg &&
+        r.from_seq === o.from_seq &&
+        r.to_seq === o.to_seq &&
+        r.count === o.count
+      );
+    })
+  );
+}
+
 /**
  * The events `fold` lists, taken from `own` (this device's events, ascending by seq), or `null`
  * when local storage does not hold exactly the events each range counts.
@@ -407,6 +423,8 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
   }
   remoteDeviceIds.sort();
 
+  /** This device's own `head.json` ranges as read this run, if it was read. */
+  let ownHeadSegments: readonly SegmentRange[] | undefined;
   for (const devId of remoteDeviceIds) {
     let head: DeviceHead;
     try {
@@ -423,9 +441,17 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
       if (head.last_segment > cursor.lastPushedSegment) {
         cursor.lastPushedSegment = head.last_segment;
       }
-      if (head.segments && head.segments.length > 0 && cursor.pushedSegments.length === 0) {
-        cursor.pushedSegments = mergeSegmentRanges(cursor.pushedSegments, head.segments);
+      // The head lists what readers fetch, so it is the truth about what this device pushed.
+      // Adopt it unless it is older than the cursor (a stale read): a cursor that was not saved
+      // after the last push would otherwise write a head without that push's ranges.
+      if (
+        head.segments &&
+        head.segments.length > 0 &&
+        (cursor.pushedSegments.length === 0 || head.last_seq >= cursor.lastPushedSeq)
+      ) {
+        cursor.pushedSegments = mergeSegmentRanges([], head.segments);
       }
+      ownHeadSegments = head.segments ?? [];
       const ownSeen = Math.max(
         localOwnSeq,
         cursor.remoteWatermarks[devId] ?? 0,
@@ -607,7 +633,16 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
       );
       const firstFold = plan?.fold[0];
       const lastFold = plan?.fold[plan.fold.length - 1];
-      if (plan && firstFold && lastFold && lastFold.to_seq <= cursor.lastPushedSeq) {
+      // Only from a plan that matches the head just read and ends at the last pushed event:
+      // anything else means the cursor and the head disagree, and folding could drop a range.
+      if (
+        plan &&
+        firstFold &&
+        lastFold &&
+        lastFold.to_seq === cursor.lastPushedSeq &&
+        ownHeadSegments !== undefined &&
+        sameRanges(ownHeadSegments, cursor.pushedSegments)
+      ) {
         const own = (await getLocalEventsAfterSeq(firstFold.from_seq - 1))
           .filter((ev) => ev.device === deviceId && ev.seq >= firstFold.from_seq)
           .sort((a, b) => a.seq - b.seq);
