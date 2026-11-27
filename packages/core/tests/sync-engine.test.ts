@@ -27,6 +27,7 @@ import {
   safeGunzip,
   sanitizeDeviceId,
   snapshotPath,
+  SYNC_CODEC_LIMITS,
   SyncCodecError,
 } from '../src/sync/codec.ts';
 import { runSync } from '../src/sync/engine.ts';
@@ -912,10 +913,14 @@ describe('SyncEngine & Codec unit tests (§4.2 & §13)', () => {
 
 describe('snapshots past the decoder limits (D12)', () => {
   const t0 = Date.UTC(2026, 10, 25, 9, 0, 0);
-  // One byte past the 25 MiB read cap, like a collection with ~90k reviews. Built on first use and
-  // shared, so only the tests that need it pay for it (and the run that skips them pays nothing).
-  let padding: string | undefined;
-  const overCapPadding = () => (padding ??= 'x'.repeat(25 * 1024 * 1024 + 1));
+  // The engine runs with a 64 KiB read cap (`snapshotLimits`) in place of the 25 MiB one, so the
+  // over-cap snapshot (a collection with ~90k reviews) is one byte past 64 KiB, not 25 MiB.
+  const limits = { maxUncompressedBytes: 64 * 1024 };
+  const overCapPadding = () => 'x'.repeat(limits.maxUncompressedBytes + 1);
+
+  it('keeps the 25 MiB production read cap', () => {
+    expect(SYNC_CODEC_LIMITS.maxUncompressedBytes).toBe(25 * 1024 * 1024);
+  });
 
   it('encodes only snapshots the decoder will read back', () => {
     const snapshot = (pad: string): SyncSnapshot =>
@@ -964,6 +969,7 @@ describe('snapshots past the decoder limits (D12)', () => {
       localOwnSeq: 1,
       currentTotalEvents: 1,
       snapshotThreshold: 1,
+      snapshotLimits: limits,
       nowMs: () => t0 + 100,
       getLocalEventsAfterSeq: async (afterSeq) => events.filter((e) => e.seq > afterSeq),
       buildSnapshotState: async () => ({
@@ -1035,14 +1041,14 @@ describe('snapshots past the decoder limits (D12)', () => {
     const afterBoth = serializeCollectionState(applyEvents(createEmptyState(), events), {
       'dev-a': 2,
     });
-    // A readable older snapshot, then a newer one an older build wrote past the 25 MiB cap. Its
+    // A readable older snapshot, then a newer one an older build wrote past the cap. Its
     // padding compresses well, so only the inflated size is over the limit.
     await transport.write(snapshotPath('dev-a', 1), gzipSnapshot(snapshotAt(1, afterFirst)));
     const oversized = gzipSnapshot(
       snapshotAt(2, { ...afterBoth, padding: overCapPadding() } as typeof afterBoth),
     );
     await transport.write(snapshotPath('dev-a', 2), oversized);
-    expect(() => decodeSyncSnapshot(oversized)).toThrow(SyncCodecError);
+    expect(() => decodeSyncSnapshot(oversized, limits)).toThrow(SyncCodecError);
 
     const fresh = (cursor = createInitialSyncCursor()) =>
       runSync({
@@ -1051,6 +1057,7 @@ describe('snapshots past the decoder limits (D12)', () => {
         cursor,
         localOwnSeq: 0,
         canBootstrapFromSnapshot: true,
+        snapshotLimits: limits,
         nowMs: () => t0 + 200,
         getLocalEventsAfterSeq: async () => [],
       });

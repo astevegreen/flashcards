@@ -67,4 +67,17 @@ describe('unsaved note edits (C11)', () => {
       true,
     );
   });
+
+  it('reads the opening snapshot as own properties only (S4)', () => {
+    // The opening note lacks `constructor`: an empty draft value is no change.
+    const proto = { fields: { word: '사과' }, tagsText: '' };
+    expect(noteEditChanges(proto, { word: '사과', constructor: '' }, '')).toEqual({
+      fields: {},
+      tags: undefined,
+    });
+    expect(hasNoteEditChanges(proto, { word: '사과', toString: '' }, '')).toBe(false);
+    expect(noteEditChanges(proto, { word: '사과', constructor: 'x' }, '').fields).toEqual({
+      constructor: 'x',
+    });
+  });
 });

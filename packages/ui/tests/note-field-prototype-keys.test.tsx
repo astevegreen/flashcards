@@ -12,7 +12,7 @@ import { flipAnswerMode } from '../src/study/answerModes/FlipMode.tsx';
 import { listenAnswerMode } from '../src/study/answerModes/ListenMode.tsx';
 import { typedAnswerMode } from '../src/study/answerModes/TypedMode.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from '../src/study/answerModes/types.ts';
-import { populatedRevealStepsFor } from '../src/screens/StudyScreen.tsx';
+import { populatedRevealStepsFor } from '../src/study/revealSteps.ts';
 import { precacheUpcomingDrawCards } from '../src/study/strokePrecache.ts';
 import { frontRubyHidden } from '../src/study/rubyToggle.ts';
 import { useApp } from '../src/state/AppContext.tsx';
@@ -115,10 +115,18 @@ describe('field keys that exist only on Object.prototype', () => {
   });
 
   it('keep Draw from reading them as the expected answer', async () => {
-    await render({
+    // A Japanese deck draws by default; the missing field leaves nothing to draw.
+    const container = await render({
       plugin: drawAnswerMode,
-      over: { layout: protoLayout({ answer_field: 'constructor' }) },
+      over: {
+        layout: protoLayout({ answer_field: 'constructor' }),
+        deck: { language: 'ja', id: 'deck-proto-a' } as AnswerModeRenderProps['deck'],
+      },
     });
+    expect(container.textContent).toContain(
+      'No drawable CJK characters found in field “constructor”',
+    );
+    expect(container.querySelector('[data-testid="draw-mode-off-notice"]')).toBeNull();
   });
 
   it('keep Cloze from reading them as a cloze field', async () => {
