@@ -22,8 +22,9 @@ import {
 } from '../../core/src/starters/index.ts';
 import { legacyStarterFields, loadStarterLegacyGlosses } from '../../core/src/starters/upgrade.ts';
 import { SyncRuntime, type SyncRuntimeProps } from '../src/state/SyncRuntime.tsx';
-import { createSyncStateStore } from '../src/state/syncStateStore.ts';
 import type * as StarterUpgrade from '../src/onboarding/starterUpgrade.ts';
+import type { SyncShell } from '../src/state/syncShell.ts';
+import { createSyncStateStore } from '../src/state/syncStateStore.ts';
 import type { SyncUiState } from '../src/state/useSyncController.ts';
 
 vi.mock('../src/state/useSyncController.ts', () => ({
@@ -97,24 +98,20 @@ function mount(state: CollectionState, syncState: SyncUiState) {
       applyEvents(state, events);
     },
   };
-  // SyncRuntime reads the sync status from AppProvider's store (P3); each render sets it.
+  // SyncRuntime reads the sync state from AppProvider's store (P3), so a new state is a store set.
+  // `satisfies` keeps every key a real prop; only the stubbed controller options are left out.
   const syncStore = createSyncStateStore(syncState);
-  const props = (): SyncRuntimeProps =>
-    ({
-      shell: { attach: () => undefined },
-      emitEventsRef,
-      syncStore,
-      stateRef,
-      factoryRef: { current: factory() },
-    }) as unknown as SyncRuntimeProps;
+  const props = {
+    shell: { attach: () => undefined } as Partial<SyncShell> as SyncShell,
+    emitEventsRef,
+    syncStore,
+    stateRef,
+    factoryRef: { current: factory() },
+  } satisfies Partial<SyncRuntimeProps>;
   host = document.body.appendChild(document.createElement('div'));
   root = createRoot(host);
-  const render = (next: SyncUiState) =>
-    act(() => {
-      syncStore.set(next);
-      root?.render(createElement(SyncRuntime, props()));
-    });
-  render(syncState);
+  act(() => root?.render(createElement(SyncRuntime, props as unknown as SyncRuntimeProps)));
+  const render = (next: SyncUiState) => act(() => syncStore.set(next));
   return { emitted, render, reads };
 }
 
