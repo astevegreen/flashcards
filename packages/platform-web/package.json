@@ -48,7 +48,7 @@
     "sql.js": "^1.17.0"
   },
   "devDependencies": {
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.6",
     "fake-indexeddb": "^6.2.8",
     "vitest": "^5.1.1"
   }

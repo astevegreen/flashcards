@@ -21,7 +21,7 @@
     "@flash/core": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.6",
     "fast-check": "^4.10.3",
     "vitest": "^5.1.1"
   }
