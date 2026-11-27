@@ -569,7 +569,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 ### Left from partly fixed review items (D11, S4, P3, §9)
 
 - [x] D11 (review): the SQLite storages now append events and meta in one transaction. Done in #95.
-- [ ] D11 (review), still open: two tabs of one browser profile can write at once and reuse `(device, seq)`. **To build** (owner, 2026-11-26): one writer per profile via Web Locks; a second tab shows an "already open in another tab" screen with a "Use here instead" button.
+- [x] D11 (review): two tabs of one browser profile could write at once and reuse `(device, seq)`. Done in #100: one writer per profile via Web Locks. A second tab shows "already open in another tab" with a "Use here instead" button, queued edits are saved before the handover, and a waiting tab takes over by itself when the writer closes.
 - [ ] S4 (review): UI components still read `note.fields[key]` directly. Route them through `noteField`.
 - [ ] P3 (review): a sync tick that changes `syncState` still re-renders every `useApp()` consumer. Move `syncState` out of the context value.
 - [x] §9 Native (review): event SQL runs only against `InMemorySqliteDriver`, never real SQLite. Run it against sql.js or a device. Done in #95: event SQL now also runs against sql.js and `node:sqlite`.
@@ -720,3 +720,12 @@ The owner accepted every recommendation on 2026-11-26.
 - [x] **While Google is disconnected, linked Google Sheets and Docs rows now show "Connect Google to refresh this file." (permission needed)** instead of keeping their last state silently (#97). With the new launch refresh, a device that synced Sheets decks but never connected Google shows this after its first launch. Recommend keep. Decided 2026-11-26: keep.
 - [x] **agy's linked-issue filter trusts only the owner and write, maintain or admin collaborators; triage is untrusted (#94).** Recommend keep. Decided 2026-11-26: keep.
 - [x] **An agy review with no tagged line now retries rather than holds (#94).** Recommend keep. Decided 2026-11-26: keep.
+
+### Left from the single-writer tab (#100)
+
+- [ ] No unit test covers the shell wiring in `apps/web/src/main.tsx` (`exposeWhenSaved` → `whenSaved`). The UI tests cover `AppProvider` and `FlashcardsApp`, and the e2e waits for each rating to land before "Use here instead", so deleting the shell link passes. Add an e2e that slows one write before the click.
+- [ ] A take-over request that arrives after the lock is held but before the app mounts finds no persist queue. Boot-time writes such as sample seeding and migrations can then be cut off part-way. Wait for boot to finish before honouring a request.
+- [ ] `packages/ui/tests/writer-handoff-wiring.test.tsx` imports `apps/web/src/writer-handoff.ts`, so a library test depends on the app. Replace it with a local stand-in that records `release` and awaits `whenSaved`.
+- [ ] `blockWrites` replaces `storage.close` with a rejecting stub. If the lock is stolen while `yieldWriter` is still running, `stop()` calls that stub, which raises an unhandled rejection just before the reload and doesn't close the database.
+- [ ] Not verified in Safari, Firefox, Capacitor or Tauri, or in a real browser for a stolen lock or an old tab whose lazy chunk 404s after a deploy. Chromium 156 does reject a stolen holder's `request()` promise with `AbortError`, as the spec says.
+- [ ] Bundle: #100 takes initial study-screen JS to 159.95 of 160 KB. The next change that adds to the initial bundle needs a trim first.
