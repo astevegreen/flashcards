@@ -43,7 +43,7 @@ import {
   type PageNormalizeWarning,
 } from '../sources/pages.ts';
 import { mergedNoteType } from './merge-model.ts';
-import { uniqueRecordIds } from './record-ids.ts';
+import { existingNoteMatcher, uniqueRecordIds } from './record-ids.ts';
 
 export const FLASHPKG_SECURITY_LIMITS = {
   maxFiles: 10_000,
@@ -725,17 +725,11 @@ export function importFlashpkg(
     );
     decksImported += 1;
 
-    // Pre-index existing notes for this deck by source_key for O(1) upgrade matching
-    const existingDeckNotes: Note[] = [];
-    const existingNotesBySourceKey = new Map<string, Note>();
-    for (const note of state.notes.values()) {
-      if (note.deck_id === targetDeckId) {
-        existingDeckNotes.push(note);
-        if (note.source_key) {
-          existingNotesBySourceKey.set(note.source_key, note);
-        }
-      }
-    }
+    // Pre-index existing notes for this deck for O(1) upgrade matching (see `matchExistingNote`)
+    const existingDeckNotes = [...state.notes.values()]
+      .filter((note) => note.deck_id === targetDeckId)
+      .sort((a, b) => a.created_order - b.created_order || compareCodeUnits(a.id, b.id));
+    const matchExistingNote = existingNoteMatcher(existingDeckNotes);
 
     const lines = decodeUtf8(jsonlBytes)
       .split(/\r?\n/)
@@ -785,8 +779,8 @@ export function importFlashpkg(
       }
       const recTags = normalizeTagList(rec.tags);
 
-      // Upgrade-safe note matching: find existing note in targetDeck by source_key, else derive deterministically
-      const existingNote = existingNotesBySourceKey.get(rec.id);
+      // Upgrade-safe note matching: find existing note in targetDeck, else derive deterministically
+      const existingNote = matchExistingNote(rec.id);
       const noteId = existingNote ? existingNote.id : deriveNoteId(targetDeckId, rec.id);
       seenNoteIds.add(noteId);
 
@@ -803,7 +797,8 @@ export function importFlashpkg(
               {
                 note_id: noteId,
                 deck_id: targetDeckId,
-                source_key: rec.id,
+                // A note matched by its note id keeps its own key (`existingNoteMatcher`).
+                source_key: existingNote.source_key || rec.id,
                 fields: rec.fields,
                 tags: recTags,
                 provenance: rec.provenance ?? { source: 'import', reviewed: true },

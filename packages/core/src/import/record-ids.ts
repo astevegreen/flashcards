@@ -16,3 +16,37 @@ export function uniqueRecordIds(notes: readonly Note[]): string[] {
     return id;
   });
 }
+
+/**
+ * Finds the note of a deck that an imported record id came from, the inverse of
+ * `uniqueRecordIds`: each note is matched at most once, tried in this order:
+ * 1. a note whose source key is the record id: the first not yet matched, in `notes` order (the
+ *    exporter's order, so the note that won the record id gets it back);
+ * 2. a note whose id is the record id: it lost the race for its source key, so it was exported
+ *    under its note id;
+ * 3. a note whose id is the record id without its `~n` suffix.
+ * Without 2 and 3 a re-import into the same collection added a copy of every note that lost.
+ */
+export function existingNoteMatcher(
+  notes: readonly Note[],
+): (recordId: string) => Note | undefined {
+  const bySourceKey = new Map<string, Note[]>();
+  const byId = new Map<string, Note>();
+  for (const note of notes) {
+    byId.set(note.id, note);
+    if (!note.source_key) continue;
+    const list = bySourceKey.get(note.source_key);
+    if (list) list.push(note);
+    else bySourceKey.set(note.source_key, [note]);
+  }
+  const matched = new Set<string>();
+  const free = (note: Note | undefined) => (note && !matched.has(note.id) ? note : undefined);
+  return (recordId) => {
+    const found =
+      bySourceKey.get(recordId)?.find((note) => !matched.has(note.id)) ??
+      free(byId.get(recordId)) ??
+      free(byId.get(recordId.replace(/~\d+$/, '')));
+    if (found) matched.add(found.id);
+    return found;
+  };
+}
