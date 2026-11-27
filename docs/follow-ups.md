@@ -1,6 +1,6 @@
 # Follow-ups
 
-Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). The owner's decisions of 2026-11-22 are recorded below; items marked **To build** are approved work. Tick an item off, or delete it, once it is resolved. Product decisions belong to the owner. Until one is made, the shipped default is the least-committal, reversible option described here. Decision lists hold only what needs the owner (design, content, money, accounts, deleting data), each with a recommendation; a technical default an agent picks is recorded in its pull request.
+Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). The owner's decisions of 2026-11-22 are recorded below; items marked **To build** are approved work. Tick an item off, or delete it, once it is resolved. Product decisions belong to the owner. Until one is made, the shipped default is the least-committal, reversible option described here. Decision lists hold only what needs the owner (design, scope, money, identity, deleting data), each with a recommendation; a technical default an agent picks is recorded in its pull request.
 
 ## Owner decisions open
 
@@ -523,6 +523,7 @@ Observed while bringing up the Capacitor Android debug build on a Pixel 9 Pro an
 
 - [ ] **Background study reminders.** `boot.ts` (`platform-tauri`) uses `studyReminderDelivery: 'while-app-runs'` because `tauri-plugin-notification` cannot schedule OS notifications after quit (documented in Settings, no tray/daemon scheduler planned yet).
 - [ ] **Linux WebKitGTK media codecs & keyring availability.** `<audio>` playback of MP3/M4A clips on Linux depends on host GStreamer plugins (`gst-plugins-good`/`bad`/`ugly`), and Linux without Secret Service (GNOME Keyring/KWallet) falls back to SQLite token storage with a Settings warning; neither Linux runtime has been smoke-tested on a real machine.
+- [ ] **Gate Tauri store builds on `VITE_STORE_LICENSE_KEYS` before a Mac App Store or Microsoft Store build ships (#87).** Today Tauri accepts licence keys whenever a public key is set; only Capacitor checks the flag, and store builds are in-app purchase only (#74, App Store guideline 3.1.1).
 
 ### Web / PWA (`apps/web`, `@flash/platform-web`)
 
@@ -731,7 +732,7 @@ The owner accepted every recommendation on 2026-11-26.
 
 Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- Moved to "Needs the owner (hands-on)", under "Accounts, keys and settings": Tauri store builds accept licence keys whenever a public key is set (#87).
+- Moved to "Cross-platform gaps", under "Desktop": Tauri store builds accept licence keys whenever a public key is set (#87).
 - **Asked in "Owner decisions open".** **Rotating the licence key locks out every key already issued (#87).** Recommend never rotating unless the private key leaks. If it does, ship the old public key alongside the new one for a transition.
 - Moved to "Needs the owner (hands-on)", under "Unverified from batch 2026-11-26b": **An unguarded grammar entry like `-(으)ㄴ` may still show as `#NAME?` in Excel (#88, not verified).** It is in the "for other apps" CSV. Recommend checking once in Excel; if so, guard every leading `-` in that export too (the `'` prefix is invisible in Excel).
 
@@ -850,7 +851,7 @@ Kept as shipped on 2026-11-27, when the owner approved clearing the decision que
 
 ## Decisions needed (batch 2026-11-27)
 
-Each default below stays shipped until the owner decides.
+The owner decided every item below on 2026-11-27.
 
 - [x] **Pack upgrade with "archive removed notes" (#114):** a package note that lost its source key to a moved-in duplicate now stays live with its old content (it was archived). The deck shows both notes. Recommend keep: it writes nothing and loses nothing. Decided 2026-11-27: keep.
 - [x] **CSV with no header row (#114):** an all-blank row 1 (quoted spaces too) is now dropped silently like later blank rows; before, an unquoted one gave an "empty row skipped" warning. Recommend keep. Decided 2026-11-27: keep.
@@ -872,7 +873,7 @@ Open items, grouped by area. The batch ran one round; its fallout is here instea
 ### Sync engine (#120)
 
 - [ ] The mobile-browser PWA gets the 128 MiB snapshot cap; only Capacitor keeps 25 MiB.
-- [ ] **Scale the snapshot threshold with the snapshot size** (whether to prune old snapshots is asked in "Owner decisions open"). Big collections upload a ~5 MiB snapshot every 500 events, and old snapshots are never pruned. Scale the threshold with the snapshot size (pruning deletes remote data: owner).
+- [ ] **Scale the snapshot threshold with the snapshot size** (whether to prune old snapshots is asked in "Owner decisions open"). Big collections upload a ~5 MiB snapshot every 500 events.
 - [ ] `packages/core/src/sync/engine.ts:99`: the `snapshotLimits` comment is stale.
 - [ ] `planHeadCompaction` re-folds full segments after a partial one (efficiency).
 - [ ] A legacy head with N ranges folds them all in one push. Unverified.
@@ -883,7 +884,7 @@ Open items, grouped by area. The batch ran one round; its fallout is here instea
 
 ## Decisions needed (batch 2026-11-27b)
 
-Each default below stays shipped until the owner decides.
+The owner decided every item below on 2026-11-27.
 
 - [x] **agy merge gate, plural clean forms (#119):** "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" still retry. Clearing them loosens the check. Recommend clear them, with the same allow-list (only `found`, `identified` or `in this diff` may follow), because they are plain "no blockers" answers that cost needless retries. Decided 2026-11-27: clear; cleared in #134.
 - [x] **Snapshot cap (#120):** 128 MiB unpacked on desktop and web; phones (Capacitor) keep 25 MiB. Recommend keep, and measure a 20k-card snapshot on a real phone before raising the phone cap. Decided 2026-11-27: keep.
@@ -893,7 +894,7 @@ Each default below stays shipped until the owner decides.
 
 ## Decisions needed (batch 2026-11-27c)
 
-Each default below stays shipped until the owner decides.
+The owner decided every item below on 2026-11-27.
 
 - [x] **Sheets JSON memory ceiling (#123):** a Google Sheet read may now hold up to 150 MB of JSON (was 50 MB), so a sheet that loads as a linked CSV also loads here. Recommend keep; a factor of 2 (100 MB) would still cover every measured deck except mostly empty grids. Decided 2026-11-27: keep 150 MB.
 - [x] **A field's own language wins over the deck's (#124):** nothing records who set a field's `lang`, so a value that differs from the preset's default counts as set by the user. A user who deliberately picks the default value is not told apart. No screen edits a built-in's field languages today. Recommend keep. Decided 2026-11-27: keep.
@@ -952,7 +953,6 @@ Only Chromium Playwright with faked endpoints has covered these (moved from "Not
 - [ ] **Measure the full KRDict pack.** It has never been built here. `--full` now prints every file's size. **First-syllable sharding is written** (`docs/formats/packs.md`): a dictionary pack over 25 MiB gzipped (or with `--shard <id>`) becomes a version-2 index of search "stubs" plus `.sNN` shards cut at 초성 boundaries. All lookups work from the index; the shards behind the top results load lazily (at most 3 per lookup), and Settings > Packs has "Download all for offline". Still to check once built: that the index itself stays under 25 MiB (about 60% of the pack on the starter sample), and the shard count against the Pages 20k-file limit. Lazy shards and the tunables (3-shard cap, top-12 completion, 2 MiB shards) kept as shipped (2026-11-27).
 - **Asked in "Owner decisions open".** **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending. The dictionary has no speaker button, so the TTS fallback is not wired either.
 - **Asked in "Owner decisions open".** **Apple Developer account: the owner has none yet.** Signing, notarizing, wiring the entitlements and real iCloud tests wait until there is one. An account (Apple Developer Program) is also needed for any iOS or Mac store release, so it is on the launch path anyway.
-- [ ] **Gate Tauri store builds on `VITE_STORE_LICENSE_KEYS` before a Mac App Store or Microsoft Store build ships (#87).** Today Tauri accepts licence keys whenever a public key is set; only Capacitor checks the flag, and store builds are in-app purchase only (#74, App Store guideline 3.1.1).
 - **Asked in "Owner decisions open".** **Dependabot alert 3 (`glib` 0.18.5, Rust, `apps/desktop/src-tauri/Cargo.lock`): no fix here.** It comes in through Tauri's Linux GTK stack (gtk-rs 0.18); the patched glib 0.20 needs Tauri/wry to move to gtk-rs 0.20+. The unsound API (`VariantStrIter`) is not called by app code. Bump when Tauri does, or dismiss the alert as tolerable risk (owner's call).
 - **Asked in "Owner decisions open".** **Korean example sentences: not added (no compatible source).** The `example` field stays empty rather than invented. Checked 2026-11-25: Wikidata lexeme usage examples (P5831, CC0) exist on only 7 of the 204 pinned lexemes. KRDict 한국어기초사전 examples are CC BY-SA 2.0 KR (share-alike, rejected). Tatoeba is CC BY 2.0 FR (some CC0): no share-alike, but it needs per-sentence attribution, has no pinned release (weekly exports only), and matching inflected Korean to a NIKL headword needs morphological analysis; English translations are uneven. Owner decision: accept Tatoeba (CC BY) with a pinned snapshot and per-deck credits, or keep examples empty.
 - [ ] Add `http://127.0.0.1` as a "Mobile and desktop" redirect URI on the Entra app, then switch `microsoft-loopback.ts` to `127.0.0.1` (review N8).
