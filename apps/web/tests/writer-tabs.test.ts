@@ -9,6 +9,7 @@ import {
   type WriterLocks,
   type WriterMessage,
 } from '../src/writer-lock.ts';
+import { BLOCKED_MESSAGE } from '../src/writer-handoff.ts';
 import { fakeLocks } from './helpers/fake-locks.ts';
 import { fakeWindow } from './helpers/fake-window.ts';
 
@@ -22,11 +23,13 @@ const chunkGone = () => Promise.reject(new Error('chunk gone'));
 interface TabOptions {
   load?: () => Promise<HandoffModule>;
   whenSaved?: () => Promise<void>;
+  booted?: Promise<void>;
+  storage?: { close: () => void };
 }
 
 function openTab(locks: WriterLocks, name: string, options: TabOptions = {}) {
   const { win, reload } = fakeWindow();
-  const storage = { close: vi.fn() };
+  const storage = options.storage ?? { close: vi.fn() };
   const events: string[] = [];
   let onUse: (() => void) | undefined;
   const ready = holdWriter({
@@ -40,6 +43,7 @@ function openTab(locks: WriterLocks, name: string, options: TabOptions = {}) {
       onUse = (node as ReactElement<{ onUse: () => void }>).props.onUse;
     },
     whenSaved: options.whenSaved ?? (async () => undefined),
+    booted: options.booted ?? Promise.resolve(),
   });
   let holds = false;
   void ready.then(() => {
@@ -134,6 +138,37 @@ describe('holdWriter', () => {
     await vi.waitFor(() => expect(writer.reload).toHaveBeenCalledTimes(1));
     expect(writer.storage.close).toHaveBeenCalled();
     expect(await holdWriterLock(locks, name, waitUpTo(500), vi.fn())).not.toBeNull();
+  });
+
+  it('a take-over request during boot is honoured only once boot has finished', async () => {
+    const { locks } = fakeLocks();
+    const name = freshName();
+    let finishBoot: () => void = () => undefined;
+    const booted = new Promise<void>((r) => {
+      finishBoot = r;
+    });
+    // Boot writes the device meta, seeds samples and migrates before the app mounts.
+    const storage = { close: vi.fn(), setDeviceMeta: vi.fn(async () => undefined) };
+    const writer = openTab(locks, name, { booted, storage });
+    await vi.waitFor(() => expect(writer.holds()).toBe(true));
+
+    const asking = ask(name);
+    try {
+      // Answered at once, so the asking tab waits instead of stealing...
+      await vi.waitFor(() => expect(asking.answers()).toBeGreaterThan(0));
+      await tick(100);
+      // ...while boot's writes still land.
+      await expect(storage.setDeviceMeta()).resolves.toBeUndefined();
+      expect(writer.reload).not.toHaveBeenCalled();
+
+      finishBoot();
+
+      await vi.waitFor(() => expect(writer.reload).toHaveBeenCalledTimes(1));
+      await expect(storage.setDeviceMeta()).rejects.toThrow(BLOCKED_MESSAGE);
+      expect(await holdWriterLock(locks, name, waitUpTo(500), vi.fn())).not.toBeNull();
+    } finally {
+      asking.close();
+    }
   });
 
   it('a stolen lock stops writing at once and reloads, without loading any chunk', async () => {
