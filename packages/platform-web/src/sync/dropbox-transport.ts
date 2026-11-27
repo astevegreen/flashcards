@@ -3,6 +3,7 @@ import { isUnsafeCloudPath } from './cloud-path.ts';
 import type { SyncFileInfo, SyncTransport } from '@flash/platform';
 import { AuthorizedHttpClient } from './authorized-http.ts';
 import { dropboxFailure } from './dropbox-errors.ts';
+import { readSyncBodyCapped } from './sync-read-caps.ts';
 
 const DROPBOX_API_BASE = 'https://api.dropboxapi.com/2';
 const DROPBOX_CONTENT_BASE = 'https://content.dropboxapi.com/2';
@@ -157,7 +158,7 @@ export class DropboxAppFolderTransport implements SyncTransport {
       headers: { 'Dropbox-API-Arg': JSON.stringify({ path: dropboxPath }) },
     });
     if (!res.ok) throw await dropboxFailure(res, `download of "${path}"`);
-    return new Uint8Array(await res.arrayBuffer());
+    return readSyncBodyCapped(res, path, 'Dropbox');
   }
 
   async write(path: string, data: Uint8Array, opts?: { ifAbsent?: boolean }): Promise<void> {

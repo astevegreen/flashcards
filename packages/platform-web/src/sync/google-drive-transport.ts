@@ -1,6 +1,7 @@
 import { compareCodeUnits, SyncTransportError } from '@flash/core';
 import type { Auth, SyncFileInfo, SyncTransport } from '@flash/platform';
 import { createGoogleFetch, type GoogleFetch } from './google-http.ts';
+import { readSyncBodyCapped } from './sync-read-caps.ts';
 
 const DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3/files';
@@ -239,8 +240,7 @@ export class GoogleDriveAppDataTransport implements SyncTransport {
       );
     }
 
-    const buf = await res.arrayBuffer();
-    return new Uint8Array(buf);
+    return readSyncBodyCapped(res, path, 'Google Drive');
   }
 
   async write(path: string, data: Uint8Array, opts?: { ifAbsent?: boolean }): Promise<void> {
