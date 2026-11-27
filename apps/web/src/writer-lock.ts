@@ -124,9 +124,10 @@ export const SAVE_WAIT_MS = 60_000;
 /**
  * Resolves once this tab holds the writer lock (waiting on the lazy screen meanwhile), then keeps
  * listening for another tab asking for it. A request is answered at once and until the page
- * reloads, and once boot has finished the app's queued writes are saved before the lock goes, even when the handoff
- * chunk can't load. Losing the lock (stolen, or that chunk failing) closes the database, so
- * nothing more is written, and reloads.
+ * reloads. The handoff starts once boot has finished (no cap of its own: a hung boot is stolen
+ * from after the asking tab's 120 s), and the app's queued writes are saved before the lock goes,
+ * even when the handoff chunk can't load. Losing the lock (stolen, or that chunk failing) closes
+ * the database, so nothing more is written, and reloads.
  */
 export async function holdWriter(s: WriterSetup): Promise<void> {
   const self = String(Math.random());
