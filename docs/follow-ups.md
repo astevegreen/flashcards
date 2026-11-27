@@ -75,6 +75,7 @@ The owner answered every open decision on 2026-11-22. **To build** marks work th
 
 Only Chromium Playwright with faked endpoints has covered these.
 
+- [x] Tauri attaching its CSP to Worker script responses, so the FSRS optimizer and the Anki SQLite WASM run under `'wasm-unsafe-eval'`. **Verified on Windows Tauri release (`flashcards-desktop.exe`, 2026-11-24):** both `apkg-writer.worker` (`sql-wasm-browser.wasm`, wrote valid `SQLite format 3` DB) and `fsrs-optimizer.worker` (`fsrs_browser_bg.wasm`, trained 660 items → 21 FSRS-6 weights) executed under live Tauri CSP with 0 CSP/console errors; also fixed `fsrs.free()` in `finally` not to mask WASM panic errors.
 - Moved to "Needs the owner (hands-on)", under "Real devices and services".
 
 ## Decided, no change needed (2026-11-22)
@@ -144,7 +145,6 @@ These live in code ported from Terminal Dusk, so fix them when the four agy copi
 
 - Moved to "Needs the owner (hands-on)": the real export check.
 - Moved to "Needs the owner (hands-on)": the upstream download and measurement.
-- Moved to "Needs the owner (hands-on)": KRDict audio licence.
 - [x] **Related, synonym and antonym links (PR #18, 2026-11-23):** parsed from KRDict and shown as links. The `SenseRelation` attribute names (`lemma` / `writtenForm`) are unverified against a real export.
 - [x] **Korean definitions (`definitionNative`) (PR #18, 2026-11-23):** now shown.
 - [x] **Japanese deinflection** (`食べた` → `食べる`) and Korean-style ranking for `ja` / `zh-Hans` (PR #18, 2026-11-23).
@@ -162,7 +162,11 @@ The owner answered every overnight question on 2026-11-23. **To build** marks ap
 - [x] **#6/#21, tag copy (PR #26):** "nested tags" replaces "subcategories". say "tag" everywhere. "Category" appears only in one explainer line ("tags work like categories") and in the import hint where category columns become tags. **Kept:** the How tags work panel stays open by default until first dismissed.
 - [x] **#20, iOS Keychain loss (PR #27):** detect it on iOS and show the same one-time notice as Android.
 - [ ] **#22, macOS iCloud setup:**
-  - Moved to "Needs the owner (hands-on)": the Apple developer account.
+  - Moved to "Needs the owner (hands-on)": the Apple developer account (signing, notarizing, entitlements and real iCloud tests). The history and decided facts stay here:
+    - **Distribution: Developer ID** (outside the Mac App Store). Kept.
+    - **Done (PR #27):** hide "Use iCloud Drive" on unsigned Mac builds (no entitlement), so the misleading sign-in error can't appear.
+    - **Done (PR #27):** a Mac where iCloud was off at launch keeps iCloud Drive listed, with a hint to turn iCloud Drive on.
+    - The macOS App ID reuses `app.flashcards.localfirst`; it must be in the same Apple team as the iOS app. Kept, for when the account exists.
 - [x] **#18, provenance (PR #28):** an "App" badge, with attribution tooltips on every badge. the 춥다 and 먹다 rewording is accepted. Hand-written definitions get their own badge instead of KRDict's.
 - [x] **Starter-deck gloss report (#16), applied in PR #28:** `content/starters/gloss-overrides.json`, decks at 1.1.0; four readings corrected after review (아니, 长, 呐, 地). Not reviewed by a native speaker. accept every suggested fix in `docs/starter-gloss-review.md`, applied through `scripts/build-starter-decks.mjs` (never by hand-editing the generated decks).
 - [x] **Dependabot PR #4 (TypeScript 6):** merged (`05af924`).
@@ -612,7 +616,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 
 ### Tests and tooling (#73, #84, #85)
 
-- [x] Burn down `REACT_COMPILER_BASELINE` (88 sites in 37 files; `purity` is off in `StudyScreen`). Partly done in #108 (in review): about 36 files are left (see "Left over from the follow-ups batch 2").
+- [ ] Burn down `REACT_COMPILER_BASELINE` (88 sites in 37 files; `purity` is off in `StudyScreen`). #108 (in review) trims it; about 36 files are left (see "Left over from the follow-ups batch 2").
 - Moved to "Needs the owner (hands-on)": the required Security checks.
 - [ ] CodeQL covers JavaScript, TypeScript and Actions only. Add Rust, Kotlin and Swift to `desktop.yml` and `native.yml` if wanted.
 - [ ] Watch the first Gradle Dependabot PRs on the Capacitor project: `cap sync` rewrites `capacitor.build.gradle` and `capacitor.settings.gradle`.
@@ -629,7 +633,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 
 ### Left over from the dead-code pass (#85)
 
-- [x] knip still lists 60 unused value exports and 121 unused type exports, mostly component prop types and module constants. Un-export them in a later pass. A few are `default` exports used through `lazy()`. Done in #108 (in review): the un-exports.
+- [ ] knip still lists 60 unused value exports and 121 unused type exports, mostly component prop types and module constants. Un-export them in a later pass. A few are `default` exports used through `lazy()`. #108 (in review) un-exports them.
 - [ ] R8 leftovers: the per-review FSRS loop (`stats.ts`, `replay.ts`), the `.flashpkg` layout and note-type payloads, and the device-speech wrappers.
 - [ ] Moving the shared SQLite code out of `@flash/platform-capacitor` needs a new workspace package. `platform-tauri` also takes `isPickerCallback`, `SystemBrowserLauncher` and `ICloudDocumentPlugin` from it.
 - Moved to "Needs the owner (hands-on)": owner chores.
@@ -694,7 +698,7 @@ The owner accepted every recommendation on 2026-11-26.
 - [x] `packages/ui/tests/writer-handoff-wiring.test.tsx` imports `apps/web/src/writer-handoff.ts`, so a library test depends on the app. Replace it with a local stand-in that records `release` and awaits `whenSaved`. Done in #107: a local stand-in.
 - [x] `blockWrites` replaces `storage.close` with a rejecting stub. If the lock is stolen while `yieldWriter` is still running, `stop()` calls that stub, which raises an unhandled rejection just before the reload and doesn't close the database (agy, #100). Done in #107: `close` stays real.
 - [x] `pause` in `writer-handoff.ts` doesn't check `signal.aborted` before waiting. A tap on "Use here instead" after this tab has already won the lock, but before the app has rendered over the waiting screen, waits a full 3 s round and keeps sending take-over requests (agy, #100). Done in #107.
-- [ ] Not verified in Safari, Firefox, Capacitor or Tauri, or in a real browser for a stolen lock or an old tab whose lazy chunk 404s after a deploy. Chromium 156 does reject a stolen holder's `request()` promise with `AbortError`, as the spec says.
+- Moved to "Needs the owner (hands-on)", under "Real devices and services": Safari, Firefox, Capacitor and Tauri, a stolen lock in a real browser, and an old tab whose lazy chunk 404s after a deploy.
 - [x] Bundle: #100 takes initial study-screen JS to 159.95 of 160 KB. The next change that adds to the initial bundle needs a trim first. Done in #104: 156.69 KB of 160 KB after it, 156.73 KB after #107 (a re-measure from a fresh worktree is still wise).
 
 ## Decisions needed (wave 3, 2026-11-26)
@@ -753,12 +757,13 @@ Open items, grouped by PR. Dependabot and CI come last.
 ### #108 (in review)
 
 - [ ] About 36 files are left in `REACT_COMPILER_BASELINE`. All are genuine `purity`, `set-state-in-effect`, `refs` or `incompatible-library` findings, and clearing them needs behaviour-changing rewrites. `StudyScreen` `purity` was deliberately not forced.
+- [ ] Hardening: `noteEditDiff.ts:32` and `ColumnMapping.tsx:287,291` still use raw `x.fields[key]` lookups on edit snapshots and import-preview rows (not Notes), with the same prototype-key exposure.
 
 ### Dependabot and CI
 
 - [x] Dependabot #66, #67 and #76 merged. #68 closed: @types/node 26, and Dependabot ignores that major because the runtime is Node 24.
-- [ ] **Waiting on upstream:** #77 (sqlx 0.9) was closed until a tauri-plugin-sql release is built on sqlx 0.9.
-- [ ] **Waiting on upstream:** #78 (Gradle 9.9) was closed until an Android Gradle Plugin supports Gradle 9.6+.
+- [ ] **Waiting on upstream:** #77 (sqlx 0.9) is closed; reopen when upstream ships (tauri-plugin-sql on sqlx 0.9).
+- [ ] **Waiting on upstream:** #78 (Gradle 9.9) is closed; reopen when upstream ships (an AGP supporting Gradle 9.6+).
 - [ ] CI: watch the next `publish-packs` run on main. wrangler-action 4 (#66) and actions/cache 6 (#67) haven't run there yet.
 
 ### Open on purpose
@@ -799,26 +804,19 @@ Only Chromium Playwright with faked endpoints has covered these (moved from "Not
 - [ ] Capacitor Microsoft sign-in on Android and iOS. From reading the code, `SocialLogin.initialize` with only the oauth2 config re-creates only that provider and keeps the Google config, but this hasn't been seen on a device.
 - [ ] OneDrive download and upload-session URLs allowing CORS from the Capacitor and Tauri WebView origins.
 - [ ] Real Microsoft Graph and Entra behaviour, against a real app registration (`docs/setup-microsoft.md`).
-- [x] Tauri attaching its CSP to Worker script responses, so the FSRS optimizer and the Anki SQLite WASM run under `'wasm-unsafe-eval'`. **Verified on Windows Tauri release (`flashcards-desktop.exe`, 2026-11-24):** both `apkg-writer.worker` (`sql-wasm-browser.wasm`, wrote valid `SQLite format 3` DB) and `fsrs-optimizer.worker` (`fsrs_browser_bg.wasm`, trained 660 items → 21 FSRS-6 weights) executed under live Tauri CSP with 0 CSP/console errors; also fixed `fsrs.free()` in `finally` not to mask WASM panic errors.
 - [ ] iOS WKWebView module Workers loaded from the `capacitor://` scheme.
 - [ ] Real Anki 23.x/24.x `anki21b` exports. The fixture is synthetic, and its schema-18 DDL was written from memory.
 - [ ] Real Android, iOS, macOS, Windows and Linux shells.
-- [ ] Safari and Firefox for the single-writer flow (#107 is Chromium e2e only).
+- [ ] **Single-writer tab (#100, #107):** Not verified in Safari, Firefox, Capacitor or Tauri, or in a real browser for a stolen lock or an old tab whose lazy chunk 404s after a deploy. Chromium 156 does reject a stolen holder's `request()` promise with `AbortError`, as the spec says. #107 is Chromium e2e only.
 - [ ] Real Google Drive, Dropbox, OneDrive and iCloud sign-ins and syncs.
 
 ### Accounts, keys and settings
 
 - [ ] **Check the KRDict topic attribute names on a real export.** The parser accepts `subjectCategory` / `semanticCategory` and the Korean labels (`주제 및 상황 범주`, `의미 범주`). If the first `build-packs.mjs --full` run gives no topics, find the real names in the XML and add them to `KRDICT_SUBJECT_CATEGORY_ATTS` / `KRDICT_SEMANTIC_CATEGORY_ATTS` in `scripts/packs/upstream-parsers.mjs`.
 - [ ] **Measure the full KRDict pack.** It has never been built here. `--full` now prints every file's size. **First-syllable sharding is written** (`docs/formats/packs.md`): a dictionary pack over 25 MiB gzipped (or with `--shard <id>`) becomes a version-2 index of search "stubs" plus `.sNN` shards cut at 초성 boundaries. All lookups work from the index; the shards behind the top results load lazily (at most 3 per lookup), and Settings > Packs has "Download all for offline". Still to check once built: that the index itself stays under 25 MiB (about 60% of the pack on the starter sample), and the shard count against the Pages 20k-file limit. Owner choices pending: lazy shards versus downloading them all at install, and the tunables (3-shard cap, top-12 completion, 2 MiB shards).
-- [ ] **KRDict audio licence:** not checked. Audio is skipped, and the dictionary has no speaker button, so the TTS fallback isn't wired either.
-- [ ] **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending.
+- [ ] **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending. The dictionary has no speaker button, so the TTS fallback is not wired either.
 - **Apple Developer account: the owner has none yet.** Signing, notarizing, wiring the entitlements and real iCloud tests wait until there is one. An account (Apple Developer Program) is also needed for any iOS or Mac store release, so it is on the launch path anyway.
-- **Distribution: Developer ID** (outside the Mac App Store). Kept.
-- **Done (PR #27):** hide "Use iCloud Drive" on unsigned Mac builds (no entitlement), so the misleading sign-in error can't appear.
-- **Done (PR #27):** a Mac where iCloud was off at launch keeps iCloud Drive listed, with a hint to turn iCloud Drive on.
-- The macOS App ID reuses `app.flashcards.localfirst`; it must be in the same Apple team as the iOS app. Kept, for when the account exists.
 - [ ] **Dependabot alert 3 (`glib` 0.18.5, Rust, `apps/desktop/src-tauri/Cargo.lock`): no fix here.** It comes in through Tauri's Linux GTK stack (gtk-rs 0.18); the patched glib 0.20 needs Tauri/wry to move to gtk-rs 0.20+. The unsound API (`VariantStrIter`) is not called by app code. Bump when Tauri does, or dismiss the alert as tolerable risk (owner's call).
-- [ ] KRDict full-pack measurement and the topic attribute check are not done; the upstream data is a manual download. First-syllable sharding is done (see "Phase 10 remainder").
 - [ ] **Korean example sentences: not added (no compatible source).** The `example` field stays empty rather than invented. Checked 2026-11-25: Wikidata lexeme usage examples (P5831, CC0) exist on only 7 of the 204 pinned lexemes. KRDict 한국어기초사전 examples are CC BY-SA 2.0 KR (share-alike, rejected). Tatoeba is CC BY 2.0 FR (some CC0): no share-alike, but it needs per-sentence attribution, has no pinned release (weekly exports only), and matching inflected Korean to a NIKL headword needs morphological analysis; English translations are uneven. Owner decision: accept Tatoeba (CC BY) with a pinned snapshot and per-deck credits, or keep examples empty.
 - [ ] Add `http://127.0.0.1` as a "Mobile and desktop" redirect URI on the Entra app, then switch `microsoft-loopback.ts` to `127.0.0.1` (review N8).
 - [ ] Decide whether the Security jobs (`security.yml`) become required checks. That needs a `dependency-review` that tolerates a skip, because it runs only on pull requests.
