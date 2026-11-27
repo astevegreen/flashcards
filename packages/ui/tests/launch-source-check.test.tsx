@@ -9,6 +9,7 @@ import {
   type SourceRef,
 } from '@flash/core';
 import { act } from 'react';
+import type * as LaunchSourceCheck from '../src/sources/launchSourceCheck.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createMemoryStorage,
@@ -24,7 +25,7 @@ vi.mock('../src/sources/sourceRunner.ts', () => ({ refreshAllSources }));
 // fixed 80 ms plus five ticks timed out when parallel gates loaded the machine).
 const check = vi.hoisted(() => ({ runs: [] as Promise<void>[] }));
 vi.mock('../src/sources/launchSourceCheck.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/sources/launchSourceCheck.ts')>();
+  const actual = await importOriginal<typeof LaunchSourceCheck>();
   return {
     ...actual,
     runLaunchSourceCheck: (...args: Parameters<typeof actual.runLaunchSourceCheck>) => {
