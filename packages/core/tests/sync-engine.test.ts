@@ -950,7 +950,9 @@ describe('snapshots past the decoder limits (D12)', () => {
     expect(decodeSyncSnapshot(gz).created_by).toBe('dev-a');
     // Overriding only the compressed cap keeps the snapshot default for the raw one.
     expect(decodeSyncSnapshot(gz, { maxCompressedBytes: 1024 * 1024 }).created_by).toBe('dev-a');
-  });
+    // CPU-bound: it gzips and inflates a real 25 MiB+ payload three times, about 1 s alone but past the
+    // 8 s coverage-run default under V8 coverage on CI. Scaling it down would stop it testing the default limits.
+  }, 30_000);
 
   it('a snapshot past the old raw cap is read by new builds and skipped by older ones', async () => {
     // Scaled down: `oldCap` stands for the 25 MiB cap of older builds, `newCap` for 128 MiB.
