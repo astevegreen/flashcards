@@ -29,6 +29,10 @@ export function uniqueRecordIds(notes: readonly Note[]): string[] {
  * The best free candidate wins: a live note before an archived one (archived notes are never
  * exported), then one whose content equals the record (`sameContent`: a subset export numbers
  * fewer notes, so the replay can name another one), then the replay's pick, then the order above.
+ * Content outranks the replay on an upgrade too: the replay runs over the deck as it is now, so
+ * a note moved in since the export can take the pick, and a matched note whose content equals
+ * the record needs no write, while a wrong pick would be overwritten. The note that loses is not
+ * archived as removed, because its key is still in the package (`importFlashpkg`).
  */
 export function existingNoteMatcher(
   notes: readonly Note[],

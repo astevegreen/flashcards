@@ -127,6 +127,31 @@ describe('Export for Anki CSV', () => {
     );
   });
 
+  it('writes line breaks in the note type name as spaces in its header', () => {
+    const named = buildAnkiExportState();
+    named.noteTypes.set(VOCAB_TYPE.id, { ...VOCAB_TYPE, name: ' Japanese\r\nVocab\n\nTwo\r' });
+    const lines = planAnkiCsvExport(named, { deckId: VOCAB_DECK }).text.split('\r\n');
+    expect(lines[2]).toBe('#notetype:Japanese Vocab Two');
+    expect(lines[3]?.startsWith('#columns:')).toBe(true);
+  });
+
+  it('leaves out #notetype: when the deck has no note type', () => {
+    const untyped = buildAnkiExportState();
+    untyped.noteTypes.delete(VOCAB_TYPE.id);
+    const plan = planAnkiCsvExport(untyped, { deckId: VOCAB_DECK });
+    const lines = plan.text.split('\r\n');
+    expect(lines.some((line) => line.startsWith('#notetype'))).toBe(false);
+    expect(lines.slice(0, 6)).toEqual([
+      '#separator:Comma',
+      '#html:true',
+      '#columns:GUID,Deck,Tags',
+      '#guid column:1',
+      '#deck column:2',
+      '#tags column:3',
+    ]);
+    expect(plan.noteCount).toBe(3);
+  });
+
   it('honours tab separators, selections and archived notes', () => {
     const tsv = planAnkiCsvExport(state, { deckId: VOCAB_DECK, delimiter: '\t' });
     expect(tsv.text.split('\r\n')[0]).toBe('#separator:Tab');

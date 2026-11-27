@@ -847,10 +847,13 @@ export function importFlashpkg(
     }
 
     // Soft-archive notes removed in an upgraded package version when requested (preserves reviews)
-    // A subset package (one category) never archives the deck's other notes.
+    // A subset package (one category) never archives the deck's other notes. Nor is a note
+    // whose source key the package still lists: it wasn't removed, another note with that key
+    // matched the record first (`existingNoteMatcher`).
     if (existingDeck && options?.archiveRemovedOnUpgrade && !subset) {
       for (const existing of existingDeckNotes) {
-        if (!existing.archived && !seenNoteIds.has(existing.id)) {
+        const keyStillListed = !!existing.source_key && seenRecordIds.has(existing.source_key);
+        if (!existing.archived && !seenNoteIds.has(existing.id) && !keyStillListed) {
           events.push(eventFactory.create('NoteArchived', { note_id: existing.id }, nowMs));
         }
       }
