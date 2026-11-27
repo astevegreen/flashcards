@@ -18,20 +18,27 @@ export function uniqueRecordIds(notes: readonly Note[]): string[] {
 }
 
 /**
- * Finds the note of a deck that an imported record id came from, the inverse of
- * `uniqueRecordIds`: each note is matched at most once, tried in this order:
- * 1. a note whose source key is the record id. Of those not yet matched, the exporter's pick
- *    comes first: a live note before an archived one (archived notes are never exported), then
- *    one whose content equals the record (`sameContent`; a subset export may have written a later
- *    note under the key), then `notes` order (the exporter's order);
- * 2. a note whose id is the record id: it lost the race for its source key, so it was exported
- *    under its note id;
- * 3. a note whose id is the record id without its `~n` suffix.
- * Without 2 and 3 a re-import into the same collection added a copy of every note that lost.
+ * Finds the note of a deck that an imported record id came from: the inverse of
+ * `uniqueRecordIds`. `notes` is the deck in export order (`created_order`, then id). Each note is
+ * matched at most once. The candidates for a record id are:
+ * - the note `uniqueRecordIds` gives that id when it is replayed over the deck's live notes
+ *   (what a whole-deck export writes);
+ * - notes whose source key is the record id;
+ * - the note whose id is the record id (it lost the race for its key, so it went under its id),
+ *   or that id without a `~n` suffix.
+ * The best free candidate wins: a live note before an archived one (archived notes are never
+ * exported), then one whose content equals the record (`sameContent`: a subset export numbers
+ * fewer notes, so the replay can name another one), then the replay's pick, then the order above.
  */
 export function existingNoteMatcher(
   notes: readonly Note[],
 ): (recordId: string, sameContent?: (note: Note) => boolean) => Note | undefined {
+  const live = notes.filter((note) => !note.archived);
+  const replay = new Map<string, Note>();
+  uniqueRecordIds(live).forEach((id, i) => {
+    const note = live[i];
+    if (note) replay.set(id, note);
+  });
   const bySourceKey = new Map<string, Note[]>();
   const byId = new Map<string, Note>();
   for (const note of notes) {
@@ -42,23 +49,23 @@ export function existingNoteMatcher(
     else bySourceKey.set(note.source_key, [note]);
   }
   const matched = new Set<string>();
-  const free = (note: Note | undefined) => (note && !matched.has(note.id) ? note : undefined);
-  const bySourceKeyMatch = (recordId: string, sameContent?: (note: Note) => boolean) => {
+  return (recordId, sameContent) => {
+    const picked = replay.get(recordId);
+    const candidates = [
+      picked,
+      ...(bySourceKey.get(recordId) ?? []),
+      byId.get(recordId),
+      byId.get(recordId.replace(/~\d+$/, '')),
+    ];
     let best: Note | undefined;
     let bestRank = Infinity;
-    for (const note of bySourceKey.get(recordId) ?? []) {
-      if (matched.has(note.id)) continue;
-      const rank = (note.archived ? 2 : 0) + (sameContent?.(note) ? 0 : 1);
+    for (const note of candidates) {
+      if (!note || matched.has(note.id)) continue;
+      const rank =
+        (note.archived ? 4 : 0) + (sameContent?.(note) ? 0 : 2) + (note === picked ? 0 : 1);
       if (rank < bestRank) [best, bestRank] = [note, rank];
     }
+    if (best) matched.add(best.id);
     return best;
-  };
-  return (recordId, sameContent) => {
-    const found =
-      bySourceKeyMatch(recordId, sameContent) ??
-      free(byId.get(recordId)) ??
-      free(byId.get(recordId.replace(/~\d+$/, '')));
-    if (found) matched.add(found.id);
-    return found;
   };
 }

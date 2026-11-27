@@ -7,7 +7,7 @@ import {
 } from '../src/events/replay.ts';
 import { createHlcState } from '../src/hlc.ts';
 import { exportFlashpkg, importFlashpkg } from '../src/import/flashpkg.ts';
-import { existingNoteMatcher } from '../src/import/record-ids.ts';
+import { existingNoteMatcher, uniqueRecordIds } from '../src/import/record-ids.ts';
 import type { Note } from '../src/model/types.ts';
 
 const T0 = Date.UTC(2026, 10, 1, 9, 0, 0);
@@ -163,6 +163,25 @@ describe('re-import picks the note the exporter wrote under a shared key', () =>
   });
 });
 
+describe('re-import of a deck where a note id equals a later note key', () => {
+  it('matches each note to its own record, with no copy and nothing archived', () => {
+    const { state: base, deckId } = packageDeckWithDuplicateKeys();
+    const f = createEventFactory('dev-user', 500, createHlcState('dev-user', T0 + 70_000));
+    // `id-key` sorts before `later`, and `later` is keyed `id-key`.
+    const state = applyEvents(base, [
+      noteEvent(f, deckId, 'id-key', '', '첫째', -5),
+      noteEvent(f, deckId, 'later', 'id-key', '둘째', 70),
+    ]);
+    const bytes = exportFlashpkg(state, { deckId, packageId: PACKAGE_ID });
+    const g = createEventFactory('dev-user', 600, createHlcState('dev-user', T0 + 80_000));
+    const res = importFlashpkg(bytes, state, g, {
+      nowMs: T0 + 80_000,
+      archiveRemovedOnUpgrade: true,
+    });
+    expect(res.events.filter((e) => e.type.startsWith('Note'))).toEqual([]);
+  });
+});
+
 describe('existingNoteMatcher', () => {
   const note = (id: string, sourceKey: string): Note =>
     ({ id, source_key: sourceKey }) as unknown as Note;
@@ -176,6 +195,21 @@ describe('existingNoteMatcher', () => {
     expect(match('k~2')?.id).toBe('k');
     expect(match('k')).toBeUndefined();
     expect(match('other')).toBeUndefined();
+  });
+
+  it('gives a note whose id is a key, ordered first, its own record back (agy, #102)', () => {
+    // uniqueRecordIds writes `k` for the note whose id is k, and `n2` for the note keyed k.
+    const notes = [note('k', ''), note('n2', 'k')];
+    expect(uniqueRecordIds(notes)).toEqual(['k', 'n2']);
+    const match = existingNoteMatcher(notes);
+    expect(match('k')?.id).toBe('k');
+    expect(match('n2')?.id).toBe('n2');
+  });
+
+  it('skips archived notes the way the exporter does', () => {
+    const archived = { ...note('a', 'k'), archived: true } as Note;
+    const notes = [archived, note('b', 'k')];
+    expect(existingNoteMatcher(notes)('k')?.id).toBe('b');
   });
 
   it('matches a shared source key to the next unmatched note', () => {
