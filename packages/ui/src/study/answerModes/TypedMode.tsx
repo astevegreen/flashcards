@@ -1,3 +1,4 @@
+import { noteField } from '@flash/core';
 import { Suspense } from 'react';
 import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
 import { RevealedAnswer } from './AnswerShell.tsx';
@@ -14,7 +15,7 @@ function TypedModeView(props: AnswerModeRenderProps) {
     const f = noteType?.fields.find((nf) => nf.key === k);
     return f?.kind !== 'image' && f?.kind !== 'audio';
   });
-  const populatedStep0 = nonMediaStep0.filter((k) => Boolean(note.fields[k]?.trim()));
+  const populatedStep0 = nonMediaStep0.filter((k) => Boolean(noteField(note, k)?.trim()));
   const answerFieldKey =
     layout.answer_field ??
     populatedStep0.find(
@@ -25,7 +26,7 @@ function TypedModeView(props: AnswerModeRenderProps) {
     step0[0] ??
     'meaning';
 
-  const expectedRaw = note.fields[answerFieldKey] ?? '';
+  const expectedRaw = noteField(note, answerFieldKey) ?? '';
   const answerMeta = fieldMetaByKey.get(answerFieldKey);
   const answerLang = answerMeta?.lang ?? deck.language;
 

@@ -3,6 +3,7 @@ import {
   parseCloze,
   parseRichText,
   stripRichText,
+  noteField,
 } from '@flash/core';
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { lazyWithRetry } from '../../lazy/lazyWithRetry.tsx';
@@ -111,7 +112,7 @@ function ClozeModeView(props: AnswerModeRenderProps) {
   let answerLang = deck.language;
   let foundAnswerField = false;
   for (const fieldKey of layout.front_fields) {
-    const val = note.fields[fieldKey];
+    const val = noteField(note, fieldKey);
     if (!val) continue;
     const answers = extractClozeAnswersForVariant(val, card.variant);
     if (answers.length > 0) {
@@ -130,7 +131,7 @@ function ClozeModeView(props: AnswerModeRenderProps) {
     <>
       <div className="flex w-full max-w-2xl flex-col items-center gap-3 pt-4">
         {layout.front_fields.map((fieldKey, idx) => {
-          const value = note.fields[fieldKey];
+          const value = noteField(note, fieldKey);
           if (!value) return null;
           const meta = fieldMetaByKey.get(fieldKey);
           const lang = meta?.lang ?? deck.language;

@@ -1,3 +1,4 @@
+import { noteField } from '@flash/core';
 import { cardTextFitClass } from '../fitText.ts';
 import { CardFieldValue } from './CardFieldValue.tsx';
 import type { AnswerModeRenderProps } from './types.ts';
@@ -31,7 +32,7 @@ export function FrontFields({
   return (
     <div className={className}>
       {layout.front_fields.map((fieldKey, idx) => {
-        const value = note.fields[fieldKey];
+        const value = noteField(note, fieldKey);
         if (!value) return null;
         return (
           <div

@@ -8,6 +8,7 @@ import {
   type Page,
   type ReviewRating,
   deckNoteType,
+  noteField,
 } from '@flash/core';
 import { isStrictHttpsUrl } from '@flash/core/sources';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -179,8 +180,8 @@ function InlineCardsWidget({
     Object.keys(note.fields)[1] ??
     '';
   const frontLang = noteType?.fields[0]?.lang ?? deck.language;
-  const frontRaw = note.fields[frontKey] ?? '';
-  const backRaw = note.fields[backKey] ?? '';
+  const frontRaw = noteField(note, frontKey) ?? '';
+  const backRaw = noteField(note, backKey) ?? '';
 
   // Rate against the deck's flip layout (else its first enabled layout), so a review here is
   // the same FSRS review the Study screen would record for that card (§2.3 inline mini-study).

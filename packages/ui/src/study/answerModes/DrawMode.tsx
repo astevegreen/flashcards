@@ -1,3 +1,4 @@
+import { noteField } from '@flash/core';
 import {
   extractDrawableCharacters,
   resolveDrawingMode,
@@ -37,7 +38,7 @@ function DrawModeView(props: AnswerModeRenderProps) {
     step0[0] ??
     'word';
 
-  const expectedRaw = note.fields[answerFieldKey] ?? '';
+  const expectedRaw = noteField(note, answerFieldKey) ?? '';
   const answerMeta = fieldMetaByKey.get(answerFieldKey);
   const answerLang = answerMeta?.lang ?? deck.language;
   const drawingMode = resolveDrawingMode(state.preferences, answerLang);
