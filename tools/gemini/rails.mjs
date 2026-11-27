@@ -142,12 +142,17 @@ function cleanAnswer(answer) {
   return CLEAN_REST.test(rest);
 }
 
-// Whether any "Blocker(s):" label on the line has an answer that is neither empty nor clean.
+// Whether any "Blocker(s):" label on the line has an answer that is neither empty nor clean. A singular label
+// followed only by * ("**Blocker:**" as a heading over a list) has always been a blocker, and the owner's
+// 2026-11-27 decision did not clear it; the plural heading reads empty, as on main.
 function anyBlocker(line) {
   const text = line.replaceAll('*', ' ');
   for (const label of text.matchAll(BLOCKER_LABEL)) {
-    const answer = text.slice(label.index + label[0].length);
-    if (answer.trim() !== '' && !cleanAnswer(answer)) return true;
+    const end = label.index + label[0].length;
+    const answer = text.slice(end);
+    if (answer.trim() !== '') {
+      if (!cleanAnswer(answer)) return true;
+    } else if (!/blockers/i.test(label[0]) && line.slice(end).trim() !== '') return true;
   }
   return false;
 }

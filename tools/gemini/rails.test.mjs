@@ -295,6 +295,10 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Blocker: none found except a.ts:1',
     // "zero" was not part of the owner's decision, so it keeps retrying.
     'Blockers: zero found',
+    // A singular label followed only by * retried on main and still does.
+    '**Blocker:**',
+    'Blocker: **',
+    '**Blocker:** **',
   ]) {
     const text = ['[note] a.ts:1 risk', real].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'retry', real);
@@ -333,6 +337,9 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     assert.equal(decide({ review: ok(text) }).verdict, 'merge', clean);
     assert.deepEqual(findings(text).untaggedBlockers, [], clean);
   }
+  // An untagged blocker listed under a bold singular heading does not merge.
+  const heading = ['**Blocker:**', '1. a.ts:1 drops the check', '[note] b.ts:2 style'].join('\n');
+  assert.equal(decide({ review: ok(heading) }).verdict, 'retry');
   // A tagged blocker still gets its fix pass, whatever else the review says.
   const both = ['[blocker] a.ts:1 wrong', 'Blocker: also b'].join('\n');
   assert.equal(decide({ review: ok(both) }).verdict, 'fix');
