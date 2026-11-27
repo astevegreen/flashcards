@@ -1,7 +1,10 @@
 import { isSyncTransportError } from '@flash/core';
 import type { Auth } from '@flash/platform';
 import { describe, expect, it, vi } from 'vitest';
-import { WebGoogleSourcesClient } from '../src/sources/google-sheets-docs.ts';
+import {
+  MAX_VALUES_JSON_BYTES,
+  WebGoogleSourcesClient,
+} from '../src/sources/google-sheets-docs.ts';
 import { declaredBody, streamedBody, type OversizedBody } from './helpers/oversized-body.ts';
 
 const auth = {
@@ -26,6 +29,9 @@ function client(route: (url: URL) => Response, sleeps: number[] = []) {
   });
 }
 
+/** A linked .csv/.xlsx file's cap (google-drive-files.ts, local-folder-sources.ts). */
+const LINKED_CSV_CAP = 50 * 1024 * 1024;
+
 const meta = { id: 's1', name: 'Deck', mimeType: 'application/vnd.google-apps.spreadsheet' };
 
 describe('WebGoogleSourcesClient reply caps (P8)', () => {
@@ -34,24 +40,74 @@ describe('WebGoogleSourcesClient reply caps (P8)', () => {
     await expect(c.getFileMetadata('s1')).rejects.toThrow(/file metadata reply exceeds/);
   });
 
-  it('refuses a sheet-values reply over 50 MB but reads a normal one', async () => {
-    const values = {
-      values: [
-        ['Front', 'Back'],
-        ['개', 'dog'],
-      ],
-    };
-    const route = (oversized: boolean) => (url: URL) => {
+  const values = {
+    values: [
+      ['Front', 'Back'],
+      ['개', 'dog'],
+    ],
+  };
+  const valuesUrls: URL[] = [];
+  const sheetClient = (declaredValuesBytes?: number) =>
+    client((url) => {
       if (url.hostname === 'www.googleapis.com') return json(meta);
       if (url.pathname.includes('/values/')) {
-        return json(values, oversized ? { 'content-length': String(51 * 1024 * 1024) } : {});
+        valuesUrls.push(url);
+        const headers: Record<string, string> =
+          declaredValuesBytes === undefined
+            ? {}
+            : { 'content-length': String(declaredValuesBytes) };
+        return json(values, headers);
       }
       return json({ spreadsheetId: 's1', sheets: [{ properties: { title: 'Cards' } }] });
-    };
-    await expect(client(route(false)).readSheet('s1')).resolves.toMatchObject({
+    });
+
+  it('reads a normal sheet-values reply, asking for compact JSON', async () => {
+    await expect(sheetClient().readSheet('s1')).resolves.toMatchObject({ values: values.values });
+    expect(valuesUrls.at(-1)?.searchParams.get('prettyPrint')).toBe('false');
+  });
+
+  it('reads a sheet as big as a linked CSV may be, as JSON (just under the CSV cap)', async () => {
+    // 50 MB of CSV made of 1-char cells is about 2x that as JSON; it used to be refused at 50 MB.
+    const justUnderAsJson = 2 * (LINKED_CSV_CAP - 1024);
+    expect(justUnderAsJson).toBeGreaterThan(LINKED_CSV_CAP);
+    await expect(sheetClient(justUnderAsJson).readSheet('s1')).resolves.toMatchObject({
       values: values.values,
     });
-    await expect(client(route(true)).readSheet('s1')).rejects.toThrow(/sheet values reply exceeds/);
+  });
+
+  it('still refuses a sheet-values reply clearly over the cap', async () => {
+    await expect(sheetClient(MAX_VALUES_JSON_BYTES + 1).readSheet('s1')).rejects.toThrow(
+      /sheet values reply exceeds \d+ byte safety limit/,
+    );
+    await expect(sheetClient(4 * LINKED_CSV_CAP).readSheet('s1')).rejects.toThrow(
+      /sheet values reply exceeds/,
+    );
+  });
+
+  it('caps JSON at no less than the same grid as CSV would need, on representative decks', () => {
+    const rows = (row: (i: number) => string[]) => Array.from({ length: 2000 }, (_, i) => row(i));
+    const grids = [
+      rows((i) => [`word${i}`, `meaning ${i}`, `An example sentence for card ${i}.`]),
+      rows(() => ['사랑하다', 'to love', '저는 한국어를 사랑해요.', '동사']),
+      rows(() => ['勉強', 'べんきょう', 'study', '日本語を勉強します。']),
+      rows(() => Array.from({ length: 26 }, (_, j) => String.fromCodePoint(97 + j))),
+      rows(() => Array.from({ length: 26 }, (_, j) => (j === 0 || j === 25 ? 'x' : ''))),
+    ];
+    const bytes = (s: string) => new TextEncoder().encode(s).byteLength;
+    const csvCell = (c: string) => (/[",\r\n]/.test(c) ? `"${c.replaceAll('"', '""')}"` : c);
+    const escapeNonAscii = (s: string) =>
+      s.replaceAll(
+        /[^ -~]/g, // test data has no control characters, so this is every non-ASCII one
+        (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
+      );
+    for (const grid of grids) {
+      const csv = grid.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+      // Compact JSON, also as Google would send it if it escaped every non-ASCII character.
+      const asJson = escapeNonAscii(JSON.stringify({ range: "'Cards'!A1:ZZ2000", values: grid }));
+      expect(bytes(asJson) / bytes(csv)).toBeLessThanOrEqual(
+        MAX_VALUES_JSON_BYTES / LINKED_CSV_CAP,
+      );
+    }
   });
 });
 
