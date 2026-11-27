@@ -569,7 +569,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 ### Left from partly fixed review items (D11, S4, P3, §9)
 
 - [x] D11 (review): the SQLite storages now append events and meta in one transaction. Done in #95.
-- [ ] D11 (review), still open: two tabs of one browser profile can write at once and reuse `(device, seq)`. **To build** (owner, 2026-11-26): one writer per profile via Web Locks; a second tab shows an "already open in another tab" screen with a "Use here instead" button.
+- [x] D11 (review): two tabs of one browser profile could write at once and reuse `(device, seq)`. Done in #100: one writer per profile via Web Locks. A second tab shows "already open in another tab" with a "Use here instead" button, queued edits are saved before the handover, and a waiting tab takes over by itself when the writer closes.
 - [ ] S4 (review): UI components still read `note.fields[key]` directly. Route them through `noteField`.
 - [ ] P3 (review): a sync tick that changes `syncState` still re-renders every `useApp()` consumer. Move `syncState` out of the context value.
 - [x] §9 Native (review): event SQL runs only against `InMemorySqliteDriver`, never real SQLite. Run it against sql.js or a device. Done in #95: event SQL now also runs against sql.js and `node:sqlite`.
@@ -703,6 +703,16 @@ The owner accepted every recommendation on 2026-11-26.
 - [x] **P5 (review): the materialized card cache is write-only.** Every persist writes it and nothing reads it. Recommend measuring boot at 50k reviews first: if replay is fast enough, stop writing the cache; if not, read it at boot. Done (#89): boot at 50k reviews stays fast without the cache (`docs/perf-boot-50k.md`).
 - [x] **D19 (review): a moved note's reviews replay under the new deck's FSRS params.** Recommend accept and document it. A card follows the settings of the deck it is in, as in Anki. Accepted and documented in `docs/design_blueprint.md` (§4.1).
 - [x] **S6 (review): CSV export allows formula injection.** Recommend prefixing `'` to cells that start with `=`, `+`, `-` or `@` only in the "for other apps" export, and skipping `-` followed by a Hangul letter, so grammar entries like `-(으)ㄴ` stay as they are. Partly done (#88); see "Left over from wave 3".
+
+### Left from the single-writer tab (#100)
+
+- [ ] No unit test covers the shell wiring in `apps/web/src/main.tsx` (`exposeWhenSaved` → `whenSaved`). The UI tests cover `AppProvider` and `FlashcardsApp`, and the e2e waits for each rating to land before "Use here instead", so deleting the shell link passes. Add an e2e that slows one write before the click.
+- [ ] A take-over request that arrives after the lock is held but before the app mounts finds no persist queue. Boot-time writes such as `setDeviceMeta`, sample seeding and migrations then fail on blocked storage and `boot()` rejects unhandled before the reload. The write barrier keeps started transactions whole and the next boot re-runs them, so nothing is lost. Wait for boot to finish before honouring a request.
+- [ ] `packages/ui/tests/writer-handoff-wiring.test.tsx` imports `apps/web/src/writer-handoff.ts`, so a library test depends on the app. Replace it with a local stand-in that records `release` and awaits `whenSaved`.
+- [ ] `blockWrites` replaces `storage.close` with a rejecting stub. If the lock is stolen while `yieldWriter` is still running, `stop()` calls that stub, which raises an unhandled rejection just before the reload and doesn't close the database (agy, #100).
+- [ ] `pause` in `writer-handoff.ts` doesn't check `signal.aborted` before waiting. A tap on "Use here instead" after this tab has already won the lock, but before the app has rendered over the waiting screen, waits a full 3 s round and keeps sending take-over requests (agy, #100).
+- [ ] Not verified in Safari, Firefox, Capacitor or Tauri, or in a real browser for a stolen lock or an old tab whose lazy chunk 404s after a deploy. Chromium 156 does reject a stolen holder's `request()` promise with `AbortError`, as the spec says.
+- [ ] Bundle: #100 takes initial study-screen JS to 159.95 of 160 KB. The next change that adds to the initial bundle needs a trim first.
 
 ## Decisions needed (wave 3, 2026-11-26)
 
