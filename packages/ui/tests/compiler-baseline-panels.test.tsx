@@ -202,6 +202,8 @@ describe('MediaImage shows the image for the current src', () => {
       () => byTestId(must(mounted), 'media-image')?.getAttribute('data-media-hash') === B,
       'image B',
     );
+    expect(byTestId(mounted, 'media-image-missing')).toBeNull();
+    expect(byTestId(mounted, 'media-image')?.getAttribute('data-media-hash')).toBe(B);
   });
 });
 

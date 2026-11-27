@@ -57,6 +57,19 @@ function sameOpenRequest(a: OpenRequest, b: OpenRequest): boolean {
   );
 }
 
+/** The selected tab and deck; a new open request (tab, deck or nonce) resets them in the same render. */
+function useOpenRequestState(next: OpenRequest) {
+  const [tab, setTab] = useState<ImportExportTab>(next.initialTab);
+  const [deckChoice, setDeckChoice] = useState(next.initialDeckId ?? '');
+  const [request, setRequest] = useState(next);
+  if (!sameOpenRequest(request, next)) {
+    setRequest(next);
+    setTab(next.initialTab);
+    if (next.initialDeckId) setDeckChoice(next.initialDeckId);
+  }
+  return { tab, setTab, deckChoice, setDeckChoice };
+}
+
 function ImportExportPanel({
   initialTab = 'import',
   initialDeckId,
@@ -72,24 +85,17 @@ function ImportExportPanel({
   onError,
 }: Readonly<ImportExportPanelProps>) {
   const { state, stateVersion } = useApp();
-  const [tab, setTab] = useState<ImportExportTab>(initialTab);
+  const { tab, setTab, deckChoice, setDeckChoice } = useOpenRequestState({
+    initialTab,
+    initialDeckId,
+    requestNonce,
+  });
   const [importFormat, setImportFormat] = useState<ImportFormat>('csv');
-  const [deckChoice, setDeckChoice] = useState(initialDeckId ?? '');
   const [courseChoice, setCourseChoice] = useState('');
   const [pageChoice, setPageChoice] = useState('');
 
   const importTabRef = useRef<HTMLButtonElement | null>(null);
   const exportTabRef = useRef<HTMLButtonElement | null>(null);
-
-  // A new open request (tab, deck or nonce) switches the panel in the same render.
-  const [request, setRequest] = useState({ initialTab, initialDeckId, requestNonce });
-  if (!sameOpenRequest(request, { initialTab, initialDeckId, requestNonce })) {
-    setRequest({ initialTab, initialDeckId, requestNonce });
-    setTab(initialTab);
-    if (initialDeckId) {
-      setDeckChoice(initialDeckId);
-    }
-  }
 
   const decks = useMemo(
     () =>
