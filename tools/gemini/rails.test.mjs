@@ -253,9 +253,6 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Two Blockers: a.ts:1, b.ts:2',
     'Blockers: no test for X',
     'Blockers: nonexistent guard in a.ts:1',
-    // Lines main already read as blockers stay blockers, so nothing that retried on main can merge now.
-    'Blocker: none found',
-    '**Blocker:** none',
     // An answer that opens with none but goes on to name something is a blocker.
     'Blockers: none, except a.ts:1 drops the check',
     'Blockers: none except a missing guard',
@@ -290,18 +287,14 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Blockers: nothing\ra.ts:1 wrong',
     'Blockers: none a.ts:1 wrong',
     'Blockers: none found Blockers: a.ts:1 wrong',
-    // These "falsely retry" (follow-ups batch 2026-11-27): reading them as clean loosens the gate, so they keep
-    // retrying as on main until the owner decides (rail audit hold on #119).
-    'Blockers: 0',
-    'Blockers: 0.',
-    '**Blockers:** 0',
-    'Blockers: nothing',
-    'Blockers: Nothing.',
-    'Blockers: nothing found',
-    'Blockers: no blockers found',
-    'Blockers: No blockers.',
-    '**Blockers**: no blockers found',
-    'Blockers: nothing in this diff',
+    // The openings the owner cleared still name something when other words follow.
+    'Blockers: nothing (see notes)',
+    'Blockers: 0 found, 1 suspected',
+    'Blocker: no blockers in a.ts but b.ts:2 wrong',
+    'Blockers: nothing found, but a.ts:1 wrong',
+    'Blocker: none found except a.ts:1',
+    // "zero" was not part of the owner's decision, so it keeps retrying.
+    'Blockers: zero found',
   ]) {
     const text = ['[note] a.ts:1 risk', real].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'retry', real);
@@ -320,9 +313,25 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'No blockers: none',
     'Blockers: none identified',
     'Blockers: no.',
+    // Cleared by the owner on 2026-11-27 (docs/follow-ups.md, batches 2026-11-27 and 2026-11-27b): singular forms
+    // read like plural ones, and 0, nothing and "no blockers" open a clean answer with the same allow-list.
+    'Blocker: none found',
+    '**Blocker:** none',
+    'Blocker: no blocker identified',
+    'Blockers: 0',
+    'Blockers: 0.',
+    '**Blockers:** 0',
+    'Blockers: nothing',
+    'Blockers: Nothing.',
+    'Blockers: nothing found',
+    'Blockers: no blockers found',
+    'Blockers: No blockers.',
+    '**Blockers**: no blockers found',
+    'Blockers: nothing in this diff',
   ]) {
     const text = ['[note] a.ts:1 risk', clean].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'merge', clean);
+    assert.deepEqual(findings(text).untaggedBlockers, [], clean);
   }
   // A tagged blocker still gets its fix pass, whatever else the review says.
   const both = ['[blocker] a.ts:1 wrong', 'Blocker: also b'].join('\n');

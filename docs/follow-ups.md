@@ -782,7 +782,7 @@ Open items, grouped by area.
 
 - [x] `tools/gemini/rails.mjs:126`: the `ANY_BLOCKER` regex has 2 SonarCloud MAJOR issues (S8786 backtracking, S5843 complexity 39). Strip `*` first, or split the regex. Split into three linear patterns in #119.
 - [x] A plural answer starting with "none" ("Blockers: none, except X") still reads clean. Fixed in #119 (allow-list after none / n/a).
-- [ ] "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" falsely retry. Not changed: clearing them loosens the gate, so it is the owner's call; see "Decisions needed (batch 2026-11-27b)".
+- [x] "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" falsely retry. The owner cleared them on 2026-11-27; cleared in #PRNUM.
 
 ### Sync
 
@@ -824,11 +824,11 @@ Each default below stays shipped until the owner decides. All are **keep** unles
 
 Each default below stays shipped until the owner decides.
 
-- [ ] **Pack upgrade with "archive removed notes" (#114):** a package note that lost its source key to a moved-in duplicate now stays live with its old content (it was archived). The deck shows both notes. Recommend keep: it writes nothing and loses nothing.
-- [ ] **CSV with no header row (#114):** an all-blank row 1 (quoted spaces too) is now dropped silently like later blank rows; before, an unquoted one gave an "empty row skipped" warning. Recommend keep.
-- [ ] **agy merge gate, singular forms (#111):** "Blocker: none found" and "**Blocker:** none" still read as a blocker (retry), while the plural forms now merge. Clearing them loosens the check, so it's the owner's call. Recommend clear them, the same way as the plural forms.
-- [ ] **Sync read caps (#115):** head and manifest 25 MiB, segment 20 MiB, snapshot 30 MiB, media 20 MiB. An over-cap file is handled the way an over-limit file already was (skipped, or for head and manifest, the sync fails). Technical; for information only.
-- [ ] **#112 and #113 are technical, with no product defaults.** For information only.
+- [x] **Pack upgrade with "archive removed notes" (#114):** a package note that lost its source key to a moved-in duplicate now stays live with its old content (it was archived). The deck shows both notes. Recommend keep: it writes nothing and loses nothing. Decided 2026-11-27: keep.
+- [x] **CSV with no header row (#114):** an all-blank row 1 (quoted spaces too) is now dropped silently like later blank rows; before, an unquoted one gave an "empty row skipped" warning. Recommend keep. Decided 2026-11-27: keep.
+- [x] **agy merge gate, singular forms (#111):** "Blocker: none found" and "**Blocker:** none" still read as a blocker (retry), while the plural forms now merge. Clearing them loosens the check, so it's the owner's call. Recommend clear them, the same way as the plural forms. Decided 2026-11-27: clear; cleared in #PRNUM.
+- [x] **Sync read caps (#115):** head and manifest 25 MiB, segment 20 MiB, snapshot 30 MiB, media 20 MiB. An over-cap file is handled the way an over-limit file already was (skipped, or for head and manifest, the sync fails). Technical; for information only. Decided 2026-11-27: noted.
+- [x] **#112 and #113 are technical, with no product defaults.** For information only. Decided 2026-11-27: noted.
 
 ## Left over from the follow-ups batch 2026-11-27b (#117–#120)
 
@@ -857,20 +857,20 @@ Open items, grouped by area. The batch ran one round; its fallout is here instea
 
 Each default below stays shipped until the owner decides.
 
-- [ ] **agy merge gate, plural clean forms (#119):** "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" still retry. Clearing them loosens the check. Recommend clear them, with the same allow-list (only `found`, `identified` or `in this diff` may follow), because they are plain "no blockers" answers that cost needless retries.
-- [ ] **Snapshot cap (#120):** 128 MiB unpacked on desktop and web; phones (Capacitor) keep 25 MiB. Recommend keep, and measure a 20k-card snapshot on a real phone before raising the phone cap.
-- [ ] **Unlisted sync segment files are never deleted (#120):** cleaning them up deletes remote data. Recommend leave them until a real collection shows the space matters.
-- [ ] **Technical, for information (#119):** after none / n/a only `found`, `identified` or `in this diff` may follow, so "none (see notes)" retries; and a lone Esc followed by a read that is exactly a sequence tail drops that tail.
-- [ ] **Head compaction threshold 1000 segments (#120).** Technical; for information only.
+- [x] **agy merge gate, plural clean forms (#119):** "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" still retry. Clearing them loosens the check. Recommend clear them, with the same allow-list (only `found`, `identified` or `in this diff` may follow), because they are plain "no blockers" answers that cost needless retries. Decided 2026-11-27: clear; cleared in #PRNUM.
+- [x] **Snapshot cap (#120):** 128 MiB unpacked on desktop and web; phones (Capacitor) keep 25 MiB. Recommend keep, and measure a 20k-card snapshot on a real phone before raising the phone cap. Decided 2026-11-27: keep.
+- [x] **Unlisted sync segment files are never deleted (#120):** cleaning them up deletes remote data. Recommend leave them until a real collection shows the space matters. Decided 2026-11-27: leave them.
+- [x] **Technical, for information (#119):** after none / n/a only `found`, `identified` or `in this diff` may follow, so "none (see notes)" retries; and a lone Esc followed by a read that is exactly a sequence tail drops that tail. Decided 2026-11-27: noted.
+- [x] **Head compaction threshold 1000 segments (#120).** Technical; for information only. Decided 2026-11-27: noted.
 
 ## Decisions needed (batch 2026-11-27c)
 
 Each default below stays shipped until the owner decides.
 
-- [ ] **Sheets JSON memory ceiling (#123):** a Google Sheet read may now hold up to 150 MB of JSON (was 50 MB), so a sheet that loads as a linked CSV also loads here. Recommend keep; a factor of 2 (100 MB) would still cover every measured deck except mostly empty grids.
-- [ ] **A field's own language wins over the deck's (#124):** nothing records who set a field's `lang`, so a value that differs from the preset's default counts as set by the user. A user who deliberately picks the default value is not told apart. No screen edits a built-in's field languages today. Recommend keep.
-- [ ] **Per-language Anki note types (#124)** are named like `Sentence (ko)`. Recommend keep.
-- [ ] **Anki note-type ids (#124):** a language exported alone keeps the plain note-type id, so re-exports keep updating the same Anki note type; a mixed-language export uses per-language ids. Moving a deck between the two kinds of export lands its notes in a different Anki note type, which Anki won't merge. Recommend keep.
+- [x] **Sheets JSON memory ceiling (#123):** a Google Sheet read may now hold up to 150 MB of JSON (was 50 MB), so a sheet that loads as a linked CSV also loads here. Recommend keep; a factor of 2 (100 MB) would still cover every measured deck except mostly empty grids. Decided 2026-11-27: keep 150 MB.
+- [x] **A field's own language wins over the deck's (#124):** nothing records who set a field's `lang`, so a value that differs from the preset's default counts as set by the user. A user who deliberately picks the default value is not told apart. No screen edits a built-in's field languages today. Recommend keep. Decided 2026-11-27: keep.
+- [x] **Per-language Anki note types (#124)** are named like `Sentence (ko)`. Recommend keep. Decided 2026-11-27: keep.
+- [x] **Anki note-type ids (#124):** a language exported alone keeps the plain note-type id, so re-exports keep updating the same Anki note type; a mixed-language export uses per-language ids. Moving a deck between the two kinds of export lands its notes in a different Anki note type, which Anki won't merge. Recommend keep. Decided 2026-11-27: keep.
 
 ## Left over from the follow-ups batch 2026-11-27c (#121–#130)
 
