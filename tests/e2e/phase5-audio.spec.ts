@@ -303,8 +303,9 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
     await page.addInitScript(() => {
       const spoken: Array<{ text: string; lang: string; rate: number }> = [];
       (window as unknown as { __spokenCalls: typeof spoken }).__spokenCalls = spoken;
-      // Counts only the getVoices calls made after the R key press began: other callers (the
-      // voiceschanged refresh, Settings) must not satisfy the wait before the press reaches speak.
+      // This path never reaches `speak` (no local voice, so device speech stops at voice choice).
+      // The counter is armed at the R key press, so earlier getVoices calls (the voiceschanged
+      // refresh, Settings) don't count.
       const voiceQueries = { count: 0 };
       (window as unknown as { __voiceQueries: typeof voiceQueries }).__voiceQueries = voiceQueries;
       let armed = false;

@@ -229,6 +229,10 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
   assert.equal(decide({ review: ok('[note] a.ts:1 not a blocker') }).verdict, 'merge');
   const prose = ['[note] a.ts:1 risk', 'No blockers found.'].join('\n');
   assert.equal(decide({ review: ok(prose) }).verdict, 'merge');
+  for (const clean of ['No blocker.', 'No blockers found.', 'Blocker: none', 'blocker: N/A']) {
+    const text = ['[note] a.ts:1 risk', clean].join('\n');
+    assert.equal(decide({ review: ok(text) }).verdict, 'merge', clean);
+  }
   // A tagged blocker still gets its fix pass, whatever else the review says.
   const both = ['[blocker] a.ts:1 wrong', 'Blocker: also b'].join('\n');
   assert.equal(decide({ review: ok(both) }).verdict, 'fix');

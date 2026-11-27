@@ -12,20 +12,35 @@ import {
 } from '@flash/core';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildStarterDeckEvents,
   findStarterDeck,
   loadStarterDeck,
+  starterDeckId,
   STARTER_SEED_EPOCH_MS,
 } from '../../core/src/starters/index.ts';
 import { legacyStarterFields, loadStarterLegacyGlosses } from '../../core/src/starters/upgrade.ts';
 import { SyncRuntime, type SyncRuntimeProps } from '../src/state/SyncRuntime.tsx';
+import type * as StarterUpgrade from '../src/onboarding/starterUpgrade.ts';
 import type { SyncUiState } from '../src/state/useSyncController.ts';
 
 vi.mock('../src/state/useSyncController.ts', () => ({
   useSyncController: () => ({}),
 }));
+
+// The real upgrade, wrapped so a test can tell whether the hook decided to run it.
+const upgradeRuns = vi.hoisted(() => ({ count: 0 }));
+vi.mock('../src/onboarding/starterUpgrade.ts', async (original) => {
+  const actual = await original<typeof StarterUpgrade>();
+  return {
+    ...actual,
+    runStarterDeckUpgrade: (...args: Parameters<typeof actual.runStarterDeckUpgrade>) => {
+      upgradeRuns.count += 1;
+      return actual.runStarterDeckUpgrade(...args);
+    },
+  };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -62,8 +77,8 @@ afterEach(() => {
 const sync = (over: Partial<SyncUiState>): SyncUiState =>
   ({ provider: 'none', status: 'disconnected', readOnly: false, ...over }) as SyncUiState;
 
-/** Waits for the lazy upgrade chunk and the deck loads behind it. */
-const settle = () => act(async () => void (await new Promise((r) => setTimeout(r, 250))));
+/** Lets the effects and the microtasks they queue run (the gated and empty cases decide there). */
+const flush = () => act(async () => undefined);
 
 function mount(state: CollectionState, syncState: SyncUiState) {
   const emitted: (readonly KnownEvent[])[] = [];
@@ -89,47 +104,66 @@ function mount(state: CollectionState, syncState: SyncUiState) {
   return { emitted, render };
 }
 
+/** Every emitted event belongs to the starter deck, and the upgrade rewrites its notes. */
+function expectStarterUpgrade(events: readonly KnownEvent[] | undefined): void {
+  expect(events?.length).toBeGreaterThan(0);
+  const deckId = starterDeckId(SLUG);
+  expect(events?.some((e) => e.type === 'NoteUpserted')).toBe(true);
+  for (const e of events ?? []) {
+    const payload = e.payload as { deck_id?: string };
+    expect(payload.deck_id).toBe(deckId);
+  }
+}
+
 describe('SyncRuntime starter-deck upgrade wiring', () => {
+  beforeEach(() => {
+    upgradeRuns.count = 0;
+  });
+
   it('with no sync provider, upgrades a starter deck once through emitEvents', async () => {
     const state = await seeded110();
     const { emitted, render } = mount(state, sync({}));
-    await settle();
-    expect(emitted).toHaveLength(1);
+    await vi.waitFor(() => expect(emitted).toHaveLength(1));
+    expectStarterUpgrade(emitted[0]);
 
     // Re-rendering (a state change, a sync tick) never runs it again within the launch.
     render(sync({ status: 'idle' }));
-    await settle();
+    await flush();
+    expect(upgradeRuns.count).toBe(1);
     expect(emitted).toHaveLength(1);
   });
 
   it('with a sync provider, waits for a sync that completes in this launch', async () => {
     const state = await seeded110();
-    const before = Date.now();
     const staleSync = sync({
       provider: 'google_drive',
       status: 'synced',
-      lastSyncedAt: before - 60_000,
+      lastSyncedAt: Date.now() - 60_000,
     });
     const { emitted, render } = mount(state, staleSync);
-    await settle();
-    // The "synced" a device shows from its stored cursor says nothing about this launch.
+    await flush();
+    // The "synced" a device shows from its stored cursor says nothing about this launch: the gate
+    // is closed, so the effect returned before it loaded anything.
+    expect(upgradeRuns.count).toBe(0);
     expect(emitted).toHaveLength(0);
 
     render({ ...staleSync, lastSyncedAt: Date.now() + 1_000 });
-    await settle();
-    expect(emitted).toHaveLength(1);
+    await vi.waitFor(() => expect(emitted).toHaveLength(1));
+    expectStarterUpgrade(emitted[0]);
   });
 
   it('a read-only (upgrade required) device never upgrades', async () => {
     const state = await seeded110();
     const { emitted } = mount(state, sync({ readOnly: true }));
-    await settle();
+    await flush();
+    expect(upgradeRuns.count).toBe(0);
     expect(emitted).toHaveLength(0);
   });
 
-  it('a collection without a starter deck emits nothing', async () => {
+  it('a collection without a starter deck emits nothing and loads nothing', async () => {
     const { emitted } = mount(createEmptyState(), sync({}));
-    await settle();
+    await flush();
+    expect(upgradeRuns.count).toBe(0);
     expect(emitted).toHaveLength(0);
   });
 });

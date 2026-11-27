@@ -116,6 +116,14 @@ export function railHits(diff) {
   return hits;
 }
 
+// Whether an untagged line asserts a blocker: "Blocker: <something>" where the something is not none/n/a/no.
+// Clean prose ("No blocker.", "No blockers found.", "Blocker: none") and negations are not assertions.
+function assertsBlocker(line) {
+  return /(?<![a-z])blocker\s*[:—-]\s*(?!(?:none|n\/a|no)(?![a-z]))\S/i.test(line)
+    ? !/(?:no|not|without)\s+blockers?\s*[:—-]/i.test(line)
+    : false;
+}
+
 // A review's findings in the format prompts/pr-audit.md asks for: "[blocker] file:line …" or "[note] …", maybe
 // numbered or bulleted.
 export function findings(response) {
@@ -125,7 +133,7 @@ export function findings(response) {
     const m = /^(?:[-*]|\d+[.)])?[ \t]*\**\[(blocker|note|minor)\]\**:?(.*)$/i.exec(line.trim());
     if (m) (m[1].toLowerCase() === 'blocker' ? out.blockers : out.notes).push(m[2].trim());
     // An untagged line that names a blocker (mid-line "Blocker: ...") may be one the tag format missed.
-    else if (/(?<![a-z])blocker(?![a-z])/i.test(line)) out.untaggedBlockers.push(line.trim());
+    else if (assertsBlocker(line)) out.untaggedBlockers.push(line.trim());
   }
   return out;
 }
