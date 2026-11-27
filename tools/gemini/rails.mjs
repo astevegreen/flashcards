@@ -116,12 +116,21 @@ export function railHits(diff) {
   return hits;
 }
 
-// Whether an untagged line asserts a blocker: "Blocker: <something>" where the whole answer is not none/n/a/no.
-// Clean prose ("No blocker.", "No blockers found.", "Blocker: none") and negations are not assertions.
+// A negation ("No blockers: ...", "not blocker - ..."): the line says there is none.
+const NEGATED_BLOCKER = /(?:no|not|without)\s+blockers?\s*[:—-]/i;
+// The singular "Blocker: <something>" the gate has always read, where the answer is not exactly none/n/a/no.
+const SINGULAR_BLOCKER = /(?<![a-z])blocker\s*[:—-]\s*(?!(?:none|n\/a|no)\s*[.!]?\s*$)\S/i;
+// Singular or plural, maybe bold on either side of the colon ("**Blockers**: x", "**Blockers:** x"). Clean when the
+// answer starts with the word none or n/a ("none found", "None identified.") or is exactly "no".
+const ANY_BLOCKER =
+  /(?<![a-z])blockers?\**\s*[:—-](?![*\s]*(?:none|n\/a)(?![a-z/])|[*\s]*no[*\s]*[.!]?[*\s]*$)[*\s]*[^*\s]/i;
+
+// Whether an untagged line asserts a blocker. Clean prose ("No blocker.", "No blockers found.", "Blockers: none
+// found") and negations are not assertions. Every line the singular test caught still counts, so widening this to
+// plural and bold forms only turns some merges into retries, never a retry into a merge.
 function assertsBlocker(line) {
-  return /(?<![a-z])blocker\s*[:—-]\s*(?!(?:none|n\/a|no)\s*[.!]?\s*$)\S/i.test(line)
-    ? !/(?:no|not|without)\s+blockers?\s*[:—-]/i.test(line)
-    : false;
+  if (NEGATED_BLOCKER.test(line)) return false;
+  return SINGULAR_BLOCKER.test(line) || ANY_BLOCKER.test(line);
 }
 
 // A review's findings in the format prompts/pr-audit.md asks for: "[blocker] file:line …" or "[note] …", maybe
