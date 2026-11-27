@@ -543,7 +543,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [x] No per-call-site over-cap test for the image and audio processors, the picker downloads or the Docs export. Only the shared reader (`net/read-capped.ts`) is covered. Done in #103.
 - [x] The 2 s interactive Retry-After ceiling is not tested in the OneDrive or Dropbox pickers. Done in #103.
 - [ ] A token-helper reply with no token now returns 502, so web Google shows "helper unavailable" with tap-to-renew instead of AUTH_REQUIRED. Check that this is the wording we want.
-- [ ] The 50 MB cap on Sheets `values.get` JSON is tighter than the same data as CSV.
+- [x] The 50 MB cap on Sheets `values.get` JSON is tighter than the same data as CSV. Done in #123: the read asks for compact JSON (`prettyPrint=false`) and the cap is the linked-file cap × 3 (150 MB), derived from `MAX_DRIVE_FILE_BYTES`.
 - [ ] Behaviour changes to keep in mind: the 401 refresh no longer counts as an attempt for OneDrive and Dropbox (up to `maxAttempts + 1` requests), Google no longer retries 501, and the Dropbox picker's network-error text changed.
 - [x] The native Dropbox and Microsoft auths keep their own `inFlightRefresh` (`dropbox-native-auth.ts`, `microsoft-native-auth.ts`). Move them onto `TokenRefresher`. Done in #97: both moved onto `TokenRefresher`.
 - [ ] The Google Drive, Dropbox and OneDrive transport `read()`s still load the whole file into memory. Skipped in #103: it needs an interface change in six transports and a streaming codec; see the design note in #103.
@@ -611,7 +611,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 
 - [x] `choice-sync-stable.spec.ts` may fail on some days, because the ranking is hashed by study day. If it flakes, pin the study day. Done in #105: the study day is pinned.
 - [x] The "only other notes change" unit test for the choice key is weak. The e2e is the real proof. Done in #105: a render test, `choice-question-stable.test.tsx`.
-- [ ] The spoken count sentence exists only once the lazy announcer chunk has loaded.
+- [x] The spoken count sentence exists only once the lazy announcer chunk has loaded. Done in #121: the count sentence renders eagerly (`study/dueCounts.ts`) and only the live region stays lazy; #130 made its render test wait on the element.
 - [ ] Tags are left out of the choice key on purpose, so a tag-only edit keeps the old options until the next card.
 
 ### Tests and tooling (#73, #84, #85)
@@ -646,7 +646,7 @@ The audit (`docs/Audit.md`, untracked in the main checkout) was about the plan f
 - [x] **C9:** a `.flashpkg` deck file with two records sharing an `id` keeps the first and warns; records whose field keys match none of the note type's import blank and warn. Library and OneDrive/Dropbox `.flashpkg` imports now show package warnings.
 - [x] **C1:** a CSV/TSV quote that never closes, or has text after its closing quote, is read as plain text, so the rows after it are kept.
 - [ ] **C8 reaches only new links.** A Sentence deck already linked from a sheet keeps the language `en` it was given, so it still speaks English, and no screen changes a deck's language. Recommend offering, once, to set the language of a Sentence, Cloze or Grammar deck whose text is in another script (owner: design).
-- [ ] C8 minors (#93 review): the `.apkg` export takes the `{{tts}}` language of a shared built-in note type from the first deck it exports, and has no test for it. A user's own `lang` on a built-in Sentence, Cloze or Grammar field is overridden by the deck's language. The import status-line warnings have no UI test.
+- [x] C8 minors (#93 review): the `.apkg` export takes the `{{tts}}` language of a shared built-in note type from the first deck it exports, and has no test for it. A user's own `lang` on a built-in Sentence, Cloze or Grammar field is overridden by the deck's language. The import status-line warnings have no UI test. Done in #124: an `.apkg` export with decks of several languages sharing a built-in note type writes one Anki note type per language (`Sentence (ko)`), a field `lang` that differs from the preset is kept, and the import status-line warnings have a render test.
 - [ ] **C9, third point:** re-importing with archive-on-upgrade archives every note whose `id` changed, with its review progress. Recommend a preview that counts the notes it would archive.
 - [x] Two CPU-heavy unit tests timed out under load and failed `pnpm gate` on main too: `backup-runner` "keeps pre-restore snapshots outside the rolling 14…" (~3.5 s alone, against the 5 s default) and `onedrive-transport` "retries a failed fragment…". Each now has a 30 s timeout.
 
@@ -660,7 +660,7 @@ The audit (`docs/Audit.md`, untracked in the main checkout) was about the plan f
 - [x] #89: `tests/e2e/sync.spec.ts` now compares event ids only, not each device's derived schedules. Add a state-level check (replay the stored logs, or read in-app state through a test hook). Done in #105: it also replays each device's stored events.
 - [x] #90: shrink or lazily build the 26 MiB D12 snapshot fixture in `sync-engine.test.ts`, then the coverage-only 15 s `testTimeout` could go back toward 5 s. Mostly done in #105: built lazily once, 25 MiB + 1 byte, `testTimeout` 8 s. The floor is the codec cap.
 - [x] #90: put a floor (≥ 50) on each threshold in `tools/hooks/settings.test.mjs`. Done in #94.
-- [ ] #90: fake `Date` as well as timers in the web badge test (`packages/ui/tests/effect-wiring.test.tsx` ~39). Wait for a ready signal rather than `flush(5)` in the P3 render test. `apps/*` shell code sits in the coverage denominator.
+- [x] #90: fake `Date` as well as timers in the web badge test (`packages/ui/tests/effect-wiring.test.tsx` ~39). Wait for a ready signal rather than `flush(5)` in the P3 render test. `apps/*` shell code sits in the coverage denominator. Done in #122: both reminder timer tests pin a fake clock. The P3 render test already waited on `whenSyncReady` since #104. `apps/*` stays in the coverage count on purpose: every shell file has tests.
 - [ ] #90: `pnpm gate` runs plain `pnpm test`, so parallel branches can each pass and together drop under the coverage thresholds (like the bundle budget). Run `pnpm coverage` after merging main.
 
 ### Left over from the follow-ups batch (#94–#97)
@@ -756,7 +756,7 @@ Open items, grouped by PR. Dependabot and CI come last.
 
 ### #108
 
-- [ ] About 36 files are left in `REACT_COMPILER_BASELINE`. All are genuine `purity`, `set-state-in-effect`, `refs` or `incompatible-library` findings, and clearing them needs behaviour-changing rewrites. `StudyScreen` `purity` was deliberately not forced.
+- [ ] About 36 files are left in `REACT_COMPILER_BASELINE`. All are genuine `purity`, `set-state-in-effect`, `refs` or `incompatible-library` findings, and clearing them needs behaviour-changing rewrites. `StudyScreen` `purity` was deliberately not forced. #129 cleared 14 panels; 22 files are left (the study screens and answer modes, `AppContext`, `FlashcardsApp`, drawing, dictionary, `BrowseScreen`, and a few `purity` panels).
 - [x] Hardening: `noteEditDiff.ts:32` and `ColumnMapping.tsx:287,291` still use raw `x.fields[key]` lookups on edit snapshots and import-preview rows (not Notes), with the same prototype-key exposure. Done in #112.
 - [x] `packages/core/src/tags/duplicates.ts:105` reads `note.fields[field]` raw. `findDuplicateGroups` throws a TypeError when a note type's key field is `constructor` and the note lacks it. Route it through `noteField`, with a test. Done in #112.
 - [x] The Draw prototype-key test has no assertion of its own; it relies on a crash or a React log. Done in #112.
@@ -768,6 +768,7 @@ Open items, grouped by PR. Dependabot and CI come last.
 - [ ] **Waiting on upstream:** #77 (sqlx 0.9) is closed; reopen when upstream ships (tauri-plugin-sql on sqlx 0.9).
 - [ ] **Waiting on upstream:** #78 (Gradle 9.9) is closed; reopen when upstream ships (an AGP supporting Gradle 9.6+).
 - [x] CI: watch the next `publish-packs` run on main. wrangler-action 4 (#66) and actions/cache 6 (#67) haven't run there yet. It ran green on main on 2026-11-27.
+- [x] Dependabot 2026-11-27: #126 (codeql-action pins) and #127 (mdast-util-directive) merged; #125 (Gradle 9.9) closed, like #78, until AGP supports Gradle 9.6+; #128 (@types/node 25) closed with "ignore this major version", because the runtime is Node 24.
 
 ### Open on purpose
 
@@ -828,6 +829,36 @@ Each default below stays shipped until the owner decides.
 - [ ] **agy merge gate, singular forms (#111):** "Blocker: none found" and "**Blocker:** none" still read as a blocker (retry), while the plural forms now merge. Clearing them loosens the check, so it's the owner's call. Recommend clear them, the same way as the plural forms.
 - [ ] **Sync read caps (#115):** head and manifest 25 MiB, segment 20 MiB, snapshot 30 MiB, media 20 MiB. An over-cap file is handled the way an over-limit file already was (skipped, or for head and manifest, the sync fails). Technical; for information only.
 - [ ] **#112 and #113 are technical, with no product defaults.** For information only.
+
+## Decisions needed (batch 2026-11-27c)
+
+Each default below stays shipped until the owner decides.
+
+- [ ] **Sheets JSON memory ceiling (#123):** a Google Sheet read may now hold up to 150 MB of JSON (was 50 MB), so a sheet that loads as a linked CSV also loads here. Recommend keep; a factor of 2 (100 MB) would still cover every measured deck except mostly empty grids.
+- [ ] **A field's own language wins over the deck's (#124):** nothing records who set a field's `lang`, so a value that differs from the preset's default counts as set by the user. A user who deliberately picks the default value is not told apart. No screen edits a built-in's field languages today. Recommend keep.
+- [ ] **Per-language Anki note types (#124)** are named like `Sentence (ko)`. Recommend keep.
+- [ ] **Anki note-type ids (#124):** a language exported alone keeps the plain note-type id, so re-exports keep updating the same Anki note type; a mixed-language export uses per-language ids. Moving a deck between the two kinds of export lands its notes in a different Anki note type, which Anki won't merge. Recommend keep.
+
+## Left over from the follow-ups batch 2026-11-27c (#121–#130)
+
+Open items, grouped by area.
+
+### Unverified
+
+- [ ] A real screen reader (NVDA, VoiceOver) on the eager count sentence (#121).
+- [ ] A live Google Sheet: whether `values.get` honours `prettyPrint=false`, and whether non-ASCII comes back raw or `\u`-escaped (#123).
+- [ ] A real two-language `.apkg` imported into Anki or AnkiDroid (#124).
+- [ ] The midnight-crossing badge flake was never reproduced (#122).
+- [ ] No panel from #129 was checked by hand in a browser.
+
+### Known limits
+
+- [ ] MediaImage keeps one object URL alive after `src` changes to a non-media value, until the next read or unmount (#129).
+- [ ] The SourcesPanel platform-change test swaps the platform inside one `AppProvider`, which the app never does, so it pins only the reset logic (#129).
+
+### Tests
+
+- [ ] Under heavy local load (several agents at once), `pnpm test:e2e` failed `phase4` Markdown pages and `rebuild-reload-prompt`, and unit tests `sync-read-caps` (100k segments) and `writer-tabs` (yielding) timed out; each passes alone (#129 run).
 
 ## Needs the owner (hands-on)
 
