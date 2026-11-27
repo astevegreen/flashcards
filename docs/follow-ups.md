@@ -557,7 +557,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 
 - [x] D11 (review): the SQLite storages now append events and meta in one transaction. Done in #95.
 - [x] D11 (review): two tabs of one browser profile could write at once and reuse `(device, seq)`. Done in #100: one writer per profile via Web Locks. A second tab shows "already open in another tab" with a "Use here instead" button, queued edits are saved before the handover, and a waiting tab takes over by itself when the writer closes.
-- [ ] S4 (review): UI components still read `note.fields[key]` directly. Route them through `noteField`. #108 (in review) routes them through `noteField`.
+- [x] S4 (review): UI components still read `note.fields[key]` directly. Route them through `noteField`. Done in #108.
 - [x] P3 (review): a sync tick that changes `syncState` still re-renders every `useApp()` consumer. Move `syncState` out of the context value. Done in #104: `syncState` lives in its own store (`useSyncState()`).
 - [x] §9 Native (review): event SQL runs only against `InMemorySqliteDriver`, never real SQLite. Run it against sql.js or a device. Done in #95: event SQL now also runs against sql.js and `node:sqlite`.
 
@@ -616,7 +616,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 
 ### Tests and tooling (#73, #84, #85)
 
-- [ ] Burn down `REACT_COMPILER_BASELINE` (88 sites in 37 files; `purity` is off in `StudyScreen`). #108 (in review) trims it; about 36 files are left (see "Left over from the follow-ups batch 2").
+- [x] Burn down `REACT_COMPILER_BASELINE` (88 sites in 37 files; `purity` is off in `StudyScreen`). Partly done in #108; about 36 files are left (see "Left over from the follow-ups batch 2").
 - Moved to "Needs the owner (hands-on)": the required Security checks.
 - [ ] CodeQL covers JavaScript, TypeScript and Actions only. Add Rust, Kotlin and Swift to `desktop.yml` and `native.yml` if wanted.
 - [ ] Watch the first Gradle Dependabot PRs on the Capacitor project: `cap sync` rewrites `capacitor.build.gradle` and `capacitor.settings.gradle`.
@@ -633,7 +633,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 
 ### Left over from the dead-code pass (#85)
 
-- [ ] knip still lists 60 unused value exports and 121 unused type exports, mostly component prop types and module constants. Un-export them in a later pass. A few are `default` exports used through `lazy()`. #108 (in review) un-exports them.
+- [x] knip still lists 60 unused value exports and 121 unused type exports, mostly component prop types and module constants. Un-export them in a later pass. A few are `default` exports used through `lazy()`. Done in #108.
 - [ ] R8 leftovers: the per-review FSRS loop (`stats.ts`, `replay.ts`), the `.flashpkg` layout and note-type payloads, and the device-speech wrappers.
 - [ ] Moving the shared SQLite code out of `@flash/platform-capacitor` needs a new workspace package. `platform-tauri` also takes `isPickerCallback`, `SystemBrowserLauncher` and `ICloudDocumentPlugin` from it.
 - Moved to "Needs the owner (hands-on)": owner chores.
@@ -754,10 +754,13 @@ Open items, grouped by PR. Dependabot and CI come last.
 - [ ] The `boot().catch(() => { markBooted(); throw err })` path has no test.
 - [ ] Sonar S7785 (prefer top-level await) on `main.tsx` was left as a promise chain, plus 3 new Sonar minors.
 
-### #108 (in review)
+### #108
 
 - [ ] About 36 files are left in `REACT_COMPILER_BASELINE`. All are genuine `purity`, `set-state-in-effect`, `refs` or `incompatible-library` findings, and clearing them needs behaviour-changing rewrites. `StudyScreen` `purity` was deliberately not forced.
 - [ ] Hardening: `noteEditDiff.ts:32` and `ColumnMapping.tsx:287,291` still use raw `x.fields[key]` lookups on edit snapshots and import-preview rows (not Notes), with the same prototype-key exposure.
+- [ ] `packages/core/src/tags/duplicates.ts:105` reads `note.fields[field]` raw. `findDuplicateGroups` throws a TypeError when a note type's key field is `constructor` and the note lacks it. Route it through `noteField`, with a test.
+- [ ] The Draw prototype-key test has no assertion of its own; it relies on a crash or a React log.
+- [ ] `populatedRevealStepsFor` in StudyScreen is exported only for the test, so knip may flag it.
 
 ### Dependabot and CI
 
@@ -783,7 +786,8 @@ Each default below stays shipped until the owner decides. All are **keep** unles
 - [ ] **New UI APIs `useSyncState`, `useLibraryActions` and `getState` (#104).** Technical; for information only.
 - [ ] **Single-writer `booted` has no timeout of its own (#107).** A hung boot is taken over after the asking tab's 120 s limit. Recommend keep.
 - [ ] **When boot fails, the error is still rethrown after `markBooted()` (#107).** Recommend keep.
-- [ ] **The knip un-exports in #108 (in review) also reach about 25 files outside `packages/ui`** (core, platform-web, platform-capacitor, platform-tauri), each only dropping an `export`. For information only.
+- [ ] **The knip un-exports in #108 also reach about 25 files outside `packages/ui`** (core, platform-web, platform-capacitor, platform-tauri), each only dropping an `export`. For information only.
+- [ ] **#107 and #108 are technical, with no product defaults beyond those listed.** For information only.
 
 ## Needs the owner (hands-on)
 
