@@ -1,5 +1,6 @@
 import type { CollectionState } from '../events/replay.ts';
 import type { NoteUpsertedPayload } from '../events/types.ts';
+import { noteField } from '../model/note-fields.ts';
 import type { Note, NoteType, NoteTypeField } from '../model/types.ts';
 import { isLinkedDeck } from './bulk.ts';
 import { compareCodeUnits } from '../compare.ts';
@@ -165,7 +166,7 @@ function replaceInNote(
   const fields: Record<string, string> = {};
   for (const field of searchableFields(noteTypeOf(state, note))) {
     if (options.fieldKey !== undefined && field.key !== options.fieldKey) continue;
-    const before = note.fields[field.key];
+    const before = noteField(note, field.key);
     if (!before) continue;
     const { text: after, count } = replaceInText(before, pattern, options);
     if (count === 0 || after === before) continue;
@@ -227,7 +228,7 @@ export function planFindReplaceUndo(
   let skippedCount = 0;
   for (const change of changes) {
     const note = state.notes.get(change.noteId);
-    if (note?.fields[change.fieldKey] !== change.after) {
+    if (note === undefined || noteField(note, change.fieldKey) !== change.after) {
       skippedCount += 1;
       continue;
     }

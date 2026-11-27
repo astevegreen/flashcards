@@ -5,7 +5,11 @@ import type { StudyReminderScheduler } from '@flash/platform';
 import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MediaImage, MISSING_MEDIA_RETRY_MS } from '../src/components/MediaImage.tsx';
-import { BADGE_CHANGE_DEBOUNCE_MS, ReminderRuntime } from '../src/reminders/ReminderRuntime.tsx';
+import {
+  BADGE_CHANGE_DEBOUNCE_MS,
+  ReminderRuntime,
+  webBadgeCount,
+} from '../src/reminders/ReminderRuntime.tsx';
 import { BrowseScreen } from '../src/screens/BrowseScreen.tsx';
 import {
   advance,
@@ -30,6 +34,19 @@ afterEach(async () => {
 
 const remindersOn = { enabled: true, hour: 0, minute: 0 };
 
+/**
+ * Fakes the timers and `Date`, pinned to noon local time on a fixed day: the badge counts what is
+ * due "now" and is 0 before the reminder time, so a real clock could cross midnight mid-test or
+ * build a different queue on another day. Noon is past the 00:00 reminder in every time zone.
+ */
+const PINNED_NOW = new Date(2026, 2, 10, 12, 0, 0, 0);
+function pinFakeClock(): void {
+  vi.useFakeTimers({
+    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    now: PINNED_NOW,
+  });
+}
+
 /** Bumps `stateVersion` with a real local change (one rating). */
 async function rateOne(m: Mounted): Promise<void> {
   await act(async () => m.app().rateCard(newCard(m), 3, 1000));
@@ -37,7 +54,7 @@ async function rateOne(m: Mounted): Promise<void> {
 
 describe('ReminderRuntime timer wiring', () => {
   it('web: shows the badge at once, then rebuilds it once, 2 s after the last rating', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    pinFakeClock();
     const storage = createMemoryStorage();
     storage.kv.set('study_reminders', remindersOn);
     const onBadgeChange = vi.fn();
@@ -48,6 +65,8 @@ describe('ReminderRuntime timer wiring', () => {
     await flush();
     const first = onBadgeChange.mock.lastCall?.[0] as number;
     expect(first).toBeGreaterThan(0);
+    // The pinned clock is the one the badge read.
+    expect(first).toBe(webBadgeCount(remindersOn, mounted.app().state, PINNED_NOW.getTime()));
     onBadgeChange.mockClear();
 
     await rateOne(mounted);
@@ -71,7 +90,7 @@ describe('ReminderRuntime timer wiring', () => {
   });
 
   it('native: schedules at launch, again 10 s after a change, and when the app is hidden', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    pinFakeClock();
     const storage = createMemoryStorage();
     storage.kv.set('study_reminders', remindersOn);
     const scheduler: StudyReminderScheduler = {

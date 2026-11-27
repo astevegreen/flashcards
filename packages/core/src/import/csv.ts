@@ -1,6 +1,7 @@
 import { deriveNoteId, uuidv7 } from '../ids.ts';
 import type { EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
+import { ownField } from '../model/note-fields.ts';
 import type { Note, NoteType } from '../model/types.ts';
 import { convertAnkiRuby } from './anki-ruby.ts';
 import { normalizeTagList } from '../tags/index.ts';
@@ -379,7 +380,7 @@ export function buildEventsFromCsv(
 
       if (role.kind === 'field') {
         const text = options.ankiRuby ? convertAnkiRuby(value) : value;
-        const prev = fields[role.fieldKey];
+        const prev = ownField(fields, role.fieldKey);
         // Two columns into one field (only the mapping step allows it, for Notes) are joined.
         fields[role.fieldKey] = prev && explicitRoles ? `${prev}\n${text}` : text;
       } else if (role.kind === 'tags') {
@@ -390,7 +391,8 @@ export function buildEventsFromCsv(
         notes.push(notesLine(headerNames[colIdx] ?? '', colIdx, value));
       }
     }
-    if (notesKey && notes.length > 0) fields[notesKey] = joinNotes(fields[notesKey], notes);
+    if (notesKey && notes.length > 0)
+      fields[notesKey] = joinNotes(ownField(fields, notesKey), notes);
 
     if (Object.keys(fields).length === 0) {
       warnings.push({
