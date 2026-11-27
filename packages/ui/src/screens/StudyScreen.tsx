@@ -35,6 +35,7 @@ import { useSyncState } from '../state/syncStateStore.ts';
 import { inStudyScope } from '../state/undoGuard.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
+import { dueCountsText } from '../study/dueCounts.ts';
 import { msUntilNextLocalHour, studyDayKey } from '../study/queueClock.ts';
 import { populatedRevealStepsFor } from '../study/revealSteps.ts';
 import { showRubyToggle } from '../study/rubyToggle.ts';
@@ -66,8 +67,8 @@ const LazySwipeGuideBanner = lazyWithRetry(() =>
   import('../study/SwipeGuideBanner.tsx').then((m) => ({ default: m.SwipeGuideBanner })),
 );
 
-// Screen-reader text for the due counts and a live region for the study flow (§10). Lazy, so it
-// costs the initial bundle nothing; it only has to be there before the first reveal.
+// The live region for the study flow (§10). Lazy, so it costs the initial bundle nothing; it only
+// has to be there before the first reveal. The due-count sentence is rendered eagerly below.
 const LazyStudyAnnouncer = lazyWithRetry(() =>
   import('../study/StudyAnnouncer.tsx').then((m) => ({ default: m.StudyAnnouncer })),
 );
@@ -1029,10 +1030,12 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
         </div>
       </header>
 
+      <p data-testid="study-due-counts" className="sr-only">
+        {dueCountsText(queueResult.counts)}
+      </p>
       <Suspense fallback={null}>
         <LazyStudyAnnouncer
           cardId={currentCard?.id}
-          counts={queueResult.counts}
           caughtUp={caughtUp}
           revealStep={revealStep}
           totalRevealSteps={totalRevealSteps}
