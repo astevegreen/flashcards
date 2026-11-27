@@ -151,7 +151,7 @@ test('findings reads blockers and notes, numbered, bulleted or bold, and ignores
   );
   assert.deepEqual(f.blockers, ['packages/core/src/x.ts:3 imports node:fs - hard rule 1']);
   assert.deepEqual(f.notes, ['tests/y.ts:9 no tie case', 'z.ts:1 naming']);
-  assert.deepEqual(findings('No findings.'), { blockers: [], notes: [] });
+  assert.deepEqual(findings('No findings.'), { blockers: [], notes: [], untaggedBlockers: [] });
 });
 
 test('renaming or copying a rail out of its folder is a rail change: the old path counts too', () => {
@@ -214,6 +214,24 @@ test('no blocker and no rail: merge, with the notes passed on and holding nothin
   const v = decide({ review: ok('[note] a.ts:1 a risk') });
   assert.equal(v.verdict, 'merge');
   assert.deepEqual(v.notes, ['a.ts:1 a risk']);
+});
+
+test('a tagged note plus an untagged mid-line "Blocker" retries instead of reading as notes only', () => {
+  const v = decide({
+    review: ok(
+      ['[note] a.ts:1 a risk', 'This one is a Blocker: b.ts:2 drops the check'].join('\n'),
+    ),
+  });
+  assert.equal(v.verdict, 'retry');
+  assert.match(v.why, /untagged line that names a blocker/);
+  assert.deepEqual(v.notes, ['a.ts:1 a risk']);
+  // The same words on a tagged line stay a note; "blockers" in plain prose does not trip it.
+  assert.equal(decide({ review: ok('[note] a.ts:1 not a blocker') }).verdict, 'merge');
+  const prose = ['[note] a.ts:1 risk', 'No blockers found.'].join('\n');
+  assert.equal(decide({ review: ok(prose) }).verdict, 'merge');
+  // A tagged blocker still gets its fix pass, whatever else the review says.
+  const both = ['[blocker] a.ts:1 wrong', 'Blocker: also b'].join('\n');
+  assert.equal(decide({ review: ok(both) }).verdict, 'fix');
 });
 
 test('an agy blocker is a fix pass, like a reviewer blocker (P3)', () => {

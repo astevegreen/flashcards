@@ -119,11 +119,13 @@ export function railHits(diff) {
 // A review's findings in the format prompts/pr-audit.md asks for: "[blocker] file:line …" or "[note] …", maybe
 // numbered or bulleted.
 export function findings(response) {
-  const out = { blockers: [], notes: [] };
+  const out = { blockers: [], notes: [], untaggedBlockers: [] };
   for (const line of String(response ?? '').split(/\r?\n/)) {
     // Trimmed first, and no two neighbouring parts match the same text, so the pattern can't backtrack.
     const m = /^(?:[-*]|\d+[.)])?[ \t]*\**\[(blocker|note|minor)\]\**:?(.*)$/i.exec(line.trim());
     if (m) (m[1].toLowerCase() === 'blocker' ? out.blockers : out.notes).push(m[2].trim());
+    // An untagged line that names a blocker (mid-line "Blocker: ...") may be one the tag format missed.
+    else if (/(?<![a-z])blocker(?![a-z])/i.test(line)) out.untaggedBlockers.push(line.trim());
   }
   return out;
 }
@@ -158,7 +160,9 @@ export function railAnswer(response) {
 //          "No findings."); the pull request waits for it and retries by itself, never for the owner (P2), and
 //          never merges unaudited
 export function decide({ review, rail = null, hits = [] }) {
-  const { blockers, notes } = review.ok ? findings(review.response) : { blockers: [], notes: [] };
+  const { blockers, notes, untaggedBlockers } = review.ok
+    ? findings(review.response)
+    : { blockers: [], notes: [], untaggedBlockers: [] };
   const where = hits.map((h) => h.file).join(', ');
   if (rail && !rail.ok)
     return {
@@ -197,6 +201,15 @@ export function decide({ review, rail = null, hits = [] }) {
       blockers,
       notes,
       why: `agy's second look has no [blocker] or [note] line and is not "No findings.", so it can't be read; the pull request retries by itself`,
+    };
+  // Tagged notes alone read as notes-only, but an untagged "Blocker: ..." line next to them means agy may have
+  // flagged a blocker the format missed: retry rather than merge past it.
+  if (!blockers.length && untaggedBlockers.length)
+    return {
+      verdict: 'retry',
+      blockers,
+      notes,
+      why: `agy's second look has an untagged line that names a blocker (${untaggedBlockers[0].slice(0, 120)}), so it can't be read as notes only; the pull request retries by itself`,
     };
   if (blockers.length)
     return { verdict: 'fix', blockers, notes, why: `agy found ${blockers.length} blocker(s)` };

@@ -1,0 +1,348 @@
+{
+  "starter-ko-core@1.0.0": {
+    "deck": {
+      "deck_id": "b439300e-7416-50cf-8cee-1ff44e9acd84",
+      "name": "Korean Starter: Beginner Words",
+      "note_type_id": "preset:vocab-ko",
+      "language": "ko",
+      "source": {
+        "kind": "native",
+        "package_id": "flash-starter:starter-ko-core",
+        "package_version": "1.0.0",
+        "content_hash": "58bd853d525abe03c1bec52fe82ffd50ebca33d13b840c94486ac5c4001419a0",
+        "uri": "https://www.korean.go.kr/front_eng/down/down_02V.do?etc_seq=70"
+      },
+      "created_at": 1735689600000
+    },
+    "description": {
+      "deck_id": "b439300e-7416-50cf-8cee-1ff44e9acd84",
+      "description": "Beginner (level A) Korean words from the NIKL learning vocabulary list, most frequent first, with Hanja for Sino-Korean words and English meanings from Wikidata.",
+      "from_package": true
+    },
+    "noteCount": 145,
+    "firstNotes": [
+      {
+        "note_id": "0c426f52-1a84-5b9d-9f74-a2e626b2a5ee",
+        "deck_id": "b439300e-7416-50cf-8cee-1ff44e9acd84",
+        "source_key": "nikl:것01:dependent-noun",
+        "fields": {
+          "word": "것",
+          "hanja": "",
+          "meaning": "thing (some object, fact, etc. that is not specified)",
+          "example": "",
+          "notes": "Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L196 (CC0)."
+        },
+        "tags": [
+          "nikl-a",
+          "dependent-noun"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 0
+      },
+      {
+        "note_id": "010e6715-f9e3-5678-8522-0d20f67737e8",
+        "deck_id": "b439300e-7416-50cf-8cee-1ff44e9acd84",
+        "source_key": "nikl:하다01:verb",
+        "fields": {
+          "word": "하다",
+          "hanja": "",
+          "meaning": "to do (something, perform an action)",
+          "example": "",
+          "notes": "Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L226 (CC0)."
+        },
+        "tags": [
+          "nikl-a",
+          "verb"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 1
+      },
+      {
+        "note_id": "647b2138-2239-5858-85a8-fabbc4e6aa35",
+        "deck_id": "b439300e-7416-50cf-8cee-1ff44e9acd84",
+        "source_key": "nikl:되다01:verb",
+        "fields": {
+          "word": "되다",
+          "hanja": "",
+          "meaning": "to become (have a new status/position)",
+          "example": "",
+          "notes": "Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L43 (CC0)."
+        },
+        "tags": [
+          "nikl-a",
+          "verb"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 2
+      }
+    ],
+    "notesSha256": "dae3961f70db8e92b6c8e8fa0cae0992b37ada4d7deb5a54ee0158ae423882f2"
+  },
+  "starter-ko-core@1.1.0": {
+    "deck": {
+      "deck_id": "b439300e-7416-50cf-8cee-1ff44e9acd84",
+      "name": "Korean Starter: Beginner Words",
+      "note_type_id": "preset:vocab-ko",
+      "language": "ko",
+      "source": {
+        "kind": "native",
+        "package_id": "flash-starter:starter-ko-core",
+        "package_version": "1.1.0",
+        "content_hash": "ad426ef9a1bb5410ada98073604bdbb8ce735920e8d5444e8ff5ccdb10bb3daa",
+        "uri": "https://www.korean.go.kr/front_eng/down/down_02V.do?etc_seq=70"
+      },
+      "created_at": 1735689600000
+    },
+    "description": {
+      "deck_id": "b439300e-7416-50cf-8cee-1ff44e9acd84",
+      "description": "Beginner (level A) Korean words from the NIKL learning vocabulary list, most frequent first, with Hanja for Sino-Korean words and English meanings from Wikidata.",
+      "from_package": true
+    },
+    "noteCount": 145,
+    "firstNotes": [
+      {
+        "note_id": "0c426f52-1a84-5b9d-9f74-a2e626b2a5ee",
+        "deck_id": "b439300e-7416-50cf-8cee-1ff44e9acd84",
+        "source_key": "nikl:것01:dependent-noun",
+        "fields": {
+          "word": "것",
+          "hanja": "",
+          "meaning": "thing (some object, fact, etc. that is not specified)",
+          "example": "",
+          "notes": "Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L196 (CC0)."
+        },
+        "tags": [
+          "nikl-a",
+          "dependent-noun"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 0
+      },
+      {
+        "note_id": "010e6715-f9e3-5678-8522-0d20f67737e8",
+        "deck_id": "b439300e-7416-50cf-8cee-1ff44e9acd84",
+        "source_key": "nikl:하다01:verb",
+        "fields": {
+          "word": "하다",
+          "hanja": "",
+          "meaning": "to do (something, perform an action)",
+          "example": "",
+          "notes": "Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L226 (CC0)."
+        },
+        "tags": [
+          "nikl-a",
+          "verb"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 1
+      },
+      {
+        "note_id": "647b2138-2239-5858-85a8-fabbc4e6aa35",
+        "deck_id": "b439300e-7416-50cf-8cee-1ff44e9acd84",
+        "source_key": "nikl:되다01:verb",
+        "fields": {
+          "word": "되다",
+          "hanja": "",
+          "meaning": "to become (have a new status/position)",
+          "example": "",
+          "notes": "Word list: NIKL 한국어 학습용 어휘 목록 (2003), KOGL Type 1. English: Wikidata L43 (CC0)."
+        },
+        "tags": [
+          "nikl-a",
+          "verb"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 2
+      }
+    ],
+    "notesSha256": "2d083c954e76614f1d57f879fd610f1803da7a459e3525ec748f36ddf583d7ad"
+  },
+  "starter-zh-common@1.0.0": {
+    "deck": {
+      "deck_id": "25363ed4-6ffe-5d1e-9de7-65656d825780",
+      "name": "Mandarin Basics: Common Characters",
+      "note_type_id": "preset:vocab-zh",
+      "language": "zh-Hans",
+      "source": {
+        "kind": "native",
+        "package_id": "flash-starter:starter-zh-common",
+        "package_version": "1.0.0",
+        "content_hash": "26a08bc5ecbd38a13d3f5cd439d3fa8ff43f9daffb56963ffc05fe637cd6e6bc",
+        "uri": "https://www.unicode.org/charts/unihan.html"
+      },
+      "created_at": 1735689600000
+    },
+    "description": {
+      "deck_id": "25363ed4-6ffe-5d1e-9de7-65656d825780",
+      "description": "The most frequent characters of modern Mandarin, with pinyin and English definitions from the Unicode Unihan database.",
+      "from_package": true
+    },
+    "noteCount": 150,
+    "firstNotes": [
+      {
+        "note_id": "4de4312d-9b76-5e2a-ae72-dc333c4347cd",
+        "deck_id": "25363ed4-6ffe-5d1e-9de7-65656d825780",
+        "source_key": "unihan:U+7684",
+        "fields": {
+          "word": "的",
+          "reading": "de",
+          "meaning": "possessive, adjectival suffix",
+          "example": "",
+          "notes": "Also read: dì, dí. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3."
+        },
+        "tags": [
+          "hanzi-common"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 0
+      },
+      {
+        "note_id": "d0db0dfb-6911-5215-bf36-3fc28fecf2d4",
+        "deck_id": "25363ed4-6ffe-5d1e-9de7-65656d825780",
+        "source_key": "unihan:U+4E00",
+        "fields": {
+          "word": "一",
+          "reading": "yī",
+          "meaning": "one; a, an; alone",
+          "example": "",
+          "notes": "Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3."
+        },
+        "tags": [
+          "hanzi-common"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 1
+      },
+      {
+        "note_id": "fdc2c3bb-05ba-56ce-9c51-4dc7682a0d6b",
+        "deck_id": "25363ed4-6ffe-5d1e-9de7-65656d825780",
+        "source_key": "unihan:U+4E86",
+        "fields": {
+          "word": "了",
+          "reading": "le",
+          "meaning": "to finish; particle of completed action",
+          "example": "",
+          "notes": "Also read: liǎo, liào. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3."
+        },
+        "tags": [
+          "hanzi-common"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 2
+      }
+    ],
+    "notesSha256": "c654537520b2ed49b35068ccd6bfa9b6e0cdca049c031d75a918fc7c9d50e6e6"
+  },
+  "starter-zh-common@1.1.0": {
+    "deck": {
+      "deck_id": "25363ed4-6ffe-5d1e-9de7-65656d825780",
+      "name": "Mandarin Basics: Common Characters",
+      "note_type_id": "preset:vocab-zh",
+      "language": "zh-Hans",
+      "source": {
+        "kind": "native",
+        "package_id": "flash-starter:starter-zh-common",
+        "package_version": "1.1.0",
+        "content_hash": "bd074cc957f5558757a6ea74a6de2a89a185e07f912f2d3ac3364c786273495a",
+        "uri": "https://www.unicode.org/charts/unihan.html"
+      },
+      "created_at": 1735689600000
+    },
+    "description": {
+      "deck_id": "25363ed4-6ffe-5d1e-9de7-65656d825780",
+      "description": "The most frequent characters of modern Mandarin, with pinyin and English definitions from the Unicode Unihan database.",
+      "from_package": true
+    },
+    "noteCount": 150,
+    "firstNotes": [
+      {
+        "note_id": "4de4312d-9b76-5e2a-ae72-dc333c4347cd",
+        "deck_id": "25363ed4-6ffe-5d1e-9de7-65656d825780",
+        "source_key": "unihan:U+7684",
+        "fields": {
+          "word": "的",
+          "reading": "de",
+          "meaning": "possessive particle: 's (我的 \"my\")",
+          "example": "",
+          "notes": "Also read: dì, dí. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3; meaning edited by this app."
+        },
+        "tags": [
+          "hanzi-common"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 0
+      },
+      {
+        "note_id": "d0db0dfb-6911-5215-bf36-3fc28fecf2d4",
+        "deck_id": "25363ed4-6ffe-5d1e-9de7-65656d825780",
+        "source_key": "unihan:U+4E00",
+        "fields": {
+          "word": "一",
+          "reading": "yī",
+          "meaning": "one; a, an; alone",
+          "example": "",
+          "notes": "Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3."
+        },
+        "tags": [
+          "hanzi-common"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 1
+      },
+      {
+        "note_id": "fdc2c3bb-05ba-56ce-9c51-4dc7682a0d6b",
+        "deck_id": "25363ed4-6ffe-5d1e-9de7-65656d825780",
+        "source_key": "unihan:U+4E86",
+        "fields": {
+          "word": "了",
+          "reading": "le",
+          "meaning": "to finish; particle of completed action",
+          "example": "",
+          "notes": "Also read: liǎo, liào. Source: Unicode Unihan 17.0.0 (kHanyuPinlu, kMandarin, kDefinition), Unicode License v3."
+        },
+        "tags": [
+          "hanzi-common"
+        ],
+        "provenance": {
+          "source": "import",
+          "reviewed": true
+        },
+        "created_order": 2
+      }
+    ],
+    "notesSha256": "fc583709269ff49e2ba12ce73cd35035206d5dc0b7e4b1831579859f42a9c573"
+  }
+}
