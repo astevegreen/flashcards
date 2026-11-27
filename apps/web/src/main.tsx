@@ -127,17 +127,14 @@ async function boot(): Promise<void> {
       })
     : webPlatform;
 
-  const rootEl = document.getElementById('root');
-  if (!rootEl) {
-    throw new Error('Root element #root not found');
-  }
   // An app render that throws with no error boundary to catch it unmounts the app before its
   // effects run, so `exposeWhenSaved` never comes: boot has finished then too (a waiting tab takes
   // over at once, not by a steal after 120 s). Only once the app is rendered: the waiting screen
   // shares this root, and a crash there comes before boot has read or written anything. The error
   // is still reported, as React does by default.
   let appRendered = false;
-  const root = createRoot(rootEl, {
+  // index.html always has #root. Without it `createRoot` throws, and boot fails as below.
+  const root = createRoot(document.getElementById('root') as HTMLElement, {
     onUncaughtError: (error) => {
       if (appRendered) markBooted();
       reportError(error);
