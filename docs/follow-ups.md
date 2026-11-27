@@ -756,7 +756,7 @@ Open items, grouped by PR. Dependabot and CI come last.
 
 ### #108
 
-- [ ] About 36 files are left in `REACT_COMPILER_BASELINE`. All are genuine `purity`, `set-state-in-effect`, `refs` or `incompatible-library` findings, and clearing them needs behaviour-changing rewrites. `StudyScreen` `purity` was deliberately not forced. #129 cleared 14 panels; 22 files are left (the study screens and answer modes, `AppContext`, `FlashcardsApp`, drawing, dictionary, `BrowseScreen`, and a few `purity` panels).
+- [ ] About 36 files are left in `REACT_COMPILER_BASELINE`. All are genuine `purity`, `set-state-in-effect`, `refs` or `incompatible-library` findings, and clearing them needs behaviour-changing rewrites. `StudyScreen` `purity` was deliberately not forced. #129 cleared 14 panels; 22 files are left (the study screens and answer modes, `AppContext`, `FlashcardsApp`, drawing, dictionary, `BrowseScreen`, and 11 `purity` panels (DuplicateFinderPanel, NoteDetailPane, CoursesPanel, ShellNotices, PageViewer, LibraryScreen, StatsScreen, CustomStudySection, StudyFilterPanel, StudySetsSection, DictionaryPanel)).
 - [x] Hardening: `noteEditDiff.ts:32` and `ColumnMapping.tsx:287,291` still use raw `x.fields[key]` lookups on edit snapshots and import-preview rows (not Notes), with the same prototype-key exposure. Done in #112.
 - [x] `packages/core/src/tags/duplicates.ts:105` reads `note.fields[field]` raw. `findDuplicateGroups` throws a TypeError when a note type's key field is `constructor` and the note lacks it. Route it through `noteField`, with a test. Done in #112.
 - [x] The Draw prototype-key test has no assertion of its own; it relies on a crash or a React log. Done in #112.
