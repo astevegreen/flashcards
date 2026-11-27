@@ -39,7 +39,15 @@ export function parseDelimitedText(raw: string, options?: CsvParseOptions): CsvP
   return { delimiter, headers, rows };
 }
 
-interface ParsedCells extends CsvParseResult {
+/**
+ * `parseDelimitedText` plus each cell's quote flag and row 1 untrimmed: what `buildEventsFromCsv`
+ * reads, so a preview grid can show the cells exactly as they import (C17).
+ */
+export function parseDelimitedTable(raw: string, options?: CsvParseOptions): ParsedCells {
+  return parseCells(raw, options);
+}
+
+export interface ParsedCells extends CsvParseResult {
   /** `quoted[r][c]`: cell `rows[r][c]` was written in quotes, so its spaces are content (C17). */
   quoted: boolean[][];
   /** Row 1 untrimmed, with its quote flags: the first data row when there is no header row. */
@@ -69,6 +77,9 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
   // after it, and `"philopon", methamphetamine` keeps its quotes in a TSV.
   let quoteStart = -1;
   let literalQuoteAt = -1;
+  // Where the current field's text began: spaces before an opening quote are dropped, as RFC
+  // tolerant readers do (`a, "b"` reads as `a,"b"`), and read again if that quote turns literal.
+  let fieldStart = 0;
   const endField = () => {
     if (quoteEnd >= 0) field = field.slice(0, quoteEnd) + field.slice(quoteEnd).trimEnd();
     row.push(field);
@@ -78,16 +89,15 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
     quoteEnd = -1;
     quoteStart = -1;
   };
-  /** Reparses the field from its opening quote, as plain text. Returns where to resume. */
+  /** Reparses the field from its start (any spaces, then the quote), as plain text. */
   const unquote = (): number => {
-    const at = quoteStart;
-    literalQuoteAt = at;
+    literalQuoteAt = quoteStart;
     field = '';
     fieldQuoted = false;
     quoteEnd = -1;
     quoteStart = -1;
     inQuotes = false;
-    return at - 1;
+    return fieldStart - 1;
   };
   const endRow = () => {
     endField();
@@ -105,6 +115,7 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
     }
     const ch = input[i];
     if (ch === undefined) continue;
+    if (!inQuotes && field.length === 0 && quoteEnd < 0) fieldStart = i;
     if (inQuotes) {
       if (ch === '"') {
         if (input[i + 1] === '"') {
@@ -118,7 +129,8 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
         field += ch;
       }
     } else {
-      if (ch === '"' && field.length === 0 && i !== literalQuoteAt) {
+      if (ch === '"' && quoteEnd < 0 && isBlank(field) && i !== literalQuoteAt) {
+        field = '';
         inQuotes = true;
         fieldQuoted = true;
         quoteStart = i;
@@ -160,11 +172,23 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
   const quoted: boolean[][] = [];
   for (let r = 1; r < allRows.length; r++) {
     const cells = allRows[r];
+    // A row of blanks is dropped, even one of quoted spaces: a note needs some text.
     if (!cells?.some((cell) => cell.trim() !== '')) continue;
     rows.push(cells);
     quoted.push(allQuoted[r] ?? []);
   }
   return { delimiter, headers, rows, quoted, firstRow: headerRow, firstQuoted: allQuoted[0] ?? [] };
+}
+
+/** Only spaces (the delimiter, a tab, never reaches a field in a TSV). */
+function isBlank(text: string): boolean {
+  for (const ch of text) if (ch !== ' ' && ch !== '\t') return false;
+  return true;
+}
+
+/** A cell with something in it: text, or spaces written inside quotes (`"   "`). */
+function hasContent(cell: string, quoted: boolean): boolean {
+  return cell.trim() !== '' || (quoted && cell.length > 0);
 }
 
 const EMPTY_CELLS = { headers: [], rows: [], quoted: [], firstRow: [], firstQuoted: [] };
@@ -347,9 +371,11 @@ export function buildEventsFromCsv(
       const role = columnRoles[colIdx];
       if (!role) continue;
       // A quoted cell keeps its spaces, so exportCsv round-trips them (C17); unquoted is trimmed.
+      // A quoted cell of spaces only (`"   "`) is kept as spaces, but only in a field.
       const cell = row[colIdx] ?? '';
-      if (!cell.trim()) continue;
-      const value = dataQuoted[rowIdx]?.[colIdx] && role.kind !== 'card_id' ? cell : cell.trim();
+      const quoted = dataQuoted[rowIdx]?.[colIdx] === true && role.kind !== 'card_id';
+      if (!hasContent(cell, quoted && role.kind === 'field')) continue;
+      const value = quoted ? cell : cell.trim();
 
       if (role.kind === 'field') {
         const text = options.ankiRuby ? convertAnkiRuby(value) : value;

@@ -44,15 +44,62 @@ function findEocd(bytes: Uint8Array): number {
   return -1;
 }
 
-function readName(bytes: Uint8Array, start: number, length: number): string | undefined {
-  if (length === 0 || start + length > bytes.length) return undefined;
-  return decodeUtf8(bytes.subarray(start, start + length));
+/** CP437 for bytes 0x80–0xFF (the original IBM PC code page, the zip default for names). */
+const CP437_HIGH =
+  'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ';
+
+function decodeCp437(bytes: Uint8Array): string {
+  let out = '';
+  for (const b of bytes) out += b < 0x80 ? String.fromCodePoint(b) : (CP437_HIGH[b - 0x80] ?? '');
+  return out;
 }
 
-/** One central directory record's raw name. */
+/** True when `bytes` is well-formed UTF-8 (no overlong forms, surrogates or > U+10FFFF). */
+function isWellFormedUtf8(bytes: Uint8Array): boolean {
+  let i = 0;
+  while (i < bytes.length) {
+    const b = bytes[i++] ?? 0;
+    if (b < 0x80) continue;
+    let needed: number;
+    let lower = 0x80;
+    let upper = 0xbf;
+    if (b >= 0xc2 && b <= 0xdf) needed = 1;
+    else if (b >= 0xe0 && b <= 0xef) {
+      needed = 2;
+      if (b === 0xe0) lower = 0xa0;
+      if (b === 0xed) upper = 0x9f;
+    } else if (b >= 0xf0 && b <= 0xf4) {
+      needed = 3;
+      if (b === 0xf0) lower = 0x90;
+      if (b === 0xf4) upper = 0x8f;
+    } else return false;
+    for (; needed > 0; needed--) {
+      const c = bytes[i++];
+      if (c === undefined || c < lower || c > upper) return false;
+      lower = 0x80;
+      upper = 0xbf;
+    }
+  }
+  return true;
+}
+
+/**
+ * One entry name, decoded the same way by detection and extraction:
+ * - general-purpose flag bit 11 set: UTF-8;
+ * - not set: CP437, as APPNOTE says, unless the bytes are well-formed UTF-8. macOS Archive
+ *   Utility, Google Drive's "Download" zips and older Info-ZIP write UTF-8 names without the flag,
+ *   while a real CP437 name with accented letters is almost never well-formed UTF-8 (`é` is a lone
+ *   0x82, a continuation byte). Anki's own `.apkg` files set the flag (Python `zipfile`) and name
+ *   media by number, so they never reach the fallback.
+ */
+export function decodeZipEntryName(bytes: Uint8Array, utf8Flag: boolean): string {
+  return utf8Flag || isWellFormedUtf8(bytes) ? decodeUtf8(bytes) : decodeCp437(bytes);
+}
+
+/** One central directory record's (or local header's) raw name. */
 export interface CentralDirectoryName {
   bytes: Uint8Array;
-  /** General-purpose flag bit 11: the name is UTF-8 (else CP437, which readers take as Latin-1). */
+  /** General-purpose flag bit 11: the name is UTF-8 (else CP437; see `decodeZipEntryName`). */
   utf8: boolean;
 }
 
@@ -82,21 +129,23 @@ export function centralDirectoryNameRecords(
   return names;
 }
 
-function centralDirectoryNames(bytes: Uint8Array, maxEntries: number): string[] | undefined {
-  return centralDirectoryNameRecords(bytes, maxEntries)?.map((n) => decodeUtf8(n.bytes));
-}
-
-function localHeaderNames(bytes: Uint8Array, maxEntries: number): string[] {
-  const names: string[] = [];
+/** Raw names from the local headers, walked from the start (stops at anything it can't skip). */
+export function localHeaderNameRecords(
+  bytes: Uint8Array,
+  maxEntries: number,
+): CentralDirectoryName[] {
+  const names: CentralDirectoryName[] = [];
   let at = 0;
   while (names.length < maxEntries && at + 30 <= bytes.length) {
     if (u32(bytes, at) !== LOCAL_SIGNATURE) break;
     const flags = u16(bytes, at + 6);
     const compressed = u32(bytes, at + 18);
     const nameLength = u16(bytes, at + 26);
-    const name = readName(bytes, at + 30, nameLength);
-    if (name === undefined) break;
-    names.push(name);
+    if (nameLength === 0 || at + 30 + nameLength > bytes.length) break;
+    names.push({
+      bytes: bytes.subarray(at + 30, at + 30 + nameLength),
+      utf8: (flags & 0x800) !== 0,
+    });
     // A streamed entry (data descriptor, size 0 in the header) cannot be skipped safely.
     if ((flags & 0x08) !== 0 && compressed === 0) break;
     at += 30 + nameLength + u16(bytes, at + 28) + compressed;
@@ -110,5 +159,7 @@ function localHeaderNames(bytes: Uint8Array, maxEntries: number): string[] {
  */
 export function listZipEntryNames(bytes: Uint8Array, maxEntries = 100_000): string[] | undefined {
   if (!hasZipSignature(bytes)) return undefined;
-  return centralDirectoryNames(bytes, maxEntries) ?? localHeaderNames(bytes, maxEntries);
+  const records =
+    centralDirectoryNameRecords(bytes, maxEntries) ?? localHeaderNameRecords(bytes, maxEntries);
+  return records.map((record) => decodeZipEntryName(record.bytes, record.utf8));
 }

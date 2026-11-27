@@ -90,3 +90,53 @@ describe('safeUnzip duplicate and mismatched entries (C18, §13)', () => {
     expect(() => safeUnzip(bytes, LIMITS, ERRORS)).toThrow(SecurityError);
   });
 });
+
+/** A stored archive of one ASCII-named entry, its name bytes then patched to `raw` everywhere. */
+function unflaggedEntry(placeholder: string, raw: number[]): Uint8Array {
+  const bytes = zipSync({ [placeholder]: encodeUtf8('x') }, { level: 0 });
+  for (const at of nameOffsets(bytes, placeholder)) bytes.set(raw, at);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  // The UTF-8 flag (bit 11) is off in both the local header and the central directory record.
+  expect(view.getUint16(6, true) & 0x800).toBe(0);
+  const central = view.getUint32(bytes.length - 22 + 16, true);
+  expect(view.getUint16(central + 8, true) & 0x800).toBe(0);
+  return bytes;
+}
+
+describe('zip entry names without the UTF-8 flag', () => {
+  it('reads a CP437 name the same way in detection and extraction', () => {
+    // `café.txt` and `Ñ` in CP437: é is 0x82, Ñ is 0xA5 (not well-formed UTF-8).
+    const raw = [...encodeUtf8('caf'), 0x82, 0xa5, ...encodeUtf8('.txt')];
+    const bytes = unflaggedEntry('cafXY.txt', raw);
+    expect(listZipEntryNames(bytes)).toEqual(['caféÑ.txt']);
+    const extracted = safeUnzip(bytes, LIMITS, ERRORS);
+    expect([...extracted.keys()]).toEqual(['caféÑ.txt']);
+    expect(extracted.get('caféÑ.txt')).toEqual(encodeUtf8('x'));
+  });
+
+  it('reads a well-formed UTF-8 name without the flag as UTF-8 (macOS, Drive zips)', () => {
+    const bytes = unflaggedEntry('XXXXXX.png', [...encodeUtf8('사진'), ...encodeUtf8('.png')]);
+    expect(listZipEntryNames(bytes)).toEqual(['사진.png']);
+    expect([...safeUnzip(bytes, LIMITS, ERRORS).keys()]).toEqual(['사진.png']);
+  });
+
+  it('decodes the same way from the local headers when there is no central directory', () => {
+    const raw = [...encodeUtf8('caf'), 0x82, ...encodeUtf8('.txt')];
+    const bytes = unflaggedEntry('cafX.txt', raw);
+    const eocd = bytes.length - 22;
+    bytes.fill(0, eocd, eocd + 4); // no EOCD record: both sides walk the local headers
+    expect(listZipEntryNames(bytes)).toEqual(['café.txt']);
+    expect([...safeUnzip(bytes, LIMITS, ERRORS).keys()]).toEqual(['café.txt']);
+  });
+
+  it('maps every CP437 byte to one character', () => {
+    const bytes = unflaggedEntry(
+      'X'.repeat(128),
+      Array.from({ length: 128 }, (_, i) => 0x80 + i),
+    );
+    const [name] = listZipEntryNames(bytes) ?? [];
+    expect([...(name ?? '')]).toHaveLength(128);
+    expect(name?.startsWith('Çüé')).toBe(true);
+    expect(name?.endsWith('²■ ')).toBe(true);
+  });
+});

@@ -8,7 +8,7 @@ import {
   type NoteType,
   type SourceColumnMapping,
 } from '@flash/core';
-import { parseDelimitedText } from '@flash/core/csv';
+import { parseDelimitedTable } from '@flash/core/csv';
 import type { DetectedImport } from '@flash/core/import-detect';
 import {
   guessDeckSetup,
@@ -17,6 +17,7 @@ import {
   resolveSourceColumnMap,
   toSourceColumnMap,
   type ColumnTarget,
+  type GridQuotes,
 } from '@flash/core/import-mapping';
 import type { GooglePickedFile } from '@flash/platform';
 import { Suspense, useEffect, useMemo, useState, type DragEvent, type SyntheticEvent } from 'react';
@@ -319,6 +320,8 @@ type ImportPhase = 'idle' | 'importing' | 'done' | 'error';
 
 interface MappedTableImportProps {
   grid: readonly (readonly string[])[];
+  /** The CSV quotes behind `grid`, so the preview matches the import (C17). */
+  quotes: GridQuotes;
   noteType: NoteType;
   phase: ImportPhase;
   message: string;
@@ -330,6 +333,7 @@ interface MappedTableImportProps {
 /** The mapping, the furigana switch and the Import button for one note type (keyed by it). */
 function MappedTableImport({
   grid,
+  quotes,
   noteType,
   phase,
   message,
@@ -343,13 +347,20 @@ function MappedTableImport({
     previewMappedRows(grid, mapping.targets, noteType, {
       hasHeaderRow: mapping.hasHeaderRow,
       limit: 1,
+      quotes,
     }).length === 0;
   return (
     <>
       <p data-testid="bring-csv-rows" className="text-[11px] text-[var(--muted)]">
         {rowCountText(grid, mapping.hasHeaderRow)}
       </p>
-      <ColumnMappingView grid={grid} noteType={noteType} mapping={mapping} disabled={locked} />
+      <ColumnMappingView
+        grid={grid}
+        quotes={quotes}
+        noteType={noteType}
+        mapping={mapping}
+        disabled={locked}
+      />
       {showAnkiRuby && (
         <label
           className="flex min-w-0 items-center gap-1.5"
@@ -399,9 +410,13 @@ interface CsvRouteProps {
 function CsvRoute({ name, text, detected, source, onBusyChange }: Readonly<CsvRouteProps>) {
   const { state, createDeck } = useApp();
   const ctx = useImportContext();
-  const grid = useMemo(() => {
-    const parsed = parseDelimitedText(text, { delimiter: detected.delimiter });
-    return [parsed.headers, ...parsed.rows];
+  const { grid, quotes } = useMemo(() => {
+    const parsed = parseDelimitedTable(text, { delimiter: detected.delimiter });
+    const quotes: GridQuotes = {
+      quoted: [parsed.firstQuoted, ...parsed.quoted],
+      firstRow: parsed.firstRow,
+    };
+    return { grid: [parsed.headers, ...parsed.rows], quotes };
   }, [text, detected.delimiter]);
   const setup = useMemo(() => guessDeckSetup(grid), [grid]);
   const decks = [...state.decks.values()].filter((d) => !d.archived).toSorted(byNameThenId);
@@ -483,6 +498,7 @@ function CsvRoute({ name, text, detected, source, onBusyChange }: Readonly<CsvRo
         <MappedTableImport
           key={noteType.id}
           grid={grid}
+          quotes={quotes}
           noteType={noteType}
           phase={phase}
           message={message}

@@ -1,6 +1,11 @@
-import { strFromU8, Unzip, UnzipInflate, UnzipPassThrough } from 'fflate';
+import { Unzip, UnzipInflate, UnzipPassThrough } from 'fflate';
 import type { FlateError, UnzipFile } from 'fflate';
-import { centralDirectoryNameRecords } from './zip-entries.ts';
+import {
+  centralDirectoryNameRecords,
+  decodeZipEntryName,
+  localHeaderNameRecords,
+  type CentralDirectoryName,
+} from './zip-entries.ts';
 
 /**
  * Streaming zip extraction for untrusted archives (`.flashpkg`, Anki `.apkg`; §13).
@@ -62,6 +67,8 @@ interface UnzipRun {
   /** Entry names in local-header order, as `fflate` read them. */
   readonly names: string[];
   readonly seenNames: Set<string>;
+  /** fflate's name for an entry without the UTF-8 flag (Latin-1) -> `decodeZipEntryName`'s. */
+  readonly rename: ReadonlyMap<string, string>;
   fileCount: number;
   declaredTotal: number;
   actualTotal: number;
@@ -152,8 +159,9 @@ class EntrySink {
 function onEntry(run: UnzipRun, file: UnzipFile): void {
   if (run.error) return;
   try {
-    checkEntryHeader(run, file.name, file.originalSize);
-    const sink = new EntrySink(run, file.name);
+    const name = run.rename.get(file.name) ?? file.name;
+    checkEntryHeader(run, name, file.originalSize);
+    const sink = new EntrySink(run, name);
     file.ondata = (err, chunk, final) => sink.onData(err, chunk, final);
     file.start();
   } catch (err) {
@@ -181,12 +189,14 @@ function pushAll(unzipper: Unzip, run: UnzipRun, archiveBytes: Uint8Array, label
  * headers. Refuses an archive where the two name different entries, so what was detected is what
  * gets imported (C18). An archive without a readable central directory has nothing to disagree with.
  */
-function checkCentralDirectory(run: UnzipRun, archiveBytes: Uint8Array): void {
-  const central = centralDirectoryNameRecords(archiveBytes, run.limits.maxFiles + 1);
+function checkCentralDirectory(
+  run: UnzipRun,
+  central: readonly CentralDirectoryName[] | undefined,
+): void {
   if (!central) return;
   // The same names, in any order (the format doesn't tie the two orders together). Local names
   // are already unique, so a matching count of distinct central names makes the multisets equal.
-  const names = new Set(central.map((record) => strFromU8(record.bytes, !record.utf8)));
+  const names = new Set(central.map((record) => decodeZipEntryName(record.bytes, record.utf8)));
   const matches =
     central.length === run.names.length &&
     names.size === central.length &&
@@ -194,6 +204,30 @@ function checkCentralDirectory(run: UnzipRun, archiveBytes: Uint8Array): void {
   if (!matches) {
     throw run.errors.security(`Archive's central directory doesn't match its entries.`);
   }
+}
+
+/** Latin-1, the way fflate decodes a name without the UTF-8 flag. */
+function latin1(bytes: Uint8Array): string {
+  let out = '';
+  for (const b of bytes) out += String.fromCodePoint(b);
+  return out;
+}
+
+/**
+ * fflate decodes a name without the UTF-8 flag as Latin-1, while detection reads it as CP437 or
+ * unflagged UTF-8 (`decodeZipEntryName`). Maps fflate's name to that one, so detection and
+ * extraction agree. A Latin-1 name that a flagged entry also decodes to is left out: which entry
+ * it came from is unknown, and the central directory check then refuses the archive.
+ */
+function unflaggedRenames(records: readonly CentralDirectoryName[]): Map<string, string> {
+  const flagged = new Set<string>();
+  const renames = new Map<string, string>();
+  for (const record of records) {
+    if (record.utf8) flagged.add(decodeZipEntryName(record.bytes, true));
+    else renames.set(latin1(record.bytes), decodeZipEntryName(record.bytes, false));
+  }
+  for (const name of flagged) renames.delete(name);
+  return renames;
 }
 
 /**
@@ -213,12 +247,14 @@ export function safeUnzip(
   }
   if (archiveBytes.byteLength === 0) throw errors.invalid(`Empty ${label}.`);
 
+  const central = centralDirectoryNameRecords(archiveBytes, limits.maxFiles + 1);
   const run: UnzipRun = {
     limits,
     errors,
     extracted: new Map(),
     names: [],
     seenNames: new Set(),
+    rename: unflaggedRenames(central ?? localHeaderNameRecords(archiveBytes, limits.maxFiles + 1)),
     fileCount: 0,
     declaredTotal: 0,
     actualTotal: 0,
@@ -228,6 +264,6 @@ export function safeUnzip(
   unzipper.register(UnzipInflate);
   unzipper.register(UnzipPassThrough);
   pushAll(unzipper, run, archiveBytes, label);
-  checkCentralDirectory(run, archiveBytes);
+  checkCentralDirectory(run, central);
   return run.extracted;
 }
