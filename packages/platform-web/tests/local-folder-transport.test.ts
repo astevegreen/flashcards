@@ -1,4 +1,4 @@
-import { isSyncTransportError } from '@flash/core';
+import { isSyncTransportError, SYNC_READ_CAPS, SyncReadTooLargeError } from '@flash/core';
 import { describe, expect, it } from 'vitest';
 import {
   LocalFolderSyncTransport,
@@ -14,6 +14,9 @@ class MockFileHandle implements FileSystemFileHandleLike {
   readonly name: string;
   data: Uint8Array;
   lastModified: number;
+  /** When set, `getFile().size` reports this instead of the real length. */
+  reportedSize: number | undefined;
+  arrayBufferCalls = 0;
 
   constructor(name: string, data: Uint8Array = new Uint8Array(0)) {
     this.name = name;
@@ -23,10 +26,14 @@ class MockFileHandle implements FileSystemFileHandleLike {
 
   async getFile() {
     const bytes = this.data;
+    const onRead = () => {
+      this.arrayBufferCalls++;
+    };
     return {
-      size: bytes.byteLength,
+      size: this.reportedSize ?? bytes.byteLength,
       lastModified: this.lastModified,
       async arrayBuffer() {
+        onRead();
         const copy = new Uint8Array(bytes.byteLength);
         copy.set(bytes);
         return copy.buffer;
@@ -198,5 +205,45 @@ describe('LocalFolderSyncTransport unit tests', () => {
     await expect(transport.write('sync/v1/manifest.json', new Uint8Array([1]))).rejects.toSatisfy(
       (err) => isSyncTransportError(err) && err.code === 'PERMISSION_DENIED',
     );
+  });
+});
+
+describe('LocalFolderSyncTransport read caps', () => {
+  const SEGMENT = 'sync/v1/devices/dev-pc/seg-000001.jsonl.gz';
+
+  async function setup(): Promise<{ transport: LocalFolderSyncTransport; file: MockFileHandle }> {
+    const root = new MockDirectoryHandle('FlashcardsSync');
+    const transport = new LocalFolderSyncTransport(root);
+    await transport.write(SEGMENT, new Uint8Array([1, 2, 3]));
+    const dir = await (
+      await (
+        await (await root.getDirectoryHandle('sync')).getDirectoryHandle('v1')
+      ).getDirectoryHandle('devices')
+    ).getDirectoryHandle('dev-pc');
+    const file = (await dir.getFileHandle('seg-000001.jsonl.gz')) as MockFileHandle;
+    return { transport, file };
+  }
+
+  it('refuses a file past its kind cap from its size, without reading it', async () => {
+    const { transport, file } = await setup();
+    file.reportedSize = SYNC_READ_CAPS.segment + 1;
+    await expect(transport.read(SEGMENT)).rejects.toSatisfy(
+      (err) =>
+        err instanceof SyncReadTooLargeError &&
+        err.kind === 'segment' &&
+        err.path === SEGMENT &&
+        err.message.includes(`${SYNC_READ_CAPS.segment + 1} >`),
+    );
+    expect(file.arrayBufferCalls).toBe(0);
+  });
+
+  it('reads a file at the cap, and refuses one that grew past it after the size check', async () => {
+    const { transport, file } = await setup();
+    file.reportedSize = SYNC_READ_CAPS.segment;
+    expect(Array.from(await transport.read(SEGMENT))).toEqual([1, 2, 3]);
+
+    file.reportedSize = 3;
+    file.data = new Uint8Array(SYNC_READ_CAPS.segment + 1);
+    await expect(transport.read(SEGMENT)).rejects.toBeInstanceOf(SyncReadTooLargeError);
   });
 });

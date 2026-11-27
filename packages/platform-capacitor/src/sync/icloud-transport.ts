@@ -1,10 +1,18 @@
-import { hasTraversalSegment, SyncTransportError, type SyncTransportErrorCode } from '@flash/core';
+import {
+  assertSyncReadSize,
+  hasTraversalSegment,
+  syncReadCap,
+  SyncReadTooLargeError,
+  SyncTransportError,
+  type SyncTransportErrorCode,
+} from '@flash/core';
 import type { SyncFileInfo, SyncTransport } from '@flash/platform';
 
 /**
  * File I/O inside the app's iCloud container. The iOS implementation is the local Swift plugin
  * `apps/mobile/ios/App/App/ICloudDocumentsPlugin.swift`, adapted in `../native/plugins.ts`.
- * Failures should carry a `code` of `NOT_FOUND`, `ALREADY_EXISTS`, `AUTH_REQUIRED` or `NETWORK`.
+ * Failures should carry a `code` of `NOT_FOUND`, `ALREADY_EXISTS`, `AUTH_REQUIRED`, `NETWORK` or
+ * (`readFile` over `maxBytes`) `TOO_LARGE`.
  */
 export interface ICloudDocumentPlugin {
   /** False when the user is signed out of iCloud or iCloud Drive is off for the app. */
@@ -12,7 +20,8 @@ export interface ICloudDocumentPlugin {
   listFiles(opts: {
     prefix: string;
   }): Promise<Array<{ path: string; size: number; updatedAt?: number }>>;
-  readFile(opts: { path: string }): Promise<Uint8Array>;
+  /** Over `maxBytes`, should fail with code `TOO_LARGE` without reading the file. */
+  readFile(opts: { path: string; maxBytes?: number }): Promise<Uint8Array>;
   /** With `ifAbsent`, must fail with code `ALREADY_EXISTS` when the file is already there. */
   writeFile(opts: { path: string; data: Uint8Array; ifAbsent?: boolean }): Promise<void>;
 }
@@ -69,9 +78,17 @@ export class ICloudDriveSyncTransport implements SyncTransport {
   }
 
   async read(path: string): Promise<Uint8Array> {
-    return this.plugin.readFile({ path: validateRelativeSyncPath(path) }).catch((err: unknown) => {
+    const clean = validateRelativeSyncPath(path);
+    const { kind, maxBytes } = syncReadCap(clean);
+    const bytes = await this.plugin.readFile({ path: clean, maxBytes }).catch((err: unknown) => {
+      if ((err as { code?: unknown } | null)?.code === 'TOO_LARGE') {
+        throw new SyncReadTooLargeError('iCloud Drive', clean, kind, maxBytes);
+      }
       throw toSyncError(err);
     });
+    // An older native plugin ignores `maxBytes`; still keep an oversized file from the engine.
+    assertSyncReadSize('iCloud Drive', clean, bytes.byteLength);
+    return bytes;
   }
 
   async write(path: string, data: Uint8Array, opts?: { ifAbsent?: boolean }): Promise<void> {
