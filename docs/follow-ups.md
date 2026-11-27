@@ -782,7 +782,7 @@ Open items, grouped by area.
 
 - [x] `tools/gemini/rails.mjs:126`: the `ANY_BLOCKER` regex has 2 SonarCloud MAJOR issues (S8786 backtracking, S5843 complexity 39). Strip `*` first, or split the regex. Split into three linear patterns in #119.
 - [x] A plural answer starting with "none" ("Blockers: none, except X") still reads clean. Fixed in #119 (allow-list after none / n/a).
-- [x] "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" falsely retry. The owner cleared them on 2026-11-27; cleared in #PRNUM.
+- [x] "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" falsely retry. The owner cleared them on 2026-11-27; cleared in #134.
 
 ### Sync
 
@@ -826,7 +826,7 @@ Each default below stays shipped until the owner decides.
 
 - [x] **Pack upgrade with "archive removed notes" (#114):** a package note that lost its source key to a moved-in duplicate now stays live with its old content (it was archived). The deck shows both notes. Recommend keep: it writes nothing and loses nothing. Decided 2026-11-27: keep.
 - [x] **CSV with no header row (#114):** an all-blank row 1 (quoted spaces too) is now dropped silently like later blank rows; before, an unquoted one gave an "empty row skipped" warning. Recommend keep. Decided 2026-11-27: keep.
-- [x] **agy merge gate, singular forms (#111):** "Blocker: none found" and "**Blocker:** none" still read as a blocker (retry), while the plural forms now merge. Clearing them loosens the check, so it's the owner's call. Recommend clear them, the same way as the plural forms. Decided 2026-11-27: clear; cleared in #PRNUM.
+- [x] **agy merge gate, singular forms (#111):** "Blocker: none found" and "**Blocker:** none" still read as a blocker (retry), while the plural forms now merge. Clearing them loosens the check, so it's the owner's call. Recommend clear them, the same way as the plural forms. Decided 2026-11-27: clear; cleared in #134.
 - [x] **Sync read caps (#115):** head and manifest 25 MiB, segment 20 MiB, snapshot 30 MiB, media 20 MiB. An over-cap file is handled the way an over-limit file already was (skipped, or for head and manifest, the sync fails). Technical; for information only. Decided 2026-11-27: noted.
 - [x] **#112 and #113 are technical, with no product defaults.** For information only. Decided 2026-11-27: noted.
 
@@ -857,7 +857,7 @@ Open items, grouped by area. The batch ran one round; its fallout is here instea
 
 Each default below stays shipped until the owner decides.
 
-- [x] **agy merge gate, plural clean forms (#119):** "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" still retry. Clearing them loosens the check. Recommend clear them, with the same allow-list (only `found`, `identified` or `in this diff` may follow), because they are plain "no blockers" answers that cost needless retries. Decided 2026-11-27: clear; cleared in #PRNUM.
+- [x] **agy merge gate, plural clean forms (#119):** "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" still retry. Clearing them loosens the check. Recommend clear them, with the same allow-list (only `found`, `identified` or `in this diff` may follow), because they are plain "no blockers" answers that cost needless retries. Decided 2026-11-27: clear; cleared in #134.
 - [x] **Snapshot cap (#120):** 128 MiB unpacked on desktop and web; phones (Capacitor) keep 25 MiB. Recommend keep, and measure a 20k-card snapshot on a real phone before raising the phone cap. Decided 2026-11-27: keep.
 - [x] **Unlisted sync segment files are never deleted (#120):** cleaning them up deletes remote data. Recommend leave them until a real collection shows the space matters. Decided 2026-11-27: leave them.
 - [x] **Technical, for information (#119):** after none / n/a only `found`, `identified` or `in this diff` may follow, so "none (see notes)" retries; and a lone Esc followed by a read that is exactly a sequence tail drops that tail. Decided 2026-11-27: noted.
