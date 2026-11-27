@@ -130,6 +130,8 @@ export async function advance(ms: number): Promise<void> {
 export interface MountOptions {
   platform?: PlatformServices;
   initialEvents?: readonly FlashEvent[];
+  /** Receives the app's `whenSaved` (the writer-lock handoff in `apps/web` uses it). */
+  exposeWhenSaved?: (whenSaved: () => Promise<void>) => void;
 }
 
 /** Mounts `ui` inside AppProvider; `app()` reads the current context value. */
@@ -145,6 +147,7 @@ export async function mountWithApp(ui: ReactNode, options: MountOptions = {}): P
       platform={platform}
       initialMeta={testMeta()}
       {...(options.initialEvents ? { initialEvents: options.initialEvents } : {})}
+      exposeWhenSaved={options.exposeWhenSaved}
     >
       <Probe />
       {children}

@@ -1,11 +1,13 @@
+import type { ReactNode } from 'react';
+
 /**
  * One writer per browser profile. Two tabs writing at once would reuse `(device, seq)`, and each
  * keeps only its own events in memory, so a snapshot saved by one could drop the other's events.
  * The tab that holds a Web Lock named after its IndexedDB database writes; any other tab waits on
- * the "open in another tab" screen. It takes over by itself when the lock frees, or when the user
- * asks the writer to hand over (`writer-handoff.ts`, lazy). What stops a writer that loses the lock
- * is here, in the initial chunk, so it works even when a lazy chunk can't load (an older tab after
- * a deploy).
+ * the "open in another tab" screen (`other-tab.tsx`, lazy). It takes over by itself when the lock
+ * frees, or when the user asks the writer to hand over (`writer-handoff.ts`, lazy). What stops a
+ * writer that loses the lock is here, in the initial chunk, so it works even when a lazy chunk
+ * can't load (an older tab after a deploy).
  */
 
 export interface LockOptions {
@@ -72,7 +74,7 @@ export function usableLocks(nav: Navigator): WriterLocks | undefined {
   return typeof locks?.request === 'function' ? (locks as WriterLocks) : undefined;
 }
 
-/** The lazy chunk's part (`writer-handoff.ts`, re-exported by `other-tab.tsx`). */
+/** The lazy chunk (`other-tab.tsx`, with `writer-handoff.ts`). */
 export interface HandoffModule {
   yieldWriter(
     storage: object,
@@ -81,7 +83,7 @@ export interface HandoffModule {
     release: ReleaseLock,
     whenSaved?: () => Promise<void>,
   ): Promise<void>;
-  takeOver(locks: WriterLocks, name: string, ask: TakeOverRequest): Promise<ReleaseLock | null>;
+  waitForWriter(s: WriterSetup, self: string, onLost: () => void): Promise<ReleaseLock>;
 }
 
 /** What `takeOver` needs besides the lock: who asks, and how its waiting request is doing. */
@@ -105,16 +107,21 @@ export interface WriterSetup {
   storage: { close?: () => void };
   win: Window;
   load: () => Promise<HandoffModule>;
-  /** Shows "open in another tab"; `onUse` is its "Use here instead". */
-  showWaiting: (onUse: () => void) => void;
+  /** Renders into the app's root (the waiting screen, before the app exists). */
+  render: (node: ReactNode) => void;
   /** Resolves once the app's queued writes are saved. */
   whenSaved: () => Promise<void>;
 }
 
+/** The longest a writer handing over waits for its queued writes (the asking tab waits 120 s). */
+export const SAVE_WAIT_MS = 60_000;
+
 /**
- * Resolves once this tab holds the writer lock, showing the waiting screen meanwhile, then keeps
- * listening for another tab asking for it. Losing the lock (stolen, or a handoff whose chunk
- * failed to load) closes the database at once, so nothing more is written, and reloads.
+ * Resolves once this tab holds the writer lock (waiting on the lazy screen meanwhile), then keeps
+ * listening for another tab asking for it. A request is answered at once and until the page
+ * reloads, and the app's queued writes are saved before the lock goes, even when the handoff
+ * chunk can't load. Losing the lock (stolen, or that chunk failing) closes the database, so
+ * nothing more is written, and reloads.
  */
 export async function holdWriter(s: WriterSetup): Promise<void> {
   const self = String(Math.random());
@@ -127,31 +134,28 @@ export async function holdWriter(s: WriterSetup): Promise<void> {
   const onLost = () => stop();
   // Listening before the lock is held: a tab still waiting ignores requests, and the asking tab
   // repeats its request until it gets the lock, so a writer that just took over still hears it.
-  new BroadcastChannel(`${s.name}:writer`).onmessage = (e: MessageEvent<WriterMessage>) => {
+  const channel = new BroadcastChannel(`${s.name}:writer`);
+  channel.onmessage = (e: MessageEvent<WriterMessage>) => {
     const release = held;
     const take = (e.data as { take?: string } | null)?.take;
     if (!release || !take || take === self) return;
     held = null;
+    const yielding: WriterMessage = { yielding: true };
+    const ping = () => channel.postMessage(yielding);
+    ping();
+    setInterval(ping, 500);
+    const saved = Promise.race([
+      s.whenSaved().catch(() => undefined),
+      new Promise<void>((r) => setTimeout(r, SAVE_WAIT_MS)),
+    ]);
     s.load()
-      .then((m) => m.yieldWriter(s.storage, s.name, s.win, release, s.whenSaved))
-      .catch(() => stop(release));
+      .then((m) => m.yieldWriter(s.storage, s.name, s.win, release, () => saved))
+      .catch(() => saved.then(() => stop(release)));
   };
   held = await holdWriterLock(s.locks, s.name, waitUpTo(500), onLost);
-  if (held) return;
-  const won = new AbortController();
-  const queued = new AbortController();
-  held = await new Promise<ReleaseLock>((resolve) => {
-    const take = (release: ReleaseLock | null) => {
-      if (!release || won.signal.aborted) return;
-      won.abort();
-      resolve(release);
-    };
-    // Takes over by itself when the writer closes (a normal request, never a steal).
-    void holdWriterLock(s.locks, s.name, { signal: queued.signal }, onLost).then(take);
-    s.showWaiting(() => {
-      s.load()
-        .then((m) => m.takeOver(s.locks, s.name, { self, onLost, won, queued }))
-        .then(take, onLost);
-    });
-  });
+  // Without the screen's chunk, waits for the lock without the screen (never a steal).
+  held ??= await s.load().then(
+    (m) => m.waitForWriter(s, self, onLost),
+    () => holdWriterLock(s.locks, s.name, {}, onLost),
+  );
 }

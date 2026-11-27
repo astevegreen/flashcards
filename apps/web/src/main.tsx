@@ -167,11 +167,7 @@ async function boot(): Promise<void> {
       storage: platform.storage,
       win: window,
       load,
-      showWaiting: (onUse) =>
-        void load().then(
-          ({ OtherTab }) => root.render(<OtherTab onUse={onUse} />),
-          () => undefined,
-        ),
+      render: (node) => root.render(node),
       whenSaved: async () => saved?.(),
     });
   }

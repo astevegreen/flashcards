@@ -32,7 +32,7 @@ const READS = new Set([
 
 export const BLOCKED_MESSAGE = 'Flashcards is open in another tab.';
 
-/** How often the asking tab repeats its request, and the writer says it is still handing over. */
+/** How often the asking tab repeats its request (the writer answers as often, `holdWriter`). */
 const PING_MS = 500;
 
 /** Makes every storage method that isn't a known read reject from now on. */
@@ -76,11 +76,11 @@ export function writeBarrier(idb: IDBFactory, name: string): Promise<void> {
 const yielded = new WeakSet<object>();
 
 /**
- * Hands the lock over. The hide, focus and online events that start a sync stop reaching the app,
- * and the asking tab hears "yielding" until the page reloads. The app's queued writes (a rating
- * already shown, the rest of an import) are saved first; then every storage write rejects, started
- * writes land, the database closes (which also stops a backup store opened earlier), the lock is
- * released and the tab reloads onto the "open in another tab" screen.
+ * Hands the lock over (the asking tab already hears "yielding", from `holdWriter`). The hide,
+ * focus and online events that start a sync stop reaching the app. The app's queued writes (a
+ * rating already shown, the rest of an import) are saved first; then every storage write rejects,
+ * started writes land, the database closes (which also stops a backup store opened earlier), the
+ * lock is released and the tab reloads onto the "open in another tab" screen.
  */
 export async function yieldWriter(
   storage: object,
@@ -91,10 +91,6 @@ export async function yieldWriter(
 ): Promise<void> {
   if (yielded.has(storage)) return;
   yielded.add(storage);
-  const channel = new BroadcastChannel(`${dbName}:writer`);
-  const yielding: WriterMessage = { yielding: true };
-  channel.postMessage(yielding);
-  const beat = setInterval(() => channel.postMessage(yielding), PING_MS);
   for (const type of ['pagehide', 'visibilitychange', 'focus', 'online']) {
     win.addEventListener(type, (e) => e.stopImmediatePropagation(), true);
   }
@@ -107,8 +103,6 @@ export async function yieldWriter(
   await writeBarrier(win.indexedDB, dbName);
   close?.();
   release();
-  clearInterval(beat);
-  channel.close();
   win.location.reload();
 }
 
