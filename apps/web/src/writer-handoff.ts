@@ -35,7 +35,10 @@ export const BLOCKED_MESSAGE = 'Flashcards is open in another tab.';
 /** How often the asking tab repeats its request (the writer answers as often, `holdWriter`). */
 const PING_MS = 500;
 
-/** Makes every storage method that isn't a known read reject from now on. */
+/**
+ * Makes every storage method that isn't a known read reject from now on. `close` stays real: it
+ * stops writes too, and a writer whose lock is stolen mid-handoff calls it without awaiting.
+ */
 export function blockWrites(storage: object): void {
   const target = storage as Record<string, unknown>;
   const names = new Set(Object.keys(storage));
@@ -43,7 +46,7 @@ export function blockWrites(storage: object): void {
     for (const key of Object.getOwnPropertyNames(p)) names.add(key);
   }
   for (const key of names) {
-    if (!READS.has(key) && typeof target[key] === 'function') {
+    if (!READS.has(key) && key !== 'close' && typeof target[key] === 'function') {
       target[key] = () => Promise.reject(new Error(BLOCKED_MESSAGE));
     }
   }
@@ -96,19 +99,19 @@ export async function yieldWriter(
   }
   // A write that failed stays failed; the rest are saved.
   await whenSaved?.().catch(() => undefined);
-  const close = (storage as { close?: () => void }).close?.bind(storage);
   blockWrites(storage);
   // A write that was already past its storage call gets one turn to open its transaction.
   await new Promise((r) => setTimeout(r, 0));
   await writeBarrier(win.indexedDB, dbName);
-  close?.();
+  (storage as { close?: () => void }).close?.();
   release();
   win.location.reload();
 }
 
-/** Waits `ms`, or less when `signal` aborts. */
+/** Waits `ms`, or less when `signal` aborts (not at all when it already has). */
 function pause(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
+    if (signal.aborted) return resolve();
     const timer = setTimeout(resolve, ms);
     signal.addEventListener(
       'abort',

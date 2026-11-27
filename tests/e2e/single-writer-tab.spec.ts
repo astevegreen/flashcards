@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { rateOne, storedEvents } from './helpers/writer-tabs.ts';
 
 /**
  * One writer per browser profile (Web Locks): a second tab of the same database shows "open in
@@ -8,33 +9,6 @@ import { expect, test, type Page } from '@playwright/test';
 
 const DEVICE = 'onewriter';
 const DB = `flashcards-db-${DEVICE}`;
-
-/** Number of stored events, read straight from IndexedDB. */
-async function storedEvents(page: Page): Promise<number> {
-  return page.evaluate(
-    (name) =>
-      new Promise<number>((resolve, reject) => {
-        const open = indexedDB.open(name);
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
-          const db = open.result;
-          const count = db.transaction('events').objectStore('events').count();
-          count.onsuccess = () => {
-            db.close();
-            resolve(count.result);
-          };
-        };
-      }),
-    DB,
-  );
-}
-
-async function rateOne(page: Page): Promise<void> {
-  const before = Number(await page.getByTestId('count-new').textContent());
-  await page.keyboard.press('Space');
-  await page.getByTestId('rate-easy').click();
-  await expect(page.getByTestId('count-new')).toHaveText(String(before - 1));
-}
 
 test('a second tab waits, then "Use here instead" moves writing to it and back', async ({
   browser,
@@ -57,9 +31,9 @@ test('a second tab waits, then "Use here instead" moves writing to it and back',
 
   // The first tab still writes; the waiting tab adds nothing.
   await rateOne(first);
-  const afterFirst = await storedEvents(first);
+  const afterFirst = await storedEvents(first, DB);
   await second.waitForTimeout(300); // NOSONAR (S2925): a negative needs a timed window
-  expect(await storedEvents(second)).toBe(afterFirst);
+  expect(await storedEvents(second, DB)).toBe(afterFirst);
 
   // Take over: the second tab boots from storage (sees the first tab's review), the first stops.
   await screen.getByRole('button', { name: 'Use here instead' }).click();
@@ -69,14 +43,14 @@ test('a second tab waits, then "Use here instead" moves writing to it and back',
   await expect(first.getByTestId('study-card')).toHaveCount(0);
 
   await rateOne(second);
-  const afterSecond = await storedEvents(second);
+  const afterSecond = await storedEvents(second, DB);
   expect(afterSecond).toBeGreaterThan(afterFirst);
 
   // ...and the first tab can take it back the same way.
   await first.getByRole('button', { name: 'Use here instead' }).click();
   await expect(first.getByTestId('count-new')).toHaveText(String(newAtStart - 2));
   await expect(second.getByTestId('other-tab')).toBeVisible();
-  expect(await storedEvents(first)).toBe(afterSecond);
+  expect(await storedEvents(first, DB)).toBe(afterSecond);
 
   await context.close();
 });
