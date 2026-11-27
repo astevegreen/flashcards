@@ -120,14 +120,17 @@ export function railHits(diff) {
 const NEGATED_BLOCKER = /(?:no|not|without)\s+blockers?\s*[:—-]/i;
 // The singular "Blocker: <something>" the gate has always read, where the answer is not exactly none/n/a/no.
 const SINGULAR_BLOCKER = /(?<![a-z])blocker\s*[:—-]\s*(?!(?:none|n\/a|no)\s*[.!]?\s*$)\S/i;
-// Singular or plural, read with every * stripped so bold on either side of the colon ("**Blockers**: x",
-// "**Blockers:** x") reads like plain text: the first "Blocker(s):" and the rest of the line, its answer.
-const BLOCKER_LABEL = /(?<![a-z])blockers?\s*[:—-](.*)/i;
-// A clean answer opens with one of these words: none, nothing, n/a, 0, "no blocker(s)", or a bare "no".
-const CLEAN_OPENING = /^(none|nothing|n\/a|0|no\s+blockers?|no)(?![\w/])(.*)$/i;
-// After the opening word, a clean answer may add only one of a short allow-list ("none found", "None identified.",
-// "none in this diff") and one closing . or !. Any other words name something: "nothing handles the rejected
-// promise", "0 tests cover the branch", "none of the new paths has a test" and "none, except a.ts:1" are blockers.
+// Singular or plural, read with every * turned into a space, so bold on either side of the colon ("**Blockers**: x",
+// "**Blockers:** x") reads like plain text and a label glued to the word before it ("Summary**Blockers:**") still
+// counts. Every label on the line is read, each with everything after it as its answer (\r, U+2028 and U+2029
+// included: findings() splits lines only on \n).
+const BLOCKER_LABEL = /(?<![a-z])blockers?\s*[:—-]/gi;
+// A clean answer opens with none or n/a, or is a bare "no", as on main. "Blockers: 0", "Blockers: nothing" and
+// "Blockers: no blockers found" still retry: reading them as clean loosens the gate, which waits on the owner.
+const CLEAN_OPENING = /^(none|n\/a|no)(?![\w/])([\s\S]*)$/i;
+// After none or n/a, a clean answer may add only one of a short allow-list ("none found", "None identified.",
+// "none in this diff") and one closing . or !. Any other words name something: "none of the new paths has a test"
+// and "none, except a.ts:1" are blockers.
 const CLEAN_REST = /^(?:found|identified|in this diff)?\s*[.!]?$/i;
 
 // Whether a "Blocker(s):" answer is the clean one. A bare "no" must stand alone ("Blockers: no." is clean,
@@ -140,17 +143,19 @@ function cleanAnswer(answer) {
   return CLEAN_REST.test(rest);
 }
 
-// Any "Blocker(s):" line whose answer is neither empty nor clean. Only the first label is read: the answer runs to
-// the end of the line, and a later "Blockers:" puts a colon or dash in it, which no clean answer has.
+// Whether any "Blocker(s):" label on the line has an answer that is neither empty nor clean.
 function anyBlocker(line) {
-  const m = BLOCKER_LABEL.exec(line.replaceAll('*', ''));
-  return m !== null && m[1].trim() !== '' && !cleanAnswer(m[1]);
+  const text = line.replaceAll('*', ' ');
+  for (const label of text.matchAll(BLOCKER_LABEL)) {
+    const answer = text.slice(label.index + label[0].length);
+    if (answer.trim() !== '' && !cleanAnswer(answer)) return true;
+  }
+  return false;
 }
 
 // Whether an untagged line asserts a blocker. Clean prose ("No blocker.", "No blockers found.", "Blockers: none
-// found", "Blockers: 0") and negations are not assertions. Every line the singular test caught still counts. The
-// plural test reads only "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" (with the allow-list
-// above) as clean where it used to retry; everything else it changes turns a merge into a retry.
+// found") and negations are not assertions. Every line the singular test caught still counts, and the plural test
+// reads as clean only what main's did, so this only turns some merges into retries, never a retry into a merge.
 function assertsBlocker(line) {
   if (NEGATED_BLOCKER.test(line)) return false;
   return SINGULAR_BLOCKER.test(line) || anyBlocker(line);

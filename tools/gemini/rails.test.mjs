@@ -281,6 +281,27 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Blockers: none of the new paths has a test',
     'Blockers: none except a missing guard in the retry',
     'Blockers: zero',
+    // A label glued to the word before it once * is gone still counts.
+    'Summary**Blockers:** a.ts:1 drops the import check',
+    '**Review**Blockers: a.ts:1 wrong',
+    'Verdict*Blockers*: a.ts:1',
+    // A \r, U+2028 or U+2029 inside a line does not end the answer, and every label on the line is read.
+    '**Blockers:** none\r**Blockers:** a.ts:1 overwrites settings',
+    'Blockers: nothing\ra.ts:1 wrong',
+    'Blockers: none a.ts:1 wrong',
+    'Blockers: none found Blockers: a.ts:1 wrong',
+    // These "falsely retry" (follow-ups batch 2026-11-27): reading them as clean loosens the gate, so they keep
+    // retrying as on main until the owner decides (rail audit hold on #119).
+    'Blockers: 0',
+    'Blockers: 0.',
+    '**Blockers:** 0',
+    'Blockers: nothing',
+    'Blockers: Nothing.',
+    'Blockers: nothing found',
+    'Blockers: no blockers found',
+    'Blockers: No blockers.',
+    '**Blockers**: no blockers found',
+    'Blockers: nothing in this diff',
   ]) {
     const text = ['[note] a.ts:1 risk', real].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'retry', real);
@@ -297,17 +318,8 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Blockers — none in this diff',
     'Blockers: no',
     'No blockers: none',
-    // Other ways to say none read clean instead of retrying.
-    'Blockers: 0',
-    'Blockers: 0.',
-    '**Blockers:** 0',
-    'Blockers: nothing',
-    'Blockers: Nothing.',
-    'Blockers: nothing found',
-    'Blockers: no blockers found',
-    'Blockers: No blockers.',
-    '**Blockers**: no blockers found',
-    'Blockers: nothing in this diff',
+    'Blockers: none identified',
+    'Blockers: no.',
   ]) {
     const text = ['[note] a.ts:1 risk', clean].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'merge', clean);
