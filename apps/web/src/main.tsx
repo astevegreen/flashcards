@@ -85,13 +85,14 @@ async function boot(): Promise<void> {
     googleClientId,
     tokenHelperUrl,
     googleApiKey,
-    ...(dropboxAppKey ? { dropboxAppKey } : {}),
-    ...(microsoftClientId ? { microsoftClientId } : {}),
-    ...(microsoftTenant ? { microsoftTenant } : {}),
-    ...(envPackCatalogUrl ? { packCatalogUrl: envPackCatalogUrl } : {}),
-    ...(starterCatalogUrl ? { starterCatalogUrl } : {}),
+    // Unset settings pass as '', which createWebPlatform treats like a missing one.
+    dropboxAppKey,
+    microsoftClientId,
+    microsoftTenant,
+    packCatalogUrl: envPackCatalogUrl,
+    starterCatalogUrl,
     isPersonalBuild: !enableLicenseGate,
-    ...(licensePublicKeyHex ? { licensePublicKeyHex } : {}),
+    licensePublicKeyHex,
   });
 
   // Native shells (Capacitor / Tauri) run this identical bundle; swap in native services lazily (§10.1).
