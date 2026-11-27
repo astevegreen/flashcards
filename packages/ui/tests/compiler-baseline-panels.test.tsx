@@ -4,13 +4,19 @@
 // rewrites must keep: drafts follow a new prop, a new request re-targets, a cleared box drops its
 // preview, and a media URL switch shows the right image.
 import { type Note, type NoteType } from '@flash/core';
+import type { BackupStore, PlatformServices, StoredBackupInfo } from '@flash/platform';
 import { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BACKUP_STATUS_KV_KEY } from '../src/backups/backupRunner.ts';
+import { BackupsPanel } from '../src/backups/BackupsPanel.tsx';
 import { FindReplacePanel } from '../src/browse/FindReplacePanel.tsx';
 import { MediaImage } from '../src/components/MediaImage.tsx';
 import { NoteEditDialog } from '../src/components/NoteEditDialog.tsx';
+import { SourcesPanel } from '../src/components/SourcesPanel.tsx';
 import { DeckOrganizationPanel } from '../src/library/DeckOrganizationPanel.tsx';
 import ImportExportPanel from '../src/library/ImportExportPanel.tsx';
+import { SettingsScreen } from '../src/screens/SettingsScreen.tsx';
 import {
   CloudFilePickerPanel,
   type CloudBrowseItem,
@@ -18,14 +24,18 @@ import {
   type CloudPickerSession,
 } from '../src/sources/CloudFilePickerPanel.tsx';
 import GoogleDriveFileLinkPanel from '../src/sources/GoogleDriveFileLinkPanel.tsx';
+import { AppProvider } from '../src/state/AppContext.tsx';
 import {
   createMemoryStorage,
   createTestPlatform,
   flush,
   mountWithApp,
   must,
+  newCard,
   sampleEvents,
+  testMeta,
   typeInto,
+  type MemoryStorage,
   type Mounted,
 } from './helpers/app-harness.tsx';
 
@@ -42,6 +52,18 @@ const q = <T extends Element = HTMLElement>(m: Mounted, selector: string): T | n
   m.container.querySelector<T>(selector);
 const byTestId = <T extends Element = HTMLElement>(m: Mounted, id: string): T | null =>
   q<T>(m, `[data-testid="${id}"]`);
+
+/**
+ * Flushes React and the event loop until `check` holds: async work (a lazy import, a storage
+ * read) can take many turns, more so under coverage. Fails with `what` after `timeoutMs`.
+ */
+async function waitFor(check: () => boolean, what: string, timeoutMs = 10_000): Promise<void> {
+  const end = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await flush(1);
+  }
+}
 
 async function click(el: Element | null): Promise<void> {
   await act(async () => {
@@ -141,9 +163,8 @@ describe('MediaImage shows the image for the current src', () => {
     mounted = await mountWithApp(<MediaImage src={`media:${A}`} />, {
       platform: createTestPlatform(storage),
     });
-    await flush();
     const shownHash = () => byTestId(must(mounted), 'media-image')?.getAttribute('data-media-hash');
-    expect(shownHash()).toBe(A);
+    await waitFor(() => shownHash() === A, 'image A');
 
     // A new hash shows Loading until its read lands, never the old image.
     let release: () => void = () => undefined;
@@ -157,8 +178,7 @@ describe('MediaImage shows the image for the current src', () => {
     expect(byTestId(mounted, 'media-image')).toBeNull();
     expect(byTestId(mounted, 'media-image-loading')).not.toBeNull();
     await act(async () => release());
-    await flush();
-    expect(shownHash()).toBe(B);
+    await waitFor(() => shownHash() === B, 'image B');
 
     // An unsafe src is blocked at once; the image comes back when the src does, unread.
     await mounted.rerender(<MediaImage src="javascript:alert(1)" />);
@@ -176,11 +196,12 @@ describe('MediaImage shows the image for the current src', () => {
     mounted = await mountWithApp(<MediaImage src={`media:${A}`} />, {
       platform: createTestPlatform(storage),
     });
-    await flush();
-    expect(byTestId(mounted, 'media-image-missing')).not.toBeNull();
+    await waitFor(() => byTestId(must(mounted), 'media-image-missing') !== null, 'A missing');
     await mounted.rerender(<MediaImage src={`media:${B}`} />);
-    await flush();
-    expect(byTestId(mounted, 'media-image')?.getAttribute('data-media-hash')).toBe(B);
+    await waitFor(
+      () => byTestId(must(mounted), 'media-image')?.getAttribute('data-media-hash') === B,
+      'image B',
+    );
   });
 });
 
@@ -338,6 +359,7 @@ describe('CloudFilePickerPanel listing', () => {
     };
     const empty = () => (must(mounted).container.textContent ?? '').includes('Nothing here');
 
+    await waitFor(() => pending.has('root'), 'the root listing');
     expect(listFolder).toHaveBeenCalledWith(undefined);
     expect(empty()).toBe(false);
     await settle('root', (p) =>
@@ -384,10 +406,145 @@ describe('GoogleDriveFileLinkPanel steps', () => {
     await click(skip ?? null);
     // The csv is read from Drive; this test platform has no Google, so the read fails.
     expect(q(mounted, '[role="status"]')?.textContent).toContain('words.csv');
-    for (let i = 0; i < 50 && !q(mounted, '[role="alert"]'); i += 1) await flush(1);
-    expect(q(mounted, '[role="alert"]')).not.toBeNull();
+    await waitFor(() => q(must(mounted), '[role="alert"]') !== null, 'the Drive read to fail');
     await click(byTestId(mounted, 'gdrive-file-skip-btn'));
-    await flush();
-    expect(onClose).toHaveBeenCalled();
+    await waitFor(() => onClose.mock.calls.length > 0, 'the panel to close');
+  }, 20_000);
+});
+
+/** Bumps the collection with a real local change (one rating). */
+async function rateOne(m: Mounted): Promise<void> {
+  await act(async () => m.app().rateCard(newCard(m), 3, 1000));
+}
+
+async function choose(select: HTMLSelectElement | null, value: string): Promise<void> {
+  await act(async () => {
+    const el = must(select, 'select');
+    el.value = value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
   });
+}
+
+/** An in-memory backup store, so the panel renders and "Back up now" has somewhere to write. */
+function withBackupStore(storage: MemoryStorage): MemoryStorage {
+  const infos: StoredBackupInfo[] = [];
+  const bytes = new Map<string, Uint8Array>();
+  const store: BackupStore = {
+    list: async () => [...infos].reverse(),
+    put: async (info, data) => {
+      infos.push(info);
+      bytes.set(info.backup_id, data);
+    },
+    getBytes: async (id) => bytes.get(id),
+    delete: async (id) => {
+      bytes.delete(id);
+    },
+  };
+  return Object.assign(storage, { openBackupStore: async () => store });
+}
+
+describe('BackupsPanel restore preview and refresh', () => {
+  it('lists what was saved, shows the last error, and re-plans an open preview after a change', async () => {
+    const storage = withBackupStore(createMemoryStorage());
+    storage.kv.set(BACKUP_STATUS_KV_KEY, { lastError: 'Disk was full.', at: 1 });
+    mounted = await mountWithApp(<BackupsPanel />, {
+      platform: createTestPlatform(storage),
+      initialEvents: sampleEvents(),
+    });
+    // The refresh chain: the list (empty) and the stored error both land.
+    await waitFor(
+      () => byTestId(must(mounted), 'backup-last-error') !== null,
+      'the last backup error',
+    );
+    expect(byTestId(mounted, 'backup-last-error')?.textContent).toContain('Disk was full.');
+
+    const button = (text: string) =>
+      [...must(mounted).container.querySelectorAll('button')].find((b) =>
+        (b.textContent ?? '').startsWith(text),
+      ) ?? null;
+    await click(button('Back up now'));
+    await waitFor(() => byTestId(must(mounted), 'backup-row') !== null, 'the new backup row');
+    // A successful backup clears the stored error, and the refresh shows that.
+    await waitFor(() => byTestId(must(mounted), 'backup-last-error') === null, 'error cleared');
+
+    await click(button('Restore…'));
+    await waitFor(() => byTestId(must(mounted), 'restore-confirm') !== null, 'the preview');
+    const preview = () => byTestId(must(mounted), 'restore-confirm')?.textContent ?? '';
+    expect(preview()).toContain('already matches this backup');
+
+    // A review after the backup: the open preview re-plans and says it is kept.
+    expect(preview()).not.toContain('review made after');
+    await rateOne(mounted);
+    expect(preview()).toContain('1 review made after this backup stay in your history');
+  }, 20_000);
+});
+
+describe('SettingsScreen TTS drafts follow the saved values', () => {
+  it('a new saved config or synced voice replaces the drafts; other changes keep typing', async () => {
+    mounted = await mountWithApp(<SettingsScreen />, { initialEvents: sampleEvents() });
+    await waitFor(
+      () => byTestId(must(mounted), 'tts-provider-select') !== null,
+      'the TTS provider select',
+    );
+    await choose(byTestId<HTMLSelectElement>(mounted, 'tts-provider-select'), 'google');
+    const apiKey = () => must(byTestId<HTMLInputElement>(must(mounted), 'tts-api-key-input'));
+    const voiceKo = () => must(byTestId<HTMLInputElement>(must(mounted), 'tts-voice-ko'));
+
+    await typeInto(apiKey(), 'draft-key');
+    await typeInto(voiceKo(), 'my-voice');
+    await rateOne(mounted);
+    expect(apiKey().value).toBe('draft-key');
+    expect(voiceKo().value).toBe('my-voice');
+
+    await act(async () => {
+      await must(mounted).app().audio.saveTtsConfig({ provider: 'azure', apiKey: 'saved-key' });
+    });
+    expect(byTestId<HTMLSelectElement>(mounted, 'tts-provider-select')?.value).toBe('azure');
+    expect(apiKey().value).toBe('saved-key');
+    // The voice drafts follow synced preferences, not the device config.
+    expect(voiceKo().value).toBe('my-voice');
+
+    await act(async () =>
+      must(mounted)
+        .app()
+        .updatePreferences({ tts_voices: { ko: 'synced' } }),
+    );
+    expect(voiceKo().value).toBe('synced');
+  }, 20_000);
+});
+
+describe('SourcesPanel starter catalog', () => {
+  it('a new platform shows its catalog as loading and drops the old error', async () => {
+    const platformWith = (url: string, fetchCatalog: () => Promise<never>) =>
+      createTestPlatform(createMemoryStorage(), {
+        starterCatalogUrl: url,
+        getPackageFetcher: async () => ({ fetchCatalog }) as never,
+      } as Partial<PlatformServices>);
+    const failing = platformWith('https://a.test/index.json', () =>
+      Promise.reject(new Error('catalog down')),
+    );
+    const hanging = platformWith('https://b.test/index.json', () => new Promise<never>(() => {}));
+    const meta = testMeta();
+    const ui = (platform: PlatformServices) => (
+      <AppProvider platform={platform} initialMeta={meta}>
+        <SourcesPanel onStatusMessage={() => undefined} onErrorMessage={() => undefined} />
+      </AppProvider>
+    );
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const text = () => container.textContent ?? '';
+    try {
+      await act(async () => root.render(ui(failing)));
+      await waitFor(() => text().includes('catalog down'), 'the first catalog to fail');
+      expect(text()).not.toContain('Checking catalog');
+
+      await act(async () => root.render(ui(hanging)));
+      expect(text()).not.toContain('catalog down');
+      expect(text()).toContain('Checking catalog');
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  }, 20_000);
 });
