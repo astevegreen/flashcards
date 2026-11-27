@@ -111,6 +111,11 @@ export interface WriterSetup {
   render: (node: ReactNode) => void;
   /** Resolves once the app's queued writes are saved. */
   whenSaved: () => Promise<void>;
+  /**
+   * Resolves once boot has finished: the app's persist queue exists (or boot failed). A request
+   * that arrives earlier is answered but honoured only then, so boot's writes are never blocked.
+   */
+  booted: Promise<void>;
 }
 
 /** The longest a writer handing over waits for its queued writes (the asking tab waits 120 s). */
@@ -119,7 +124,7 @@ export const SAVE_WAIT_MS = 60_000;
 /**
  * Resolves once this tab holds the writer lock (waiting on the lazy screen meanwhile), then keeps
  * listening for another tab asking for it. A request is answered at once and until the page
- * reloads, and the app's queued writes are saved before the lock goes, even when the handoff
+ * reloads, and once boot has finished the app's queued writes are saved before the lock goes, even when the handoff
  * chunk can't load. Losing the lock (stolen, or that chunk failing) closes the database, so
  * nothing more is written, and reloads.
  */
@@ -150,10 +155,12 @@ export async function holdWriter(s: WriterSetup): Promise<void> {
     handingOver = true;
     ping();
     setInterval(ping, 500);
-    const saved = Promise.race([
-      s.whenSaved().catch(() => undefined),
-      new Promise<void>((r) => setTimeout(r, SAVE_WAIT_MS)),
-    ]);
+    const saved = s.booted.then(() =>
+      Promise.race([
+        s.whenSaved().catch(() => undefined),
+        new Promise<void>((r) => setTimeout(r, SAVE_WAIT_MS)),
+      ]),
+    );
     s.load()
       .then((m) => m.yieldWriter(s.storage, s.name, s.win, release, () => saved))
       .catch(async () => {

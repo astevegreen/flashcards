@@ -45,6 +45,12 @@ function detectNativeRuntime(): NativeRuntime {
   return null;
 }
 
+/** Boot has finished: the app exposed its persist queue, or boot failed (`WriterSetup.booted`). */
+let markBooted: () => void = () => undefined;
+const booted = new Promise<void>((r) => {
+  markBooted = r;
+});
+
 async function boot(): Promise<void> {
   const resolved = resolveDeviceFromUrl();
   const isDevMode = import.meta.env.DEV || Boolean(resolved.slug);
@@ -150,6 +156,7 @@ async function boot(): Promise<void> {
       load,
       render: (node) => root.render(node),
       whenSaved: async () => saved?.(),
+      booted,
     });
   }
 
@@ -296,10 +303,15 @@ async function boot(): Promise<void> {
         {...(initialOAuthError !== undefined ? { initialOAuthError } : {})}
         exposeWhenSaved={(whenSaved) => {
           saved = whenSaved;
+          markBooted();
         }}
       />
     </StrictMode>,
   );
 }
 
-void boot();
+void boot().catch((err: unknown) => {
+  // A writer asked to hand over during a failed boot still does.
+  markBooted();
+  throw err;
+});

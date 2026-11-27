@@ -64,7 +64,8 @@ describe('blockWrites', () => {
   it('blocks every DexieStorage method but the known reads (fail closed)', async () => {
     const storage = new DexieStorage(freshSlug());
     await storage.setKv('k', 'before');
-    const writes = methodNames(storage).filter((name) => !READS.includes(name));
+    // `close` stays real (it stops writes, see below).
+    const writes = methodNames(storage).filter((name) => !READS.includes(name) && name !== 'close');
     // Writes a name pattern would miss are blocked too.
     expect(writes).toEqual(
       expect.arrayContaining([
@@ -96,6 +97,16 @@ describe('blockWrites', () => {
     await expect(adapter.setKv()).rejects.toThrow(BLOCKED_MESSAGE);
     expect(await adapter.getKv()).toBe('read');
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it('keeps close real, so a writer whose lock is stolen mid-handoff closes without a rejection', async () => {
+    const storage = new DexieStorage(freshSlug());
+    await storage.setKv('k', 'before');
+    blockWrites(storage);
+    // A stolen lock's `stop()` calls `close()` without awaiting it: it must not reject.
+    expect(storage.close()).toBeUndefined();
+    // ...and the database is closed, reads included.
+    await expect(storage.getKv('k')).rejects.toThrow();
   });
 });
 
@@ -218,6 +229,37 @@ describe('takeOver', () => {
     } finally {
       clearInterval(beat);
       holder.close();
+    }
+  });
+
+  it('returns at once when this tab has already won the lock (a late tap)', async () => {
+    const { locks, stats } = fakeLocks();
+    const name = `flashcards-db-${freshSlug()}`;
+    const won = new AbortController();
+    won.abort();
+    const listener = new BroadcastChannel(`${name}:writer`);
+    let asks = 0;
+    listener.onmessage = (e: MessageEvent<WriterMessage>) => {
+      if ('take' in e.data) asks++;
+    };
+    const startedAt = Date.now();
+    try {
+      expect(
+        await takeOver(locks, name, {
+          self: 'me',
+          onLost: vi.fn(),
+          won,
+          queued: new AbortController(),
+          roundMs: 2000,
+        }),
+      ).toBeNull();
+      expect(Date.now() - startedAt).toBeLessThan(500);
+      // No request repeats after it returned.
+      await new Promise((r) => setTimeout(r, 700));
+      expect(asks).toBeLessThanOrEqual(1);
+      expect(stats.steals).toBe(0);
+    } finally {
+      listener.close();
     }
   });
 

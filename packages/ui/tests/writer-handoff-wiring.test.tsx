@@ -1,10 +1,7 @@
 // @vitest-environment happy-dom
-import 'fake-indexeddb/auto';
 import type { FlashEvent } from '@flash/core';
 import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-// The single-writer handoff lives in the web shell; this checks the app's side of it.
-import { yieldWriter } from '../../../apps/web/src/writer-handoff.ts';
 import {
   createMemoryStorage,
   createTestPlatform,
@@ -14,6 +11,15 @@ import {
   sampleEvents,
   type Mounted,
 } from './helpers/app-harness.tsx';
+
+/**
+ * Stands in for the web shell's handoff (`apps/web/src/writer-handoff.ts`, tested there): it saves
+ * the app's queued writes, then releases the lock. This checks the app's side of it.
+ */
+async function handOver(release: () => void, whenSaved: () => Promise<void>): Promise<void> {
+  await whenSaved().catch(() => undefined);
+  release();
+}
 
 let mounted: Mounted | undefined;
 afterEach(async () => {
@@ -51,12 +57,7 @@ describe('writer-lock handoff and the persist queue (owner: "Save them first")',
     });
 
     const release = vi.fn();
-    const win = {
-      addEventListener: () => undefined,
-      location: { reload: vi.fn() },
-      indexedDB,
-    } as unknown as Window;
-    const handoff = yieldWriter(storage, 'flashcards-db-wiring', win, release, whenSaved);
+    const handoff = handOver(release, whenSaved);
     await new Promise((r) => setTimeout(r, 50));
     // The rating is shown but not yet stored: the lock stays.
     expect(release).not.toHaveBeenCalled();
