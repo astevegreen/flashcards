@@ -88,6 +88,44 @@ describe('.apkg export: {{tts}} language of a shared built-in note type (C8)', (
     expect(new Set(ttsLangs(b.forDeck('ja').model))).toEqual(new Set(['ja_JP']));
   });
 
+  it('warns once about a cloze layout mixed with others, however many languages share it', () => {
+    const f = createEventFactory('dev-cloze', 0, createHlcState('dev-cloze', T0));
+    const ev: KnownEvent[] = [];
+    let t = T0;
+    const push = <K extends KnownEventType>(type: K, payload: EventPayloadMap[K]) => {
+      t += 1000;
+      ev.push(f.create(type, payload, t));
+    };
+    // A flip layout next to the built-in cloze one, so each Anki variant drops it and warns.
+    push('LayoutChanged', {
+      layout: {
+        id: 'layout-cloze-flip',
+        note_type_id: BUILTIN_NOTE_TYPE_IDS.CLOZE,
+        name: 'Flip',
+        front_fields: ['text'],
+        reveal_steps: [['meaning']],
+        answer_mode: 'flip',
+        hide_furigana_on_front: false,
+        enabled: true,
+      },
+    });
+    for (const language of ['ko', 'ja']) {
+      push('DeckCreated', {
+        deck_id: `cloze-${language}`,
+        name: `Cloze ${language}`,
+        note_type_id: BUILTIN_NOTE_TYPE_IDS.CLOZE,
+        language,
+      });
+    }
+    const p = planAnkiApkgExport(replayAllEvents(ev), {
+      nowMs: T0 + 60_000,
+      deckIds: ['cloze-ko', 'cloze-ja'],
+    });
+    const col = p.collection.tables.find((x) => x.name === 'col')?.rows[0] ?? [];
+    expect(Object.keys(JSON.parse(String(col[9])))).toHaveLength(2);
+    expect(p.warnings.filter((w) => w.includes('has a cloze layout, so'))).toHaveLength(1);
+  });
+
   it('keeps one note type, with its own id and name, for one language', () => {
     const one = plan(['ko', 'ja'], ['ko']);
     expect(one.models).toHaveLength(1);
