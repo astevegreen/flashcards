@@ -71,11 +71,12 @@ export function createLibraryActions(app: LibraryActionsApp): LibraryActions {
       const factory = getEventFactory();
       const nowMs = Date.now();
       const cleanSlug =
-        input.slug
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af-]+/g, '-')
-          .replace(/^-+|-+$/g, '') || 'page';
+        trimDashes(
+          input.slug
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af-]+/g, '-'),
+        ) || 'page';
       const pageId =
         input.pageId ?? uuidv5(FLASH_NAMESPACE_UUID, `page:native:${cleanSlug}:${uuidv7(nowMs)}`);
       const ev = factory.create(
@@ -171,4 +172,13 @@ export function useLibraryActions(): LibraryActions {
     () => createLibraryActions({ getEventFactory, getState, emitEvents, updateDeckSettings }),
     [getEventFactory, getState, emitEvents, updateDeckSettings],
   );
+}
+
+/** Drops leading and trailing dashes with a plain scan (no backtracking pattern). */
+function trimDashes(slug: string): string {
+  let start = 0;
+  let end = slug.length;
+  while (start < end && slug[start] === '-') start++;
+  while (end > start && slug[end - 1] === '-') end--;
+  return slug.slice(start, end);
 }

@@ -27,6 +27,7 @@ const listeners = new Set<() => void>();
 
 function settle(storage: KvStore, value: AddDeviceLink | undefined): void {
   settled.set(storage, value);
+  // A copy: a listener that subscribes again while being told must not be told twice.
   for (const listener of [...listeners]) listener();
 }
 

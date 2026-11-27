@@ -27,6 +27,7 @@ export function createSyncStateStore(initial: SyncUiState): SyncStateStore {
       const next = typeof update === 'function' ? update(current) : update;
       if (Object.is(next, current)) return;
       current = next;
+      // A copy: a listener that subscribes again while being told must not be told twice.
       for (const listener of [...listeners]) listener();
     },
     subscribe(listener) {

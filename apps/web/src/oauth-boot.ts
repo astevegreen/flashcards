@@ -63,7 +63,6 @@ export async function completeOAuthRedirect(
           await platform.storage.setSyncCursor(syncCursor);
           if (meta.collectionId !== undefined) {
             const { collectionId: _dropped, ...restMeta } = meta;
-            void _dropped;
             meta = restMeta;
             await platform.storage.setDeviceMeta(meta);
           }

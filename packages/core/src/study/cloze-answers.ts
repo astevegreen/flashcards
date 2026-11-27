@@ -1,4 +1,4 @@
-import { parseCloze } from './cloze.ts';
+import { parseCloze } from '../parsers/cloze.ts';
 
 // Used only by the lazy Cloze answer mode, so it lives outside cloze.ts (§8).
 
