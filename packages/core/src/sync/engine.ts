@@ -658,6 +658,12 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
           mediaWarnings.push(`Remote media blob not found at "${path}".`);
           continue;
         }
+        // A transport that stopped reading a blob past its size cap: the same outcome as the
+        // size check below, without buffering the whole body.
+        if (err instanceof SyncCodecError) {
+          mediaWarnings.push(`Rejected remote media "${path}": ${err.message}`);
+          continue;
+        }
         throw err;
       }
 

@@ -8,6 +8,7 @@ import {
   type GraphChildrenPage,
   type GraphDriveItem,
 } from './graph-client.ts';
+import { readSyncBodyCapped } from './sync-read-caps.ts';
 
 export { parseRetryAfterMs } from './graph-client.ts';
 
@@ -199,7 +200,7 @@ export class OneDriveAppFolderTransport implements SyncTransport {
       ? await this.client.sendUnauthenticated(downloadUrl)
       : await this.graph(this.itemUrl(segments, '/content'));
     if (!res.ok) throw await toTransportError(res, `download "${path}"`);
-    return new Uint8Array(await res.arrayBuffer());
+    return readSyncBodyCapped(res, path, 'OneDrive');
   }
 
   async write(path: string, data: Uint8Array, opts?: { ifAbsent?: boolean }): Promise<void> {
