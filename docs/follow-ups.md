@@ -75,20 +75,8 @@ The owner answered every open decision on 2026-11-22. **To build** marks work th
 
 Only Chromium Playwright with faked endpoints has covered these.
 
-- [ ] **`@flash/capacitor-secure-storage` on devices.** Its Java and Swift code now compiles in CI (`.github/workflows/native.yml`: Gradle `assembleDebug` and an unsigned Simulator `xcodebuild`, PR #10). On a real Android 16 tablet (`SM_X400`, SDK 36, 2026-11-24), launch verified `FlashSecureStorage` initialization, legacy-pref cleanup (`GOOGLE_LOGIN_F13oz0I_SHARED_PERF.xml`, `CapgoOAuth2ProviderPrefs.xml`), and `app.flashcards.securestorage.xml` matching `backup_rules.xml` / `data_extraction_rules.xml`. Still to check on an unlocked device: interactive Keychain/Keystore set/get round trip, Custom Tabs OneDrive redirect (including WebView < M130), plaintext token migration on upgrade, and CapacitorHttp refresh against real Entra.
-- [ ] Capacitor `pickFile({ maxBytes })`: `@capawesome/capacitor-file-picker` with `readData: false`, then `Filesystem.readFile` on the returned path (an Android `content://` URI or an iOS temporary file). Never run on a device.
-- [ ] Recheck the capgo plugin's internal plaintext key names (`packages/platform-capacitor/src/secure/secure-store.ts` and the native allowlists) on every `@capgo/capacitor-social-login` upgrade. They are pinned for 8.7.x.
-- [ ] Add-device QR codes scanned with a real phone camera, and the `flashcards://add-device` deep link opened on Android and iOS. **Windows Tauri release verified (2026-11-24):** `flashcards://` registered in `HKCU\Software\Classes\flashcards`, and both cold-start and warm-start (`tauri-plugin-single-instance` forwarding) `flashcards://add-device` links routed to Settings and displayed the provider prompt. Android intent filters (`picker-callback`, `oauth`, `add-device`) confirmed via `dumpsys package` on Android 16; interactive open still pending unlocked device test.
-- [ ] Real iCloud Drive sync on macOS, and a signed Mac build (PR #22 is compiled in CI only).
-- [ ] Capacitor shell running the language-aware menus (still pending unlocked device test). **Windows Tauri release verified (2026-11-24):** toggling Japanese in `Settings > Languages` dynamically revealed/hid Japanese typed-mode (`Hiragana = Katakana`) and Japanese language options.
-- [ ] Second device fully synced within 2 minutes with one sign-in (the Phase 14 target). It has not been measured, because the e2e sign-in is faked.
-- [ ] Tauri loopback Microsoft sign-in end to end, including whether `tauri-plugin-http` sends an `Origin` header that Entra rejects (AADSTS9002327).
-- [ ] Capacitor Microsoft sign-in on Android and iOS. From reading the code, `SocialLogin.initialize` with only the oauth2 config re-creates only that provider and keeps the Google config, but this hasn't been seen on a device.
-- [ ] OneDrive download and upload-session URLs allowing CORS from the Capacitor and Tauri WebView origins.
-- [ ] Real Microsoft Graph and Entra behaviour, against a real app registration (`docs/setup-microsoft.md`).
 - [x] Tauri attaching its CSP to Worker script responses, so the FSRS optimizer and the Anki SQLite WASM run under `'wasm-unsafe-eval'`. **Verified on Windows Tauri release (`flashcards-desktop.exe`, 2026-11-24):** both `apkg-writer.worker` (`sql-wasm-browser.wasm`, wrote valid `SQLite format 3` DB) and `fsrs-optimizer.worker` (`fsrs_browser_bg.wasm`, trained 660 items → 21 FSRS-6 weights) executed under live Tauri CSP with 0 CSP/console errors; also fixed `fsrs.free()` in `finally` not to mask WASM panic errors.
-- [ ] iOS WKWebView module Workers loaded from the `capacitor://` scheme.
-- [ ] Real Anki 23.x/24.x `anki21b` exports. The fixture is synthetic, and its schema-18 DDL was written from memory.
+- Moved to "Needs the owner (hands-on)", under "Real devices and services".
 
 ## Decided, no change needed (2026-11-22)
 
@@ -155,9 +143,8 @@ These live in code ported from Terminal Dusk, so fix them when the four agy copi
 
 ### Still open
 
-- [ ] **Check the KRDict topic attribute names on a real export.** The parser accepts `subjectCategory` / `semanticCategory` and the Korean labels (`주제 및 상황 범주`, `의미 범주`). If the first `build-packs.mjs --full` run gives no topics, find the real names in the XML and add them to `KRDICT_SUBJECT_CATEGORY_ATTS` / `KRDICT_SEMANTIC_CATEGORY_ATTS` in `scripts/packs/upstream-parsers.mjs`.
-- [ ] **Measure the full KRDict pack.** It has never been built here. `--full` now prints every file's size. **First-syllable sharding is written** (`docs/formats/packs.md`): a dictionary pack over 25 MiB gzipped (or with `--shard <id>`) becomes a version-2 index of search "stubs" plus `.sNN` shards cut at 초성 boundaries. All lookups work from the index; the shards behind the top results load lazily (at most 3 per lookup), and Settings > Packs has "Download all for offline". Still to check once built: that the index itself stays under 25 MiB (about 60% of the pack on the starter sample), and the shard count against the Pages 20k-file limit. Owner choices pending: lazy shards versus downloading them all at install, and the tunables (3-shard cap, top-12 completion, 2 MiB shards).
-- [ ] **KRDict audio licence:** not checked. Audio is skipped, and the dictionary has no speaker button, so the TTS fallback isn't wired either.
+- Moved to "Needs the owner (hands-on)": the real export check.
+- Moved to "Needs the owner (hands-on)": the upstream download and measurement.
 - [x] **Related, synonym and antonym links (PR #18, 2026-11-23):** parsed from KRDict and shown as links. The `SenseRelation` attribute names (`lemma` / `writtenForm`) are unverified against a real export.
 - [x] **Korean definitions (`definitionNative`) (PR #18, 2026-11-23):** now shown.
 - [x] **Japanese deinflection** (`食べた` → `食べる`) and Korean-style ranking for `ja` / `zh-Hans` (PR #18, 2026-11-23).
@@ -175,15 +162,15 @@ The owner answered every overnight question on 2026-11-23. **To build** marks ap
 - [x] **#6/#21, tag copy (PR #26):** "nested tags" replaces "subcategories". say "tag" everywhere. "Category" appears only in one explainer line ("tags work like categories") and in the import hint where category columns become tags. **Kept:** the How tags work panel stays open by default until first dismissed.
 - [x] **#20, iOS Keychain loss (PR #27):** detect it on iOS and show the same one-time notice as Android.
 - [ ] **#22, macOS iCloud setup:**
-  - **Apple Developer account: the owner has none yet.** Signing, notarizing, wiring the entitlements and real iCloud tests wait until there is one. An account (Apple Developer Program) is also needed for any iOS or Mac store release, so it is on the launch path anyway.
-  - **Distribution: Developer ID** (outside the Mac App Store). Kept.
-  - **Done (PR #27):** hide "Use iCloud Drive" on unsigned Mac builds (no entitlement), so the misleading sign-in error can't appear.
-  - **Done (PR #27):** a Mac where iCloud was off at launch keeps iCloud Drive listed, with a hint to turn iCloud Drive on.
-  - The macOS App ID reuses `app.flashcards.localfirst`; it must be in the same Apple team as the iOS app. Kept, for when the account exists.
+  - Moved to "Needs the owner (hands-on)": the Apple developer account (signing, notarizing, entitlements and real iCloud tests). The history and decided facts stay here:
+    - **Distribution: Developer ID** (outside the Mac App Store). Kept.
+    - **Done (PR #27):** hide "Use iCloud Drive" on unsigned Mac builds (no entitlement), so the misleading sign-in error can't appear.
+    - **Done (PR #27):** a Mac where iCloud was off at launch keeps iCloud Drive listed, with a hint to turn iCloud Drive on.
+    - The macOS App ID reuses `app.flashcards.localfirst`; it must be in the same Apple team as the iOS app. Kept, for when the account exists.
 - [x] **#18, provenance (PR #28):** an "App" badge, with attribution tooltips on every badge. the 춥다 and 먹다 rewording is accepted. Hand-written definitions get their own badge instead of KRDict's.
 - [x] **Starter-deck gloss report (#16), applied in PR #28:** `content/starters/gloss-overrides.json`, decks at 1.1.0; four readings corrected after review (아니, 长, 呐, 地). Not reviewed by a native speaker. accept every suggested fix in `docs/starter-gloss-review.md`, applied through `scripts/build-starter-decks.mjs` (never by hand-editing the generated decks).
 - [x] **Dependabot PR #4 (TypeScript 6):** merged (`05af924`).
-- [ ] **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending.
+- Moved to "Needs the owner (hands-on)": KRDict audio licence.
 - [ ] **Share-alike dictionary sources. Approved:** 우리말샘 (`dict-urimalsam`, CC BY-SA 2.0 KR) and Kaikki Wiktionary Korean (`dict-kaikki-ko`, CC BY-SA 4.0) as optional, separately licensed download packs with attribution (their share-alike terms apply to those packs, not the app). 표준국어대사전 is not approved yet. **kengdic stays out** (unclear licence). **Pipeline built** (schema, attributions, UI sense badges, `parseUrimalsamJson`/`parseUrimalsamXml`/`parseKaikkiKoJsonl`, `fetch-upstream-packs.mjs`, `build-packs.mjs --full` with automatic sharding); still needs manual upstream downloads in `.cache/upstream-open-data/{urimalsam,kaikki-ko}/` to build and publish the full packs.
 - [ ] **Commercial Korean–English dataset as a premium pack:** deferred until after launch.
 - [x] **Auto-archive on PR close:** turned back on.
@@ -258,7 +245,7 @@ In priority order. Items already recorded elsewhere in this file are only pointe
    - [x] **`.apkg` day anchor.** `planAnkiApkgExport` takes `tzOffsetMinutes` (minutes east), and the UI passes `-new Date(nowMs).getTimezoneOffset()`, so `crt` and due days use the offset at export. Without it (CLI, tests) the latest review's offset is used, as before.
    - Size: the initial study-screen JS is 156.03 of 160 KB gz (unchanged by this batch). The next ~0.7 KB would mean touching boot code, not just moving lazy-only code (#44).
    - [x] **Dependabot alerts 1 and 2 (glob, minimatch):** `pnpm-workspace.yaml` overrides `workbox-build>glob` to `^14.0.2` (workbox-build pinned glob 11, whose minimatch 10 was also flagged). glob 14 keeps the `globSync` API workbox-build calls; the PWA build is unchanged.
-   - [ ] **Dependabot alert 3 (`glib` 0.18.5, Rust, `apps/desktop/src-tauri/Cargo.lock`): no fix here.** It comes in through Tauri's Linux GTK stack (gtk-rs 0.18); the patched glib 0.20 needs Tauri/wry to move to gtk-rs 0.20+. The unsound API (`VariantStrIter`) is not called by app code. Bump when Tauri does, or dismiss the alert as tolerable risk (owner's call).
+   - Moved to "Needs the owner (hands-on)": the `glib` alert.
 
 ## Decisions needed (2026-11-23 batch)
 
@@ -425,7 +412,7 @@ Defaults picked while building the checks. Each stays shipped until the owner de
 
 - [x] An exact `altForm` (or reading) hit now counts toward the guessed-lemma cap.
 - [x] Only hits in allowed packs count toward the cap.
-- [ ] KRDict full-pack measurement and the topic attribute check are not done; the upstream data is a manual download. First-syllable sharding is done (see "Phase 10 remainder").
+- Moved to "Needs the owner (hands-on)": the upstream download and measurement.
 - [ ] The `SenseRelation` attribute (`lemma` / `writtenForm`) is unverified against a real export.
 
 ### #19 Linked OneDrive sources
@@ -519,7 +506,7 @@ Observed while bringing up the Capacitor Android debug build on a Pixel 9 Pro an
 
 - [x] **No licence credit on starter cards (decks 1.2.0).** The vocab layouts reveal `example` + `notes` last, so every starter card's "third side" showed only a credit line. The build now leaves `notes` for learner content (the Mandarin deck's "Also read: …"; empty otherwise) and fails if a credit lands in `notes` or `example`. Credits are deck-level: each deck description ends with a "Credits: …" line, Settings > About & Open Data Licenses lists every starter source with its licence attribution and changes (`packages/ui/src/packs/starterSourceCredits.ts`), and `THIRD-PARTY-NOTICES.txt` keeps the full notices. Per-note provenance (`meaningSource`, `meaningEdited`) is metadata in the generated module, not a field, and is not copied into events. Reasoning per licence: `content/starters/README.md`.
 - [x] **Clean up the old credit on decks seeded before 1.2.0.** There is no starter update path: seeding happens once, at onboarding (`startOnboardingDeck`), and `presetCatchUp.ts` is about deck-option presets, not deck content. Existing users keep the credit line in Notes (and the 1.0.0 glosses, see PR #28 above). A future update step would, per starter note, emit a `NoteUpserted` that clears `notes` (or leaves "Also read: …") **only when the field still exactly equals the old generated credit**. The old text is reproducible from `meaningSource`/`meaningEdited` (formats in `content/starters/README.md`). It must merge with any user edit (only that field changes, timestamped now) and run once per deck version (`DeckCreated.source.package_version`). Owner decision: build this, or leave existing decks as they are. Done in #83 (`packages/core/src/starters/upgrade.ts`): per starter note, one `fields_only` `NoteUpserted` clears the 1.0.0 or 1.1.0 credit, and the 1.0.0 gloss is replaced by the current one. Edited fields stay.
-- [ ] **Korean example sentences: not added (no compatible source).** The `example` field stays empty rather than invented. Checked 2026-11-25: Wikidata lexeme usage examples (P5831, CC0) exist on only 7 of the 204 pinned lexemes. KRDict 한국어기초사전 examples are CC BY-SA 2.0 KR (share-alike, rejected). Tatoeba is CC BY 2.0 FR (some CC0): no share-alike, but it needs per-sentence attribution, has no pinned release (weekly exports only), and matching inflected Korean to a NIKL headword needs morphological analysis; English translations are uneven. Owner decision: accept Tatoeba (CC BY) with a pinned snapshot and per-deck credits, or keep examples empty.
+- Moved to "Needs the owner (hands-on)": Tatoeba and example sentences.
 - [x] **No empty reveal step.** The study screen already drops reveal steps whose fields are all empty, so a Korean starter card (empty `example` and `notes`) now reveals in one step, and a Mandarin card shows the last step only when it has "Also read: …".
 
 ### Review and consolidate tags (deferred by the user)
@@ -552,26 +539,26 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 
 ### Cloud transports and sign-in (#79, #74)
 
-- [ ] The 401 contract test doesn't prove that the token was force-refreshed. The fake ignores the Authorization header, and OneDrive's harness always returns the same token (`sync-transport-conformance.test.ts`).
-- [ ] No per-call-site over-cap test for the image and audio processors, the picker downloads or the Docs export. Only the shared reader (`net/read-capped.ts`) is covered.
-- [ ] The 2 s interactive Retry-After ceiling is not tested in the OneDrive or Dropbox pickers.
+- [x] The 401 contract test doesn't prove that the token was force-refreshed. The fake ignores the Authorization header, and OneDrive's harness always returns the same token (`sync-transport-conformance.test.ts`). Done in #103: a token issuer rotates tokens in all three harnesses.
+- [x] No per-call-site over-cap test for the image and audio processors, the picker downloads or the Docs export. Only the shared reader (`net/read-capped.ts`) is covered. Done in #103.
+- [x] The 2 s interactive Retry-After ceiling is not tested in the OneDrive or Dropbox pickers. Done in #103.
 - [ ] A token-helper reply with no token now returns 502, so web Google shows "helper unavailable" with tap-to-renew instead of AUTH_REQUIRED. Check that this is the wording we want.
 - [ ] The 50 MB cap on Sheets `values.get` JSON is tighter than the same data as CSV.
 - [ ] Behaviour changes to keep in mind: the 401 refresh no longer counts as an attempt for OneDrive and Dropbox (up to `maxAttempts + 1` requests), Google no longer retries 501, and the Dropbox picker's network-error text changed.
 - [x] The native Dropbox and Microsoft auths keep their own `inFlightRefresh` (`dropbox-native-auth.ts`, `microsoft-native-auth.ts`). Move them onto `TokenRefresher`. Done in #97: both moved onto `TokenRefresher`.
-- [ ] The Google Drive, Dropbox and OneDrive transport `read()`s still load the whole file into memory.
+- [ ] The Google Drive, Dropbox and OneDrive transport `read()`s still load the whole file into memory. Skipped in #103: it needs an interface change in six transports and a streaming codec; see the design note in #103.
 - [ ] Run one real desktop sign-in per provider. The shared loopback helper (`platform-tauri/src/native/loopback-sign-in.ts`) has only mocks so far.
-- [ ] Picker deep link: require the `state` nonce once the hosted `picker.js` has been live a while. A callback with no `state` is still accepted (`native-picker-bridge.ts`).
-- [ ] Add `http://127.0.0.1` as a "Mobile and desktop" redirect URI on the Entra app, then switch `microsoft-loopback.ts` to `127.0.0.1` (review N8).
-- [ ] `flash-cli audio --key-stdin` prints its prompt on stderr at a terminal. Check that it never echoes the key.
+- [x] Picker deep link: require the `state` nonce once the hosted `picker.js` has been live a while. A callback with no `state` is still accepted (`native-picker-bridge.ts`). Done in #103: a callback with no `state` is refused.
+- Moved to "Needs the owner (hands-on)": the Entra redirect URI.
+- [x] `flash-cli audio --key-stdin` prints its prompt on stderr at a terminal. Check that it never echoes the key. Done in #103: raw mode at a terminal. Real terminals are unchecked (see "Needs the owner"); a lone Esc swallows the next key (see "Left over from the follow-ups batch 2").
 - [x] `apps/desktop/.cargo/config.toml` (the `SQLITE_SECURE_DELETE` build flag) needs a comment that says why it sits in `apps/desktop/` and not in `src-tauri`. Done in #94: the comment says why it sits in `apps/desktop/`.
 
 ### Left from partly fixed review items (D11, S4, P3, §9)
 
 - [x] D11 (review): the SQLite storages now append events and meta in one transaction. Done in #95.
 - [x] D11 (review): two tabs of one browser profile could write at once and reuse `(device, seq)`. Done in #100: one writer per profile via Web Locks. A second tab shows "already open in another tab" with a "Use here instead" button, queued edits are saved before the handover, and a waiting tab takes over by itself when the writer closes.
-- [ ] S4 (review): UI components still read `note.fields[key]` directly. Route them through `noteField`.
-- [ ] P3 (review): a sync tick that changes `syncState` still re-renders every `useApp()` consumer. Move `syncState` out of the context value.
+- [x] S4 (review): UI components still read `note.fields[key]` directly. Route them through `noteField`. Done in #108.
+- [x] P3 (review): a sync tick that changes `syncState` still re-renders every `useApp()` consumer. Move `syncState` out of the context value. Done in #104: `syncState` lives in its own store (`useSyncState()`).
 - [x] §9 Native (review): event SQL runs only against `InMemorySqliteDriver`, never real SQLite. Run it against sql.js or a device. Done in #95: event SQL now also runs against sql.js and `node:sqlite`.
 
 ### Linked sources and refresh (#80, #72)
@@ -586,15 +573,15 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 
 ### Import, CSV and zip (#72, #85)
 
-- [ ] Export, then re-import into the same collection, adds a copy of a note that lost the record-id race, because it is now exported under its note id (`flashpkg.ts` ~732, `import/record-ids.ts`). Needs a package-origin deck that already holds duplicate keys to test.
-- [ ] Zip detection decodes entry names as UTF-8, while extraction decodes a name without the UTF-8 flag as Latin-1 (CP437 names; `zip-entries.ts` ~85). Test with a real Anki or Drive archive.
-- [ ] A space before an opening quote is still part of the cell (`csv.ts` ~96).
-- [ ] A cell that holds only spaces inside quotes still reads as empty, so it doesn't round-trip.
-- [ ] The Bring my cards preview still trims quoted padded cells, because its grid has no quote flags. The import keeps them.
-- [ ] The Card ID write-back still doesn't quote outer spaces, unlike `exportCsv`. Changing it would start preserving spaces in cells that were unquoted before.
+- [x] Export, then re-import into the same collection, adds a copy of a note that lost the record-id race, because it is now exported under its note id (`flashpkg.ts` ~732, `import/record-ids.ts`). Needs a package-origin deck that already holds duplicate keys to test. Done in #102: `existingNoteMatcher` matches each note once, so no copy is added.
+- [x] Zip detection decodes entry names as UTF-8, while extraction decodes a name without the UTF-8 flag as Latin-1 (CP437 names; `zip-entries.ts` ~85). Test with a real Anki or Drive archive. Done in #102: detection and extraction share `decodeZipEntryName`. Real archives are still unchecked (see "Needs the owner").
+- [x] A space before an opening quote is still part of the cell (`csv.ts` ~96). Done in #102: `a, "b"` reads like `a,"b"`.
+- [x] A cell that holds only spaces inside quotes still reads as empty, so it doesn't round-trip. Done in #102: it imports as those spaces and round-trips.
+- [x] The Bring my cards preview still trims quoted padded cells, because its grid has no quote flags. The import keeps them. Done in #102: `parseDelimitedTable` carries the quote flags into the preview.
+- [x] The Card ID write-back still doesn't quote outer spaces, unlike `exportCsv`. Changing it would start preserving spaces in cells that were unquoted before. Done in #102: a comment in `tabular.ts` says why it stays as it is; behaviour unchanged.
 - [x] `scripts/packs/zip-entry.mjs` doesn't reject `:` in entry names. Done in #94: `:` in entry names is rejected.
 - [x] The Dropbox transport and picker accept `.` segments, while OneDrive rejects them. Done in #97: `.` segments are rejected.
-- [ ] The NUL check in Tauri `readRelativeMedia` is tested only through its helper (`hasTraversalSegment`).
+- [x] The NUL check in Tauri `readRelativeMedia` is tested only through its helper (`hasTraversalSegment`). Done in #102: a command-level test.
 
 ### Sync, replay and snapshots (#75, #82, #83)
 
@@ -604,52 +591,52 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [x] The counter moves even when the persist later skips the write, so the next snapshot can be up to 200 events late. Done in #96: the claim is given back when persist skips.
 - [x] A sync that pulls 100 or more events snapshots regardless of the counter. Done in #96: kept on purpose as `SYNC_PULL_SNAPSHOT_EVENTS`.
 - [x] Retained `unknownEvents` are shared objects between the serialized input and the live state. Done in #96: they are copied now.
-- [ ] Starter upgrade (#83): an unsynced edit of a still-old-text field loses to the upgrade.
-- [ ] Starter upgrade (#83): the `SyncRuntime` hook wiring is not render-tested.
-- [ ] Starter upgrade (#83): `legacySeed` builds the old decks with today's seeding code, so a seeding change can drift from what older builds wrote.
+- Moved to "Needs the owner (hands-on)", under "Design calls": the starter-upgrade race (#83), where an unsynced edit of a still-old-text field loses to the upgrade.
+- [x] Starter upgrade (#83): the `SyncRuntime` hook wiring is not render-tested. Done in #105 (and #106 after #104 moved the sync state into a store).
+- [x] Starter upgrade (#83): `legacySeed` builds the old decks with today's seeding code, so a seeding change can drift from what older builds wrote. Done in #105: the output is frozen in a golden snapshot (made from current code, hash-checked).
 - [ ] Run the Drive `ifAbsent` race fix (C23) against real Google Drive: `createdTime` and `appProperties` in `files.list`, and how fast a create shows up in a name lookup.
 
 ### Packs, backups and memory (#82, #85)
 
 - [x] A `full` backup with `withMedia` and no `loadMedia` loader silently writes a `daily` manifest. Done in #96: it now throws.
-- [ ] `.gz` packs between 50 and 150 MB are read whole before the codec refuses them.
-- [ ] The pack codec's uncompressed cap relies on fflate's `ondata` throw alone.
-- [ ] The DictionaryPanel presence index costs k × N.
+- [x] `.gz` packs between 50 and 150 MB are read whole before the codec refuses them. Done in #103: the picker refuses them at 50 MB.
+- [x] The pack codec's uncompressed cap relies on fflate's `ondata` throw alone. Done in #103: the ISIZE trailer is checked first, and the codec keeps its own counter.
+- [x] The DictionaryPanel presence index costs k × N. Done in #103: one pass, N plus each deck's own notes.
 - [ ] The picker `maxBytes` caps are unverified on Capacitor (`readData: false` path).
 - [x] `loadMaterializedCards` is kept, but nothing reads that table at boot. Removed in #89 with the cache (P5).
-- [ ] The `--full` pack build (`publish-packs.yml`) is not reached by any gate.
+- [x] The `--full` pack build (`publish-packs.yml`) is not reached by any gate. Done in #103: `full-packs-build.test.mjs` runs it on a synthetic fixture.
 - [x] `pnpm bench` is missing from AGENTS.md "Commands". Done in #94: added to AGENTS.md "Commands".
 
 ### Study screen and accessibility (#81)
 
-- [ ] `choice-sync-stable.spec.ts` may fail on some days, because the ranking is hashed by study day. If it flakes, pin the study day.
-- [ ] The "only other notes change" unit test for the choice key is weak. The e2e is the real proof.
+- [x] `choice-sync-stable.spec.ts` may fail on some days, because the ranking is hashed by study day. If it flakes, pin the study day. Done in #105: the study day is pinned.
+- [x] The "only other notes change" unit test for the choice key is weak. The e2e is the real proof. Done in #105: a render test, `choice-question-stable.test.tsx`.
 - [ ] The spoken count sentence exists only once the lazy announcer chunk has loaded.
 - [ ] Tags are left out of the choice key on purpose, so a tag-only edit keeps the old options until the next card.
 
 ### Tests and tooling (#73, #84, #85)
 
-- [ ] Burn down `REACT_COMPILER_BASELINE` (88 sites in 37 files; `purity` is off in `StudyScreen`).
-- [ ] Decide whether the Security jobs (`security.yml`) become required checks. That needs a `dependency-review` that tolerates a skip, because it runs only on pull requests.
+- [x] Burn down `REACT_COMPILER_BASELINE` (88 sites in 37 files; `purity` is off in `StudyScreen`). Partly done in #108; about 36 files are left (see "Left over from the follow-ups batch 2").
+- Moved to "Needs the owner (hands-on)": the required Security checks.
 - [ ] CodeQL covers JavaScript, TypeScript and Actions only. Add Rust, Kotlin and Swift to `desktop.yml` and `native.yml` if wanted.
 - [ ] Watch the first Gradle Dependabot PRs on the Capacitor project: `cap sync` rewrites `capacitor.build.gradle` and `capacitor.settings.gradle`.
 - [x] The string-value `__proto__` test and the `({}).polluted` check can't fail. Done in #94: the check can fail now.
-- [ ] `phase5-audio.spec.ts` ~351: polling `getVoices` can pass before the key press reaches `speak`.
-- [ ] The front auto-speak absence check waits only two frames.
+- [x] `phase5-audio.spec.ts` ~351: polling `getVoices` can pass before the key press reaches `speak`. Done in #105.
+- [x] The front auto-speak absence check waits only two frames. Done in #105.
 - [x] The `flash-cli mcp` child-process test has no explicit timeout or kill. Done in #94: explicit timeout and kill.
 - [x] The retry reporter doesn't escape `%` in `::warning` messages, and has no automated test. Done in #94: `%` is escaped; the S4624 nested template literal followed in this batch.
 - [x] The 26 MiB snapshot fixture is heavy: moved to "Left over from wave 3" (#90) below.
-- [ ] `sw-picker.spec.ts` matches the exact regex text of the denylist.
-- [ ] The `listFolderDecks` coverage (hide archived, name and id order) was dropped with the function.
+- [x] `sw-picker.spec.ts` matches the exact regex text of the denylist. Done in #105.
+- [x] The `listFolderDecks` coverage (hide archived, name and id order) was dropped with the function. Dropped in #105: the function is gone, so there is nothing to test.
 - [x] UI render tests still to write once `happy-dom` is in: `rateCard`, `undoLastReview`, `redoLastUndo`, `emitEvents` with a failed persist, the P3 render-count test, and the effect wiring in `ReminderRuntime`, `MediaImage` and Browse (see the decision below). Done in #90: 16 render tests.
 - [x] A coverage threshold in `vitest.config.ts`, once `@vitest/coverage-v8` is in. Done in #90: 63/54/54/64, checked by `pnpm coverage` in CI.
 
 ### Left over from the dead-code pass (#85)
 
-- [ ] knip still lists 60 unused value exports and 121 unused type exports, mostly component prop types and module constants. Un-export them in a later pass. A few are `default` exports used through `lazy()`.
+- [x] knip still lists 60 unused value exports and 121 unused type exports, mostly component prop types and module constants. Un-export them in a later pass. A few are `default` exports used through `lazy()`. Done in #108.
 - [ ] R8 leftovers: the per-review FSRS loop (`stats.ts`, `replay.ts`), the `.flashpkg` layout and note-type payloads, and the device-speech wrappers.
 - [ ] Moving the shared SQLite code out of `@flash/platform-capacitor` needs a new workspace package. `platform-tauri` also takes `isPickerCallback`, `SystemBrowserLauncher` and `ICloudDocumentPlugin` from it.
-- [ ] Owner chores: delete the empty untracked `packages\ui\src\utils` in the main checkout. (`Korean-w9-base` and `Korean-w9-main` were gone by 2026-11-26.)
+- Moved to "Needs the owner (hands-on)": owner chores.
 
 ### Korean 2 consolidation audit, app bugs (#93)
 
@@ -665,20 +652,20 @@ The audit (`docs/Audit.md`, untracked in the main checkout) was about the plan f
 
 ### Left over from wave 3 (#87–#90)
 
-- [ ] #88 S6: the Export for Anki CSV leaves the GUID, note type, deck and tags columns unguarded. Try Anki's `#deck:` and `#notetype:` file headers for the deck and note type (check that Anki creates a missing deck), then record the remaining tag and GUID risk.
-- [ ] #88: the Anki path could entity-encode every leading `-` and drop the Hangul heuristic there.
+- [x] #88 S6: the Export for Anki CSV leaves the GUID, note type, deck and tags columns unguarded. Try Anki's `#deck:` and `#notetype:` file headers for the deck and note type (check that Anki creates a missing deck), then record the remaining tag and GUID risk. Done in #102: the note type is a `#notetype:` header; the deck stays a column (see "Decisions needed (batch 2026-11-26b)"). The tag and GUID risk remains.
+- [x] #88: the Anki path could entity-encode every leading `-` and drop the Hangul heuristic there. Done in #102: every leading `-` is an entity on the Anki path.
 - [ ] #88: import an exported CSV into real Anki once, to check that `&#61;` and the like show as `=` and don't affect Anki's duplicate check or sort field.
 - [x] #88: a UI now offers the "for other apps" CSV (`stripRichText: true`): the **For other apps** box in the Browse bar and the tag export (#93). Unticked, the CSV is the round-trip one, unguarded by design.
-- [ ] #88: fullwidth lookalikes (＝, ＋) are not guarded.
-- [ ] #89: `tests/e2e/sync.spec.ts` now compares event ids only, not each device's derived schedules. Add a state-level check (replay the stored logs, or read in-app state through a test hook).
-- [ ] #90: shrink or lazily build the 26 MiB D12 snapshot fixture in `sync-engine.test.ts`, then the coverage-only 15 s `testTimeout` could go back toward 5 s.
+- [x] #88: fullwidth lookalikes (＝, ＋) are not guarded. Done in #102: guarded in both exports. Whether a spreadsheet runs them is unverified.
+- [x] #89: `tests/e2e/sync.spec.ts` now compares event ids only, not each device's derived schedules. Add a state-level check (replay the stored logs, or read in-app state through a test hook). Done in #105: it also replays each device's stored events.
+- [x] #90: shrink or lazily build the 26 MiB D12 snapshot fixture in `sync-engine.test.ts`, then the coverage-only 15 s `testTimeout` could go back toward 5 s. Mostly done in #105: built lazily once, 25 MiB + 1 byte, `testTimeout` 8 s. The floor is the codec cap.
 - [x] #90: put a floor (≥ 50) on each threshold in `tools/hooks/settings.test.mjs`. Done in #94.
 - [ ] #90: fake `Date` as well as timers in the web badge test (`packages/ui/tests/effect-wiring.test.tsx` ~39). Wait for a ready signal rather than `flush(5)` in the P3 render test. `apps/*` shell code sits in the coverage denominator.
 - [ ] #90: `pnpm gate` runs plain `pnpm test`, so parallel branches can each pass and together drop under the coverage thresholds (like the bundle budget). Run `pnpm coverage` after merging main.
 
 ### Left over from the follow-ups batch (#94–#97)
 
-- [ ] `tools/gemini/rails.mjs`: a review with one tagged `[note]` line plus an untagged mid-line "Blocker: …" still reads as notes-only. Could also retry when an untagged line matches `blocker` (#94 review).
+- [x] `tools/gemini/rails.mjs`: a review with one tagged `[note]` line plus an untagged mid-line "Blocker: …" still reads as notes-only. Could also retry when an untagged line matches `blocker` (#94 review). Done in #105: an untagged line naming a blocker now retries. The plural "Blockers: X" still reads as merge (see "Left over from the follow-ups batch 2").
 - [ ] Capacitor `executeSet(set, true)` rollback is unverified on a real Android or iOS device (#95).
 - [ ] The Tauri `sql_execute_batch` command is unverified inside a running desktop app. Only the Rust function and the TypeScript side over `node:sqlite` are tested (#95).
 - [ ] The native Dropbox and Microsoft auths on `TokenRefresher` are unverified on a device (#97).
@@ -694,7 +681,7 @@ The owner accepted every recommendation on 2026-11-26.
 - [x] **Starter-deck upgrade defaults (#83).** The deck description is replaced unless the user wrote or cleared one. Notes is cleared when it equals either the 1.0.0 or the 1.1.0 credit. The upgrade runs silently, with no notice and no undo entry. Archived starter notes are upgraded too. Recommend keep all four. Decided 2026-11-26: keep.
 - [x] **Starter upgrade does not rewrite `source.package_version` (#83).** The release lives in the `StarterDeckUpgraded` event, and no screen shows a native deck's version. Recommend keep. Decided 2026-11-26: keep.
 - [x] **Accepted limitation (#83).** A device on an older build ignores `fields_only` and can bake the upgrade's `deck_id` into its snapshots. A concurrent move can then stay lost there, and on devices that bootstrap from that snapshot. Recommend accept. Decided 2026-11-26: accept.
-- [ ] **Generate the Ed25519 licence key and set `VITE_LICENSE_PUBLIC_KEY`.** Keep the private key safe. Until then, licence keys are refused, with a warning where they are offered. Tooling done (#87): the owner generates the key and sets `VITE_LICENSE_PUBLIC_KEY`, see `docs/licensing.md`.
+- Moved to "Needs the owner (hands-on)": the licence key.
 - [x] **CSV tag backslash escaping (#72).** `exportCsv` writes the tag `a,b` as `a\,b`, so Flashcards Deluxe or Excel show the backslash. Recommend accept; the other way breaks the tested `daily; topik-1` import. Decided 2026-11-26: keep.
 - [x] **Licence keys bought outside the stores stay off for store builds (#74).** Decided: in-app purchase only. Keep `VITE_STORE_LICENSE_KEYS` off and keep this recorded, because App Store guideline 3.1.1 restricts key unlocks. Already decided: keep.
 - [x] **Screen-reader live region wording (#81).** It names the event only ("Next card.", "Answer shown."), not the card's text. Recommend keep, and add the front text only if screen-reader users ask. Decided 2026-11-26: keep.
@@ -706,13 +693,13 @@ The owner accepted every recommendation on 2026-11-26.
 
 ### Left from the single-writer tab (#100)
 
-- [ ] No unit test covers the shell wiring in `apps/web/src/main.tsx` (`exposeWhenSaved` → `whenSaved`). The UI tests cover `AppProvider` and `FlashcardsApp`, and the e2e waits for each rating to land before "Use here instead", so deleting the shell link passes. Add an e2e that slows one write before the click.
-- [ ] A take-over request that arrives after the lock is held but before the app mounts finds no persist queue. Boot-time writes such as `setDeviceMeta`, sample seeding and migrations then fail on blocked storage and `boot()` rejects unhandled before the reload. The write barrier keeps started transactions whole and the next boot re-runs them, so nothing is lost. Wait for boot to finish before honouring a request.
-- [ ] `packages/ui/tests/writer-handoff-wiring.test.tsx` imports `apps/web/src/writer-handoff.ts`, so a library test depends on the app. Replace it with a local stand-in that records `release` and awaits `whenSaved`.
-- [ ] `blockWrites` replaces `storage.close` with a rejecting stub. If the lock is stolen while `yieldWriter` is still running, `stop()` calls that stub, which raises an unhandled rejection just before the reload and doesn't close the database (agy, #100).
-- [ ] `pause` in `writer-handoff.ts` doesn't check `signal.aborted` before waiting. A tap on "Use here instead" after this tab has already won the lock, but before the app has rendered over the waiting screen, waits a full 3 s round and keeps sending take-over requests (agy, #100).
-- [ ] Not verified in Safari, Firefox, Capacitor or Tauri, or in a real browser for a stolen lock or an old tab whose lazy chunk 404s after a deploy. Chromium 156 does reject a stolen holder's `request()` promise with `AbortError`, as the spec says.
-- [ ] Bundle: #100 takes initial study-screen JS to 159.95 of 160 KB. The next change that adds to the initial bundle needs a trim first.
+- [x] No unit test covers the shell wiring in `apps/web/src/main.tsx` (`exposeWhenSaved` → `whenSaved`). The UI tests cover `AppProvider` and `FlashcardsApp`, and the e2e waits for each rating to land before "Use here instead", so deleting the shell link passes. Add an e2e that slows one write before the click. Done in #107: `single-writer-save-first.spec.ts`.
+- [x] A take-over request that arrives after the lock is held but before the app mounts finds no persist queue. Boot-time writes such as `setDeviceMeta`, sample seeding and migrations then fail on blocked storage and `boot()` rejects unhandled before the reload. The write barrier keeps started transactions whole and the next boot re-runs them, so nothing is lost. Wait for boot to finish before honouring a request. Done in #107: the handoff waits for `booted`.
+- [x] `packages/ui/tests/writer-handoff-wiring.test.tsx` imports `apps/web/src/writer-handoff.ts`, so a library test depends on the app. Replace it with a local stand-in that records `release` and awaits `whenSaved`. Done in #107: a local stand-in.
+- [x] `blockWrites` replaces `storage.close` with a rejecting stub. If the lock is stolen while `yieldWriter` is still running, `stop()` calls that stub, which raises an unhandled rejection just before the reload and doesn't close the database (agy, #100). Done in #107: `close` stays real.
+- [x] `pause` in `writer-handoff.ts` doesn't check `signal.aborted` before waiting. A tap on "Use here instead" after this tab has already won the lock, but before the app has rendered over the waiting screen, waits a full 3 s round and keeps sending take-over requests (agy, #100). Done in #107.
+- Moved to "Needs the owner (hands-on)", under "Real devices and services": Safari, Firefox, Capacitor and Tauri, a stolen lock in a real browser, and an old tab whose lazy chunk 404s after a deploy.
+- [x] Bundle: #100 takes initial study-screen JS to 159.95 of 160 KB. The next change that adds to the initial bundle needs a trim first. Done in #104: 156.69 KB of 160 KB after it, 156.73 KB after #107 (a re-measure from a fresh worktree is still wise).
 
 ## Decisions needed (wave 3, 2026-11-26)
 
@@ -730,3 +717,127 @@ The owner accepted every recommendation on 2026-11-26.
 - [x] **While Google is disconnected, linked Google Sheets and Docs rows now show "Connect Google to refresh this file." (permission needed)** instead of keeping their last state silently (#97). With the new launch refresh, a device that synced Sheets decks but never connected Google shows this after its first launch. Recommend keep. Decided 2026-11-26: keep.
 - [x] **agy's linked-issue filter trusts only the owner and write, maintain or admin collaborators; triage is untrusted (#94).** Recommend keep. Decided 2026-11-26: keep.
 - [x] **An agy review with no tagged line now retries rather than holds (#94).** Recommend keep. Decided 2026-11-26: keep.
+
+## Left over from the follow-ups batch 2 (#102–#108)
+
+Open items, grouped by PR. Dependabot and CI come last.
+
+### #102
+
+- [ ] The `#notetype:` omission and `headerValue` line-break handling have no tests.
+- [ ] `csv.ts:174`: a first-row quoted all-space row is kept when `hasHeaderRow: false`.
+- [ ] `safe-unzip.ts:220`: a flagged UTF-8 name that collides with a CP437 name fails closed, and that path has no test.
+- [ ] `record-ids.ts:64`: `sameContent` (+2) outranks the replay pick (+1) during an upgrade.
+
+### #103
+
+- [ ] A lone Esc in `--key-stdin` swallows the next key (Enter, Ctrl-C).
+- [ ] 3 SonarCloud minors.
+- [ ] Item 4, streamed transport `read()`, was skipped; see the design note in #103.
+
+### #104
+
+- [ ] The anki-ruby fast-check alphabet lacks `}`, `\n` and astral Han.
+- [ ] The `toggleDeckLayout` test in `library-actions.test.tsx:83` can pass without checking anything.
+- [ ] `LaunchSyncEffects` now runs before AppProvider's effects. No known dependency on the old order.
+
+### #105 (#106 fixed its clash with #104)
+
+- [ ] The plural untagged "Blockers: X" still reads as merge (`rails.mjs:122`).
+- [ ] The no-starter-deck test can't catch a `hasStarterDeck` that wrongly returns true.
+- [ ] D12 fixture floor: 25 MiB + 1 byte, because the cap is a codec constant. `testTimeout` is 8 s.
+- [ ] `listFolderDecks` coverage was skipped, because the function is gone.
+
+### #107
+
+- [ ] If the first render throws inside React, `booted` never resolves: `boot()` resolves before AppProvider's effect runs. The asking tab then gets the lock only by stealing it after 120 s.
+- [ ] The `boot().catch(() => { markBooted(); throw err })` path has no test.
+- [ ] Sonar S7785 (prefer top-level await) on `main.tsx` was left as a promise chain, plus 3 new Sonar minors.
+
+### #108
+
+- [ ] About 36 files are left in `REACT_COMPILER_BASELINE`. All are genuine `purity`, `set-state-in-effect`, `refs` or `incompatible-library` findings, and clearing them needs behaviour-changing rewrites. `StudyScreen` `purity` was deliberately not forced.
+- [ ] Hardening: `noteEditDiff.ts:32` and `ColumnMapping.tsx:287,291` still use raw `x.fields[key]` lookups on edit snapshots and import-preview rows (not Notes), with the same prototype-key exposure.
+- [ ] `packages/core/src/tags/duplicates.ts:105` reads `note.fields[field]` raw. `findDuplicateGroups` throws a TypeError when a note type's key field is `constructor` and the note lacks it. Route it through `noteField`, with a test.
+- [ ] The Draw prototype-key test has no assertion of its own; it relies on a crash or a React log.
+- [ ] `populatedRevealStepsFor` in StudyScreen is exported only for the test, so knip may flag it.
+
+### Dependabot and CI
+
+- [x] Dependabot #66, #67 and #76 merged. #68 closed: @types/node 26, and Dependabot ignores that major because the runtime is Node 24.
+- [ ] **Waiting on upstream:** #77 (sqlx 0.9) is closed; reopen when upstream ships (tauri-plugin-sql on sqlx 0.9).
+- [ ] **Waiting on upstream:** #78 (Gradle 9.9) is closed; reopen when upstream ships (an AGP supporting Gradle 9.6+).
+- [ ] CI: watch the next `publish-packs` run on main. wrangler-action 4 (#66) and actions/cache 6 (#67) haven't run there yet.
+
+### Open on purpose
+
+- [ ] R8 FSRS-loop refactors and the shared SQLite package split: big refactors with no user-visible gain. They stay listed (see "Left over from the dead-code pass (#85)").
+
+## Decisions needed (batch 2026-11-26b)
+
+Each default below stays shipped until the owner decides. All are **keep** unless noted.
+
+- [ ] **Anki CSV: the deck stays a column, and the note type moved to a `#notetype:` header (#102).** A `#deck:` header would drop the deck for most users, who import into a fresh Anki. Recommend keep.
+- [ ] **Zip names without the UTF-8 flag (#102):** read as UTF-8 when well-formed, else as CP437. Recommend keep.
+- [ ] **Local pack files are capped at 50 MB, was 150 MB (#103).** The codec already refused more. Recommend keep; raise it only if a real pack needs more.
+- [ ] **A stale cached `picker.js` callback without `state` is ignored (#103).** The user picks again. Recommend keep.
+- [ ] **A Dexie ES2018 build alias (#104).** Technical. Recommend keep.
+- [ ] **The launch source check fetches one small chunk about 50 ms after first paint (#104).** Recommend keep.
+- [ ] **New UI APIs `useSyncState`, `useLibraryActions` and `getState` (#104).** Technical; for information only.
+- [ ] **Single-writer `booted` has no timeout of its own (#107).** A hung boot is taken over after the asking tab's 120 s limit. Recommend keep.
+- [ ] **When boot fails, the error is still rethrown after `markBooted()` (#107).** Recommend keep.
+- [ ] **The knip un-exports in #108 also reach about 25 files outside `packages/ui`** (core, platform-web, platform-capacitor, platform-tauri), each only dropping an `export`. For information only.
+- [ ] **#107 and #108 are technical, with no product defaults beyond those listed.** For information only.
+
+## Needs the owner (hands-on)
+
+Everything here needs a real device, a real account or sign-in, or a design call. Items moved here from other sections leave a one-line pointer where they were.
+
+### Real devices and services
+
+Only Chromium Playwright with faked endpoints has covered these (moved from "Not verified on real devices or services").
+
+- [ ] **`@flash/capacitor-secure-storage` on devices.** Its Java and Swift code now compiles in CI (`.github/workflows/native.yml`: Gradle `assembleDebug` and an unsigned Simulator `xcodebuild`, PR #10). On a real Android 16 tablet (`SM_X400`, SDK 36, 2026-11-24), launch verified `FlashSecureStorage` initialization, legacy-pref cleanup (`GOOGLE_LOGIN_F13oz0I_SHARED_PERF.xml`, `CapgoOAuth2ProviderPrefs.xml`), and `app.flashcards.securestorage.xml` matching `backup_rules.xml` / `data_extraction_rules.xml`. Still to check on an unlocked device: interactive Keychain/Keystore set/get round trip, Custom Tabs OneDrive redirect (including WebView < M130), plaintext token migration on upgrade, and CapacitorHttp refresh against real Entra.
+- [ ] Capacitor `pickFile({ maxBytes })`: `@capawesome/capacitor-file-picker` with `readData: false`, then `Filesystem.readFile` on the returned path (an Android `content://` URI or an iOS temporary file). Never run on a device.
+- [ ] Recheck the capgo plugin's internal plaintext key names (`packages/platform-capacitor/src/secure/secure-store.ts` and the native allowlists) on every `@capgo/capacitor-social-login` upgrade. They are pinned for 8.7.x.
+- [ ] Add-device QR codes scanned with a real phone camera, and the `flashcards://add-device` deep link opened on Android and iOS. **Windows Tauri release verified (2026-11-24):** `flashcards://` registered in `HKCU\Software\Classes\flashcards`, and both cold-start and warm-start (`tauri-plugin-single-instance` forwarding) `flashcards://add-device` links routed to Settings and displayed the provider prompt. Android intent filters (`picker-callback`, `oauth`, `add-device`) confirmed via `dumpsys package` on Android 16; interactive open still pending unlocked device test.
+- [ ] Real iCloud Drive sync on macOS, and a signed Mac build (PR #22 is compiled in CI only).
+- [ ] Capacitor shell running the language-aware menus (still pending unlocked device test). **Windows Tauri release verified (2026-11-24):** toggling Japanese in `Settings > Languages` dynamically revealed/hid Japanese typed-mode (`Hiragana = Katakana`) and Japanese language options.
+- [ ] Second device fully synced within 2 minutes with one sign-in (the Phase 14 target). It has not been measured, because the e2e sign-in is faked.
+- [ ] Tauri loopback Microsoft sign-in end to end, including whether `tauri-plugin-http` sends an `Origin` header that Entra rejects (AADSTS9002327).
+- [ ] Capacitor Microsoft sign-in on Android and iOS. From reading the code, `SocialLogin.initialize` with only the oauth2 config re-creates only that provider and keeps the Google config, but this hasn't been seen on a device.
+- [ ] OneDrive download and upload-session URLs allowing CORS from the Capacitor and Tauri WebView origins.
+- [ ] Real Microsoft Graph and Entra behaviour, against a real app registration (`docs/setup-microsoft.md`).
+- [ ] iOS WKWebView module Workers loaded from the `capacitor://` scheme.
+- [ ] Real Anki 23.x/24.x `anki21b` exports. The fixture is synthetic, and its schema-18 DDL was written from memory.
+- [ ] Real Android, iOS, macOS, Windows and Linux shells.
+- [ ] **Single-writer tab (#100, #107):** Not verified in Safari, Firefox, Capacitor or Tauri, or in a real browser for a stolen lock or an old tab whose lazy chunk 404s after a deploy. Chromium 156 does reject a stolen holder's `request()` promise with `AbortError`, as the spec says. #107 is Chromium e2e only.
+- [ ] Real Google Drive, Dropbox, OneDrive and iCloud sign-ins and syncs.
+
+### Accounts, keys and settings
+
+- [ ] **Check the KRDict topic attribute names on a real export.** The parser accepts `subjectCategory` / `semanticCategory` and the Korean labels (`주제 및 상황 범주`, `의미 범주`). If the first `build-packs.mjs --full` run gives no topics, find the real names in the XML and add them to `KRDICT_SUBJECT_CATEGORY_ATTS` / `KRDICT_SEMANTIC_CATEGORY_ATTS` in `scripts/packs/upstream-parsers.mjs`.
+- [ ] **Measure the full KRDict pack.** It has never been built here. `--full` now prints every file's size. **First-syllable sharding is written** (`docs/formats/packs.md`): a dictionary pack over 25 MiB gzipped (or with `--shard <id>`) becomes a version-2 index of search "stubs" plus `.sNN` shards cut at 초성 boundaries. All lookups work from the index; the shards behind the top results load lazily (at most 3 per lookup), and Settings > Packs has "Download all for offline". Still to check once built: that the index itself stays under 25 MiB (about 60% of the pack on the starter sample), and the shard count against the Pages 20k-file limit. Owner choices pending: lazy shards versus downloading them all at install, and the tunables (3-shard cap, top-12 completion, 2 MiB shards).
+- [ ] **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending. The dictionary has no speaker button, so the TTS fallback is not wired either.
+- **Apple Developer account: the owner has none yet.** Signing, notarizing, wiring the entitlements and real iCloud tests wait until there is one. An account (Apple Developer Program) is also needed for any iOS or Mac store release, so it is on the launch path anyway.
+- [ ] **Dependabot alert 3 (`glib` 0.18.5, Rust, `apps/desktop/src-tauri/Cargo.lock`): no fix here.** It comes in through Tauri's Linux GTK stack (gtk-rs 0.18); the patched glib 0.20 needs Tauri/wry to move to gtk-rs 0.20+. The unsound API (`VariantStrIter`) is not called by app code. Bump when Tauri does, or dismiss the alert as tolerable risk (owner's call).
+- [ ] **Korean example sentences: not added (no compatible source).** The `example` field stays empty rather than invented. Checked 2026-11-25: Wikidata lexeme usage examples (P5831, CC0) exist on only 7 of the 204 pinned lexemes. KRDict 한국어기초사전 examples are CC BY-SA 2.0 KR (share-alike, rejected). Tatoeba is CC BY 2.0 FR (some CC0): no share-alike, but it needs per-sentence attribution, has no pinned release (weekly exports only), and matching inflected Korean to a NIKL headword needs morphological analysis; English translations are uneven. Owner decision: accept Tatoeba (CC BY) with a pinned snapshot and per-deck credits, or keep examples empty.
+- [ ] Add `http://127.0.0.1` as a "Mobile and desktop" redirect URI on the Entra app, then switch `microsoft-loopback.ts` to `127.0.0.1` (review N8).
+- [ ] Decide whether the Security jobs (`security.yml`) become required checks. That needs a `dependency-review` that tolerates a skip, because it runs only on pull requests.
+- [ ] Owner chores: delete the empty untracked `packages\ui\src\utils` in the main checkout. (`Korean-w9-base` and `Korean-w9-main` were gone by 2026-11-26.)
+- [ ] **Generate the Ed25519 licence key and set `VITE_LICENSE_PUBLIC_KEY`.** Keep the private key safe. Until then, licence keys are refused, with a warning where they are offered. Tooling done (#87): the owner generates the key and sets `VITE_LICENSE_PUBLIC_KEY`, see `docs/licensing.md`.
+
+### Unverified from batch 2026-11-26b
+
+- [ ] A real Anki import of the new CSV (#102): `#notetype:` with an existing and a missing note type, the deck column creating a missing deck, and `&#45;` showing as `-` without affecting the duplicate check.
+- [ ] Real Drive, macOS or CP437 zips with non-ASCII names (#102).
+- [ ] Whether Excel or Sheets treat fullwidth `＝` as a formula (#102).
+- [ ] `--key-stdin` in a real terminal on Windows and macOS (#103).
+- [ ] The picker `state` requirement on a real Android or iOS device (#103).
+- [ ] Native shells and real sign-ins after #104 (Capacitor and Tauri were not run; neither were real Google, OneDrive or Dropbox sign-ins).
+- [ ] A lock stolen in a real browser while `yieldWriter` runs (#107).
+- [ ] A take-over arriving during boot in a real browser (#107).
+
+### Design calls
+
+- [ ] **Starter-upgrade race (#83).** An unsynced edit of a still-old-text field can lose to the upgrade. Fixing it in the UI would be a patch; it needs a new event. Recommend a `starter_upgraded` event, so replay can order the upgrade against local edits. Owner design call before anything is built.
