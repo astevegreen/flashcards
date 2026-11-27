@@ -1,12 +1,12 @@
 import { expect, type Page } from '@playwright/test';
 
 /** Number of events stored in database `db`, read straight from IndexedDB. */
-export async function storedEvents(page: Page, db: string): Promise<number> {
+export function storedEvents(page: Page, db: string): Promise<number> {
   return page.evaluate(
     (name) =>
       new Promise<number>((resolve, reject) => {
         const open = indexedDB.open(name);
-        open.onerror = () => reject(open.error);
+        open.onerror = () => reject(open.error ?? new Error(`cannot open ${name}`));
         open.onsuccess = () => {
           const opened = open.result;
           const count = opened.transaction('events').objectStore('events').count();
