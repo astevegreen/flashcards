@@ -11,6 +11,7 @@ import {
   type ColumnGuess,
   type ColumnGuessReason,
   type ColumnTarget,
+  type GridQuotes,
   type MappedRow,
   type MappingProblems,
 } from '@flash/core/import-mapping';
@@ -189,6 +190,8 @@ function TargetSelect({ column, noteType, disabled, onChange }: Readonly<TargetS
 
 interface ColumnMappingViewProps {
   grid: readonly (readonly string[])[];
+  /** The CSV quotes behind `grid` (a CSV/TSV file), so the preview keeps what import keeps. */
+  quotes?: GridQuotes;
   noteType: NoteType;
   mapping: ColumnMappingState;
   disabled: boolean;
@@ -198,6 +201,7 @@ interface ColumnMappingViewProps {
 
 export function ColumnMappingView({
   grid,
+  quotes,
   noteType,
   mapping,
   disabled,
@@ -205,6 +209,7 @@ export function ColumnMappingView({
 }: Readonly<ColumnMappingViewProps>) {
   const preview = previewMappedRows(grid, mapping.targets, noteType, {
     hasHeaderRow: mapping.hasHeaderRow,
+    ...(quotes ? { quotes } : {}),
   });
   const problems = problemLines(mapping.problems, noteType);
   return (
