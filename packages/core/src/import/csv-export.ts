@@ -1,4 +1,5 @@
 import type { CollectionState } from '../events/replay.ts';
+import { noteField } from '../model/note-fields.ts';
 import type { Note, NoteType } from '../model/types.ts';
 import { stripRichText as stripRichTextMarkup } from '../parsers/rich-text.ts';
 import { normalizeTagList } from '../tags/index.ts';
@@ -121,7 +122,7 @@ export function exportCsv(state: CollectionState, options: CsvExportOptions): Cs
     const cells = [
       recordIds[idx] ?? note.id,
       ...fields.map((f) => {
-        const value = note.fields[f.key] ?? '';
+        const value = noteField(note, f.key) ?? '';
         return options.stripRichText ? stripRichTextMarkup(value) : value;
       }),
       ...Array.from({ length: categoryColumns }, (_, i) => escapeTag(tags[i] ?? '')),

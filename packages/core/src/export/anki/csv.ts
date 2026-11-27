@@ -1,6 +1,7 @@
 import { asciiSlug } from '../../slug.ts';
 import type { CollectionState } from '../../events/replay.ts';
 import { encodeUtf8 } from '../../ids.ts';
+import { noteField } from '../../model/note-fields.ts';
 import { escapeCsvCell, guardHtmlFormula, selectDeckNotes } from './select.ts';
 import { AnkiZipWriter, type AnkiZipEmit } from './zip-writer.ts';
 import {
@@ -110,7 +111,7 @@ export function planAnkiCsvExport(
     const cells = [
       ankiGuid(note),
       deck?.name ?? '',
-      ...fields.map((f) => guardHtmlFormula(ankiFieldHtml(note.fields[f.key], f, ctx))),
+      ...fields.map((f) => guardHtmlFormula(ankiFieldHtml(noteField(note, f.key), f, ctx))),
       ankiTags(note.tags).join(' '),
     ];
     lines.push(cells.map((c) => escapeCsvCell(c, delimiter)).join(delimiter));
