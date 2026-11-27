@@ -1,12 +1,14 @@
 import { isSyncTransportError } from '@flash/core';
 import type { SyncTransport } from '@flash/platform';
 import { describe, expect, it } from 'vitest';
-import type { FaultyFetch } from './faulty-fetch.ts';
+import type { FaultyFetch, TokenIssuer } from './faulty-fetch.ts';
 
 /** A transport plus, for HTTP transports, a way to make its next requests fail. */
 export interface SyncTransportHarness {
   transport: SyncTransport;
   faults?: FaultyFetch;
+  /** The token source the fake checks; expiring it makes the next request a real 401. */
+  tokens?: TokenIssuer;
   /** The provider reports throttling as 403 + a rate-limit reason (Google, C22). */
   throttlesWith403?: boolean;
 }
@@ -112,6 +114,21 @@ export function describeSyncTransportContract(
       faults.failNext(401, 2);
       const err = await errorOf(transport.read('sync/v1/manifest.json'));
       expect(isSyncTransportError(err) && err.code).toBe('AUTH_REQUIRED');
+    });
+
+    it('force-refreshes an expired token and retries with the new one', async (ctx) => {
+      const { transport, tokens } = await harness();
+      if (!tokens) return ctx.skip();
+      const bytes = new Uint8Array([4, 2, 1]);
+      await transport.write('sync/v1/manifest.json', bytes);
+      const before = tokens.forcedRefreshes;
+      tokens.expireAll();
+      // The fake now rejects every token handed out so far: only a forced refresh can pass.
+      expect(await transport.read('sync/v1/manifest.json')).toEqual(bytes);
+      expect(tokens.forcedRefreshes).toBe(before + 1);
+      // The new token stays good: the next call needs no refresh.
+      await transport.write('sync/v1/manifest.json', bytes);
+      expect(tokens.forcedRefreshes).toBe(before + 1);
     });
 
     it('retries a 429, then reports RATE_LIMITED', async (ctx) => {
