@@ -31,7 +31,7 @@ export interface StudyAnnouncerProps extends StudyAnnouncementState {
 export function StudyAnnouncer({ cardId, ...state }: StudyAnnouncerProps) {
   const [seen, setSeen] = useState({ cardId, serial: 0 });
   if (seen.cardId !== cardId) setSeen({ cardId, serial: seen.serial + 1 });
-  const text = studyAnnouncementText(state) + (seen.serial % 2 === 1 ? ' ' : '');
+  const text = studyAnnouncementText(state) + (seen.serial % 2 === 1 ? '\u00a0' : '');
   return (
     <p data-testid="study-announcer" role="status" aria-live="polite" className="sr-only">
       {text}
