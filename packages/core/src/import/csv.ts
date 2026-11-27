@@ -359,7 +359,9 @@ export function buildEventsFromCsv(
 
   for (let rowIdx = 0; rowIdx < dataRows.length; rowIdx++) {
     const row = dataRows[rowIdx];
-    if (!row) continue;
+    // A row of blanks is dropped, as `parseCells` drops the later ones: row 1, when it is data,
+    // is the one that reaches here, even as quoted spaces (`"   ","   "`).
+    if (!row?.some((cell) => cell.trim() !== '')) continue;
     const fields: Record<string, string> = {};
     const rawTags: string[] = [];
     const notes: string[] = [];
