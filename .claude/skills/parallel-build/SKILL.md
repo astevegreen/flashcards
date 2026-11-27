@@ -27,16 +27,16 @@ You are the **orchestrator**: you dispatch work to build agents, get each pull r
 
 ## Rounds
 
-Fixing items raises new ones, so a run goes in **rounds**, 3 at most. Round 1 is the batch the owner asked for. A round ends when every one of its PRs is merged or blocked.
+Fixing items raises new ones, so a run goes in **rounds**, 3 at most. Round 1 is the batch the owner asked for. A round ends when every one of its workstreams is merged or blocked (an agent that stops without a PR counts as blocked).
 
 1. **Triage** every new item the round raised: reviewer and agy notes that did not block, Sonar issues left open, each PR's "Decisions needed", and anything an agent found out of scope. Put each in the ledger under its round as one of:
    - **fallout**: a bug, gap or missing test that a PR merged in this run introduced or left half-done;
    - **decision**: needs the owner (design, scope, money, identity, deleting data);
    - **backlog**: everything else, good ideas included.
-2. **Count the round's net**: items closed minus new items of all three kinds.
-3. **Start the next round** when it has fallout, the net is above zero and fewer than 3 rounds have run. Its batch is that fallout alone; decisions and backlog wait for the finish, and a blocked workstream stays with the owner. Otherwise, finish.
+2. **Count the round's net**: items closed (workstreams of this round whose PR merged; a blocked one does not count) minus new items of all three kinds.
+3. **Start the next round** when the round just ended raised fallout, its net is above zero and fewer than 3 rounds have run. Its batch is that fallout alone; decisions and backlog wait for the finish, and a blocked workstream stays with the owner. Otherwise, finish: fallout not yet worked moves to backlog.
 
 ## Finish
 
-1. One last small agent, in a docs PR, ticks the merged items off `docs/follow-ups.md`, adds the backlog items under their areas, and adds a "Decisions needed (<batch>)" section listing every decision item and every default an agent picked.
-2. Final message, short: merged PRs (number and title), open or blocked PRs with the reason, each round's closed, added and net counts and why the run stopped, decisions needed with your recommendation, and what is unverified (devices, signing, real services).
+1. One last small agent, in a docs PR, ticks the merged items off `docs/follow-ups.md`, adds the backlog items (unworked fallout included) under their areas, and adds a "Decisions needed (<batch>)" section listing every decision item and every default an agent picked.
+2. Final message, short: merged PRs (number and title), open or blocked PRs with the reason, each round's closed, added and net counts, why the run stopped and the fallout it left unworked, decisions needed with your recommendation, and what is unverified (devices, signing, real services).
