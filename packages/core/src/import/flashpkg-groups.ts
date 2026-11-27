@@ -111,7 +111,7 @@ function definedSettings(raw: PackagePreset['settings']): Partial<DeckPreset['se
  * FSRS-6 model bounds (after migrating shorter vectors as ts-fsrs does). Out-of-range weights are
  * dropped, not clipped: the preset still comes in, and its decks keep their own weights (§13).
  */
-export function packageWeights(raw: readonly number[] | undefined): number[] | undefined {
+function packageWeights(raw: readonly number[] | undefined): number[] | undefined {
   const w = raw === undefined ? undefined : validWeights([...raw]);
   if (!w) return undefined;
   const migrated = migrateFSRS6Parameters(w);

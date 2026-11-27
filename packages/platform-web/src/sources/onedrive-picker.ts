@@ -17,7 +17,7 @@ import {
 } from '../sync/graph-client.ts';
 
 /** File types the picker offers (same set as linked local folders, §3.2 / §15 Phase 12). */
-export const ONEDRIVE_PICKABLE_EXTENSIONS = ['.csv', '.tsv', '.xlsx', '.flashpkg'] as const;
+const ONEDRIVE_PICKABLE_EXTENSIONS = ['.csv', '.tsv', '.xlsx', '.flashpkg'] as const;
 const MAX_PICK_BYTES = 50 * 1024 * 1024; // same cap as linked local-folder files
 const PAGE_SIZE = 200;
 /** Hard stop for very large folders: the browser shows the first N entries. */

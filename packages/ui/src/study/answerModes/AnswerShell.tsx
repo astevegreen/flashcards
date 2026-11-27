@@ -1,3 +1,4 @@
+import { noteField } from '@flash/core';
 import { useContext, type ReactNode } from 'react';
 import { RubyDisplayContext } from '../../components/RichText.tsx';
 import { cardTextFitClass } from '../fitText.ts';
@@ -33,7 +34,7 @@ export function RevealedAnswer({
 }: RevealedAnswerProps) {
   const rubyDisplay = useContext(RubyDisplayContext);
   if (!isRevealed) return null;
-  const { fields, tags } = note;
+  const { tags } = note;
   const fallbackLang = deck.language;
   const visibleSteps = populatedRevealSteps.slice(0, revealStep);
   const hasExtrasPanel = populatedRevealSteps.length > 1 && isFullyRevealed;
@@ -52,7 +53,7 @@ export function RevealedAnswer({
       {mainSteps.map((stepKeys, stepIdx) => (
         <div key={stepIdx} className="flex w-full flex-col items-center gap-2">
           {stepKeys.map((fieldKey) => {
-            const value = fields[fieldKey];
+            const value = noteField(note, fieldKey);
             if (!value) return null;
             const meta = fieldMetaByKey.get(fieldKey);
             const isPrimaryBack =
@@ -93,7 +94,7 @@ export function RevealedAnswer({
           className="card-extras-panel flex w-full flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)]/70 px-4 py-3.5 text-left sm:px-5 sm:py-4"
         >
           {extrasStep.map((fieldKey) => {
-            const value = fields[fieldKey];
+            const value = noteField(note, fieldKey);
             if (!value) return null;
             const meta = fieldMetaByKey.get(fieldKey);
             return (

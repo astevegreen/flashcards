@@ -18,7 +18,7 @@ import { createLatestAttempt } from './browser-callback.ts';
 import { runLoopbackSignIn } from './loopback-sign-in.ts';
 
 /** Fixed loopback ports registered in Dropbox App Console as `http://127.0.0.1:<port>`. */
-export const DEFAULT_DROPBOX_LOOPBACK_PORTS = [53682, 53683] as const;
+const DEFAULT_DROPBOX_LOOPBACK_PORTS = [53682, 53683] as const;
 
 export interface DropboxLoopbackConfig {
   /** Dropbox App Folder app key (public PKCE client, no secret). */

@@ -62,7 +62,7 @@ export function openBackupStore(storage: Storage): Promise<BackupStore | null> {
   return store;
 }
 
-export const BACKUP_SETTINGS_KV_KEY = 'backup_settings_v1';
+const BACKUP_SETTINGS_KV_KEY = 'backup_settings_v1';
 
 export interface BackupSettings {
   /** Also write each snapshot (without media) to the sync folder. Default off. */
@@ -82,7 +82,7 @@ export async function saveBackupSettings(
 }
 
 /** The transport of the connected sync provider, without any sign-in or permission prompt. */
-export async function resolveSyncFolderTransport(
+async function resolveSyncFolderTransport(
   platform: PlatformServices,
   provider: SyncProviderKind,
 ): Promise<SyncTransport | null> {
@@ -239,7 +239,7 @@ let inFlight: Promise<TakeBackupResult | null> | null = null;
  * A snapshot still running after this much time with the page visible is stopped, so `inFlight`
  * always clears. Hidden time doesn't count: hidden tabs throttle the yields to about one a minute.
  */
-export const BACKUP_TIMEOUT_MS = 10 * 60 * 1000;
+const BACKUP_TIMEOUT_MS = 10 * 60 * 1000;
 
 const STOPPED_MESSAGE = 'The backup took too long and was stopped.';
 

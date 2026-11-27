@@ -20,7 +20,7 @@ export interface LibraryImportContext {
 }
 
 /** Thrown for refusals the user can act on (no deck, free-tier limit, …). */
-export class LibraryImportError extends Error {
+class LibraryImportError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'LibraryImportError';

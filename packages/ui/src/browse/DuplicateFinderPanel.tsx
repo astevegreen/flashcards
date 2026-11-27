@@ -1,4 +1,10 @@
-import { createBulkEvents, planBulkNoteAction, type BulkNoteAction, type Note } from '@flash/core';
+import {
+  createBulkEvents,
+  planBulkNoteAction,
+  type BulkNoteAction,
+  type Note,
+  noteField,
+} from '@flash/core';
 import { DUPLICATE_TAG, findDuplicateGroups, planDuplicateTagAdds } from '@flash/core/duplicates';
 import { useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
@@ -61,7 +67,7 @@ export function DuplicateFinderPanel({ onOpen, onClose }: Readonly<DuplicateFind
     const deck = state.decks.get(note.deck_id);
     const fields = state.noteTypes.get(deck?.note_type_id ?? '')?.fields ?? [];
     const meaning = fields.find((f) => f.key === 'meaning') ?? fields[1];
-    return meaning ? (note.fields[meaning.key] ?? '') : '';
+    return meaning ? (noteField(note, meaning.key) ?? '') : '';
   };
 
   return (

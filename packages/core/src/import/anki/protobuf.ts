@@ -14,7 +14,7 @@ export class ProtobufError extends Error {
 }
 
 /** One decoded field: varints as numbers, length-delimited values as raw bytes. */
-export type ProtoValue = { wire: 0; value: number } | { wire: 2; bytes: Uint8Array };
+type ProtoValue = { wire: 0; value: number } | { wire: 2; bytes: Uint8Array };
 
 /** Decoded message: field number -> values in wire order (repeated fields keep every value). */
 export type ProtoMessage = Map<number, ProtoValue[]>;

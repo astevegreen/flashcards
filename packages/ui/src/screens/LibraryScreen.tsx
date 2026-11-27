@@ -19,6 +19,7 @@ import {
   type Page,
   type SpeakTiming,
   deckNoteType,
+  noteField,
 } from '@flash/core';
 import { canCreateOrImportDeck } from '@flash/core/license';
 import { Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
@@ -135,7 +136,7 @@ function DeckOptionsPanel({
           'word';
         for (const note of state.notes.values()) {
           if (note.archived || note.deck_id !== deck.id) continue;
-          const raw = note.fields[targetField] ?? '';
+          const raw = noteField(note, targetField) ?? '';
           for (const ch of drawing.extractDrawableCharacters(raw, deck.language)) {
             chars.add(ch);
           }
@@ -169,7 +170,7 @@ function DeckOptionsPanel({
         'word';
       for (const note of state.notes.values()) {
         if (note.archived || note.deck_id !== deck.id) continue;
-        const raw = note.fields[targetField] ?? '';
+        const raw = noteField(note, targetField) ?? '';
         for (const ch of drawing.extractDrawableCharacters(raw, deck.language)) {
           chars.add(ch);
         }

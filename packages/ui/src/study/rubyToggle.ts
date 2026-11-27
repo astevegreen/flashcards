@@ -1,4 +1,4 @@
-import { hasRubyMarkup, type Layout, type Note } from '@flash/core';
+import { hasRubyMarkup, type Layout, type Note, noteField } from '@flash/core';
 
 /**
  * True when the layout hides ruby on the front and the card's front fields actually store ruby.
@@ -10,7 +10,7 @@ export function frontRubyHidden(
   note: Pick<Note, 'fields'> | undefined,
 ): boolean {
   if (!layout?.hide_furigana_on_front || !note) return false;
-  return layout.front_fields.some((key) => hasRubyMarkup(note.fields[key] ?? ''));
+  return layout.front_fields.some((key) => hasRubyMarkup(noteField(note, key) ?? ''));
 }
 
 /** The Study toolbar's Ruby toggle: shown for ruby languages (ja, zh) or hidden stored ruby. */

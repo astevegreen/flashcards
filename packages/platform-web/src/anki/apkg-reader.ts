@@ -24,7 +24,7 @@ import {
  * before any table is copied.
  */
 
-export interface SqlResultLike {
+interface SqlResultLike {
   columns: string[];
   values: AnkiSqlValue[][];
 }

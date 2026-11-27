@@ -95,10 +95,7 @@ export function syncProviderInfo(kind: AddDeviceProvider): SyncProviderInfo {
   return info;
 }
 
-export function isSyncProviderAvailable(
-  platform: SyncPlatformFlags,
-  kind: AddDeviceProvider,
-): boolean {
+function isSyncProviderAvailable(platform: SyncPlatformFlags, kind: AddDeviceProvider): boolean {
   switch (kind) {
     case 'icloud':
       // The iOS app and the macOS desktop app.

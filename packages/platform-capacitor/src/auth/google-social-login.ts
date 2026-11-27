@@ -6,7 +6,7 @@
 import type { NativeGoogleSignInPlugin } from './native-google-auth.ts';
 
 /** The subset of the plugin's Google login response this adapter reads. */
-export interface GoogleSocialLoginResult {
+interface GoogleSocialLoginResult {
   responseType: string;
   accessToken?: { token: string; expires?: string } | null;
   profile?: { email?: string | null };

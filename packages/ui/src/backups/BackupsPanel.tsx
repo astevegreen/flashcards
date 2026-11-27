@@ -73,7 +73,7 @@ function plural(n: number, one: string, many = `${one}s`): string {
 }
 
 /** Plain-language lines for the confirm step; empty when the backup matches the collection. */
-export function describeRestoreSummary(s: RestoreSummary): string[] {
+function describeRestoreSummary(s: RestoreSummary): string[] {
   const lines: string[] = [];
   const add = (n: number, text: string) => {
     if (n > 0) lines.push(text);

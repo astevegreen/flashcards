@@ -16,7 +16,7 @@ const LazyLinkedFileMapping = lazyWithRetry(() => import('./LinkedFileMapping.ts
 const LINKABLE = /\.(csv|tsv|xlsx)$/i;
 
 /** The panel's height in every state; the lazy-load fallback in SourcesPanel reserves the same. */
-export const CLOUD_PICKER_PANEL_HEIGHT = 'h-[26rem]';
+const CLOUD_PICKER_PANEL_HEIGHT = 'h-[26rem]';
 
 /** The fields of a folder-listing entry that the panel uses (OneDrive and Dropbox both have them). */
 export interface CloudBrowseItem {

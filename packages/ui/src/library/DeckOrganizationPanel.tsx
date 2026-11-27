@@ -24,7 +24,7 @@ const dangerClass =
  * A number field that saves on blur or Enter, within `[min, max]` (rounded to `step` places).
  * An invalid entry snaps back to the stored value.
  */
-export function CommitNumberInput({
+function CommitNumberInput({
   label,
   value,
   min,
@@ -77,7 +77,7 @@ export function CommitNumberInput({
 }
 
 /** The preset's daily limits and target retention, as editable fields. */
-export function PresetSettingsFields({
+function PresetSettingsFields({
   preset,
   onChange,
 }: Readonly<{ preset: DeckPreset; onChange: (patch: Partial<DeckPresetSettings>) => void }>) {

@@ -66,7 +66,7 @@ function describeSkipped(skipped: AnkiSkippedReviews): string {
 }
 
 /** Plain-text summary of an import (rendered as text nodes, never HTML). */
-export function describeAnkiImport(result: AnkiImportResult, includeHistory: boolean): string {
+function describeAnkiImport(result: AnkiImportResult, includeHistory: boolean): string {
   const { summary } = result;
   const lines = [
     `Imported ${plural(summary.notes, 'note')} into ${plural(summary.decks, 'deck')} (${summary.newDecks} new): ${summary.changedNotes} added or updated, ${plural(summary.noteTypes, 'new note type')}, ${plural(summary.media, 'media file')}.`,
@@ -98,7 +98,7 @@ function previewDeckNames(result: AnkiImportResult, state: CollectionState): str
  * Plain-text summary shown before anything is imported (read with history, so it can say how
  * many reviews the box would bring along).
  */
-export function describeAnkiPreview(result: AnkiImportResult, state: CollectionState): string {
+function describeAnkiPreview(result: AnkiImportResult, state: CollectionState): string {
   const { summary } = result;
   const names = previewDeckNames(result, state);
   const shown = names.slice(0, MAX_LISTED_DECKS).join(', ');
@@ -197,7 +197,7 @@ export interface PendingAnkiFile {
   bytes: Uint8Array;
 }
 
-export interface AnkiImportPanelProps {
+interface AnkiImportPanelProps {
   /** Called after a successful import with the decks the package filled. */
   onImported?: (deckIds: readonly string[]) => void;
   /**
@@ -216,7 +216,7 @@ export interface AnkiImportPanelProps {
  * SQLite/zstd reader runs in a Web Worker behind `platform.getAnkiPackageReader`. Review history
  * is opt-in (off by default). Every message renders as plain text.
  */
-export function AnkiImportPanel({
+function AnkiImportPanel({
   onImported,
   pendingFile,
   embedded = false,

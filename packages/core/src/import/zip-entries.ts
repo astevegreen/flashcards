@@ -29,7 +29,7 @@ function u32(bytes: Uint8Array, at: number): number {
 }
 
 /** True when `bytes` starts with a zip local file header or an empty-archive EOCD record. */
-export function hasZipSignature(bytes: Uint8Array): boolean {
+function hasZipSignature(bytes: Uint8Array): boolean {
   if (bytes.length < 4) return false;
   const sig = u32(bytes, 0);
   return sig === LOCAL_SIGNATURE || sig === EOCD_SIGNATURE;

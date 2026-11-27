@@ -56,7 +56,7 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-export function setShowAllLanguages(on: boolean): void {
+function setShowAllLanguages(on: boolean): void {
   current = on;
   writeShowAll(on);
   notify();

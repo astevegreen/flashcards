@@ -5,7 +5,7 @@
  */
 
 /** Default waits between attempts: two retries after the first try. */
-export const DEFAULT_RETRY_DELAYS_MS: readonly number[] = [300, 1200];
+const DEFAULT_RETRY_DELAYS_MS: readonly number[] = [300, 1200];
 
 export interface RetryImportOptions {
   /** One wait per retry; the loader runs `delaysMs.length + 1` times at most. */
