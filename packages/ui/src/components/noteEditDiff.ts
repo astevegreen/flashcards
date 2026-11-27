@@ -1,3 +1,5 @@
+import { noteField } from '@flash/core';
+
 /**
  * What a note-editor save should send (D7). Note fields replay per-field LWW and the tag list is
  * one LWW register, so re-sending an unchanged value at a fresh HLC would overwrite an edit made
@@ -29,7 +31,7 @@ export function noteEditChanges(
 ): NoteEditChanges {
   const fields: Record<string, string> = {};
   for (const [key, value] of Object.entries(draftFields)) {
-    if ((opening.fields[key] ?? '') !== value) fields[key] = value;
+    if ((noteField(opening, key) ?? '') !== value) fields[key] = value;
   }
   const tags = tagsText === opening.tagsText ? undefined : parseTagsText(tagsText);
   return { fields, tags };

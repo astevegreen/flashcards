@@ -71,30 +71,40 @@ describe('library actions (off the study chunk, §8)', () => {
   });
 
   it('toggleDeckLayout adds and removes a layout but never the last one', async () => {
-    const { m, run } = await mount();
+    const { m, run, appended } = await mount();
     const deck = must([...m.app().state.decks.values()][0]);
     const enabled = () =>
       getEnabledLayoutsForDeck(m.app().state, must(m.app().state.decks.get(deck.id))).map(
         (l) => l.id,
       );
-    const layouts = [...m.app().state.layouts.values()].filter(
-      (l) => l.note_type_id === deck.note_type_id,
+    const settingsChanges = () => appended().filter((e) => e.type === 'DeckSettingsChanged');
+    // A layout of the deck's note type that the deck doesn't use yet.
+    const base = must(getEnabledLayoutsForDeck(m.app().state, deck)[0]);
+    await run((a) =>
+      a.upsertLayout({ ...base, id: 'layout-extra', name: 'Extra', enabled: false }),
     );
     const before = enabled();
-    const extra = layouts.find((l) => !before.includes(l.id));
-    if (extra) {
-      await run((a) => a.toggleDeckLayout(deck.id, extra.id));
-      expect(enabled()).toContain(extra.id);
-      await run((a) => a.toggleDeckLayout(deck.id, extra.id));
-      expect(enabled()).not.toContain(extra.id);
-    }
-    // Down to one layout: toggling it off does nothing.
-    for (const id of enabled().slice(1)) await run((a) => a.toggleDeckLayout(deck.id, id));
-    const last = must(enabled()[0]);
-    await run((a) => a.toggleDeckLayout(deck.id, last));
+    expect(before).not.toContain('layout-extra');
+
+    await run((a) => a.toggleDeckLayout(deck.id, 'layout-extra'));
+    expect(enabled()).toContain('layout-extra');
+    expect(enabled()).toHaveLength(before.length + 1);
+    await run((a) => a.toggleDeckLayout(deck.id, 'layout-extra'));
+    expect(enabled()).toEqual(before);
+
+    // Down to one layout: every other one is removed.
+    await run((a) => a.toggleDeckLayout(deck.id, 'layout-extra'));
+    const [last, ...rest] = enabled();
+    expect(rest.length).toBeGreaterThan(0);
+    for (const id of rest) await run((a) => a.toggleDeckLayout(deck.id, id));
+    expect(enabled()).toEqual([must(last)]);
+    // Toggling the last one off does nothing: no event, still enabled.
+    const changes = settingsChanges().length;
+    await run((a) => a.toggleDeckLayout(deck.id, must(last)));
     expect(enabled()).toEqual([last]);
-    // Unknown deck: nothing happens.
-    await run((a) => a.toggleDeckLayout('no-such-deck', last));
+    // Unknown deck: nothing happens either.
+    await run((a) => a.toggleDeckLayout('no-such-deck', 'layout-extra'));
+    expect(settingsChanges()).toHaveLength(changes);
   });
 
   it('upsertLayout can enable the layout on a deck', async () => {

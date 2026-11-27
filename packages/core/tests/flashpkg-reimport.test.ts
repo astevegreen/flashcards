@@ -163,6 +163,46 @@ describe('re-import picks the note the exporter wrote under a shared key', () =>
   });
 });
 
+describe('an upgrade whose record now reads like a moved-in duplicate (agy, #102)', () => {
+  /** Version 2 of the package, where `a1` (key k1) now reads `물`, as `moved-in` already does. */
+  function upgradeWhereA1ReadsLikeMovedIn(): Uint8Array {
+    const author = createEventFactory('dev-author', 0, createHlcState('dev-author', T0));
+    const v2 = replayAllEvents([
+      author.create(
+        'DeckCreated',
+        { deck_id: 'deck-src', name: 'Words', note_type_id: 'preset:vocab-ko', language: 'ko' },
+        T0,
+      ),
+      noteEvent(author, 'deck-src', 'a1', 'k1', '물', 0),
+      noteEvent(author, 'deck-src', 'a2', 'k2', '하늘', 1),
+    ]);
+    return exportFlashpkg(v2, { deckId: 'deck-src', packageId: PACKAGE_ID, version: '2.0.0' });
+  }
+
+  it('matches the note that already holds the content, and archives neither', () => {
+    const { state, deckId } = packageDeckWithDuplicateKeys();
+    const original = [...state.notes.values()].find(
+      (n) => n.deck_id === deckId && n.source_key === 'k1' && n.id !== 'moved-in',
+    );
+    if (!original) throw new Error('expected the package note keyed k1');
+    const f = createEventFactory('dev-user', 700, createHlcState('dev-user', T0 + 90_000));
+    const res = importFlashpkg(upgradeWhereA1ReadsLikeMovedIn(), state, f, {
+      nowMs: T0 + 90_000,
+      archiveRemovedOnUpgrade: true,
+    });
+    const after = applyEvents(state, res.events);
+    // The exact content match wins: `moved-in` needs no write.
+    const touched = res.events.flatMap((e) =>
+      'note_id' in e.payload ? [String(e.payload.note_id)] : [],
+    );
+    expect(touched).not.toContain('moved-in');
+    expect(after.notes.get('moved-in')?.fields['word']).toBe('물');
+    // The package still lists k1, so the note that lost the match isn't archived as removed.
+    expect(after.notes.get(original.id)?.archived).toBeFalsy();
+    expect(after.notes.get(original.id)?.fields['word']).toBe('나무');
+  });
+});
+
 describe('re-import of a deck where a note id equals a later note key', () => {
   it('matches each note to its own record, with no copy and nothing archived', () => {
     const { state: base, deckId } = packageDeckWithDuplicateKeys();

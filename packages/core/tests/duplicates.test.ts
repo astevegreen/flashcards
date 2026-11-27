@@ -210,4 +210,52 @@ describe('duplicate finder', () => {
     expect(st.notes.get(first)?.archived).toBe(false);
     expect(findDuplicateGroups(st).map((g) => g.key)).not.toContain('학교');
   });
+
+  it('reads a prototype-named key field as an own property only (S4)', () => {
+    const f = createEventFactory('dev-a', 0, createHlcState('dev-a', BASE));
+    const st = applyEvents(createEmptyState(), [
+      f.create(
+        'DeckCreated',
+        { deck_id: 'a', name: 'A', note_type_id: 'nt-proto', language: 'en' },
+        BASE,
+      ),
+      f.create(
+        'DeckCreated',
+        { deck_id: 'b', name: 'B', note_type_id: 'nt-proto', language: 'en' },
+        BASE + 1,
+      ),
+      // These two lack the `constructor` key field; the next two hold it.
+      f.create(
+        'NoteUpserted',
+        { note_id: 'n-a', deck_id: 'a', source_key: 'a', fields: { back: 'x' } },
+        BASE + 2,
+      ),
+      f.create(
+        'NoteUpserted',
+        { note_id: 'n-b', deck_id: 'b', source_key: 'b', fields: { back: 'y' } },
+        BASE + 3,
+      ),
+      f.create(
+        'NoteUpserted',
+        { note_id: 'n-c', deck_id: 'a', source_key: 'c', fields: { constructor: 'word' } },
+        BASE + 4,
+      ),
+      f.create(
+        'NoteUpserted',
+        { note_id: 'n-d', deck_id: 'b', source_key: 'd', fields: { constructor: 'word' } },
+        BASE + 5,
+      ),
+    ]);
+    st.noteTypes.set('nt-proto', {
+      id: 'nt-proto',
+      name: 'Proto',
+      fields: [
+        { key: 'constructor', label: 'Key', kind: 'text', lang: 'en', sortKey: true },
+        { key: 'back', label: 'Back', kind: 'text', lang: 'en' },
+      ],
+    });
+    expect(findDuplicateGroups(st).map((g) => [g.key, g.noteIds])).toEqual([
+      ['word', ['n-c', 'n-d']],
+    ]);
+  });
 });

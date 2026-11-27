@@ -174,10 +174,19 @@ describe('SyncRuntime starter-deck upgrade wiring', () => {
   });
 
   it('a collection without a starter deck emits nothing and loads nothing', async () => {
-    const { emitted, reads } = mount(createEmptyState(), sync({}));
+    // The starter deck's notes, but under another package id: a copy, not a catalog deck.
+    const state = await seeded110();
+    for (const deck of state.decks.values()) {
+      if (deck.source) deck.source = { ...deck.source, package_id: `my-copy:${SLUG}` };
+    }
+    const { emitted, reads } = mount(state, sync({}));
+    await flush();
+    // Had the hook gone on, its lazy load of the upgrade module has settled by now.
+    await import('../src/onboarding/starterUpgrade.ts');
+    await flush();
     await flush();
     // Past the gate (the state was read once to look for a starter deck), then stopped there:
-    // the upgrade module was never asked for, so its entry point never ran.
+    // the upgrade's entry point never ran.
     expect(reads.count).toBe(1);
     expect(upgradeRuns.count).toBe(0);
     expect(emitted).toHaveLength(0);
