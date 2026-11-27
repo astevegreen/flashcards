@@ -131,6 +131,8 @@ export interface FlashcardsAppProps {
   initialSyncConfig?: SyncConfig;
   initialSyncCursor?: SyncCursorState;
   initialOAuthError?: string;
+  /** Receives `whenSaved` (the persist queue drained), for handing the writer lock to another tab. */
+  exposeWhenSaved?: ((whenSaved: () => Promise<void>) => void) | undefined;
 }
 
 export function FlashcardsApp({
@@ -141,11 +143,13 @@ export function FlashcardsApp({
   initialSyncConfig,
   initialSyncCursor,
   initialOAuthError,
+  exposeWhenSaved,
 }: FlashcardsAppProps) {
   return (
     <AppProvider
       platform={platform}
       initialMeta={initialMeta}
+      exposeWhenSaved={exposeWhenSaved}
       {...(initialEvents !== undefined ? { initialEvents } : {})}
       {...(initialState !== undefined ? { initialState } : {})}
       {...(initialSyncConfig !== undefined ? { initialSyncConfig } : {})}

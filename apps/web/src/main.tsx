@@ -13,6 +13,7 @@ import { FlashcardsApp } from '@flash/ui';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
+import { holdWriter, usableLocks } from './writer-lock.ts';
 
 // Public OAuth Web Client ID & stateless token-helper Worker URL (never secret)
 const DEFAULT_GOOGLE_CLIENT_ID =
@@ -145,6 +146,31 @@ async function boot(): Promise<void> {
         starterCatalogUrl,
       })
     : webPlatform;
+
+  const rootEl = document.getElementById('root');
+  if (!rootEl) {
+    throw new Error('Root element #root not found');
+  }
+  const root = createRoot(rootEl);
+  // One writer per browser profile, before anything reads or writes storage. Native shells are
+  // single-window, and browsers without Web Locks write as before.
+  const locks = usableLocks(navigator);
+  const dbName = platform.storage.dbName;
+  let saved: (() => Promise<void>) | undefined;
+  if (nativeRuntime === null && locks && dbName) {
+    // The screen and the handoff are one lazy chunk; storage is read only after this, so a tab
+    // that takes over boots from the latest stored state.
+    const load = () => import('./other-tab.tsx');
+    await holdWriter({
+      locks,
+      name: dbName,
+      storage: platform.storage,
+      win: window,
+      load,
+      render: (node) => root.render(node),
+      whenSaved: async () => saved?.(),
+    });
+  }
 
   // Zero-overhead OAuth redirect callback check (only lazy-loads GoogleAuth if `?code=` / `?error=` is present)
   let initialOAuthError: string | undefined;
@@ -298,12 +324,7 @@ async function boot(): Promise<void> {
     }
   }
 
-  const rootEl = document.getElementById('root');
-  if (!rootEl) {
-    throw new Error('Root element #root not found');
-  }
-
-  createRoot(rootEl).render(
+  root.render(
     <StrictMode>
       <FlashcardsApp
         platform={platform}
@@ -312,6 +333,9 @@ async function boot(): Promise<void> {
         {...(syncConfig !== undefined ? { initialSyncConfig: syncConfig } : {})}
         {...(syncCursor !== undefined ? { initialSyncCursor: syncCursor } : {})}
         {...(initialOAuthError !== undefined ? { initialOAuthError } : {})}
+        exposeWhenSaved={(whenSaved) => {
+          saved = whenSaved;
+        }}
       />
     </StrictMode>,
   );
