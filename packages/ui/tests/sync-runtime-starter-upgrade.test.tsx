@@ -22,6 +22,7 @@ import {
 } from '../../core/src/starters/index.ts';
 import { legacyStarterFields, loadStarterLegacyGlosses } from '../../core/src/starters/upgrade.ts';
 import { SyncRuntime, type SyncRuntimeProps } from '../src/state/SyncRuntime.tsx';
+import { createSyncStateStore } from '../src/state/syncStateStore.ts';
 import type * as StarterUpgrade from '../src/onboarding/starterUpgrade.ts';
 import type { SyncUiState } from '../src/state/useSyncController.ts';
 
@@ -96,19 +97,20 @@ function mount(state: CollectionState, syncState: SyncUiState) {
       applyEvents(state, events);
     },
   };
-  const props = (next: SyncUiState): SyncRuntimeProps =>
+  const syncStore = createSyncStateStore(syncState);
+  const props = (): SyncRuntimeProps =>
     ({
       shell: { attach: () => undefined },
       emitEventsRef,
-      syncState: next,
+      syncStore,
       stateRef,
       factoryRef: { current: factory() },
     }) as unknown as SyncRuntimeProps;
   host = document.body.appendChild(document.createElement('div'));
   root = createRoot(host);
-  const render = (next: SyncUiState) =>
-    act(() => root?.render(createElement(SyncRuntime, props(next))));
-  render(syncState);
+  const element = createElement(SyncRuntime, props());
+  const render = (next: SyncUiState) => act(() => syncStore.set(next));
+  act(() => root?.render(element));
   return { emitted, render, reads };
 }
 
