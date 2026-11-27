@@ -496,6 +496,37 @@ test.describe('Bring my cards column mapping', () => {
     await expect(page.getByTestId('browse-list')).toContainText('먹다');
   });
 
+  test('the preview keeps quoted padding and quoted spaces, as the import does', async ({
+    page,
+  }) => {
+    await openBringMyCards(page, 'pmapquotes');
+    const csv = 'word,meaning\n나무, " tree "\n하늘,"   "\n바다,  sea  \n';
+    await page.getByTestId('bring-drop-zone').evaluate((zone, text) => {
+      const data = new DataTransfer();
+      data.items.add(new File([text], 'quoted.csv', { type: 'text/csv' }));
+      zone.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true }));
+    }, csv);
+    await expect(route(page)).toHaveAttribute('data-kind', 'csv');
+    const preview = page.getByTestId('bring-map-preview');
+    await expect(preview.locator('li')).toHaveCount(3);
+    // Playwright's text matchers collapse spaces, so read the raw text.
+    const rows = await preview
+      .locator('li')
+      .evaluateAll((items) =>
+        items.map((li) => [...li.querySelectorAll('p')].map((p) => p.textContent)),
+      );
+    expect(rows).toEqual([
+      ['Word: 나무', 'Meaning:  tree '],
+      // The preview shows a run of spaces as one; the field is there, not dropped.
+      ['Word: 하늘', 'Meaning:  '],
+      ['Word: 바다', 'Meaning: sea'],
+    ]);
+    await page.getByTestId('bring-csv-import-btn').click();
+    await expect(page.getByTestId('bring-csv-status')).toContainText(
+      'Imported 3 note(s) into "quoted"',
+    );
+  });
+
   test('pasted rows with no header row import every row', async ({ page }) => {
     await openBringMyCards(page, 'pmappaste');
     await page.getByTestId('bring-link-input').fill('나무\ttree\n하늘\tsky\n바다\tsea');

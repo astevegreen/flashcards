@@ -19,9 +19,15 @@ import { ankiRichTextToHtml } from './rich-text-html.ts';
  * reads with its file headers, zipped with the media files the notes use.
  *
  * Header lines (Anki manual, "Importing > Text files > File headers"):
- * `#separator`, `#html:true`, `#columns`, then `#guid column`, `#notetype column`,
- * `#deck column` and `#tags column` (1-based). Columns: GUID, note type, deck, one per field
- * (HTML, ruby as Anki furigana, media as `<img>` / `[sound:]`), tags (space-separated).
+ * `#separator`, `#html:true`, `#notetype`, `#columns`, then `#guid column`, `#deck column` and
+ * `#tags column` (1-based). Columns: GUID, deck, one per field (HTML, ruby as Anki furigana,
+ * media as `<img>` / `[sound:]`), tags (space-separated).
+ *
+ * Every row shares one deck and one note type (the export is one deck). The note type goes in
+ * the `#notetype:` header: Anki presets it when it exists, and otherwise lets the user pick one
+ * in the import window, where a per-row column would fail those rows. The deck stays a column:
+ * Anki's manual says `#deck:` presets the deck only "if it exists", while a deck column creates
+ * a missing deck. Header lines start with `#`, so a spreadsheet reads them as text (S6).
  *
  * Anki's text import does not copy media, so the zip holds the files in `collection.media/` and
  * a short `README.txt` that says to copy them into Anki's own `collection.media` folder.
@@ -70,6 +76,11 @@ function columnName(name: string, delimiter: string): string {
     .trim();
 }
 
+/** A header value runs to the end of its line, so line breaks inside it become spaces. */
+function headerValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
 /** Builds the Anki CSV for one deck and lists the media it needs. */
 export function planAnkiCsvExport(
   state: CollectionState,
@@ -84,21 +95,20 @@ export function planAnkiCsvExport(
   const ctx = { media, richText: options.richText ?? ankiRichTextToHtml };
 
   const fieldNames = noteType ? ankiFieldNames(noteType) : [];
-  const columns = ['GUID', 'Note type', 'Deck', ...fieldNames, 'Tags'];
+  const columns = ['GUID', 'Deck', ...fieldNames, 'Tags'];
   const tagsColumn = columns.length;
   const lines = [
     `#separator:${delimiter === '\t' ? 'Tab' : 'Comma'}`,
     '#html:true',
+    ...(noteType ? [`#notetype:${headerValue(noteType.name)}`] : []),
     `#columns:${columns.map((c) => columnName(c, delimiter)).join(delimiter)}`,
     '#guid column:1',
-    '#notetype column:2',
-    '#deck column:3',
+    '#deck column:2',
     `#tags column:${tagsColumn}`,
   ];
   for (const note of notes) {
     const cells = [
       ankiGuid(note),
-      noteType?.name ?? '',
       deck?.name ?? '',
       ...fields.map((f) => guardHtmlFormula(ankiFieldHtml(note.fields[f.key], f, ctx))),
       ankiTags(note.tags).join(' '),
@@ -119,8 +129,9 @@ const README = `Export for Anki
 
 1. In Anki, choose File > Import and pick the .csv file in this folder.
    The file tells Anki the deck, note type, tags and note IDs to use.
-   Anki imports into a note type with the name in the "Note type" column. If you don't have one,
-   create it first (Tools > Manage Note Types) with the fields named in the import window,
+   Anki picks the note type named in the file. If you don't have one by that name, choose a
+   note type in the import window, or create it first (Tools > Manage Note Types) with the
+   fields named in the import window,
    or use "Export for Anki (.apkg)" instead, which brings its own note types.
 2. If there is a collection.media folder here, copy the files inside it into Anki's own
    collection.media folder (in Anki: Tools > Check Media > View Files shows where it is).

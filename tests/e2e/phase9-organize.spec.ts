@@ -177,7 +177,9 @@ test.describe('Phase 9 organizing: tag manager, bulk edit, Due today, CSV export
     const ankiCsv = new TextDecoder().decode(zipped.get(csvName ?? '') ?? new Uint8Array());
     const ankiLines = ankiCsv.trim().split('\r\n');
     expect(ankiLines.slice(0, 2)).toEqual(['#separator:Comma', '#html:true']);
-    expect(ankiLines).toContain('#deck column:3');
+    // The note type is a #notetype: header now (#102), so the deck is column 2.
+    expect(ankiLines.some((l) => l.startsWith('#notetype:'))).toBe(true);
+    expect(ankiLines).toContain('#deck column:2');
     expect(ankiLines.filter((l) => !l.startsWith('#'))).toHaveLength(2);
     expect(ankiLines.find((l) => l.includes('학교'))).toContain('복습');
     await expect(page.getByTestId('bulk-message')).toContainText('-anki.zip');
