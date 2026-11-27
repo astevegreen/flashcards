@@ -251,6 +251,11 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     '**Blockers**: a.ts:1 wrong',
     '**Blocker**: a.ts:1 wrong',
     'Two Blockers: a.ts:1, b.ts:2',
+    'Blockers: no test for X',
+    'Blockers: nonexistent guard in a.ts:1',
+    // Lines main already read as blockers stay blockers, so nothing that retried on main can merge now.
+    'Blocker: none found',
+    '**Blocker:** none',
   ]) {
     const text = ['[note] a.ts:1 risk', real].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'retry', real);
@@ -260,6 +265,12 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Blockers: none',
     'Blockers: N/A.',
     '**Blockers**: none',
+    '**Blockers:** none',
+    '**Blockers:** None.',
+    'Blockers: none found',
+    'Blockers: None identified.',
+    'Blockers — none in this diff',
+    'Blockers: no',
     'No blockers: none',
   ]) {
     const text = ['[note] a.ts:1 risk', clean].join('\n');
