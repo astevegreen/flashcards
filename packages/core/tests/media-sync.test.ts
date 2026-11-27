@@ -206,6 +206,27 @@ describe('Media sync (§4.2) & .flashpkg media/page round-trip', () => {
     });
     expect(resOversized.pulledMediaCount).toBe(0);
     expect(resOversized.mediaWarnings?.some((w) => /exceeds max size/i.test(w))).toBe(true);
+
+    // A transport that refuses the blob past its read cap (a SyncCodecError) gets the same skip.
+    const realRead = transport.read.bind(transport);
+    transport.read = async (path) => {
+      if (path === remotePath) throw new SyncCodecError(`"${path}" is too large to read`);
+      return realRead(path);
+    };
+    const resCapped = await runSync({
+      transport,
+      deviceId: 'dev-d',
+      cursor: createInitialSyncCursor(),
+      localOwnSeq: 0,
+      getLocalEventsAfterSeq: async () => [],
+      mediaStore: createMemoryMediaStore(),
+      nowMs: () => t0 + 400,
+    });
+    expect(resCapped.status).toBe('ok');
+    expect(resCapped.pulledMediaCount).toBe(0);
+    expect(resCapped.mediaWarnings).toContain(
+      `Rejected remote media "${remotePath}": "${remotePath}" is too large to read`,
+    );
   });
 
   it('packs and re-imports pages/*.md and media/<sha256>.<ext> in .flashpkg', () => {
