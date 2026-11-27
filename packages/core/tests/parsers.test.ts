@@ -44,14 +44,20 @@ describe('Anki furigana conversion (§6.2)', () => {
       '[',
       ']',
       '{',
+      '}',
       '|',
       '\t',
+      '\n',
       'a',
       '!',
       '日',
       '本',
+      // Astral Han (CJK Extension B, two UTF-16 code units each).
+      String.fromCodePoint(0x20000),
+      String.fromCodePoint(0x20b9f),
       'た',
       'ア',
+      'ー',
       '학',
     ];
     fc.assert(

@@ -594,6 +594,8 @@ export function previewMappedRows(
   const first = options.hasHeaderRow ? 1 : 0;
   for (let r = first; r < grid.length; r++) {
     const row = (r === 0 ? options.quotes?.firstRow : undefined) ?? grid[r] ?? [];
+    // A row of blanks is not imported, even one of quoted spaces (`buildEventsFromCsv`).
+    if (!row.some((cell) => cell.trim() !== '')) continue;
     const mapped = applyColumnTargets(row, headers, targets, noteType, options.quotes?.quoted[r]);
     if (Object.keys(mapped.fields).length === 0) continue;
     out.push(mapped);

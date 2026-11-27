@@ -129,6 +129,25 @@ describe('zip entry names without the UTF-8 flag', () => {
     expect([...safeUnzip(bytes, LIMITS, ERRORS).keys()]).toEqual(['café.txt']);
   });
 
+  it('refuses a flagged UTF-8 name that fflate reads the same as an unflagged CP437 one', () => {
+    // UTF-8 `café.txt` (flagged), and unflagged `caf` 0xE9 `.txt`: CP437 `cafΘ.txt`, but
+    // fflate's Latin-1 reading is `café.txt` too, so which entry a name came from is unknown.
+    const bytes = zipSync(
+      { 'café.txt': encodeUtf8('utf8'), 'cafX.txt': encodeUtf8('cp437') },
+      { level: 0 },
+    );
+    const raw = [...encodeUtf8('caf'), 0xe9, ...encodeUtf8('.txt')];
+    for (const at of nameOffsets(bytes, 'cafX.txt')) bytes.set(raw, at);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    expect(view.getUint16(6, true) & 0x800).toBe(0x800);
+    expect(listZipEntryNames(bytes)).toEqual(['café.txt', 'cafΘ.txt']);
+    // It fails closed: refused as a duplicate under the flagged entry's own name, never renamed
+    // to the CP437 reading (that name isn't mapped while a flagged entry also reads as it).
+    expect(() => safeUnzip(bytes, LIMITS, ERRORS)).toThrow(SecurityError);
+    expect(() => safeUnzip(bytes, LIMITS, ERRORS)).toThrow('Duplicate entry name');
+    expect(() => safeUnzip(bytes, LIMITS, ERRORS)).toThrow('"café.txt"');
+  });
+
   it('maps every CP437 byte to one character', () => {
     const bytes = unflaggedEntry(
       'X'.repeat(128),
