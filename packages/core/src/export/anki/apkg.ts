@@ -5,6 +5,7 @@ import {
   type CollectionState,
 } from '../../events/replay.ts';
 import { encodeUtf8 } from '../../ids.ts';
+import { noteField } from '../../model/note-fields.ts';
 import type { Card, Deck, Layout, Note, NoteType, NoteTypeField } from '../../model/types.ts';
 import { sha256String } from '../../sources/hash.ts';
 import { sha1First32 } from './checksum.ts';
@@ -499,7 +500,7 @@ function rubyFieldKeys(noteType: NoteType, notes: readonly Note[]): Set<string> 
   const keys = new Set<string>();
   for (const field of noteType.fields) {
     if (!TEXT_KINDS.has(field.kind)) continue;
-    if (notes.some((n) => hasRuby(n.fields[field.key] ?? ''))) keys.add(field.key);
+    if (notes.some((n) => hasRuby(noteField(n, field.key) ?? ''))) keys.add(field.key);
   }
   return keys;
 }
@@ -539,7 +540,7 @@ function noteFieldsHtml(
   richText: AnkiRichTextConverter | undefined,
 ): string[] {
   const ctx = { media, richText: richText ?? ankiRichTextToHtml };
-  return noteType.fields.map((f: NoteTypeField) => ankiFieldHtml(note.fields[f.key], f, ctx));
+  return noteType.fields.map((f: NoteTypeField) => ankiFieldHtml(noteField(note, f.key), f, ctx));
 }
 
 /** Plans an `.apkg` export: SQLite rows for `collection.anki2` and the media it needs. */

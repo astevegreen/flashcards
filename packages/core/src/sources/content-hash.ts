@@ -12,10 +12,10 @@ export function computeNoteContentHash(
   fields: Readonly<Record<string, string>>,
   tags: readonly string[],
 ): string {
-  const keys = Object.keys(fields).sort(compareCodeUnits);
+  // Own entries only, so a `constructor` or `toString` key is hashed like any other (S4).
+  const entries = Object.entries(fields).sort((a, b) => compareCodeUnits(a[0], b[0]));
   const parts: string[] = ['F:'];
-  for (const key of keys) {
-    const val = fields[key];
+  for (const [key, val] of entries) {
     if (val === undefined || val === '') continue;
     parts.push(`${key.length}:${key}=${val.length}:${val};`);
   }

@@ -1,4 +1,5 @@
 import { BUILTIN_NOTE_TYPE_IDS } from '../model/presets.ts';
+import { ownField } from '../model/note-fields.ts';
 import type { NoteType } from '../model/types.ts';
 import { normalizeTagList } from '../tags/index.ts';
 import { splitTagCell } from './tag-cell.ts';
@@ -553,7 +554,7 @@ export function applyColumnTargets(
     const value = keep ? cell : cell.trim();
     if (!value.trim() && !(keep && target.kind === 'field' && value)) return;
     if (target.kind === 'field') {
-      const prev = fields[target.fieldKey];
+      const prev = ownField(fields, target.fieldKey);
       fields[target.fieldKey] = prev ? `${prev}\n${value}` : value;
     } else if (target.kind === 'tags') {
       rawTags.push(...splitTagCell(value));
@@ -564,7 +565,7 @@ export function applyColumnTargets(
     }
   });
   const notesKey = notesFieldKey(noteType);
-  if (notesKey && notes.length > 0) fields[notesKey] = joinNotes(fields[notesKey], notes);
+  if (notesKey && notes.length > 0) fields[notesKey] = joinNotes(ownField(fields, notesKey), notes);
   return { fields, tags: normalizeTagList(rawTags), cardId };
 }
 
