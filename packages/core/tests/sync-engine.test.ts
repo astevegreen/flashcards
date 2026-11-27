@@ -28,6 +28,7 @@ import {
   sanitizeDeviceId,
   snapshotPath,
   SYNC_CODEC_LIMITS,
+  SYNC_SNAPSHOT_LIMITS,
   SyncCodecError,
 } from '../src/sync/codec.ts';
 import { runSync } from '../src/sync/engine.ts';
@@ -918,8 +919,101 @@ describe('snapshots past the decoder limits (D12)', () => {
   const limits = { maxUncompressedBytes: 64 * 1024 };
   const overCapPadding = () => 'x'.repeat(limits.maxUncompressedBytes + 1);
 
-  it('keeps the 25 MiB production read cap', () => {
+  it('keeps the 25 MiB cap for segments and heads, and reads snapshots up to 128 MiB raw', () => {
     expect(SYNC_CODEC_LIMITS.maxUncompressedBytes).toBe(25 * 1024 * 1024);
+    expect(SYNC_SNAPSHOT_LIMITS.maxUncompressedBytes).toBe(128 * 1024 * 1024);
+    // Same compressed cap, so transport read caps built on SYNC_CODEC_LIMITS still fit.
+    expect(SYNC_SNAPSHOT_LIMITS.maxCompressedBytes).toBe(SYNC_CODEC_LIMITS.maxCompressedBytes);
+    // The measured 20k-card collection (69.7 MiB raw, 5.07 MiB gzipped) fits both.
+    expect(69.7 * 1024 * 1024).toBeLessThan(SYNC_SNAPSHOT_LIMITS.maxUncompressedBytes);
+    expect(5.07 * 1024 * 1024).toBeLessThan(SYNC_SNAPSHOT_LIMITS.maxCompressedBytes);
+  });
+
+  it('a snapshot past the old raw cap is read by new builds and skipped by older ones', async () => {
+    // Scaled down: `oldCap` stands for the 25 MiB cap of older builds, `newCap` for 128 MiB.
+    const oldCap = { maxUncompressedBytes: 64 * 1024 };
+    const newCap = { maxUncompressedBytes: 512 * 1024, maxCompressedBytes: 64 * 1024 };
+    const transport = new RecordingMemoryTransport();
+    const factory = createEventFactory('dev-a', 0, createHlcState('dev-a', t0));
+    const events: FlashEvent[] = [
+      factory.create(
+        'DeckCreated',
+        {
+          deck_id: 'd1',
+          name: 'Big',
+          note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
+          language: 'ko',
+        },
+        t0,
+      ),
+    ];
+    for (let i = 0; i < 400; i++) {
+      events.push(
+        factory.create(
+          'NoteUpserted',
+          {
+            note_id: deriveNoteId('d1', `n${i}`),
+            deck_id: 'd1',
+            source_key: `n${i}`,
+            fields: { word: `word-${i}`, meaning: `meaning ${i} `.repeat(20) },
+          },
+          t0 + i,
+        ),
+      );
+    }
+    const local = applyEvents(createEmptyState(), events);
+    const writer = await runSync({
+      transport,
+      deviceId: 'dev-a',
+      cursor: createInitialSyncCursor(),
+      localOwnSeq: events.length,
+      currentTotalEvents: events.length,
+      snapshotThreshold: 1,
+      snapshotLimits: newCap,
+      nowMs: () => t0 + 1000,
+      generateCollectionId: () => 'col-big',
+      getLocalEventsAfterSeq: async (afterSeq) => events.filter((e) => e.seq > afterSeq),
+      buildSnapshotState: async () => ({
+        state: serializeCollectionState(local, { 'dev-a': events.length }),
+        totalEvents: events.length,
+      }),
+    });
+    expect(writer.snapshotWritten).toBe(snapshotPath('dev-a', events.length));
+    const bytes = transport.files.get(snapshotPath('dev-a', events.length))?.data;
+    if (!bytes) throw new Error('snapshot missing');
+    // Past the old raw cap, within the compressed cap.
+    expect(safeGunzip(bytes, newCap).byteLength).toBeGreaterThan(oldCap.maxUncompressedBytes);
+    expect(bytes.byteLength).toBeLessThan(newCap.maxCompressedBytes);
+
+    const fresh = (snapshotLimits: Partial<typeof SYNC_SNAPSHOT_LIMITS>) =>
+      runSync({
+        transport,
+        deviceId: 'dev-b',
+        cursor: createInitialSyncCursor(),
+        localOwnSeq: 0,
+        canBootstrapFromSnapshot: true,
+        snapshotLimits,
+        nowMs: () => t0 + 2000,
+        getLocalEventsAfterSeq: async () => [],
+      });
+
+    const newer = await fresh(newCap);
+    expect(newer.hydratedSnapshot?.total_events).toBe(events.length);
+    expect(newer.pulledEvents).toHaveLength(0);
+
+    const older = await fresh(oldCap);
+    expect(older.hydratedSnapshot).toBeUndefined();
+    expect(older.pulledEvents).toHaveLength(events.length);
+
+    // Both end up with the same collection.
+    const hydrated = newer.hydratedSnapshot;
+    if (!hydrated) throw new Error('not hydrated');
+    const fromSnapshot = deserializeCollectionState(hydrated.state);
+    const fromSegments = applyEvents(createEmptyState(), older.pulledEvents);
+    expect([...fromSnapshot.notes.keys()].sort()).toEqual([...fromSegments.notes.keys()].sort());
+    expect(fromSnapshot.notes.get(deriveNoteId('d1', 'n399'))?.fields).toEqual(
+      fromSegments.notes.get(deriveNoteId('d1', 'n399'))?.fields,
+    );
   });
 
   it('encodes only snapshots the decoder will read back', () => {

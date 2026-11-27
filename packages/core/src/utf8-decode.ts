@@ -5,15 +5,42 @@
  * Decodes like WHATWG `TextDecoder('utf-8')` in replacement mode (BOM kept): each maximal
  * invalid subsequence becomes one U+FFFD and decoding resumes at the byte that broke it, so a
  * bad byte never swallows the newline or JSON after it (D20).
+ *
+ * Code units collect in a fixed buffer that is turned into a string every few thousand units:
+ * appending one character at a time took about 5 s and 2 GB of garbage for a 66 MiB snapshot.
  */
 export function decodeUtf8(bytes: Uint8Array): string {
-  let result = '';
+  const parts: string[] = [];
+  const buf = new Uint16Array(UNIT_BUFFER + 1);
+  let n = 0;
+  const flush = () => {
+    // `apply` takes the typed array as is; spreading it walks an iterator, several times slower.
+    parts.push(String.fromCharCode.apply(null, buf.subarray(0, n) as unknown as number[]));
+    n = 0;
+  };
+  const unit = (u: number) => {
+    buf[n++] = u;
+    if (n >= UNIT_BUFFER) flush();
+  };
+  const point = (cp: number) => {
+    if (cp > 0xffff) {
+      unit(0xd800 + ((cp - 0x10000) >> 10));
+      unit(0xdc00 + ((cp - 0x10000) & 0x3ff));
+    } else {
+      unit(cp);
+    }
+  };
   let i = 0;
   while (i < bytes.length) {
     const b = bytes[i++] ?? 0;
-    const lead = b < 0x80 ? null : leadByte(b);
+    if (b < 0x80) {
+      buf[n++] = b;
+      if (n >= UNIT_BUFFER) flush();
+      continue;
+    }
+    const lead = leadByte(b);
     if (!lead) {
-      result += b < 0x80 ? String.fromCodePoint(b) : '\uFFFD';
+      unit(0xfffd);
       continue;
     }
     let [needed, cp, lower, upper] = lead;
@@ -27,10 +54,14 @@ export function decodeUtf8(bytes: Uint8Array): string {
       lower = 0x80;
       upper = 0xbf;
     }
-    result += needed === 0 ? String.fromCodePoint(cp) : '\uFFFD';
+    point(needed === 0 ? cp : 0xfffd);
   }
-  return result;
+  if (n > 0) flush();
+  return parts.join('');
 }
+
+/** Code units per `String.fromCharCode` call: well under any engine's argument limit. */
+const UNIT_BUFFER = 4096;
 
 /**
  * For a valid lead byte: the continuation bytes it needs, its payload bits, and the range the

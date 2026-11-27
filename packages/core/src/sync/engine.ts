@@ -29,7 +29,7 @@ import {
   snapshotPath,
   snapshotsPrefix,
   SYNC_MEDIA_LIMITS,
-  type SYNC_CODEC_LIMITS,
+  type SYNC_SNAPSHOT_LIMITS,
   SyncCodecError,
 } from './codec.ts';
 import {
@@ -77,6 +77,11 @@ export interface SyncEngineOptions {
   maxFormatVersion?: number;
   /** Max events packed into a single write-once segment (default `2000`). */
   maxEventsPerSegment?: number;
+  /**
+   * Fold the tail of this device's `head.json` `segments` into full segments once it lists more
+   * than this many segments that are not full (default `1000`). Keeps the head small.
+   */
+  maxUnpackedHeadSegments?: number;
   /** Write a new snapshot when >= N new events occurred since last snapshot (default `500`). */
   snapshotThreshold?: number;
   /** Injectable clock for deterministic tests. */
@@ -90,10 +95,10 @@ export interface SyncEngineOptions {
   /** Max allowed media blob size in bytes (default `SYNC_MEDIA_LIMITS.maxMediaBlobBytes`). */
   maxMediaBlobBytes?: number;
   /**
-   * Size caps for reading and writing snapshots (default `SYNC_CODEC_LIMITS`). Only tests set it,
-   * to exercise the over-cap path (D12) without a 25 MiB fixture.
+   * Size caps for reading and writing snapshots (default `SYNC_SNAPSHOT_LIMITS`). Only tests set
+   * it, to exercise the over-cap path (D12) without a 128 MiB fixture.
    */
-  snapshotLimits?: Partial<typeof SYNC_CODEC_LIMITS>;
+  snapshotLimits?: Partial<typeof SYNC_SNAPSHOT_LIMITS>;
   /**
    * The collection an add-device link named. When this device is not bound to a collection yet
    * and the existing remote store holds a different one, the run stops with
@@ -104,6 +109,7 @@ export interface SyncEngineOptions {
 
 const DEFAULT_MAX_EVENTS_PER_SEGMENT = 2000;
 const DEFAULT_SNAPSHOT_THRESHOLD = 500;
+const DEFAULT_MAX_UNPACKED_HEAD_SEGMENTS = 1000;
 const MAX_SEGMENT_COLLISION_RETRIES = 16;
 
 function cloneCursor(cursor: SyncCursorState): SyncCursorState {
@@ -175,6 +181,53 @@ function mergeSegmentRanges(
 }
 
 /**
+ * The ranges to fold when `head.json` lists more than `maxUnpacked` segments after its leading
+ * run of full ones (`count >= packedCount`), or `null`. The fold is always a suffix of the list:
+ * readers fetch segments in `seg` order and stop at the first unreadable one, so `seg` order has
+ * to stay `seq` order. Ranges that overlap or run backwards are left alone.
+ */
+function planHeadCompaction(
+  segments: readonly SegmentRange[],
+  packedCount: number,
+  maxUnpacked: number,
+): { keep: SegmentRange[]; fold: SegmentRange[] } | null {
+  let keep = 0;
+  while (keep < segments.length && (segments[keep]?.count ?? 0) >= packedCount) keep++;
+  if (segments.length - keep <= maxUnpacked) return null;
+  for (let i = 1; i < segments.length; i++) {
+    const prev = segments[i - 1];
+    const cur = segments[i];
+    if (!prev || !cur || cur.seg <= prev.seg || cur.from_seq <= prev.to_seq) return null;
+  }
+  return { keep: segments.slice(0, keep), fold: segments.slice(keep) };
+}
+
+/**
+ * The events `fold` lists, taken from `own` (this device's events, ascending by seq), or `null`
+ * when local storage does not hold exactly the events each range counts.
+ */
+function eventsForFold(
+  own: readonly FlashEvent[],
+  fold: readonly SegmentRange[],
+): FlashEvent[] | null {
+  const out: FlashEvent[] = [];
+  let at = 0;
+  for (const range of fold) {
+    let n = 0;
+    while (at < own.length && (own[at]?.seq ?? 0) < range.from_seq) at++;
+    while (at < own.length && (own[at]?.seq ?? 0) <= range.to_seq) {
+      const ev = own[at++];
+      if (!ev) return null;
+      if (out.length > 0 && (out[out.length - 1]?.seq ?? 0) >= ev.seq) return null;
+      out.push(ev);
+      n++;
+    }
+    if (n !== range.count) return null;
+  }
+  return out;
+}
+
+/**
  * Pure TypeScript `sync/v1` engine implementing blueprint §4.2:
  * 1. Manifest & forward/backward compatibility gate (`format_version` / `min_app_version`)
  * 2. Pull (optional snapshot bootstrap + per-device `head.json` + unseen segments only)
@@ -192,6 +245,7 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
     maxFormatVersion = SYNC_FORMAT_VERSION,
     maxEventsPerSegment = DEFAULT_MAX_EVENTS_PER_SEGMENT,
     snapshotThreshold = DEFAULT_SNAPSHOT_THRESHOLD,
+    maxUnpackedHeadSegments = DEFAULT_MAX_UNPACKED_HEAD_SEGMENTS,
     nowMs = () => Date.now(),
     generateCollectionId = () => `col-${uuidv7(nowMs())}`,
     mediaStore,
@@ -531,9 +585,35 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
     if (pendingEvents.length > 0) {
       let nextSeg = cursor.lastPushedSegment;
       const newRanges: SegmentRange[] = [];
+      let baseSegments: readonly SegmentRange[] = cursor.pushedSegments;
+      let eventsToWrite: readonly FlashEvent[] = pendingEvents;
 
-      for (let offset = 0; offset < pendingEvents.length; offset += maxEventsPerSegment) {
-        const chunk = pendingEvents.slice(offset, offset + maxEventsPerSegment);
+      // Head compaction: the unpacked tail of `segments` is rewritten, with this push, as new full
+      // segments listed in its place. The old segment files stay where they are (write-once);
+      // the head just stops listing them. Readers of any version fetch listed segments whose
+      // `to_seq` is past their watermark, so a reader part-way through the folded ranges gets
+      // the rest from the new segments.
+      const plan = planHeadCompaction(
+        cursor.pushedSegments,
+        maxEventsPerSegment,
+        maxUnpackedHeadSegments,
+      );
+      const firstFold = plan?.fold[0];
+      const lastFold = plan?.fold[plan.fold.length - 1];
+      if (plan && firstFold && lastFold && lastFold.to_seq <= cursor.lastPushedSeq) {
+        const own = (await getLocalEventsAfterSeq(firstFold.from_seq - 1))
+          .filter((ev) => ev.device === deviceId && ev.seq >= firstFold.from_seq)
+          .sort((a, b) => a.seq - b.seq);
+        const folded = eventsForFold(own, plan.fold);
+        // Without every folded event in local storage, push as usual and keep the long head.
+        if (folded) {
+          baseSegments = plan.keep;
+          eventsToWrite = [...folded, ...pendingEvents];
+        }
+      }
+
+      for (let offset = 0; offset < eventsToWrite.length; offset += maxEventsPerSegment) {
+        const chunk = eventsToWrite.slice(offset, offset + maxEventsPerSegment);
         const firstEv = chunk[0];
         const lastEv = chunk[chunk.length - 1];
         if (!firstEv || !lastEv) continue;
@@ -577,12 +657,12 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
           to_seq: lastEv.seq,
           count: chunk.length,
         });
-        pushedEventCount += chunk.length;
       }
+      pushedEventCount = pendingEvents.length;
 
       const lastPushed = pendingEvents[pendingEvents.length - 1];
       if (lastPushed) {
-        const mergedSegments = mergeSegmentRanges(cursor.pushedSegments, newRanges);
+        const mergedSegments = mergeSegmentRanges(baseSegments, newRanges);
         const head: DeviceHead = {
           device_id: deviceId,
           last_segment: nextSeg,
