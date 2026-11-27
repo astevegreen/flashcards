@@ -243,6 +243,39 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     const text = ['[note] a.ts:1 risk', real].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'retry', real);
   }
+  // The plural and bold forms name blockers too, so they retry; their clean answers still merge.
+  for (const real of [
+    'Blockers: a.ts:1 drops the check',
+    'Blockers — b.ts:2 and c.ts:3',
+    '**Blockers:** a.ts:1 wrong',
+    '**Blockers**: a.ts:1 wrong',
+    '**Blocker**: a.ts:1 wrong',
+    'Two Blockers: a.ts:1, b.ts:2',
+    'Blockers: no test for X',
+    'Blockers: nonexistent guard in a.ts:1',
+    // Lines main already read as blockers stay blockers, so nothing that retried on main can merge now.
+    'Blocker: none found',
+    '**Blocker:** none',
+  ]) {
+    const text = ['[note] a.ts:1 risk', real].join('\n');
+    assert.equal(decide({ review: ok(text) }).verdict, 'retry', real);
+    assert.deepEqual(findings(text).untaggedBlockers, [real], real);
+  }
+  for (const clean of [
+    'Blockers: none',
+    'Blockers: N/A.',
+    '**Blockers**: none',
+    '**Blockers:** none',
+    '**Blockers:** None.',
+    'Blockers: none found',
+    'Blockers: None identified.',
+    'Blockers — none in this diff',
+    'Blockers: no',
+    'No blockers: none',
+  ]) {
+    const text = ['[note] a.ts:1 risk', clean].join('\n');
+    assert.equal(decide({ review: ok(text) }).verdict, 'merge', clean);
+  }
   // A tagged blocker still gets its fix pass, whatever else the review says.
   const both = ['[blocker] a.ts:1 wrong', 'Blocker: also b'].join('\n');
   assert.equal(decide({ review: ok(both) }).verdict, 'fix');

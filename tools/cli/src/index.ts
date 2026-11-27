@@ -80,14 +80,26 @@ const ESC = '\u001b';
 /** What follows `ESC`: `[` opens a CSI sequence, `O` an SS3 one; anything else ends it. */
 const ESCAPE_NEXT: Readonly<Record<string, 'csi' | 'ss3'>> = { '[': 'csi', O: 'ss3' };
 
+/** C0 controls and DEL (Tab, Escape and the like): never part of a key. */
+function isControl(ch: string): boolean {
+  const code = ch.codePointAt(0) ?? 0;
+  return code < 0x20 || code === 0x7f;
+}
+
 /**
  * Drops terminal escape sequences from raw-mode input: CSI (`ESC [ … final`, e.g. arrow keys and
  * the bracketed-paste markers `ESC [200~` / `ESC [201~`), SS3 (`ESC O x`) and two-byte `ESC x`.
- * Returns whether `ch` is part of one.
+ * `skip(ch)` returns whether `ch` is part of one.
+ *
+ * A lone Esc key press is dropped without taking the next key with it: a terminal writes a whole
+ * sequence at once, so an `ESC` that ends its chunk is a lone Esc (`endChunk` forgets it), and a
+ * control character after `ESC` (Enter, Ctrl-C, Backspace, another Esc) is never a sequence's
+ * second byte, so it is read as itself.
  */
-function escapeSkipper(): (ch: string) => boolean {
+function escapeSkipper(): { skip: (ch: string) => boolean; endChunk: () => void } {
   let state: 'text' | 'esc' | 'csi' | 'ss3' = 'text';
-  return (ch) => {
+  const skip = (ch: string): boolean => {
+    if (state === 'esc' && isControl(ch)) state = 'text';
     if (state === 'text') {
       if (ch !== ESC) return false;
       state = 'esc';
@@ -95,19 +107,28 @@ function escapeSkipper(): (ch: string) => boolean {
       state = ESCAPE_NEXT[ch] ?? 'text';
     } else if (state === 'csi') {
       // Parameter and intermediate bytes continue; a final byte (0x40–0x7E) ends the sequence.
-      const code = ch.charCodeAt(0);
+      const code = ch.codePointAt(0) ?? 0;
       if (code >= 0x40 && code <= 0x7e) state = 'text';
     } else {
       state = 'text';
     }
     return true;
   };
+  const endChunk = (): void => {
+    if (state === 'esc') state = 'text';
+  };
+  return { skip, endChunk };
 }
 
-/** C0 controls and DEL (Tab, Escape and the like): never part of a key. */
-function isControl(ch: string): boolean {
-  const code = ch.charCodeAt(0);
-  return code < 0x20 || code === 0x7f;
+/**
+ * One raw-mode key press applied to the key typed so far: the new key, or `null` once Enter or
+ * Ctrl-D ends the line. Backspace deletes, Ctrl-C cancels, other control characters are dropped.
+ */
+function pressKey(key: string, ch: string): string | null {
+  if (ch === CTRL_C) throw new Error('Cancelled: no key was read.');
+  if (ch === '\r' || ch === '\n' || ch === CTRL_D) return null;
+  if (BACKSPACES.has(ch)) return key.slice(0, -1);
+  return isControl(ch) ? key : key + ch;
 }
 
 /**
@@ -121,7 +142,7 @@ async function readHiddenLine(
   stderr: KeyPromptIo['stderr'],
 ): Promise<string> {
   const decoder = new TextDecoder();
-  const inEscape = escapeSkipper();
+  const escapes = escapeSkipper();
   let key = '';
   setRawMode(true);
   try {
@@ -129,12 +150,12 @@ async function readHiddenLine(
       const text =
         typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
       for (const ch of text) {
-        if (inEscape(ch)) continue;
-        if (ch === CTRL_C) throw new Error('Cancelled: no key was read.');
-        if (ch === '\r' || ch === '\n' || ch === CTRL_D) return `${key}\n`;
-        if (BACKSPACES.has(ch)) key = key.slice(0, -1);
-        else if (!isControl(ch)) key += ch;
+        if (escapes.skip(ch)) continue;
+        const next = pressKey(key, ch);
+        if (next === null) return `${key}\n`;
+        key = next;
       }
+      escapes.endChunk();
     }
     return `${key}\n`;
   } finally {
