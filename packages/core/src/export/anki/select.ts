@@ -1,7 +1,7 @@
 import type { CollectionState } from '../../events/replay.ts';
 import type { Note } from '../../model/types.ts';
 import { compareCodeUnits } from '../../compare.ts';
-import { escapeDelimitedCell, startsLikeFormula } from '../../import/csv-cell.ts';
+import { escapeDelimitedCell } from '../../import/csv-cell.ts';
 
 /**
  * Small helpers kept inside the lazy `@flash/core/anki-export` entry. They mirror
@@ -34,12 +34,19 @@ export function escapeCsvCell(value: string, delimiter: string): string {
 }
 
 /**
+ * Any cell that starts (after spaces and line breaks) with `= + - @` or their fullwidth forms
+ * `＝ ＋ － ＠`. Unlike `startsLikeFormula` there is no Korean-grammar exception: the entity costs
+ * nothing in Anki, so `-(으)ㄴ` is guarded too.
+ */
+const ANKI_FORMULA_START = /^[ \t\r\n]*[-=+@－＝＋＠]/u;
+
+/**
  * An HTML field cell that a spreadsheet would run as a formula (S6), with its first character
  * written as an HTML entity (`=` as `&#61;`): Anki (`#html:true`) shows the same text, and a
  * spreadsheet sees `&`. A `'` prefix would show up in Anki.
  */
 export function guardHtmlFormula(html: string): string {
-  if (!startsLikeFormula(html)) return html;
+  if (!ANKI_FORMULA_START.test(html)) return html;
   const i = html.search(/[^ \t\r\n]/);
   return `${html.slice(0, i)}&#${html.charCodeAt(i)};${html.slice(i + 1)}`;
 }

@@ -94,11 +94,12 @@ describe('Export for Anki CSV', () => {
     expect(lines.slice(0, 7)).toEqual([
       '#separator:Comma',
       '#html:true',
-      '#columns:GUID,Note type,Deck,Word,Meaning,Picture,Audio,Notes extra,Tags',
+      // One note type for every row: a header, not a column (Anki presets it when it exists).
+      '#notetype:Japanese Vocab',
+      '#columns:GUID,Deck,Word,Meaning,Picture,Audio,Notes extra,Tags',
       '#guid column:1',
-      '#notetype column:2',
-      '#deck column:3',
-      '#tags column:9',
+      '#deck column:2',
+      '#tags column:8',
     ]);
     const parsed = parseDelimitedText(lines.slice(7).join('\n'), { delimiter: ',' });
     const rows = [parsed.headers, ...parsed.rows];
@@ -106,7 +107,6 @@ describe('Export for Anki CSV', () => {
     expect(rows).toHaveLength(3);
     expect(rows[0]).toEqual([
       'note-1',
-      'Japanese Vocab',
       'Japanese::Vocab',
       '日本語[にほんご]を 食べる[たべる]',
       'Japanese, &quot;quoted&quot; &lt;b&gt;',
@@ -118,9 +118,9 @@ describe('Export for Anki CSV', () => {
     // A note imported from Anki gets its original GUID back.
     expect(rows[1]?.[0]).toBe('AbC123guid');
     // The text's own space is `&#32;`; the literal one is the furigana base marker Anki consumes.
-    expect(rows[1]?.[3]).toBe('test&#91;abc&#93; &amp;&#32; 今日[きょう]');
+    expect(rows[1]?.[2]).toBe('test&#91;abc&#93; &amp;&#32; 今日[きょう]');
     // Media the collection doesn't list is left out (and counted).
-    expect(rows[2]?.[5]).toBe('');
+    expect(rows[2]?.[4]).toBe('');
     expect(plan.unknownMediaCount).toBe(1);
     expect(plan.media.map((m) => m.name).sort()).toEqual(
       [`${MP3_HASH}.mp3`, `${PNG_HASH}.png`].sort(),
@@ -130,8 +130,8 @@ describe('Export for Anki CSV', () => {
   it('honours tab separators, selections and archived notes', () => {
     const tsv = planAnkiCsvExport(state, { deckId: VOCAB_DECK, delimiter: '\t' });
     expect(tsv.text.split('\r\n')[0]).toBe('#separator:Tab');
-    expect(tsv.text.split('\r\n')[2]).toBe(
-      '#columns:GUID\tNote type\tDeck\tWord\tMeaning\tPicture\tAudio\tNotes extra\tTags',
+    expect(tsv.text.split('\r\n')[3]).toBe(
+      '#columns:GUID\tDeck\tWord\tMeaning\tPicture\tAudio\tNotes extra\tTags',
     );
     expect(planAnkiCsvExport(state, { deckId: VOCAB_DECK, noteIds: ['note-2'] }).noteCount).toBe(1);
     expect(planAnkiCsvExport(state, { deckId: VOCAB_DECK, includeArchived: true }).noteCount).toBe(
@@ -170,10 +170,13 @@ describe('Export for Anki CSV', () => {
     const plan = planAnkiCsvExport(formulaState, { deckId: VOCAB_DECK, noteIds: ['note-2'] });
     const line = plan.text.split('\r\n')[7] ?? '';
     const row = parseDelimitedText(line, { delimiter: ',' }).headers;
-    expect(row.slice(3, 8)).toEqual(['&#61;HYPERLINK(1)', '&#45;1', '', '', '-(으)ㄴ']);
+    // Every leading `-` is an entity on the Anki path, Korean grammar entries too.
+    expect(row.slice(2, 7)).toEqual(['&#61;HYPERLINK(1)', '&#45;1', '', '', '&#45;(으)ㄴ']);
     // The app's own Anki importer reads the entities back as the typed text.
-    const back = [row[3], row[4]].map((c) => ankiHtmlToText(c ?? '', { furigana: false }).text);
-    expect(back).toEqual(['=HYPERLINK(1)', '-1']);
+    const back = [row[2], row[3], row[6]].map(
+      (c) => ankiHtmlToText(c ?? '', { furigana: false }).text,
+    );
+    expect(back).toEqual(['=HYPERLINK(1)', '-1', '-(으)ㄴ']);
   });
 
   it('only names media whose extension is on the importers allow-list', () => {
