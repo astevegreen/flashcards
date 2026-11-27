@@ -724,54 +724,84 @@ Open items, grouped by PR. Dependabot and CI come last.
 
 ### #102
 
-- [ ] The `#notetype:` omission and `headerValue` line-break handling have no tests.
-- [ ] `csv.ts:174`: a first-row quoted all-space row is kept when `hasHeaderRow: false`.
-- [ ] `safe-unzip.ts:220`: a flagged UTF-8 name that collides with a CP437 name fails closed, and that path has no test.
-- [ ] `record-ids.ts:64`: `sameContent` (+2) outranks the replay pick (+1) during an upgrade.
+- [x] The `#notetype:` omission and `headerValue` line-break handling have no tests. Done in #114.
+- [x] `csv.ts:174`: a first-row quoted all-space row is kept when `hasHeaderRow: false`. Done in #114.
+- [x] `safe-unzip.ts:220`: a flagged UTF-8 name that collides with a CP437 name fails closed, and that path has no test. Done in #114.
+- [x] `record-ids.ts:64`: `sameContent` (+2) outranks the replay pick (+1) during an upgrade. Done in #114: kept `sameContent` above the replay pick; instead an upgrade no longer archives a note whose source key the package still lists.
 
 ### #103
 
-- [ ] A lone Esc in `--key-stdin` swallows the next key (Enter, Ctrl-C).
-- [ ] 3 SonarCloud minors.
-- [ ] Item 4, streamed transport `read()`, was skipped; see the design note in #103.
+- [x] A lone Esc in `--key-stdin` swallows the next key (Enter, Ctrl-C). Done in #111.
+- [x] 3 SonarCloud minors. Done in #111 (2 S7758 and 1 S3776).
+- [x] Item 4, streamed transport `read()`, was skipped; see the design note in #103. Done in #115 as the cheap step: Drive, Dropbox and OneDrive `read()` are capped per file kind. The full streaming interface stays open, see "Left over from the follow-ups batch 2026-11-27".
 
 ### #104
 
-- [ ] The anki-ruby fast-check alphabet lacks `}`, `\n` and astral Han.
-- [ ] The `toggleDeckLayout` test in `library-actions.test.tsx:83` can pass without checking anything.
-- [ ] `LaunchSyncEffects` now runs before AppProvider's effects. No known dependency on the old order.
+- [x] The anki-ruby fast-check alphabet lacks `}`, `\n` and astral Han. Done in #114 (no bug found).
+- [x] The `toggleDeckLayout` test in `library-actions.test.tsx:83` can pass without checking anything. Done in #112.
+- [x] `LaunchSyncEffects` now runs before AppProvider's effects. No known dependency on the old order. Done in #113: no dependency on the old order; documented in a comment.
 
 ### #105 (#106 fixed its clash with #104)
 
-- [ ] The plural untagged "Blockers: X" still reads as merge (`rails.mjs:122`).
-- [ ] The no-starter-deck test can't catch a `hasStarterDeck` that wrongly returns true.
-- [ ] D12 fixture floor: 25 MiB + 1 byte, because the cap is a codec constant. `testTimeout` is 8 s.
-- [ ] `listFolderDecks` coverage was skipped, because the function is gone.
+- [x] The plural untagged "Blockers: X" still reads as merge (`rails.mjs:122`). Done in #111.
+- [x] The no-starter-deck test can't catch a `hasStarterDeck` that wrongly returns true. Done in #112.
+- [x] D12 fixture floor: 25 MiB + 1 byte, because the cap is a codec constant. `testTimeout` is 8 s. Done in #112: the fixture is now 64 KiB via injected `snapshotLimits`; the 8 s coverage `testTimeout` stays for the slow rolling-backup tests.
+- [x] `listFolderDecks` coverage was skipped, because the function is gone. Closed: the function is gone.
 
 ### #107
 
-- [ ] If the first render throws inside React, `booted` never resolves: `boot()` resolves before AppProvider's effect runs. The asking tab then gets the lock only by stealing it after 120 s.
-- [ ] The `boot().catch(() => { markBooted(); throw err })` path has no test.
-- [ ] Sonar S7785 (prefer top-level await) on `main.tsx` was left as a promise chain, plus 3 new Sonar minors.
+- [x] If the first render throws inside React, `booted` never resolves: `boot()` resolves before AppProvider's effect runs. The asking tab then gets the lock only by stealing it after 120 s. Done in #113.
+- [x] The `boot().catch(() => { markBooted(); throw err })` path has no test. Done in #113.
+- [x] Sonar S7785 (prefer top-level await) on `main.tsx` was left as a promise chain, plus 3 new Sonar minors. Done in #113: S7785 stays a promise chain with NOSONAR, because top-level await would deadlock the lazy other-tab chunk.
 
 ### #108
 
 - [ ] About 36 files are left in `REACT_COMPILER_BASELINE`. All are genuine `purity`, `set-state-in-effect`, `refs` or `incompatible-library` findings, and clearing them needs behaviour-changing rewrites. `StudyScreen` `purity` was deliberately not forced.
-- [ ] Hardening: `noteEditDiff.ts:32` and `ColumnMapping.tsx:287,291` still use raw `x.fields[key]` lookups on edit snapshots and import-preview rows (not Notes), with the same prototype-key exposure.
-- [ ] `packages/core/src/tags/duplicates.ts:105` reads `note.fields[field]` raw. `findDuplicateGroups` throws a TypeError when a note type's key field is `constructor` and the note lacks it. Route it through `noteField`, with a test.
-- [ ] The Draw prototype-key test has no assertion of its own; it relies on a crash or a React log.
-- [ ] `populatedRevealStepsFor` in StudyScreen is exported only for the test, so knip may flag it.
+- [x] Hardening: `noteEditDiff.ts:32` and `ColumnMapping.tsx:287,291` still use raw `x.fields[key]` lookups on edit snapshots and import-preview rows (not Notes), with the same prototype-key exposure. Done in #112.
+- [x] `packages/core/src/tags/duplicates.ts:105` reads `note.fields[field]` raw. `findDuplicateGroups` throws a TypeError when a note type's key field is `constructor` and the note lacks it. Route it through `noteField`, with a test. Done in #112.
+- [x] The Draw prototype-key test has no assertion of its own; it relies on a crash or a React log. Done in #112.
+- [x] `populatedRevealStepsFor` in StudyScreen is exported only for the test, so knip may flag it. Done in #112.
 
 ### Dependabot and CI
 
 - [x] Dependabot #66, #67 and #76 merged. #68 closed: @types/node 26, and Dependabot ignores that major because the runtime is Node 24.
 - [ ] **Waiting on upstream:** #77 (sqlx 0.9) is closed; reopen when upstream ships (tauri-plugin-sql on sqlx 0.9).
 - [ ] **Waiting on upstream:** #78 (Gradle 9.9) is closed; reopen when upstream ships (an AGP supporting Gradle 9.6+).
-- [ ] CI: watch the next `publish-packs` run on main. wrangler-action 4 (#66) and actions/cache 6 (#67) haven't run there yet.
+- [x] CI: watch the next `publish-packs` run on main. wrangler-action 4 (#66) and actions/cache 6 (#67) haven't run there yet. It ran green on main on 2026-11-27.
 
 ### Open on purpose
 
 - [ ] R8 FSRS-loop refactors and the shared SQLite package split: big refactors with no user-visible gain. They stay listed (see "Left over from the dead-code pass (#85)").
+
+## Left over from the follow-ups batch 2026-11-27 (#111–#115)
+
+Open items, grouped by area.
+
+### Merge-gate tooling
+
+- [ ] `tools/gemini/rails.mjs:126`: the `ANY_BLOCKER` regex has 2 SonarCloud MAJOR issues (S8786 backtracking, S5843 complexity 39). Strip `*` first, or split the regex.
+- [ ] A plural answer starting with "none" ("Blockers: none, except X") still reads clean.
+- [ ] "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" falsely retry.
+
+### Sync
+
+- [ ] Transport read caps (`packages/platform-web/src/sync/sync-read-caps.ts`) are tied to the default `SYNC_CODEC_LIMITS` and `SYNC_MEDIA_LIMITS`. The engine's `maxMediaBlobBytes` and `snapshotLimits` overrides could drift past them. Link them or comment.
+- [ ] `head.json` `segments` grows about 60 bytes per push and is never pruned. Since #115 a head over 25 MiB (about 440k pushes) fails sync. Prune or compact.
+- [ ] 20k-card collections already exceed the snapshot codec limit (69.7 MiB raw, 5.07 MiB gzipped, measured), so they never get a snapshot.
+- [ ] Local-folder, iCloud/Capacitor and Tauri `read()` are still uncapped. The full streamed `read()` interface (#103 design note) is still open.
+
+### Core import/export
+
+- [ ] The S4 sweep is half done: `note.fields[key]` is still read raw in `packages/core/src/import/csv-export.ts:124`, `export/anki/apkg.ts:502,542`, `sources/tabular.ts:517,610` and `sources/content-hash.ts:18`. A note type with a `constructor` field that a note lacks puts `Object`'s function into the export text, sort key or hash, or makes `hasRuby` throw. Route them through `noteField`, with tests.
+
+### CLI
+
+- [ ] `--key-stdin`: an escape sequence split across two reads right after Esc leaks its tail into the key, and Esc, `O`, Enter in one read loses the Enter. Unlikely on real terminals.
+
+### Tests
+
+- [ ] Flaky `packages/ui/tests/note-field-prototype-keys-screens.test.tsx` "the Library stroke pre-cache counts no characters from them" (`flush(20)` timing; failed once in CI).
+- [ ] Local `pnpm gate` also times out under load in `app-context-review.test.tsx`, `starter-packs-check.test.mjs`, `shard-packs`, `writer-tabs`, `leech-backfill`, `lazy-services-retry` and `launch-source-check`.
 
 ## Decisions needed (batch 2026-11-26b)
 
@@ -788,6 +818,16 @@ Each default below stays shipped until the owner decides. All are **keep** unles
 - [ ] **When boot fails, the error is still rethrown after `markBooted()` (#107).** Recommend keep.
 - [ ] **The knip un-exports in #108 also reach about 25 files outside `packages/ui`** (core, platform-web, platform-capacitor, platform-tauri), each only dropping an `export`. For information only.
 - [ ] **#107 and #108 are technical, with no product defaults beyond those listed.** For information only.
+
+## Decisions needed (batch 2026-11-27)
+
+Each default below stays shipped until the owner decides.
+
+- [ ] **Pack upgrade with "archive removed notes" (#114):** a package note that lost its source key to a moved-in duplicate now stays live with its old content (it was archived). The deck shows both notes. Recommend keep: it writes nothing and loses nothing.
+- [ ] **CSV with no header row (#114):** an all-blank row 1 (quoted spaces too) is now dropped silently like later blank rows; before, an unquoted one gave an "empty row skipped" warning. Recommend keep.
+- [ ] **agy merge gate, singular forms (#111):** "Blocker: none found" and "**Blocker:** none" still read as a blocker (retry), while the plural forms now merge. Clearing them loosens the check, so it's the owner's call. Recommend clear them, the same way as the plural forms.
+- [ ] **Sync read caps (#115):** head and manifest 25 MiB, segment 20 MiB, snapshot 30 MiB, media 20 MiB. An over-cap file is handled the way an over-limit file already was (skipped, or for head and manifest, the sync fails). Technical; for information only.
+- [ ] **#112 and #113 are technical, with no product defaults.** For information only.
 
 ## Needs the owner (hands-on)
 
