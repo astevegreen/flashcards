@@ -59,6 +59,19 @@ start at 1 and are zero-padded to six digits. A segment holds a contiguous range
 
 Only the owning device writes its `head.json`.
 
+`segments` lists ranges in ascending `seg` order, and that order is also ascending `seq` order:
+readers fetch them in `seg` order and stop at the first one they can't read. A reader fetches every
+listed segment whose `to_seq` is past its watermark for that device.
+
+**Compaction.** A head would otherwise keep one ~60-byte range per push forever. When `segments`
+holds more than 1,000 ranges after its leading run of full ones (as many events as the writer packs
+into one segment, 2,000 by default), the next push rewrites that whole tail, together with its new
+events, as new full segments, and lists those in place of the tail. The old segment files stay
+(segments are write-once); the head simply stops listing them. The head's shape doesn't change, so
+any reader handles it: one whose watermark falls inside the old tail fetches the new segment that
+covers it and skips the events it already has. A device compacts only when its local storage holds
+exactly the events each folded range counts; otherwise it pushes as before.
+
 ## Push and pull
 
 1. **Push:** write each new segment with create-only semantics (`write(path, bytes, { ifAbsent: true })`),
@@ -82,7 +95,10 @@ snapshot, then replays only segments past its watermarks.
 ## Limits
 
 Readers reject compressed objects over 10 MiB, decompressed objects over 25 MiB, and media blobs
-over 10 MiB. Media extensions are restricted to `png jpg jpeg webp gif mp3 ogg wav m4a`, and every
+over 10 MiB. Snapshots are the exception to the decompressed cap: they may inflate to 128 MiB
+(a 20k-card collection measured 69.7 MiB raw, 5.07 MiB gzipped). Builds before this read
+snapshots only up to 25 MiB; they skip a bigger one and replay segments instead. A writer uploads
+only snapshots within its own read caps. Media extensions are restricted to `png jpg jpeg webp gif mp3 ogg wav m4a`, and every
 blob is checked against its SHA-256 name after download.
 
 ## Size

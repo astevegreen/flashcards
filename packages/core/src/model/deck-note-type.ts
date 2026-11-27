@@ -1,4 +1,4 @@
-import { BUILTIN_NOTE_TYPE_IDS } from './presets.ts';
+import { BUILTIN_NOTE_TYPE_IDS, BUILTIN_NOTE_TYPES } from './presets.ts';
 import type { Deck, NoteType } from './types.ts';
 
 /**
@@ -30,7 +30,8 @@ function fieldLang(kind: string, deckLanguage: string): string {
 /**
  * The note type as a deck sees it. A language-neutral built-in (Sentence, Cloze, Grammar) gets
  * the deck's language on its target-language fields, so a Korean sentence is spoken with a Korean
- * voice and set in Korean type. Every other note type comes back unchanged. The result is cached
+ * voice and set in Korean type. A field whose language is no longer the preset's default keeps it
+ * (someone set it on purpose). Every other note type comes back unchanged. The result is cached
  * per note type and language, so it is the same object on every render.
  */
 export function noteTypeForDeck(noteType: NoteType, deckLanguage: string | undefined): NoteType {
@@ -43,9 +44,12 @@ export function noteTypeForDeck(noteType: NoteType, deckLanguage: string | undef
   }
   const hit = byLang.get(deckLanguage);
   if (hit) return hit;
+  // The built-ins are seeded from code, not from events, so a field whose language is not the
+  // one it ships with was given it by an event (synced, restored or imported): someone chose it.
+  const preset = BUILTIN_NOTE_TYPES.find((p) => p.id === noteType.id)?.fields;
   let changed = false;
   const fields = noteType.fields.map((f) => {
-    if (!targets.has(f.key)) return f;
+    if (!targets.has(f.key) || preset?.find((p) => p.key === f.key)?.lang !== f.lang) return f;
     const lang = fieldLang(f.kind, deckLanguage);
     if (lang === f.lang) return f;
     changed = true;

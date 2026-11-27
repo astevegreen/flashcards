@@ -46,7 +46,10 @@ import { compareCodeUnits } from '../../compare.ts';
  *
  * Mapping:
  * - one Anki deck per deck (`::` in a name is an Anki subdeck; parents are added);
- * - one Anki note type per note type, one Anki field per field (named after its label);
+ * - one Anki note type per note type, one Anki field per field (named after its label). A
+ *   built-in note type shared by decks of several languages (Sentence, Cloze, Grammar; see
+ *   `noteTypeForDeck`) becomes one Anki note type per language, so each deck's `{{tts}}` speaks
+ *   its own language;
  * - one card template per layout enabled in an exported deck. A note type with a cloze layout
  *   becomes an Anki cloze note type with that layout's template only;
  * - ruby fields use `{{furigana:F}}` (`{{kanji:F}}` on a front that hides furigana, `kana:` /
@@ -349,14 +352,22 @@ function sortFieldIndex(noteType: NoteType): number {
   return i === -1 ? 0 : i;
 }
 
+/** What makes one exported Anki note type: the note type as its decks see it, and its id and name. */
+interface ModelVariant {
+  noteType: NoteType;
+  id: number;
+  name: string;
+}
+
 function buildModel(
-  noteType: NoteType,
+  variant: ModelVariant,
   layouts: Layout[],
   rubyFields: ReadonlySet<string>,
   deckId: number,
   nowSecs: number,
   warnings: string[],
 ): ModelBuild {
+  const { noteType } = variant;
   const names = ankiFieldNames(noteType);
   const ctx: TemplateContext = {
     noteType,
@@ -366,9 +377,8 @@ function buildModel(
   const clozeLayout = layouts.find((l) => l.answer_mode === 'cloze');
   let used = layouts;
   if (clozeLayout && layouts.length > 1) {
-    warnings.push(
-      `"${noteType.name}" has a cloze layout, so it became an Anki cloze note type with only that layout's cards.`,
-    );
+    const warning = `"${noteType.name}" has a cloze layout, so it became an Anki cloze note type with only that layout's cards.`;
+    if (!warnings.includes(warning)) warnings.push(warning);
     used = [clozeLayout];
   }
   const usedNames = new Set<string>();
@@ -381,10 +391,10 @@ function buildModel(
         usedNames.add(name.toLowerCase());
         return { ...t, name };
       });
-  const id = ankiModelId(noteType);
+  const id = variant.id;
   const json: Record<string, unknown> = {
     id,
-    name: noteType.name,
+    name: variant.name,
     type: clozeLayout ? 1 : 0,
     mod: nowSecs,
     usn: -1,
@@ -543,6 +553,41 @@ function noteFieldsHtml(
   return noteType.fields.map((f: NoteTypeField) => ankiFieldHtml(noteField(note, f.key), f, ctx));
 }
 
+/**
+ * The Anki note type each exported deck's notes use. Decks share one when they see their note
+ * type the same way. A built-in shared by several languages (`noteTypeForDeck` gives each
+ * language its own field tags) gets one per language: the note type's own id and name when the
+ * export holds a single language of it, so a re-export still updates the same Anki note type, and
+ * otherwise an id and name per language (`Sentence (ko)`).
+ */
+function modelVariants(state: CollectionState, decks: readonly Deck[]): Map<string, ModelVariant> {
+  const seen = new Map<string, Map<NoteType, string>>();
+  const resolved = new Map<string, NoteType>();
+  for (const deck of decks) {
+    const noteType = deckNoteType(state, deck);
+    if (!noteType) continue;
+    resolved.set(deck.id, noteType);
+    const byView = seen.get(deck.note_type_id) ?? new Map<NoteType, string>();
+    if (!byView.has(noteType)) byView.set(noteType, deck.language);
+    seen.set(deck.note_type_id, byView);
+  }
+  const out = new Map<string, ModelVariant>();
+  for (const [deckId, noteType] of resolved) {
+    const byView = seen.get(noteType.id);
+    const language = byView?.get(noteType);
+    if (!byView || byView.size === 1 || language === undefined) {
+      out.set(deckId, { noteType, id: ankiModelId(noteType), name: noteType.name });
+      continue;
+    }
+    out.set(deckId, {
+      noteType,
+      id: stableId(`anki-export:nt:${noteType.id}:lang:${language}`),
+      name: `${noteType.name} (${language})`,
+    });
+  }
+  return out;
+}
+
 /** Plans an `.apkg` export: SQLite rows for `collection.anki2` and the media it needs. */
 export function planAnkiApkgExport(
   state: CollectionState,
@@ -573,23 +618,30 @@ export function planAnkiApkgExport(
   }
 
   const notesByDeck = new Map(decks.map((d) => [d.id, chooseNotes(state, d, options)]));
-  const models = new Map<string, ModelBuild>();
+  const models = new Map<NoteType, ModelBuild>();
+  const modelForDeck = new Map<string, ModelBuild>();
+  const variants = modelVariants(state, decks);
   for (const deck of decks) {
-    if (models.has(deck.note_type_id)) continue;
-    const noteType = deckNoteType(state, deck);
-    if (!noteType) continue;
-    const sameType = decks.filter((d) => d.note_type_id === noteType.id);
-    const notes = sameType.flatMap((d) => notesByDeck.get(d.id) ?? []);
-    const layouts = exportedLayouts(state, noteType, sameType);
+    const variant = variants.get(deck.id);
+    if (!variant) continue;
+    const built = models.get(variant.noteType);
+    if (built) {
+      modelForDeck.set(deck.id, built);
+      continue;
+    }
+    const sameModel = decks.filter((d) => variants.get(d.id)?.noteType === variant.noteType);
+    const notes = sameModel.flatMap((d) => notesByDeck.get(d.id) ?? []);
+    const layouts = exportedLayouts(state, variant.noteType, sameModel);
     const model = buildModel(
-      noteType,
+      variant,
       layouts,
-      rubyFieldKeys(noteType, notes),
+      rubyFieldKeys(variant.noteType, notes),
       deckIdFor.get(deck.id) ?? 1,
       nowSecs,
       warnings,
     );
-    models.set(noteType.id, model);
+    models.set(variant.noteType, model);
+    modelForDeck.set(deck.id, model);
   }
 
   const noteRows: AnkiSqlCell[][] = [];
@@ -599,7 +651,7 @@ export function planAnkiApkgExport(
   let nextCardId = nowMs;
   let position = 0;
   for (const deck of decks) {
-    const model = models.get(deck.note_type_id);
+    const model = modelForDeck.get(deck.id);
     const did = deckIdFor.get(deck.id) ?? 1;
     if (!model) continue;
     for (const note of notesByDeck.get(deck.id) ?? []) {

@@ -284,6 +284,10 @@ export async function runSyncCycle(
       localOwnSeq,
       currentTotalEvents: getTotalAppliedEventCount(ctx.stateRef.current),
       canBootstrapFromSnapshot: canBootstrap,
+      // Phones cap snapshot size below the engine default (see `syncSnapshotLimits`).
+      ...(ctx.platform.syncSnapshotLimits
+        ? { snapshotLimits: ctx.platform.syncSnapshotLimits }
+        : {}),
       getLocalEventsAfterSeq: (afterSeq) =>
         ctx.platform.storage.getDeviceEventsAfterSeq(deviceId, afterSeq),
       mediaStore: {
