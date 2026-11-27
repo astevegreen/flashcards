@@ -195,6 +195,34 @@ describe('older starter releases are rebuilt exactly', () => {
   });
 });
 
+describe('legacySeed stays what older builds wrote', () => {
+  /**
+   * A frozen digest of what `legacySeed` produces for each older release: the deck events, the
+   * first notes in full, and a sha256 over every note's payload. A later change to the seeding
+   * code (or to `legacyStarterFields`) that alters an old deck's text shows up here instead of
+   * silently moving the upgrade tests' baseline. Refresh deliberately with `vitest -u`.
+   */
+  it('matches the committed 1.0.0 and 1.1.0 seeds', async () => {
+    const digest: Record<string, unknown> = {};
+    for (const slug of SLUGS) {
+      for (const version of ['1.0.0', '1.1.0'] as const) {
+        const events = await legacySeed(device('dev-a'), slug, version);
+        const notes = events.filter((e) => e.type === 'NoteUpserted').map((e) => e.payload);
+        digest[`${slug}@${version}`] = {
+          deck: events.find((e) => e.type === 'DeckCreated')?.payload,
+          description: events.find((e) => e.type === 'DeckDescriptionChanged')?.payload,
+          noteCount: notes.length,
+          firstNotes: notes.slice(0, 3),
+          notesSha256: createHash('sha256').update(JSON.stringify(notes)).digest('hex'),
+        };
+      }
+    }
+    await expect(`${JSON.stringify(digest, null, 2)}\n`).toMatchFileSnapshot(
+      './__golden__/starter-legacy-seeds.json.snap',
+    );
+  });
+});
+
 describe('starter-deck upgrade', () => {
   it.each(SLUGS)('%s: an untouched 1.0.0 deck becomes the current release', async (slug) => {
     const { info, content } = await deck(slug);

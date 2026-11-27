@@ -69,6 +69,20 @@ async function afterTwoFrames(page: Page): Promise<void> {
   );
 }
 
+/** Resolves after `ms` of real time plus two frames: a bounded wait for an effect that must not run. */
+async function afterQuietInterval(page: Page, ms: number): Promise<void> {
+  await page.evaluate(
+    (delay) =>
+      new Promise<void>((resolve) => {
+        setTimeout(
+          () => requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          delay,
+        );
+      }),
+    ms,
+  );
+}
+
 /**
  * Resolves once every transaction the app already started on `storeName` has finished: a
  * readwrite transaction only starts after the earlier transactions on the same store complete.
@@ -289,12 +303,23 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
     await page.addInitScript(() => {
       const spoken: Array<{ text: string; lang: string; rate: number }> = [];
       (window as unknown as { __spokenCalls: typeof spoken }).__spokenCalls = spoken;
+      // This path never reaches `speak` (no local voice, so device speech stops at voice choice).
+      // The counter is armed at the R key press, so earlier getVoices calls (the voiceschanged
+      // refresh, Settings) don't count.
       const voiceQueries = { count: 0 };
       (window as unknown as { __voiceQueries: typeof voiceQueries }).__voiceQueries = voiceQueries;
+      let armed = false;
+      window.addEventListener(
+        'keydown',
+        (e) => {
+          if (e.key === 'r') armed = true;
+        },
+        true,
+      );
       Object.defineProperty(window.speechSynthesis, 'getVoices', {
         configurable: true,
         value: () => {
-          voiceQueries.count += 1;
+          if (armed) voiceQueries.count += 1;
           return [
             {
               name: 'Google Remote Korean',
@@ -344,11 +369,11 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
       page.evaluate(
         () => (window as unknown as { __voiceQueries: { count: number } }).__voiceQueries.count,
       );
-    const queriesBefore = await voiceQueries();
     await page.keyboard.press('r');
-    // The press reached device speech, which then reads the dismissed flag from storage: wait for
-    // that read and the render after it, then check the banner stayed away.
-    await expect.poll(voiceQueries).toBeGreaterThan(queriesBefore);
+    // Device speech picks its voice (the stubbed getVoices) once the press reaches it, then reads
+    // the dismissed flag from storage: wait for the armed query, the read and the render after it,
+    // then check the banner stayed away.
+    await expect.poll(voiceQueries).toBeGreaterThan(0);
     await afterEarlierDbTransactions(page, 'flashcards-db-p5offlinevoice', 'kv');
     await afterTwoFrames(page);
     await expect(page.getByTestId('missing-voice-banner')).toHaveCount(0);
@@ -464,8 +489,10 @@ test.describe('Phase 5 Audio & TTS Pipeline E2E (§7)', () => {
     await koRow.getByRole('button', { name: 'Study' }).click();
     await expect(page.getByTestId('study-card')).toBeVisible();
     // A front auto-speak starts in a layout effect when the card commits, and with no clip or
-    // cloud voice it reaches speechSynthesis.speak synchronously: two frames cover it.
-    await afterTwoFrames(page);
+    // cloud voice it reaches speechSynthesis.speak synchronously. Wait a bounded real interval
+    // (and past earlier storage work) so a late or async decision would still be caught.
+    await afterEarlierDbTransactions(page, 'flashcards-db-p5autoplay', 'kv');
+    await afterQuietInterval(page, 400);
     const beforeFlip = await page.evaluate(
       () => ((window as unknown as { __spokenCalls?: unknown[] }).__spokenCalls ?? []).length,
     );

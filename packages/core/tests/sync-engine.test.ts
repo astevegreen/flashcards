@@ -912,6 +912,10 @@ describe('SyncEngine & Codec unit tests (§4.2 & §13)', () => {
 
 describe('snapshots past the decoder limits (D12)', () => {
   const t0 = Date.UTC(2026, 10, 25, 9, 0, 0);
+  // One byte past the 25 MiB read cap, like a collection with ~90k reviews. Built on first use and
+  // shared, so only the tests that need it pay for it (and the run that skips them pays nothing).
+  let padding: string | undefined;
+  const overCapPadding = () => (padding ??= 'x'.repeat(25 * 1024 * 1024 + 1));
 
   it('encodes only snapshots the decoder will read back', () => {
     const snapshot = (pad: string): SyncSnapshot =>
@@ -963,8 +967,7 @@ describe('snapshots past the decoder limits (D12)', () => {
       nowMs: () => t0 + 100,
       getLocalEventsAfterSeq: async (afterSeq) => events.filter((e) => e.seq > afterSeq),
       buildSnapshotState: async () => ({
-        // Past the 25 MiB uncompressed read cap, like a collection with ~90k reviews.
-        state: { ...serialized, padding: 'x'.repeat(26 * 1024 * 1024) },
+        state: { ...serialized, padding: overCapPadding() },
         totalEvents: 1,
         watermarks: { 'dev-a': 1 },
       }),
@@ -1036,7 +1039,7 @@ describe('snapshots past the decoder limits (D12)', () => {
     // padding compresses well, so only the inflated size is over the limit.
     await transport.write(snapshotPath('dev-a', 1), gzipSnapshot(snapshotAt(1, afterFirst)));
     const oversized = gzipSnapshot(
-      snapshotAt(2, { ...afterBoth, padding: 'x'.repeat(26 * 1024 * 1024) } as typeof afterBoth),
+      snapshotAt(2, { ...afterBoth, padding: overCapPadding() } as typeof afterBoth),
     );
     await transport.write(snapshotPath('dev-a', 2), oversized);
     expect(() => decodeSyncSnapshot(oversized)).toThrow(SyncCodecError);
