@@ -31,11 +31,27 @@ describe('choiceQuestionKey (§11)', () => {
   const note = { fields: { word: '사과', meaning: 'apple' } };
   const layout = { answer_field: 'meaning', reveal_steps: [['meaning']] };
 
-  it('stays the same when only other notes change, so a sync does not reshuffle options', () => {
-    // The key only reads this card's note and layout: equal inputs, equal key.
-    expect(choiceQuestionKey('c1', 10, { fields: { ...note.fields } }, { ...layout })).toBe(
-      choiceQuestionKey('c1', 10, note, layout),
-    );
+  it('reads only the card, the day, the note fields and the layout parts that shape the options', () => {
+    const base = choiceQuestionKey('c1', 10, note, layout);
+    // Everything else on the note and layout (id, tags, timestamps, later reveal steps, labels)
+    // is outside the key, so an edit there can never reshuffle the open question.
+    const richNote = {
+      ...note,
+      id: 'n1',
+      tags: ['a', 'b'],
+      updated_at: 99,
+      speech_override: 'x',
+    };
+    const richLayout = {
+      ...layout,
+      id: 'l1',
+      label: 'Quiz',
+      reveal_steps: [...layout.reveal_steps, ['word']],
+    };
+    expect(choiceQuestionKey('c1', 10, richNote, richLayout)).toBe(base);
+    // Other notes' content is not an input at all (the key takes no collection state); the
+    // render test in choice-question-stable.test.tsx proves it through the real component.
+    expect(choiceQuestionKey.length).toBe(4);
   });
 
   it('changes with the card, the study day, an edit of its note, or its layout', () => {

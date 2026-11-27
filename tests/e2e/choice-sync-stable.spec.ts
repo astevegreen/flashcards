@@ -51,6 +51,8 @@ async function hasStoredText(page: Page, text: string): Promise<boolean> {
 
 test('a sync mid-question keeps the Choice options as they were (§11)', async ({ browser }) => {
   const context = await browser.newContext();
+  // The distractor ranking is hashed by study day: pin the day so it can't differ between runs.
+  await context.clock.setFixedTime(new Date('2026-03-10T12:00:00Z'));
   const pageA = await context.newPage();
   const pageB = await context.newPage();
   await pageA.goto('/?device=choicesynca');
