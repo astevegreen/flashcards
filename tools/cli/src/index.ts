@@ -82,7 +82,7 @@ const ESCAPE_NEXT: Readonly<Record<string, 'csi' | 'ss3'>> = { '[': 'csi', O: 's
 
 /** C0 controls and DEL (Tab, Escape and the like): never part of a key. */
 function isControl(ch: string): boolean {
-  const code = ch.charCodeAt(0);
+  const code = ch.codePointAt(0) ?? 0;
   return code < 0x20 || code === 0x7f;
 }
 
@@ -107,7 +107,7 @@ function escapeSkipper(): { skip: (ch: string) => boolean; endChunk: () => void 
       state = ESCAPE_NEXT[ch] ?? 'text';
     } else if (state === 'csi') {
       // Parameter and intermediate bytes continue; a final byte (0x40–0x7E) ends the sequence.
-      const code = ch.charCodeAt(0);
+      const code = ch.codePointAt(0) ?? 0;
       if (code >= 0x40 && code <= 0x7e) state = 'text';
     } else {
       state = 'text';
@@ -118,6 +118,17 @@ function escapeSkipper(): { skip: (ch: string) => boolean; endChunk: () => void 
     if (state === 'esc') state = 'text';
   };
   return { skip, endChunk };
+}
+
+/**
+ * One raw-mode key press applied to the key typed so far: the new key, or `null` once Enter or
+ * Ctrl-D ends the line. Backspace deletes, Ctrl-C cancels, other control characters are dropped.
+ */
+function pressKey(key: string, ch: string): string | null {
+  if (ch === CTRL_C) throw new Error('Cancelled: no key was read.');
+  if (ch === '\r' || ch === '\n' || ch === CTRL_D) return null;
+  if (BACKSPACES.has(ch)) return key.slice(0, -1);
+  return isControl(ch) ? key : key + ch;
 }
 
 /**
@@ -140,10 +151,9 @@ async function readHiddenLine(
         typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
       for (const ch of text) {
         if (escapes.skip(ch)) continue;
-        if (ch === CTRL_C) throw new Error('Cancelled: no key was read.');
-        if (ch === '\r' || ch === '\n' || ch === CTRL_D) return `${key}\n`;
-        if (BACKSPACES.has(ch)) key = key.slice(0, -1);
-        else if (!isControl(ch)) key += ch;
+        const next = pressKey(key, ch);
+        if (next === null) return `${key}\n`;
+        key = next;
       }
       escapes.endChunk();
     }
