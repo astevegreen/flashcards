@@ -159,7 +159,10 @@ export function createFsBridge(): TauriFsBridge {
       if (maxBytes !== undefined) {
         const info = await stat(absPath);
         if (info.size > maxBytes) {
-          throw new Error(`File exceeds ${maxBytes} bytes: ${absPath}`);
+          throw Object.assign(new Error(`File exceeds ${maxBytes} bytes: ${absPath}`), {
+            code: 'TOO_LARGE',
+            size: info.size,
+          });
         }
       }
       return readFile(absPath);
