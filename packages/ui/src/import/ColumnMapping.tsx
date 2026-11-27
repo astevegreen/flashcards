@@ -37,7 +37,7 @@ const REASON_TEXT: Record<Reason, string> = {
   chosen: 'Your choice',
 };
 
-export interface MappedColumn extends ColumnGuess {
+interface MappedColumn extends ColumnGuess {
   shownReason: Reason;
 }
 

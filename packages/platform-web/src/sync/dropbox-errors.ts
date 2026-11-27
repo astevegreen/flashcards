@@ -6,10 +6,7 @@ import { SyncTransportError, type SyncTransportErrorCode } from '@flash/core';
  * so the summary decides between NOT_FOUND, ALREADY_EXISTS and a real failure (for example
  * `path/insufficient_space`, which must never pass as a successful write).
  */
-export function codeForDropboxStatus(
-  status: number,
-  errorSummary?: string,
-): SyncTransportErrorCode {
+function codeForDropboxStatus(status: number, errorSummary?: string): SyncTransportErrorCode {
   if (status === 401) return 'AUTH_REQUIRED';
   if (status === 403) return 'PERMISSION_DENIED';
   if (status === 404) return 'NOT_FOUND';

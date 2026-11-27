@@ -9,7 +9,7 @@ import { AuthorizedHttpClient, type AuthorizedHttpClientOptions } from './author
 
 export { parseRetryAfterMs } from './authorized-http.ts';
 
-export const GRAPH_API_BASE = 'https://graph.microsoft.com/v1.0';
+const GRAPH_API_BASE = 'https://graph.microsoft.com/v1.0';
 
 export interface GraphDriveItem {
   id?: string;
@@ -38,7 +38,7 @@ export interface GraphClientOptions extends AuthorizedHttpClientOptions {
   graphBaseUrl?: string;
 }
 
-export function stripTrailingSlashes(value: string): string {
+function stripTrailingSlashes(value: string): string {
   let end = value.length;
   while (end > 0 && value[end - 1] === '/') end -= 1;
   return value.slice(0, end);

@@ -22,7 +22,7 @@ export interface NativeTokenSet {
  * Runs one bridge refresh and stores the new access token. Only an explicit rejection
  * (`isRejected`) marks the session for a new sign-in; offline blips throw NETWORK and retry later.
  */
-export async function refreshNativeSession<S extends NativeTokenSession>(args: {
+async function refreshNativeSession<S extends NativeTokenSession>(args: {
   label: string;
   session: S;
   storage: Storage;

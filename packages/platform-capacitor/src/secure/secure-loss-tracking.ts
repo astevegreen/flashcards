@@ -13,7 +13,7 @@ import type { Storage } from '@flash/platform';
 import type { MobilePlatform, NativeSecureStorage } from './secure-store.ts';
 
 /** Prefix of the plain app-database marker saying "this secure-store key holds a secret". */
-export const SECURE_STORED_MARKER_PREFIX = 'secure_stored_v1:';
+const SECURE_STORED_MARKER_PREFIX = 'secure_stored_v1:';
 
 /** The app-database KV entry that marks `key` as stored in the secure store. */
 export function secureStoredMarkerKey(key: string): string {

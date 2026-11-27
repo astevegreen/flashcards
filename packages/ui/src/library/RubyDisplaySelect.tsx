@@ -1,6 +1,6 @@
 import type { RubyDisplay } from '@flash/core';
 
-export const RUBY_DISPLAY_OPTIONS: ReadonlyArray<{ value: RubyDisplay; label: string }> = [
+const RUBY_DISPLAY_OPTIONS: ReadonlyArray<{ value: RubyDisplay; label: string }> = [
   { value: 'both', label: 'Base + reading' },
   { value: 'readings', label: 'Readings only' },
   { value: 'bases', label: 'Bases only' },

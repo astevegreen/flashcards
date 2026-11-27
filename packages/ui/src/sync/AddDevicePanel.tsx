@@ -33,7 +33,7 @@ function isNativeShell(): boolean {
 }
 
 /** This web app's address without any query or hash, or `undefined` inside a native shell. */
-export function addDeviceLinkBase(): string | undefined {
+function addDeviceLinkBase(): string | undefined {
   if (typeof window === 'undefined' || isNativeShell()) return undefined;
   const { protocol, origin, pathname } = window.location;
   if (protocol !== 'https:' && protocol !== 'http:') return undefined;

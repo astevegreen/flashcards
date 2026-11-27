@@ -8,6 +8,7 @@ import {
   type Note,
   type NoteTypeField,
   deckNoteType,
+  noteField,
 } from '@flash/core';
 import { RichText } from '../components/RichText.tsx';
 import { useApp } from '../state/AppContext.tsx';
@@ -102,7 +103,7 @@ export function NoteDetailPane({ note, onEdit }: Readonly<NoteDetailPaneProps>) 
           {headline ? (
             <FieldValue
               field={headline}
-              value={note.fields[headline.key] ?? ''}
+              value={noteField(note, headline.key) ?? ''}
               pinyinToneColors={pinyinToneColors}
             />
           ) : (
@@ -132,7 +133,7 @@ export function NoteDetailPane({ note, onEdit }: Readonly<NoteDetailPaneProps>) 
             <dd className="min-w-0 break-words">
               <FieldValue
                 field={field}
-                value={note.fields[field.key] ?? ''}
+                value={noteField(note, field.key) ?? ''}
                 pinyinToneColors={pinyinToneColors}
               />
             </dd>

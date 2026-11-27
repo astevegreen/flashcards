@@ -11,7 +11,7 @@ const LazyCategoryExportPanel = lazyWithRetry(() => import('./CategoryExportPane
 export type ImportExportTab = 'import' | 'export';
 type ImportFormat = 'csv' | 'flashpkg' | 'anki';
 
-export interface ImportExportPanelProps {
+interface ImportExportPanelProps {
   initialTab?: ImportExportTab;
   initialDeckId?: string;
   /** Bumped by the host when re-targeting the panel (e.g. clicking Export… on a deck row). */
@@ -43,7 +43,7 @@ const IMPORT_FORMATS: ReadonlyArray<{ id: ImportFormat; label: string }> = [
   { id: 'anki', label: 'Anki (.apkg)' },
 ];
 
-export function ImportExportPanel({
+function ImportExportPanel({
   initialTab = 'import',
   initialDeckId,
   requestNonce = 0,

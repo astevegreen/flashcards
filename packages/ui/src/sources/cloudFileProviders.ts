@@ -126,11 +126,6 @@ export const DROPBOX_FILES: CloudFileProvider<
   readTable: readCloudTable,
 };
 
-export type OneDriveLinkOptions = CloudFileLinkOptions;
-export type DropboxLinkOptions = CloudFileLinkOptions;
-export type DropboxRefreshOptions = CloudFileRefreshOptions;
-export type DropboxRefreshResult = CloudFileRefreshResult;
-
 /**
  * Links one OneDrive `.csv` / `.tsv` / `.xlsx` file as a source and runs the first pull (see
  * `linkCloudFile`).

@@ -301,9 +301,6 @@ export const GOOGLE_DRIVE_FILES: CloudFileProvider<
   },
 };
 
-export type GoogleDriveRefreshResult = CloudFileRefreshResult;
-export type DriveRowOutcome = CloudFileRowOutcome;
-
 /**
  * Links one picked Drive file and runs the first pull. A table takes the mapping chosen in the
  * column-mapping step; a `.flashpkg` imports its decks.

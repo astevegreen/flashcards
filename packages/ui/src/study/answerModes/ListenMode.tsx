@@ -1,4 +1,4 @@
-import { resolveCardAudioTarget } from '@flash/core';
+import { resolveCardAudioTarget, noteField } from '@flash/core';
 import { useContext } from 'react';
 import { RubyDisplayContext } from '../../components/RichText.tsx';
 import { useApp } from '../../state/AppContext.tsx';
@@ -58,7 +58,7 @@ function ListenModeView(props: AnswerModeRenderProps) {
         {layout.front_fields.length > 0 && (
           <div className="flex w-full flex-col items-center gap-2">
             {layout.front_fields.map((fieldKey, idx) => {
-              const value = note.fields[fieldKey];
+              const value = noteField(note, fieldKey);
               if (!value) return null;
               const meta = fieldMetaByKey.get(fieldKey);
               return (

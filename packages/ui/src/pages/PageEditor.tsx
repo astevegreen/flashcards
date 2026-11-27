@@ -3,7 +3,7 @@ import { sanitizePageMarkdown } from '@flash/core/sources';
 import { useMemo, useState, type FormEvent } from 'react';
 import { PageViewer } from './PageViewer.tsx';
 
-export interface PageEditorProps {
+interface PageEditorProps {
   initialPage?: Page | null;
   onSave: (input: {
     pageId?: string;
@@ -19,7 +19,7 @@ export interface PageEditorProps {
 /**
  * Strictly lazy-loaded Markdown Lesson Page editor with live sanitized preview (§2.3, §13).
  */
-export function PageEditor({ initialPage, onSave, onCancel }: PageEditorProps) {
+function PageEditor({ initialPage, onSave, onCancel }: PageEditorProps) {
   const [title, setTitle] = useState(initialPage?.title ?? '');
   const [slug, setSlug] = useState(initialPage?.slug ?? '');
   const [lang, setLang] = useState(initialPage?.lang ?? 'ja');

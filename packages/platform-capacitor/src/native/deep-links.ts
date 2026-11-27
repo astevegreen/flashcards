@@ -18,7 +18,7 @@
  * `pathname`), and Capacitor 8 still runs on those WebViews.
  */
 export const APP_URL_SCHEME = 'flashcards';
-export const PICKER_CALLBACK_HOST = 'picker-callback';
+const PICKER_CALLBACK_HOST = 'picker-callback';
 export const OAUTH_REDIRECT_HOST = 'oauth';
 /** `flashcards://add-device?sync=<provider>&col=<collection id>`: Phase 14 "Add a device". */
 export const ADD_DEVICE_HOST = 'add-device';
@@ -44,7 +44,7 @@ export function isAppDeepLink(url: string, scheme: string, host: string): boolea
  * The value of query parameter `name` in a deep-link URL, read as plain text (see the note above on
  * `new URL(...)`), or `null` when it is absent.
  */
-export function deepLinkQueryParam(url: string, name: string): string | null {
+function deepLinkQueryParam(url: string, name: string): string | null {
   const q = url.indexOf('?');
   if (q < 0) return null;
   const hash = url.indexOf('#', q);

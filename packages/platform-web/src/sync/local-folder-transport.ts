@@ -37,7 +37,7 @@ interface WindowWithDirectoryPicker {
   }) => Promise<FileSystemDirectoryHandleLike>;
 }
 
-export function isLocalFolderSyncSupported(): boolean {
+function isLocalFolderSyncSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
     typeof (window as unknown as WindowWithDirectoryPicker).showDirectoryPicker === 'function'
@@ -45,7 +45,7 @@ export function isLocalFolderSyncSupported(): boolean {
 }
 
 /** Strictly validates logical relative sync paths against path traversal (§13). */
-export function splitSafeRelativePath(path: string): string[] {
+function splitSafeRelativePath(path: string): string[] {
   if (!path || path.includes('\0') || path.includes('\\') || /^[a-zA-Z]:/.test(path)) {
     throw new SyncTransportError('UNKNOWN', `Unsafe sync path rejected: "${path}"`);
   }
@@ -76,7 +76,7 @@ function isFsPermissionError(err: unknown): boolean {
   return name === 'NotAllowedError' || name === 'SecurityError';
 }
 
-export async function ensureDirectoryPermission(
+async function ensureDirectoryPermission(
   handle: FileSystemDirectoryHandleLike,
   requestPermission = false,
 ): Promise<boolean> {

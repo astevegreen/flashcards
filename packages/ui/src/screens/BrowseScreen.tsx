@@ -14,6 +14,7 @@ import {
   type KnownEvent,
   type Note,
   deckNoteType,
+  noteField,
 } from '@flash/core';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
@@ -627,7 +628,7 @@ export function BrowseScreen({
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-base font-medium">
                             <RichText
-                              text={stripCloze(note.fields[primaryKey] ?? '(empty)')}
+                              text={stripCloze(noteField(note, primaryKey) ?? '(empty)')}
                               lang={primaryLang}
                               hideRuby={false}
                               pinyinToneColors={state.preferences.pinyin_tone_colors}
@@ -635,7 +636,7 @@ export function BrowseScreen({
                           </div>
                           <div className="truncate text-xs text-[var(--muted)]">
                             <RichText
-                              text={stripCloze(note.fields[secondaryKey] ?? '')}
+                              text={stripCloze(noteField(note, secondaryKey) ?? '')}
                               lang={secondaryMeta?.lang ?? 'en'}
                               hideRuby={false}
                               pinyinToneColors={state.preferences.pinyin_tone_colors}

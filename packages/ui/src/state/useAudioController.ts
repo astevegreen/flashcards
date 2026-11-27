@@ -24,9 +24,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 import { isNavigatorOnline } from './syncShell.ts';
 
 export const TTS_CONFIG_KV_KEY = 'tts_config_v1';
-export const MISSING_VOICE_PROMPTED_KV_PREFIX = 'missing_voice_prompted:';
+const MISSING_VOICE_PROMPTED_KV_PREFIX = 'missing_voice_prompted:';
 
-export interface MissingVoicePromptState {
+interface MissingVoicePromptState {
   lang: string;
   message: string;
 }

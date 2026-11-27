@@ -9,10 +9,10 @@ import {
   type GraphDriveItem,
 } from './graph-client.ts';
 
-export { GRAPH_API_BASE, parseRetryAfterMs } from './graph-client.ts';
+export { parseRetryAfterMs } from './graph-client.ts';
 
 /** Graph's documented limit for a single-request `PUT …/content` upload. */
-export const ONEDRIVE_SIMPLE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+const ONEDRIVE_SIMPLE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 /** Upload-session fragments must be a multiple of 320 KiB (Graph `createUploadSession`). */
 export const ONEDRIVE_UPLOAD_CHUNK_UNIT = 320 * 1024;
 const DEFAULT_CHUNK_BYTES = ONEDRIVE_UPLOAD_CHUNK_UNIT * 10; // 3.125 MiB per PUT
@@ -38,7 +38,7 @@ function stripLeadingSlashes(value: string): string {
 }
 
 /** Validates a logical sync path (`sync/v1/...`) and returns its segments. */
-export function oneDrivePathSegments(path: string, allowEmpty = false): string[] {
+function oneDrivePathSegments(path: string, allowEmpty = false): string[] {
   const clean = stripLeadingSlashes(path.replaceAll('\\', '/'));
   const segments = clean.split('/').filter((s) => s.length > 0);
   if (isUnsafeCloudPath(clean)) {

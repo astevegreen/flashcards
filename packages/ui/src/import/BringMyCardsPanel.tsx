@@ -887,12 +887,12 @@ function RouteBody({ route, onBusyChange }: Readonly<RouteBodyProps>) {
  * and handed to the existing importer: the Anki panel, the CSV/TSV importer, the `.flashpkg`
  * importer, or the linked Google Sheets source. Lazily loaded; every message is plain text.
  */
-export interface BringMyCardsPanelProps {
+interface BringMyCardsPanelProps {
   /** Drop the panel's own border and fixed height when nested inside ImportExportPanel. */
   embedded?: boolean;
 }
 
-export function BringMyCardsPanel({ embedded = false }: Readonly<BringMyCardsPanelProps> = {}) {
+function BringMyCardsPanel({ embedded = false }: Readonly<BringMyCardsPanelProps> = {}) {
   const ctx = useImportContext();
   const { platform } = ctx;
   const [route, setRoute] = useState<Route>(INITIAL_ROUTE);

@@ -4,7 +4,7 @@
  * returns false so the native shell minimizes the app.
  */
 
-export interface BackDialog {
+interface BackDialog {
   close(): void;
   /** Fires `cancel` first, so a dialog can ask before it drops unsaved edits (C11). */
   requestClose?: () => void;

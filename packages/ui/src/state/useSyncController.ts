@@ -76,7 +76,6 @@ export async function runGuardedSyncCycle(
   }
 }
 
-export type { CollectionChoice } from './collectionChoice.ts';
 import type { CollectionChoice } from './collectionChoice.ts';
 
 export interface SyncController {

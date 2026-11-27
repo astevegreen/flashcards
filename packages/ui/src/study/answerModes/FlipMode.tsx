@@ -1,3 +1,4 @@
+import { noteField } from '@flash/core';
 import { RevealedAnswer } from './AnswerShell.tsx';
 import { CardFieldValue } from './CardFieldValue.tsx';
 import type { AnswerModePlugin, AnswerModeRenderProps } from './types.ts';
@@ -25,7 +26,7 @@ function FlipModeView(props: AnswerModeRenderProps) {
         }`}
       >
         {layout.front_fields.map((fieldKey, idx) => {
-          const value = note.fields[fieldKey];
+          const value = noteField(note, fieldKey);
           if (!value) return null;
           const meta = fieldMetaByKey.get(fieldKey);
           return (

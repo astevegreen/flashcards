@@ -8,9 +8,7 @@ import {
   type SwipeIntent,
 } from './studyGestures.ts';
 
-export type { SwipeIntent };
-
-export interface StudyCardSwipe {
+interface StudyCardSwipe {
   dx: number;
   dy: number;
   active: boolean;

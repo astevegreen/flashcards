@@ -38,7 +38,7 @@ function createLazyAnswerModePlugin(
 
 const registry = new Map<AnswerMode, AnswerModePlugin>();
 
-export function registerAnswerMode(plugin: AnswerModePlugin): void {
+function registerAnswerMode(plugin: AnswerModePlugin): void {
   registry.set(plugin.mode, plugin);
 }
 

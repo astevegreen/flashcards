@@ -9,7 +9,7 @@ import type { AnkiCollectionPlan, AnkiSqlCell } from '@flash/core/anki-export';
  * drive the same code.
  */
 
-export interface SqlStatementLike {
+interface SqlStatementLike {
   run(values?: AnkiSqlCell[]): void;
   free(): unknown;
 }
@@ -54,7 +54,7 @@ export function writeAnkiCollection(
 }
 
 /** Messages between `WebAnkiCollectionWriter` and `apkg-writer.worker.ts`. */
-export interface AnkiWriteRequest {
+interface AnkiWriteRequest {
   type: 'write';
   plan: AnkiCollectionPlan;
 }
@@ -97,7 +97,7 @@ function createDefaultWorker(): AnkiWriterWorkerLike {
 }
 
 /** A write that hasn't answered after this long is given up (the worker is terminated). */
-export const ANKI_WRITE_TIMEOUT_MS = 5 * 60_000;
+const ANKI_WRITE_TIMEOUT_MS = 5 * 60_000;
 
 export interface WebAnkiCollectionWriterOptions {
   createWorker?: () => AnkiWriterWorkerLike;
