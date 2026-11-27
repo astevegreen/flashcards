@@ -74,6 +74,8 @@ public class ICloudDocumentsPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let path = call.getString("path") else {
             return call.reject("path is required", "UNKNOWN")
         }
+        // A file larger than this fails with TOO_LARGE before it is read into memory.
+        let maxBytes = call.getInt("maxBytes")
         ioQueue.async {
             guard let root = self.containerRoot() else { return self.rejectUnavailable(call) }
             guard let url = Self.resolve(path, in: root) else {
@@ -88,13 +90,26 @@ public class ICloudDocumentsPlugin: CAPPlugin, CAPBridgedPlugin {
 
             var coordinationError: NSError?
             var result: Result<Data, Error>?
+            var tooLargeSize: Int?
             NSFileCoordinator(filePresenter: nil).coordinate(
                 readingItemAt: url, options: [], error: &coordinationError
             ) { readURL in
+                if let maxBytes,
+                    let size = (try? readURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+                    size > maxBytes
+                {
+                    tooLargeSize = size
+                    return
+                }
                 result = Result { try Data(contentsOf: readURL) }
             }
             if let coordinationError {
                 return self.reject(call, coordinationError, path: path)
+            }
+            if let tooLargeSize, let maxBytes {
+                return call.reject(
+                    "iCloud Drive sync file \"\(path)\" is \(tooLargeSize) bytes, over \(maxBytes).",
+                    "TOO_LARGE")
             }
             switch result {
             case .success(let data):

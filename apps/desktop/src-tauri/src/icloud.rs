@@ -261,9 +261,11 @@ pub fn sweep_stale_temps(root: &Path, now: SystemTime) -> usize {
     removed
 }
 
+/// With `max_bytes`, a file larger than that fails with `TOO_LARGE` before it is read.
 pub fn read_file(
     root: &Path,
     relative: &str,
+    max_bytes: Option<u64>,
     ensure_downloaded: impl Fn(&Path) -> Result<(), IcloudError>,
 ) -> Result<Vec<u8>, IcloudError> {
     let path = resolve(root, relative)?;
@@ -274,6 +276,17 @@ pub fn read_file(
         ));
     }
     ensure_downloaded(&path)?;
+    if let Some(max) = max_bytes {
+        let size = fs::metadata(&path)
+            .map_err(|e| IcloudError::io(&e, relative))?
+            .len();
+        if size > max {
+            return Err(IcloudError::new(
+                "TOO_LARGE",
+                format!("iCloud Drive sync file \"{relative}\" is {size} bytes, over {max}."),
+            ));
+        }
+    }
     fs::read(&path).map_err(|e| IcloudError::io(&e, relative))
 }
 
@@ -560,8 +573,11 @@ pub async fn icloud_list_files(prefix: String) -> Result<Vec<FileEntry>, IcloudE
 
 /// Returns the raw bytes (an `ArrayBuffer` in the WebView, no JSON number array).
 #[tauri::command]
-pub async fn icloud_read_file(path: String) -> Result<tauri::ipc::Response, IcloudError> {
-    let bytes = blocking(move || read_file(&root()?, &path, ensure_downloaded)).await?;
+pub async fn icloud_read_file(
+    path: String,
+    max_bytes: Option<u64>,
+) -> Result<tauri::ipc::Response, IcloudError> {
+    let bytes = blocking(move || read_file(&root()?, &path, max_bytes, ensure_downloaded)).await?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -732,7 +748,7 @@ mod tests {
         assert_eq!(fs::read_dir(root.join("sync")).unwrap().count(), 2);
 
         assert_eq!(
-            read_file(&root, "sync/manifest.json", no_download).unwrap(),
+            read_file(&root, "sync/manifest.json", None, no_download).unwrap(),
             b"{\"v\":2}"
         );
         let listed = list_files(&root, "sync").unwrap();
@@ -744,12 +760,25 @@ mod tests {
     }
 
     #[test]
+    fn max_bytes_refuses_larger_files_before_reading() {
+        let root = temp_root("maxbytes");
+        write_file(&root, "sync/big.seg", b"12345", false).unwrap();
+        assert_eq!(
+            read_file(&root, "sync/big.seg", Some(5), no_download).unwrap(),
+            b"12345"
+        );
+        let err = read_file(&root, "sync/big.seg", Some(4), no_download).unwrap_err();
+        assert_eq!(err.code, "TOO_LARGE");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn if_absent_is_write_once() {
         let root = temp_root("once");
         write_file(&root, "sync/a.seg", b"1", true).unwrap();
         let err = write_file(&root, "sync/a.seg", b"2", true).unwrap_err();
         assert_eq!(err.code, "ALREADY_EXISTS");
-        assert_eq!(read_file(&root, "sync/a.seg", no_download).unwrap(), b"1");
+        assert_eq!(read_file(&root, "sync/a.seg", None, no_download).unwrap(), b"1");
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -788,7 +817,7 @@ mod tests {
         );
         // Reading asks for the download first.
         let asked = std::cell::Cell::new(false);
-        let err = read_file(&root, "sync/remote.seg", |_| {
+        let err = read_file(&root, "sync/remote.seg", None, |_| {
             asked.set(true);
             Err(IcloudError::new("NETWORK", "offline"))
         })
@@ -802,7 +831,7 @@ mod tests {
     fn missing_files_and_folders() {
         let root = temp_root("missing");
         assert_eq!(
-            read_file(&root, "sync/none.seg", no_download)
+            read_file(&root, "sync/none.seg", None, no_download)
                 .unwrap_err()
                 .code,
             "NOT_FOUND"

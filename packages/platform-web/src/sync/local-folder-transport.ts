@@ -1,4 +1,4 @@
-import { SyncTransportError } from '@flash/core';
+import { assertSyncReadSize, SyncTransportError } from '@flash/core';
 import type { Storage, SyncFileInfo, SyncTransport } from '@flash/platform';
 
 const LOCAL_FOLDER_HANDLE_KV_KEY = 'local_sync_folder_handle';
@@ -185,7 +185,12 @@ export class LocalFolderSyncTransport implements SyncTransport {
       const parent = await this.resolveParentDirectory(dirParts, false);
       const fh = await parent.getFileHandle(fileName, { create: false });
       const file = await fh.getFile();
-      return new Uint8Array(await file.arrayBuffer());
+      // Refuse a file past its kind's read cap before buffering it (`file.size` is free).
+      assertSyncReadSize('Local folder', path, file.size);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      // The file can grow between the size check and the read.
+      assertSyncReadSize('Local folder', path, bytes.byteLength);
+      return bytes;
     } catch (err) {
       if (isFsNotFoundError(err)) {
         throw new SyncTransportError('NOT_FOUND', `Local sync file not found: "${path}"`);
