@@ -23,7 +23,7 @@ const control = vi.hoisted(() => ({
   /** Rendered through `holdWriter`'s `render` while this tab waits for the lock, when set. */
   WaitingScreen: undefined as (() => null) | undefined,
   /** Gives this tab the lock; `holdWriter` resolves at once when no waiting screen is set. */
-  grantLock: () => undefined as void,
+  grantLock: (() => undefined) as () => void,
 }));
 
 vi.mock('@flash/platform-web', () => ({
