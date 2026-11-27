@@ -10,7 +10,6 @@ import {
   createTestPlatform,
   flush,
   mountWithApp,
-  must,
   sampleEvents,
   type Mounted,
 } from './helpers/app-harness.tsx';
@@ -63,17 +62,34 @@ async function mountLibrary(overrides: Record<string, unknown>): Promise<HTMLEle
   return mounted.container;
 }
 
+/**
+ * Flushes React work until `read` returns something, so lazy chunks, the picker's listing and the
+ * import (all async) can take as long as a loaded CI machine needs. Fails naming `what` after 10 s.
+ */
+async function waitFor<T>(read: () => T | null | undefined, what: string): Promise<T> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const value = read();
+    if (value !== null && value !== undefined) return value;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await flush(1);
+  }
+}
+
 async function click(container: HTMLElement, testId: string): Promise<void> {
-  const button = must(
-    container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`),
+  const button = await waitFor(
+    () => container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`),
     `button ${testId}`,
   );
   await act(async () => button.click());
-  await flush(10);
 }
 
-const statusText = (container: HTMLElement) =>
-  container.querySelector('[data-testid="library-status"]')?.textContent ?? '';
+/** The status line once an import has written to it. */
+const importStatus = (container: HTMLElement) =>
+  waitFor(() => {
+    const text = container.querySelector('[data-testid="library-status"]')?.textContent ?? '';
+    return text.startsWith('Imported') ? text : undefined;
+  }, 'the import status line');
 
 describe('package warnings reach the Library status line (C9)', () => {
   it('a .flashpkg picked from the Import / Export panel', async () => {
@@ -82,8 +98,8 @@ describe('package warnings reach the Library status line (C9)', () => {
     await click(container, 'import-export-btn');
     await click(container, 'import-mode-flashpkg');
     await click(container, 'import-flashpkg-btn');
+    const status = await importStatus(container);
     expect(pickFile).toHaveBeenCalled();
-    const status = statusText(container);
     expect(status).toContain('Imported "Warned"');
     expect(status).toContain('1 warning:');
     expect(status).toContain('reuse an id');
@@ -108,8 +124,8 @@ describe('package warnings reach the Library status line (C9)', () => {
     });
     await click(container, 'onedrive-import-btn');
     await click(container, 'onedrive-file-warned.flashpkg');
+    const status = await importStatus(container);
     expect(picker.downloadFile).toHaveBeenCalledWith(item);
-    const status = statusText(container);
     expect(status).toContain('Imported "Warned" from OneDrive');
     expect(status).toContain('1 warning:');
     expect(status).toContain('reuse an id');
