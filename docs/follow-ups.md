@@ -235,6 +235,7 @@ On 2026-11-23 an agent compared the app with Anki, about 25 features. This secti
 
 - [ ] **Recording audio.** This covers recording into a field while editing, and recording yourself during review to compare with the native audio. The owner deferred it until customers ask for it. If built, one recorder serves both uses, and recordings stay out of sync by default to save the user's quota.
 - [ ] **Multiple profiles on one device**, for example a family tablet. A possible future build item, depending on feedback. Today a device holds one collection (`collection_id`); each profile would need its own event log and its own sync connection.
+- **A per-deck review order and a "Newest first" order:** built only if users ask (see "Study method and card order").
 
 ### Not planned
 
@@ -730,7 +731,7 @@ The owner accepted every recommendation on 2026-11-26.
 
 Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [x] **Tauri store builds accept licence keys whenever a public key is set (#87).** Only Capacitor checks `VITE_STORE_LICENSE_KEYS`. Recommend gating Tauri store builds the same way if a Mac App Store or Microsoft Store build ever ships.
+- Moved to "Needs the owner (hands-on)", under "Accounts, keys and settings": Tauri store builds accept licence keys whenever a public key is set (#87).
 - **Asked in "Owner decisions open".** **Rotating the licence key locks out every key already issued (#87).** Recommend never rotating unless the private key leaks. If it does, ship the old public key alongside the new one for a transition.
 - Moved to "Needs the owner (hands-on)", under "Unverified from batch 2026-11-26b": **An unguarded grammar entry like `-(으)ㄴ` may still show as `#NAME?` in Excel (#88, not verified).** It is in the "for other apps" CSV. Recommend checking once in Excel; if so, guard every leading `-` in that export too (the `'` prefix is invisible in Excel).
 
@@ -871,7 +872,7 @@ Open items, grouped by area. The batch ran one round; its fallout is here instea
 ### Sync engine (#120)
 
 - [ ] The mobile-browser PWA gets the 128 MiB snapshot cap; only Capacitor keeps 25 MiB.
-- [ ] **Asked in "Owner decisions open".** The pruning half; scaling the threshold is ordinary work. Big collections upload a ~5 MiB snapshot every 500 events, and old snapshots are never pruned. Scale the threshold with the snapshot size (pruning deletes remote data: owner).
+- [ ] **Scale the snapshot threshold with the snapshot size** (whether to prune old snapshots is asked in "Owner decisions open"). Big collections upload a ~5 MiB snapshot every 500 events, and old snapshots are never pruned. Scale the threshold with the snapshot size (pruning deletes remote data: owner).
 - [ ] `packages/core/src/sync/engine.ts:99`: the `snapshotLimits` comment is stale.
 - [ ] `planHeadCompaction` re-folds full segments after a partial one (efficiency).
 - [ ] A legacy head with N ranges folds them all in one push. Unverified.
@@ -951,6 +952,7 @@ Only Chromium Playwright with faked endpoints has covered these (moved from "Not
 - [ ] **Measure the full KRDict pack.** It has never been built here. `--full` now prints every file's size. **First-syllable sharding is written** (`docs/formats/packs.md`): a dictionary pack over 25 MiB gzipped (or with `--shard <id>`) becomes a version-2 index of search "stubs" plus `.sNN` shards cut at 초성 boundaries. All lookups work from the index; the shards behind the top results load lazily (at most 3 per lookup), and Settings > Packs has "Download all for offline". Still to check once built: that the index itself stays under 25 MiB (about 60% of the pack on the starter sample), and the shard count against the Pages 20k-file limit. Lazy shards and the tunables (3-shard cap, top-12 completion, 2 MiB shards) kept as shipped (2026-11-27).
 - **Asked in "Owner decisions open".** **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending. The dictionary has no speaker button, so the TTS fallback is not wired either.
 - **Asked in "Owner decisions open".** **Apple Developer account: the owner has none yet.** Signing, notarizing, wiring the entitlements and real iCloud tests wait until there is one. An account (Apple Developer Program) is also needed for any iOS or Mac store release, so it is on the launch path anyway.
+- [ ] **Gate Tauri store builds on `VITE_STORE_LICENSE_KEYS` before a Mac App Store or Microsoft Store build ships (#87).** Today Tauri accepts licence keys whenever a public key is set; only Capacitor checks the flag, and store builds are in-app purchase only (#74, App Store guideline 3.1.1).
 - **Asked in "Owner decisions open".** **Dependabot alert 3 (`glib` 0.18.5, Rust, `apps/desktop/src-tauri/Cargo.lock`): no fix here.** It comes in through Tauri's Linux GTK stack (gtk-rs 0.18); the patched glib 0.20 needs Tauri/wry to move to gtk-rs 0.20+. The unsound API (`VariantStrIter`) is not called by app code. Bump when Tauri does, or dismiss the alert as tolerable risk (owner's call).
 - **Asked in "Owner decisions open".** **Korean example sentences: not added (no compatible source).** The `example` field stays empty rather than invented. Checked 2026-11-25: Wikidata lexeme usage examples (P5831, CC0) exist on only 7 of the 204 pinned lexemes. KRDict 한국어기초사전 examples are CC BY-SA 2.0 KR (share-alike, rejected). Tatoeba is CC BY 2.0 FR (some CC0): no share-alike, but it needs per-sentence attribution, has no pinned release (weekly exports only), and matching inflected Korean to a NIKL headword needs morphological analysis; English translations are uneven. Owner decision: accept Tatoeba (CC BY) with a pinned snapshot and per-deck credits, or keep examples empty.
 - [ ] Add `http://127.0.0.1` as a "Mobile and desktop" redirect URI on the Entra app, then switch `microsoft-loopback.ts` to `127.0.0.1` (review N8).
