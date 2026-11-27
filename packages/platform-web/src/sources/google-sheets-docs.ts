@@ -9,7 +9,11 @@ import type {
   PickedFile,
 } from '@flash/platform';
 import { readTextCapped } from '../net/read-capped.ts';
-import { downloadDriveFileBytes, fetchDriveFileInfo } from './google-drive-files.ts';
+import {
+  MAX_DRIVE_FILE_BYTES,
+  downloadDriveFileBytes,
+  fetchDriveFileInfo,
+} from './google-drive-files.ts';
 import { INTERACTIVE_MAX_RETRY_AFTER_MS } from '../sync/authorized-http.ts';
 import { createGoogleFetch, type GoogleFetch } from '../sync/google-http.ts';
 
@@ -18,8 +22,19 @@ const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const MAX_DOC_MARKDOWN_BYTES = 10 * 1024 * 1024; // 10 MB
 /** File and spreadsheet metadata (titles, tab names): small even for a sheet with many tabs. */
 const MAX_META_JSON_BYTES = 1024 * 1024;
-/** `values.get` of A1:ZZ; the same cap as a linked .csv/.xlsx file, so big decks still load. */
-const MAX_VALUES_JSON_BYTES = 50 * 1024 * 1024;
+/**
+ * JSON bytes per CSV byte for the same grid, with `prettyPrint=false`: every cell gains its
+ * quotes and comma, every row its brackets. Measured: 1.1x for ASCII decks, 1.15x for Korean
+ * and Japanese (1.9-2.0x if Google escaped non-ASCII as `\uXXXX`), 2.0x for a grid of 1-char
+ * cells and 2.8x for one of mostly empty cells. (Google's default pretty-printed JSON was
+ * 1.6-9.5x, hence the request flag.)
+ */
+const VALUES_JSON_PER_CSV_BYTE = 3;
+/**
+ * `values.get` of A1:ZZ: a sheet that would load as a linked .csv/.xlsx file (capped at
+ * `MAX_DRIVE_FILE_BYTES`) still loads here (P8 cap).
+ */
+export const MAX_VALUES_JSON_BYTES = MAX_DRIVE_FILE_BYTES * VALUES_JSON_PER_CSV_BYTE;
 /** The best-effort embedded-image scan reads one column. */
 const MAX_IMAGE_GRID_JSON_BYTES = 10 * 1024 * 1024;
 
@@ -163,7 +178,7 @@ export class WebGoogleSourcesClient implements GoogleSourcesClient {
 
     const range = `${quoteSheetTab(targetTab)}!A1:ZZ`;
     const valuesRes = await this.authorizedFetch(
-      `${SHEETS_API}/${encodeURIComponent(fileId)}/values/${encodeURIComponent(range)}?valueRenderOption=FORMULA`,
+      `${SHEETS_API}/${encodeURIComponent(fileId)}/values/${encodeURIComponent(range)}?valueRenderOption=FORMULA&prettyPrint=false`,
     );
     if (!valuesRes.ok) {
       throw new SyncTransportError(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { choiceQuestionKey } from '../src/study/answerModes/ChoiceMode.tsx';
-import { dueCountsText, studyAnnouncementText } from '../src/study/StudyAnnouncer.tsx';
+import { dueCountsText } from '../src/study/dueCounts.ts';
+import { studyAnnouncementText } from '../src/study/StudyAnnouncer.tsx';
 
 describe('studyAnnouncementText (§10)', () => {
   it('names the next card, the revealed answer and its step, and the end of the queue', () => {
