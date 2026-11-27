@@ -1,0 +1,2 @@
+Synthetic placeholder for the licence text the full pack build copies next to the stroke packs.
+This test fixture is not a licence.

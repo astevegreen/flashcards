@@ -290,10 +290,9 @@ interface DeckPresenceIndex {
 }
 
 /** Matches `source_key`, an exact field, or a parenthesized Hanja token. */
-function buildDeckPresence(notes: Iterable<Note>, deckId: string): DeckPresence {
+function buildDeckPresence(notes: readonly Note[]): DeckPresence {
   const presence: DeckPresence = { exact: new Set<string>(), sourceKeys: new Set<string>() };
   for (const note of notes) {
-    if (note.archived || note.deck_id !== deckId) continue;
     if (note.source_key) presence.sourceKeys.add(note.source_key);
     for (const val of Object.values(note.fields)) {
       const plain = stripRuby(stripRichText(val)).trim();
@@ -308,17 +307,32 @@ function buildDeckPresence(notes: Iterable<Note>, deckId: string): DeckPresence 
   return presence;
 }
 
+/** Live notes grouped by deck, in one pass over the collection. */
+function notesByDeck(notes: Iterable<Note>): Map<string, Note[]> {
+  const byDeck = new Map<string, Note[]>();
+  for (const note of notes) {
+    if (note.archived) continue;
+    const list = byDeck.get(note.deck_id);
+    if (list) list.push(note);
+    else byDeck.set(note.deck_id, [note]);
+  }
+  return byDeck;
+}
+
 /**
  * A lazy index: only the decks the visible rows point at are indexed, once per collection change,
- * instead of every field of every note on each `stateVersion` (P9).
+ * instead of every field of every note on each `stateVersion` (P9). The first lookup groups the
+ * notes by deck in one pass, so k decks cost N + their own notes, not k × N.
  */
 export function createDeckPresenceIndex(notes: ReadonlyMap<string, Note>): DeckPresenceIndex {
   const cache = new Map<string, DeckPresence>();
+  let byDeck: Map<string, Note[]> | undefined;
   return {
     get(deckId) {
       let presence = cache.get(deckId);
       if (!presence) {
-        presence = buildDeckPresence(notes.values(), deckId);
+        byDeck ??= notesByDeck(notes.values());
+        presence = buildDeckPresence(byDeck.get(deckId) ?? []);
         cache.set(deckId, presence);
       }
       return presence;

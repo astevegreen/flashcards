@@ -52,16 +52,15 @@ export function deepLinkQueryParam(url: string, name: string): string | null {
 }
 
 /**
- * True when a Picker callback's `state` fits the pick waiting for it (S10): the same nonce, or
- * none at all. A phone's browser may still serve an older cached `picker.js` that does not echo
- * `state`, so a callback without one is accepted for now; one carrying a different `state` (another
- * or a forged pick) is refused. Requiring `state` is a follow-up once the hosted page has been live
- * a while.
+ * True when a Picker callback's `state` fits the pick waiting for it (S10): exactly the same nonce.
+ * A callback with no `state` or another one (another, forged or replayed pick) is refused. The
+ * hosted `picker.js` has echoed `state` since 2026-11-25, so only a stale cached copy omits it; its
+ * callback is ignored and the pick ends when the browser closes. `state` undefined means the
+ * caller started no nonce, and only the host is checked.
  */
 export function pickerStateMatches(url: string, state: string | undefined): boolean {
   if (state === undefined) return true;
-  const echoed = deepLinkQueryParam(url, 'state');
-  return echoed === null || echoed === state;
+  return deepLinkQueryParam(url, 'state') === state;
 }
 
 /**

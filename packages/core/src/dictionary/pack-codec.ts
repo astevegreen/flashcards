@@ -100,21 +100,47 @@ export function parseAndValidatePackCatalog(
   return res.data;
 }
 
+/**
+ * The gzip trailer's ISIZE: the last member's uncompressed size mod 2^32. The real size is at
+ * least this, so an ISIZE over the cap refuses the archive before inflating any of it. A small
+ * ISIZE proves nothing (it can lie, or wrap), so the streaming counter below still applies.
+ */
+function gzipTrailerSize(bytes: Uint8Array): number | undefined {
+  const n = bytes.byteLength;
+  if (n < 18) return undefined;
+  return (
+    ((bytes[n - 4] ?? 0) |
+      ((bytes[n - 3] ?? 0) << 8) |
+      ((bytes[n - 2] ?? 0) << 16) |
+      ((bytes[n - 1] ?? 0) << 24)) >>>
+    0
+  );
+}
+
 /** Streaming gzip decompression with strict uncompressed byte cap (§13 gzip-bomb guard). */
 export function safeGunzipWithCap(
   bytes: Uint8Array,
   maxUncompressedBytes = PACK_SECURITY_LIMITS.maxUncompressedBytes,
 ): Uint8Array {
+  const overCap = () =>
+    new PackValidationError(
+      `Pack archive exceeds maximum uncompressed byte cap (${maxUncompressedBytes} bytes).`,
+    );
+  const declared = gzipTrailerSize(bytes);
+  if (declared !== undefined && declared > maxUncompressedBytes) throw overCap();
+
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let over = false;
 
-  // The cap check throws from inside `push`, which aborts the loop below.
+  // The output counter is ours: an over-cap chunk is never kept, and the loop below checks the
+  // counter after every push, so the cap holds even if the callback's throw were swallowed.
   const gunzip = new Gunzip((chunk) => {
     total += chunk.byteLength;
     if (total > maxUncompressedBytes) {
-      throw new PackValidationError(
-        `Pack archive exceeds maximum uncompressed byte cap (${maxUncompressedBytes} bytes).`,
-      );
+      over = true;
+      // Also abort inflating the rest of this push.
+      throw overCap();
     }
     chunks.push(chunk);
   });
@@ -125,7 +151,9 @@ export function safeGunzipWithCap(
     const end = Math.min(offset + sliceSize, bytes.byteLength);
     const isFinal = end >= bytes.byteLength;
     gunzip.push(bytes.subarray(offset, end), isFinal);
+    if (over) throw overCap();
   }
+  if (over || total > maxUncompressedBytes) throw overCap();
 
   const out = new Uint8Array(total);
   let pos = 0;

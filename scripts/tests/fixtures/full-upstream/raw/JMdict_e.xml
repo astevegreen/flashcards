@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic test fixture in the JMdict format (written for this repo, not upstream data). -->
+<!-- JMdict created: 9999-01-01 -->
+<JMdict>
+<entry><ent_seq>1</ent_seq><k_ele><keb>山</keb><ke_pri>ichi1</ke_pri></k_ele><r_ele><reb>やま</reb></r_ele>
+<sense><gloss>hill</gloss><gloss>peak</gloss></sense></entry>
+</JMdict>
