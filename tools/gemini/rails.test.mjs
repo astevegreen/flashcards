@@ -256,6 +256,21 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     // Lines main already read as blockers stay blockers, so nothing that retried on main can merge now.
     'Blocker: none found',
     '**Blocker:** none',
+    // An answer that opens with none but goes on to name something is a blocker.
+    'Blockers: none, except a.ts:1 drops the check',
+    'Blockers: none except a missing guard',
+    'Blockers: None; but b.ts:2 swallows the error',
+    '**Blockers:** none - a.ts:1 wrong',
+    'Blockers: none (a.ts:1 is close)',
+    'Blockers: nothing, but a.ts:1 wrong',
+    'Blockers: nothing other than the missing test',
+    'Blockers: 0 new, 1 old: a.ts:1',
+    'Blockers: 0.5 of one',
+    'Blockers: no blockers, except a.ts:1',
+    'Blockers: no blockers but one risk',
+    'Blockers: N/A, though a.ts:1 is wrong',
+    'Blockers: none found. Blockers: a.ts:1',
+    'Blockers: zero apart from a.ts:1',
   ]) {
     const text = ['[note] a.ts:1 risk', real].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'retry', real);
@@ -272,6 +287,17 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Blockers — none in this diff',
     'Blockers: no',
     'No blockers: none',
+    // Other ways to say none read clean instead of retrying.
+    'Blockers: 0',
+    'Blockers: 0.',
+    '**Blockers:** 0',
+    'Blockers: nothing',
+    'Blockers: Nothing.',
+    'Blockers: nothing found',
+    'Blockers: no blockers found',
+    'Blockers: No blockers.',
+    '**Blockers**: no blockers found in this diff',
+    'Blockers: zero',
   ]) {
     const text = ['[note] a.ts:1 risk', clean].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'merge', clean);
