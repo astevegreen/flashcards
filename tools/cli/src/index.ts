@@ -76,10 +76,44 @@ export const KEY_STDIN_PROMPT = 'Paste the TTS API key, then press Enter: ';
 const CTRL_C = '\u0003';
 const CTRL_D = '\u0004';
 const BACKSPACES = new Set(['\u007f', '\b']);
+const ESC = '\u001b';
+/** What follows `ESC`: `[` opens a CSI sequence, `O` an SS3 one; anything else ends it. */
+const ESCAPE_NEXT: Readonly<Record<string, 'csi' | 'ss3'>> = { '[': 'csi', O: 'ss3' };
+
+/**
+ * Drops terminal escape sequences from raw-mode input: CSI (`ESC [ … final`, e.g. arrow keys and
+ * the bracketed-paste markers `ESC [200~` / `ESC [201~`), SS3 (`ESC O x`) and two-byte `ESC x`.
+ * Returns whether `ch` is part of one.
+ */
+function escapeSkipper(): (ch: string) => boolean {
+  let state: 'text' | 'esc' | 'csi' | 'ss3' = 'text';
+  return (ch) => {
+    if (state === 'text') {
+      if (ch !== ESC) return false;
+      state = 'esc';
+    } else if (state === 'esc') {
+      state = ESCAPE_NEXT[ch] ?? 'text';
+    } else if (state === 'csi') {
+      // Parameter and intermediate bytes continue; a final byte (0x40–0x7E) ends the sequence.
+      const code = ch.charCodeAt(0);
+      if (code >= 0x40 && code <= 0x7e) state = 'text';
+    } else {
+      state = 'text';
+    }
+    return true;
+  };
+}
+
+/** C0 controls and DEL (Tab, Escape and the like): never part of a key. */
+function isControl(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return code < 0x20 || code === 0x7f;
+}
 
 /**
  * Reads one line at a terminal in raw mode, so the terminal never echoes the key: nothing is
  * printed per key press, Backspace deletes, Enter or Ctrl-D ends the line, Ctrl-C cancels.
+ * Escape sequences (arrow keys, bracketed-paste markers) and other control characters are dropped.
  */
 async function readHiddenLine(
   stdin: KeyPromptIo['stdin'],
@@ -87,6 +121,7 @@ async function readHiddenLine(
   stderr: KeyPromptIo['stderr'],
 ): Promise<string> {
   const decoder = new TextDecoder();
+  const inEscape = escapeSkipper();
   let key = '';
   setRawMode(true);
   try {
@@ -94,10 +129,11 @@ async function readHiddenLine(
       const text =
         typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
       for (const ch of text) {
+        if (inEscape(ch)) continue;
         if (ch === CTRL_C) throw new Error('Cancelled: no key was read.');
         if (ch === '\r' || ch === '\n' || ch === CTRL_D) return `${key}\n`;
         if (BACKSPACES.has(ch)) key = key.slice(0, -1);
-        else key += ch;
+        else if (!isControl(ch)) key += ch;
       }
     }
     return `${key}\n`;

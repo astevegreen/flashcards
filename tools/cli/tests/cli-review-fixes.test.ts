@@ -166,6 +166,21 @@ describe('--key-stdin at a terminal (S11)', () => {
     expect(written).toEqual([KEY_STDIN_PROMPT, '\n']);
   });
 
+  it('drops escape sequences, Tab and other control characters from the key', async () => {
+    const { stdin } = rawTty(
+      '\u001b[200~', // bracketed-paste start
+      'ab',
+      '\u001b[D', // left arrow
+      '\t',
+      'c\u001bOA', // SS3 up arrow
+      '\u001bx', // a two-byte escape
+      'd\u0001',
+      '\u001b[201~', // bracketed-paste end
+      '\r',
+    );
+    expect(await readKeyFromStdin({ stdin, stderr: { write: () => true } })).toBe('abcd\n');
+  });
+
   it('leaves raw mode and reads nothing when Ctrl-C cancels', async () => {
     const { stdin, modes } = rawTty('ab', '\u0003', 'c\r');
     await expect(readKeyFromStdin({ stdin, stderr: { write: () => true } })).rejects.toThrow(
