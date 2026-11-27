@@ -14,13 +14,11 @@ import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { ShowAllLanguagesSwitch, useShowAllLanguages } from './ShowAllLanguagesSwitch.tsx';
 
 /**
- * A picked pack may be gzip or plain JSON, so the larger of the two caps (uncompressed) applies
- * before the file is read (P8).
+ * The codec refuses any pack file, gzip or plain JSON, over the compressed (file-size) cap, so
+ * the picker refuses a bigger one before reading it (P8). The uncompressed cap applies after
+ * gunzip.
  */
-const MAX_PACK_PICK_BYTES = Math.max(
-  PACK_SECURITY_LIMITS.maxCompressedBytes,
-  PACK_SECURITY_LIMITS.maxUncompressedBytes,
-);
+const MAX_PACK_PICK_BYTES = PACK_SECURITY_LIMITS.maxCompressedBytes;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

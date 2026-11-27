@@ -4,8 +4,7 @@ import { pickerStateMatches } from '../native/deep-links.ts';
 export interface SystemBrowserLauncher {
   /**
    * Opens `url` and resolves with the first `<callbackScheme>://picker-callback` deep link that
-   * carries `state`, or no `state` at all (an older cached `picker.js`); callbacks with another
-   * `state` are ignored (S10).
+   * carries `state`; callbacks with no `state` or another one are ignored (S10).
    */
   openAndAwaitDeepLink(opts: {
     url: string;
