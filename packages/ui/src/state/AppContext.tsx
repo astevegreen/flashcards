@@ -980,6 +980,10 @@ export function AppProvider({
       <AppContext.Provider value={value}>
         {children}
         <Suspense fallback={null}>{syncRuntime}</Suspense>
+        {/* A child, so its effects run before this provider's (before #104 they ran after). The
+            order doesn't matter: they read only the sync store and refs set during render, none of
+            this provider's effects feed them, and a backfill write they queue at mount is still
+            covered by `whenSaved`, which reads the persist queue when called. */}
         <LaunchSyncEffects
           launchedAtMs={launchedAtMs}
           collectionState={collectionState}

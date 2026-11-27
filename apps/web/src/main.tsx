@@ -32,6 +32,14 @@ function testOverrides(): URLSearchParams {
   return new URLSearchParams(typeof query === 'string' ? query : '');
 }
 
+/**
+ * A `VITE_*` build setting, trimmed ('' when unset). One lookup site, so the build inlines Vite's
+ * env object once rather than once per setting (§8: it pays for the root error hook below).
+ */
+function fromEnv(key: string): string {
+  return (import.meta.env as Partial<Record<string, string>>)[key]?.trim() ?? '';
+}
+
 type NativeRuntime = 'capacitor' | 'tauri' | null;
 
 /** Detects the native shell without importing any native SDK into the initial chunk. */
@@ -54,51 +62,37 @@ const booted = new Promise<void>((r) => {
 async function boot(): Promise<void> {
   const resolved = resolveDeviceFromUrl();
   const isDevMode = import.meta.env.DEV || Boolean(resolved.slug);
-  const googleClientId =
-    (import.meta.env['VITE_GOOGLE_CLIENT_ID'] as string | undefined)?.trim() ||
-    DEFAULT_GOOGLE_CLIENT_ID;
-  const tokenHelperUrl =
-    (import.meta.env['VITE_TOKEN_HELPER_URL'] as string | undefined)?.trim() ||
-    DEFAULT_TOKEN_HELPER_URL;
-  const googleApiKey = (import.meta.env['VITE_GOOGLE_API_KEY'] as string | undefined)?.trim() || '';
+  const googleClientId = fromEnv('VITE_GOOGLE_CLIENT_ID') || DEFAULT_GOOGLE_CLIENT_ID;
+  const tokenHelperUrl = fromEnv('VITE_TOKEN_HELPER_URL') || DEFAULT_TOKEN_HELPER_URL;
+  const googleApiKey = fromEnv('VITE_GOOGLE_API_KEY');
   const searchParams = new URLSearchParams(window.location.search);
   const overrides = testOverrides();
-  const dropboxAppKey =
-    overrides.get('dropboxAppKey')?.trim() ||
-    (import.meta.env['VITE_DROPBOX_APP_KEY'] as string | undefined)?.trim() ||
-    '';
+  const dropboxAppKey = overrides.get('dropboxAppKey')?.trim() || fromEnv('VITE_DROPBOX_APP_KEY');
   // OneDrive (Microsoft Entra) client ID, from the build env (or a test override, see above), so
   // a crafted link cannot send users to the consent screen of another Entra app.
-  const microsoftClientId =
-    overrides.get('msClientId')?.trim() ||
-    (import.meta.env['VITE_MS_CLIENT_ID'] as string | undefined)?.trim() ||
-    '';
-  const microsoftTenant = (import.meta.env['VITE_MS_TENANT'] as string | undefined)?.trim() || '';
-  const envPackCatalogUrl =
-    (import.meta.env['VITE_PACK_CATALOG_URL'] as string | undefined)?.trim() || '';
-  const envStarterCatalogUrl =
-    (import.meta.env['VITE_STARTER_CATALOG_URL'] as string | undefined)?.trim() || '';
+  const microsoftClientId = overrides.get('msClientId')?.trim() || fromEnv('VITE_MS_CLIENT_ID');
+  const microsoftTenant = fromEnv('VITE_MS_TENANT');
+  const envPackCatalogUrl = fromEnv('VITE_PACK_CATALOG_URL');
+  const envStarterCatalogUrl = fromEnv('VITE_STARTER_CATALOG_URL');
   const starterCatalogUrl = overrides.get('starterCatalog')?.trim() || envStarterCatalogUrl;
   const enableLicenseGate =
-    (import.meta.env['VITE_ENABLE_LICENSE_GATE'] as string | undefined)?.trim() === 'true' ||
-    overrides.get('licenseGate') === '1';
+    fromEnv('VITE_ENABLE_LICENSE_GATE') === 'true' || overrides.get('licenseGate') === '1';
   const licensePublicKeyHex =
-    overrides.get('licensePubKey')?.trim() ||
-    (import.meta.env['VITE_LICENSE_PUBLIC_KEY'] as string | undefined)?.trim() ||
-    '';
+    overrides.get('licensePubKey')?.trim() || fromEnv('VITE_LICENSE_PUBLIC_KEY');
 
   const webPlatform = createWebPlatform({
     isDevMode,
     googleClientId,
     tokenHelperUrl,
     googleApiKey,
-    ...(dropboxAppKey ? { dropboxAppKey } : {}),
-    ...(microsoftClientId ? { microsoftClientId } : {}),
-    ...(microsoftTenant ? { microsoftTenant } : {}),
-    ...(envPackCatalogUrl ? { packCatalogUrl: envPackCatalogUrl } : {}),
-    ...(starterCatalogUrl ? { starterCatalogUrl } : {}),
+    // Unset settings pass as '', which createWebPlatform treats like a missing one.
+    dropboxAppKey,
+    microsoftClientId,
+    microsoftTenant,
+    packCatalogUrl: envPackCatalogUrl,
+    starterCatalogUrl,
     isPersonalBuild: !enableLicenseGate,
-    ...(licensePublicKeyHex ? { licensePublicKeyHex } : {}),
+    licensePublicKeyHex,
   });
 
   // Native shells (Capacitor / Tauri) run this identical bundle; swap in native services lazily (§10.1).
@@ -134,11 +128,19 @@ async function boot(): Promise<void> {
       })
     : webPlatform;
 
-  const rootEl = document.getElementById('root');
-  if (!rootEl) {
-    throw new Error('Root element #root not found');
-  }
-  const root = createRoot(rootEl);
+  // An app render that throws with no error boundary to catch it unmounts the app before its
+  // effects run, so `exposeWhenSaved` never comes: boot has finished then too (a waiting tab takes
+  // over at once, not by a steal after 120 s). Only once the app is rendered: the waiting screen
+  // shares this root, and a crash there comes before boot has read or written anything. The error
+  // is still reported, as React does by default.
+  let appRendered = false;
+  // index.html always has #root. Without it `createRoot` throws, and boot fails as below.
+  const root = createRoot(document.getElementById('root') as HTMLElement, {
+    onUncaughtError: (error) => {
+      if (appRendered) markBooted();
+      reportError(error);
+    },
+  });
   // One writer per browser profile, before anything reads or writes storage. Native shells are
   // single-window, and browsers without Web Locks write as before.
   const locks = usableLocks(navigator);
@@ -292,6 +294,7 @@ async function boot(): Promise<void> {
     }
   }
 
+  appRendered = true;
   root.render(
     <StrictMode>
       <FlashcardsApp
@@ -310,8 +313,9 @@ async function boot(): Promise<void> {
   );
 }
 
-void boot().catch((err: unknown) => {
-  // A writer asked to hand over during a failed boot still does.
-  markBooted();
-  throw err;
-});
+// Not top-level await (S7785): the waiting screen's lazy chunk (`other-tab.tsx`), loaded
+// while boot waits for the writer lock, imports from this entry chunk. An import waits for that
+// chunk to finish evaluating, so with top-level await here boot would wait on itself.
+// A writer asked to hand over during a failed boot still does (`markBooted`).
+// prettier-ignore
+void boot().catch((err: unknown) => { markBooted(); throw err; }); // NOSONAR (S7785)
