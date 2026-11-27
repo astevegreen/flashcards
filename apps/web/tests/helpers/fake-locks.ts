@@ -38,15 +38,20 @@ export function fakeLocks() {
         } else if (options.ifAvailable) {
           resolve(callback(null));
         } else {
-          const turn = () => grant(name, callback, resolve, reject);
-          waiting.set(name, [...(waiting.get(name) ?? []), turn]);
-          options.signal?.addEventListener('abort', () => {
+          // Like real Web Locks, an abort after the grant is ignored.
+          const onAbort = () => {
             waiting.set(
               name,
               (waiting.get(name) ?? []).filter((t) => t !== turn),
             );
             reject(new DOMException('timed out', 'TimeoutError'));
-          });
+          };
+          const turn = () => {
+            options.signal?.removeEventListener('abort', onAbort);
+            grant(name, callback, resolve, reject);
+          };
+          waiting.set(name, [...(waiting.get(name) ?? []), turn]);
+          options.signal?.addEventListener('abort', onAbort);
         }
       }),
   };

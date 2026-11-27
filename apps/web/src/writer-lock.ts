@@ -135,13 +135,19 @@ export async function holdWriter(s: WriterSetup): Promise<void> {
   // Listening before the lock is held: a tab still waiting ignores requests, and the asking tab
   // repeats its request until it gets the lock, so a writer that just took over still hears it.
   const channel = new BroadcastChannel(`${s.name}:writer`);
+  const yielding: WriterMessage = { yielding: true };
+  const ping = () => channel.postMessage(yielding);
+  let handingOver = false;
   channel.onmessage = (e: MessageEvent<WriterMessage>) => {
-    const release = held;
     const take = (e.data as { take?: string } | null)?.take;
-    if (!release || !take || take === self) return;
+    if (!take || take === self) return;
+    // Every repeated request is answered too: a hidden tab's timers can be throttled to one a
+    // minute, but message events are not.
+    if (handingOver) return ping();
+    const release = held;
+    if (!release) return;
     held = null;
-    const yielding: WriterMessage = { yielding: true };
-    const ping = () => channel.postMessage(yielding);
+    handingOver = true;
     ping();
     setInterval(ping, 500);
     const saved = Promise.race([

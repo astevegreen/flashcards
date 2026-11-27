@@ -87,6 +87,32 @@ describe('holdWriter', () => {
     }
   });
 
+  it('answers every repeated request, even when its timers are throttled (a hidden tab)', async () => {
+    const { locks } = fakeLocks();
+    const name = freshName();
+    const writer = openTab(locks, name, { load: () => new Promise<never>(() => undefined) });
+    await vi.waitFor(() => expect(writer.holds()).toBe(true));
+    // The writer's 500 ms answer timer never fires from here on.
+    vi.useFakeTimers({ toFake: ['setInterval'] });
+    const channel = new BroadcastChannel(`${name}:writer`);
+    let answers = 0;
+    channel.onmessage = (e: MessageEvent<WriterMessage>) => {
+      if ('yielding' in e.data) answers++;
+    };
+    const take: WriterMessage = { take: 'other tab' };
+    try {
+      for (let i = 1; i <= 3; i++) {
+        channel.postMessage(take);
+        await vi.waitFor(() => expect(answers).toBe(i), { timeout: 500 });
+      }
+      await tick(100);
+      expect(answers).toBe(3);
+    } finally {
+      vi.useRealTimers();
+      channel.close();
+    }
+  });
+
   it('a handoff whose chunk fails to load saves queued writes, then stops and releases', async () => {
     const { locks } = fakeLocks();
     const name = freshName();
