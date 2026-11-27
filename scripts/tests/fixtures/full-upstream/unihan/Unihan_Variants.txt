@@ -1,0 +1,2 @@
+# Synthetic test fixture in the Unihan_Variants.txt format.
+U+5C71	kSemanticVariant	U+5C71
