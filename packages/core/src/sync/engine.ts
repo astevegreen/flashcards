@@ -32,6 +32,7 @@ import {
   type SYNC_CODEC_LIMITS,
   SyncCodecError,
 } from './codec.ts';
+import { assertSyncReadCapsCover } from './read-caps.ts';
 import {
   APP_SYNC_VERSION,
   isSyncTransportError,
@@ -200,6 +201,12 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
     snapshotLimits,
     expectedCollectionId,
   } = options;
+  // A limit override past the transports' read caps would let a file pass the engine's checks
+  // only to fail at the transport; refuse it up front so the two can't drift apart.
+  assertSyncReadCapsCover({
+    ...(snapshotLimits ? { codec: snapshotLimits } : {}),
+    maxMediaBlobBytes,
+  });
 
   const deviceId = sanitizeDeviceId(options.deviceId);
   const cursor = cloneCursor(options.cursor);
