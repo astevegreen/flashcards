@@ -181,6 +181,32 @@ describe('--key-stdin at a terminal (S11)', () => {
     expect(await readKeyFromStdin({ stdin, stderr: { write: () => true } })).toBe('abcd\n');
   });
 
+  it('drops a lone Esc without swallowing the key after it', async () => {
+    const read = (...keys: string[]) =>
+      readKeyFromStdin({ stdin: rawTty(...keys).stdin, stderr: { write: () => true } });
+    // Esc in its own chunk, then a printable key, then Enter.
+    expect(await read('ab', '\u001b', 'c', '\r')).toBe('abc\n');
+    // Esc then Enter, in one chunk or two: Enter still ends the line.
+    expect(await read('ab', '\u001b', '\r', 'late')).toBe('ab\n');
+    expect(await read('ab\u001b\r', 'late')).toBe('ab\n');
+    // Esc then Backspace still deletes; Esc Esc then a key keeps the key.
+    expect(await read('ab', '\u001b\u007f', '\r')).toBe('a\n');
+    expect(await read('a', '\u001b\u001b', 'b', '\r')).toBe('ab\n');
+    // A whole sequence after a lone Esc is still dropped.
+    expect(await read('a\u001b', '\u001b[D', 'b\r')).toBe('ab\n');
+  });
+
+  it('cancels at Ctrl-C right after a lone Esc', async () => {
+    const { stdin, modes } = rawTty('ab', '\u001b', '\u0003', 'c\r');
+    await expect(readKeyFromStdin({ stdin, stderr: { write: () => true } })).rejects.toThrow(
+      /Cancelled/,
+    );
+    expect(modes).toEqual([true, false]);
+    await expect(
+      readKeyFromStdin({ stdin: rawTty('ab\u001b\u0003').stdin, stderr: { write: () => true } }),
+    ).rejects.toThrow(/Cancelled/);
+  });
+
   it('leaves raw mode and reads nothing when Ctrl-C cancels', async () => {
     const { stdin, modes } = rawTty('ab', '\u0003', 'c\r');
     await expect(readKeyFromStdin({ stdin, stderr: { write: () => true } })).rejects.toThrow(
