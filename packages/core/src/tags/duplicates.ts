@@ -2,6 +2,7 @@ import type { CollectionState } from '../events/replay.ts';
 import { normalizeAddedTag } from '../events/tag-adds.ts';
 import type { NoteTagsAddedPayload } from '../events/types.ts';
 import { normalizeLanguage } from '../languages/normalize.ts';
+import { noteField } from '../model/note-fields.ts';
 import type { Note, NoteType } from '../model/types.ts';
 import { stripRichText } from '../parsers/rich-text.ts';
 import { parseRuby } from '../parsers/ruby.ts';
@@ -102,7 +103,7 @@ export function findDuplicateGroups(
     }
     if (field === undefined) continue;
     const language = normalizeLanguage(deck.language);
-    const key = normalizeDuplicateKey(note.fields[field] ?? '', language);
+    const key = normalizeDuplicateKey(noteField(note, field) ?? '', language);
     if (key === '') continue;
     const bucketKey = `${language}\u0000${key}`;
     const bucket = buckets.get(bucketKey);

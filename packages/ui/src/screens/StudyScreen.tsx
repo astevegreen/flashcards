@@ -17,7 +17,6 @@ import {
   type ReviewRating,
   type StudyOrder,
   deckNoteType,
-  noteField,
 } from '@flash/core';
 import {
   Suspense,
@@ -37,6 +36,7 @@ import { inStudyScope } from '../state/undoGuard.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
 import { msUntilNextLocalHour, studyDayKey } from '../study/queueClock.ts';
+import { populatedRevealStepsFor } from '../study/revealSteps.ts';
 import { showRubyToggle } from '../study/rubyToggle.ts';
 import type { AnswerEvaluation, FieldMeta } from '../study/answerModes/types.ts';
 import {
@@ -186,18 +186,6 @@ function buildScreenQueue(
     nowMs,
     tzOffsetMinutes,
   });
-}
-
-/** Reveal steps with at least one non-empty field on the note (never zero steps). */
-export function populatedRevealStepsFor(
-  layout: Layout | undefined,
-  note: Note | undefined,
-): string[][] {
-  if (!layout || !note) return [];
-  const steps = layout.reveal_steps
-    .map((stepKeys) => stepKeys.filter((key) => (noteField(note, key)?.trim().length ?? 0) > 0))
-    .filter((stepKeys) => stepKeys.length > 0);
-  return steps.length > 0 ? steps : [layout.reveal_steps[0] ?? []];
 }
 
 /**

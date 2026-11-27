@@ -29,6 +29,7 @@ import {
   snapshotPath,
   snapshotsPrefix,
   SYNC_MEDIA_LIMITS,
+  type SYNC_CODEC_LIMITS,
   SyncCodecError,
 } from './codec.ts';
 import {
@@ -88,6 +89,11 @@ export interface SyncEngineOptions {
   knownMediaEntries?: readonly MediaEntry[];
   /** Max allowed media blob size in bytes (default `SYNC_MEDIA_LIMITS.maxMediaBlobBytes`). */
   maxMediaBlobBytes?: number;
+  /**
+   * Size caps for reading and writing snapshots (default `SYNC_CODEC_LIMITS`). Only tests set it,
+   * to exercise the over-cap path (D12) without a 25 MiB fixture.
+   */
+  snapshotLimits?: Partial<typeof SYNC_CODEC_LIMITS>;
   /**
    * The collection an add-device link named. When this device is not bound to a collection yet
    * and the existing remote store holds a different one, the run stops with
@@ -191,6 +197,7 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
     mediaStore,
     knownMediaEntries,
     maxMediaBlobBytes = SYNC_MEDIA_LIMITS.maxMediaBlobBytes,
+    snapshotLimits,
     expectedCollectionId,
   } = options;
 
@@ -297,7 +304,7 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
     for (const candidate of candidates) {
       try {
         const snapBytes = await transport.read(candidate.file.path);
-        const snap = decodeSyncSnapshot(snapBytes);
+        const snap = decodeSyncSnapshot(snapBytes, snapshotLimits);
         if (
           snap.format_version <= maxFormatVersion &&
           // A newer state format would be hydrated lossily while the watermarks suppress the
@@ -724,7 +731,7 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
 
         // A snapshot too big to read back is not uploaded; the next try is `snapshotThreshold`
         // events later (D12).
-        const encoded = encodeReadableSyncSnapshot(snapshot);
+        const encoded = encodeReadableSyncSnapshot(snapshot, snapshotLimits);
         try {
           if (encoded) {
             await transport.write(targetPath, encoded, { ifAbsent: true });

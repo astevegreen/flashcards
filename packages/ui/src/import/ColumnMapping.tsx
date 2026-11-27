@@ -1,4 +1,4 @@
-import type { NoteType } from '@flash/core';
+import { noteField, type NoteType } from '@flash/core';
 import {
   decodeColumnTarget,
   encodeColumnTarget,
@@ -150,6 +150,20 @@ function clip(value: string): string {
     : chars.join('');
 }
 
+/**
+ * The preview lines of one row: each note-type field with a value, clipped. Reads own properties
+ * only, so a field named `constructor` that the row leaves empty is not shown (S4).
+ */
+export function previewFieldLines(
+  noteType: NoteType,
+  row: MappedRow,
+): { key: string; label: string; value: string }[] {
+  return noteType.fields.flatMap((f) => {
+    const value = noteField(row, f.key);
+    return value ? [{ key: f.key, label: f.label, value: clip(value) }] : [];
+  });
+}
+
 interface TargetSelectProps {
   column: MappedColumn;
   noteType: NoteType;
@@ -283,14 +297,11 @@ export function ColumnMappingView({
           <ol data-testid="bring-map-preview" className="flex flex-col gap-1">
             {keyedPreviewRows(preview).map(({ key, row }) => (
               <li key={key} className="rounded-md bg-[var(--surface-2)] px-2 py-1 text-[11px]">
-                {noteType.fields
-                  .filter((f) => row.fields[f.key])
-                  .map((f) => (
-                    <p key={f.key} className="break-words whitespace-pre-line">
-                      <span className="font-semibold">{f.label}:</span>{' '}
-                      {clip(row.fields[f.key] ?? '')}
-                    </p>
-                  ))}
+                {previewFieldLines(noteType, row).map(({ key: fieldKey, label, value }) => (
+                  <p key={fieldKey} className="break-words whitespace-pre-line">
+                    <span className="font-semibold">{label}:</span> {value}
+                  </p>
+                ))}
                 {row.tags.length > 0 && (
                   <p className="break-words">
                     <span className="font-semibold">Tags:</span> {row.tags.join(', ')}
