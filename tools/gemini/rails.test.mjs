@@ -271,6 +271,16 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Blockers: N/A, though a.ts:1 is wrong',
     'Blockers: none found. Blockers: a.ts:1',
     'Blockers: zero apart from a.ts:1',
+    // Plain words after an opening name something too.
+    'Blockers: nothing handles the rejected import promise',
+    'Blockers: nothing stops data loss when the import overwrites settings',
+    '- Blockers: nothing persists the undo event',
+    'Blockers: zero tests cover the retry path',
+    'Blockers: 0 tests cover the new branch',
+    'Blockers: no blocker test exists for the retry',
+    'Blockers: none of the new paths has a test',
+    'Blockers: none except a missing guard in the retry',
+    'Blockers: zero',
   ]) {
     const text = ['[note] a.ts:1 risk', real].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'retry', real);
@@ -296,8 +306,8 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Blockers: nothing found',
     'Blockers: no blockers found',
     'Blockers: No blockers.',
-    '**Blockers**: no blockers found in this diff',
-    'Blockers: zero',
+    '**Blockers**: no blockers found',
+    'Blockers: nothing in this diff',
   ]) {
     const text = ['[note] a.ts:1 risk', clean].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'merge', clean);

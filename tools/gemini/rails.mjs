@@ -123,15 +123,12 @@ const SINGULAR_BLOCKER = /(?<![a-z])blocker\s*[:—-]\s*(?!(?:none|n\/a|no)\s*[.
 // Singular or plural, read with every * stripped so bold on either side of the colon ("**Blockers**: x",
 // "**Blockers:** x") reads like plain text: the first "Blocker(s):" and the rest of the line, its answer.
 const BLOCKER_LABEL = /(?<![a-z])blockers?\s*[:—-](.*)/i;
-// A clean answer opens with one of these words: none, nothing, n/a, 0, zero, "no blocker(s)", or a bare "no".
-const CLEAN_OPENING = /^(none|nothing|n\/a|0|zero|no\s+blockers?|no)(?![\w/])(.*)$/i;
-// After the opening word, a clean answer says only where or how none was found ("none found", "None identified.",
-// "none in this diff"): letters and spaces, maybe one closing . or !. A comma, colon, path or digit means it goes on
-// to name something, so "none, except a.ts:1" is a blocker.
-const CLEAN_REST = /^[a-z ]*[.!]?$/i;
-// Words that turn a clean opening into a blocker even without punctuation ("none except a missing guard").
-const HEDGE =
-  /\b(?:except|but|besides|other|apart|aside|save|beyond|unless|however|although|though|only|yet|still|excluding|outside)\b/i;
+// A clean answer opens with one of these words: none, nothing, n/a, 0, "no blocker(s)", or a bare "no".
+const CLEAN_OPENING = /^(none|nothing|n\/a|0|no\s+blockers?|no)(?![\w/])(.*)$/i;
+// After the opening word, a clean answer may add only one of a short allow-list ("none found", "None identified.",
+// "none in this diff") and one closing . or !. Any other words name something: "nothing handles the rejected
+// promise", "0 tests cover the branch", "none of the new paths has a test" and "none, except a.ts:1" are blockers.
+const CLEAN_REST = /^(?:found|identified|in this diff)?\s*[.!]?$/i;
 
 // Whether a "Blocker(s):" answer is the clean one. A bare "no" must stand alone ("Blockers: no." is clean,
 // "Blockers: no test for X" is not).
@@ -140,7 +137,7 @@ function cleanAnswer(answer) {
   if (!m) return false;
   const rest = m[2].trim();
   if (m[1].toLowerCase() === 'no') return /^[.!]?$/.test(rest);
-  return CLEAN_REST.test(rest) && !HEDGE.test(rest);
+  return CLEAN_REST.test(rest);
 }
 
 // Any "Blocker(s):" line whose answer is neither empty nor clean. Only the first label is read: the answer runs to
@@ -151,8 +148,9 @@ function anyBlocker(line) {
 }
 
 // Whether an untagged line asserts a blocker. Clean prose ("No blocker.", "No blockers found.", "Blockers: none
-// found", "Blockers: 0") and negations are not assertions. Every line the singular test caught still counts, so the
-// plural and bold forms only turn some merges into retries, never a retry into a merge.
+// found", "Blockers: 0") and negations are not assertions. Every line the singular test caught still counts. The
+// plural test reads only "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" (with the allow-list
+// above) as clean where it used to retry; everything else it changes turns a merge into a retry.
 function assertsBlocker(line) {
   if (NEGATED_BLOCKER.test(line)) return false;
   return SINGULAR_BLOCKER.test(line) || anyBlocker(line);

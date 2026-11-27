@@ -168,7 +168,7 @@ describe('holdWriter', () => {
     const asking = ask(name);
     try {
       // Answered at once, so the asking tab waits instead of stealing...
-      await eventually(() => expect(asking.answers()).toBeGreaterThan(0));
+      await vi.waitFor(() => expect(asking.answers()).toBeGreaterThan(0));
       await tick(100);
       // ...while boot's writes still land.
       await expect(storage.setDeviceMeta()).resolves.toBeUndefined();
