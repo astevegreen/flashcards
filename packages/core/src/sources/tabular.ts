@@ -4,6 +4,7 @@ import type { CollectionState, EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { deriveNoteId, uuidv7 } from '../ids.ts';
 import { BUILTIN_NOTE_TYPE_IDS } from '../model/presets.ts';
+import { noteField, ownField } from '../model/note-fields.ts';
 import type { Note, NoteType, Provenance, SourceColumnMapping } from '../model/types.ts';
 import {
   joinNotes,
@@ -514,7 +515,7 @@ function getSortKeyField(noteType: NoteType): string {
 }
 
 function buildRowPreview(fields: Readonly<Record<string, string>>, sortKeyField: string): string {
-  const primary = fields[sortKeyField] ?? '';
+  const primary = ownField(fields, sortKeyField) ?? '';
   const secondary = Object.entries(fields)
     .filter(([k, v]) => k !== sortKeyField && v.trim().length > 0)
     .slice(0, 2)
@@ -607,7 +608,7 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
     if (note.source_key) {
       existingBySourceKey.set(note.source_key, note);
     }
-    const sk = normalizeSortKeyValue(note.fields[sortKeyField] ?? note.source_key ?? '');
+    const sk = normalizeSortKeyValue(noteField(note, sortKeyField) ?? note.source_key ?? '');
     if (sk) {
       const prev = existingBySortKey.get(sk);
       // Prefer active note over archived note if both somehow share a sortKey
@@ -719,7 +720,7 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
             });
           }
         } else {
-          const prev = fields[role.fieldKey];
+          const prev = ownField(fields, role.fieldKey);
           // Several columns may go to Notes (the mapping step allows it for Notes only).
           fields[role.fieldKey] =
             prev && role.fieldKey === notesKey ? joinNotes(prev, [rawCell]) : rawCell;
@@ -727,7 +728,8 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
       }
     }
 
-    if (notesKey && notes.length > 0) fields[notesKey] = joinNotes(fields[notesKey], notes);
+    if (notesKey && notes.length > 0)
+      fields[notesKey] = joinNotes(ownField(fields, notesKey), notes);
 
     if (Object.keys(fields).length === 0) {
       stats.skipped += 1;
@@ -809,7 +811,7 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
       }
     } else {
       // `.xlsx` read-only `sort_key` identity mode
-      const rawSortKey = fields[sortKeyField] ?? '';
+      const rawSortKey = ownField(fields, sortKeyField) ?? '';
       const normSortKey = normalizeSortKeyValue(rawSortKey);
       if (!normSortKey) {
         stats.skipped += 1;
@@ -881,7 +883,7 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
       // Build full field patch including clearing any previously populated mapped fields that are now empty
       const nextFields: Record<string, string> = {};
       for (const key of Object.keys(matchedExisting.fields)) {
-        nextFields[key] = fields[key] ?? '';
+        nextFields[key] = ownField(fields, key) ?? '';
       }
       for (const [k, v] of Object.entries(fields)) {
         nextFields[k] = v;
@@ -941,7 +943,7 @@ export function diffTabularSource(options: TabularDiffOptions): TabularDiffResul
       if (identityMode === 'sort_key') {
         missingActiveNotes.push({
           noteId: existing.id,
-          sortKey: normalizeSortKeyValue(existing.fields[sortKeyField] ?? existing.source_key),
+          sortKey: normalizeSortKeyValue(noteField(existing, sortKeyField) ?? existing.source_key),
           preview: buildRowPreview(existing.fields, sortKeyField),
         });
       }

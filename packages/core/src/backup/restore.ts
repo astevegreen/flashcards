@@ -18,6 +18,7 @@ import {
   type DeckPreset,
 } from '../decks/fold.ts';
 import { FLASH_NAMESPACE_UUID, uuidv5 } from '../ids.ts';
+import { ownField } from '../model/note-fields.ts';
 
 /**
  * Restoring a backup appends NEW events (authored by this device, at the current time) that move
@@ -280,7 +281,7 @@ function planFsrsParams(ctx: PlanContext): void {
 /** Field registers can't be removed, only emptied: a missing field and `''` are the same. */
 function sameFields(a: Record<string, string>, b: Record<string, string>): boolean {
   for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-    if ((a[key] ?? '') !== (b[key] ?? '')) return false;
+    if ((ownField(a, key) ?? '') !== (ownField(b, key) ?? '')) return false;
   }
   return true;
 }
@@ -300,7 +301,7 @@ function noteUpsertPayload(note: Note, now: Note | undefined): EventPayloadMap['
   const fields: Record<string, string> = { ...note.fields };
   // Fields are per-field registers: a field the backup lacks is cleared, not left behind.
   for (const key of Object.keys(now?.fields ?? {})) {
-    if (!(key in fields)) fields[key] = '';
+    if (!Object.hasOwn(fields, key)) fields[key] = '';
   }
   return {
     note_id: note.id,
