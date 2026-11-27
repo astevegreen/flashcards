@@ -74,7 +74,11 @@ describe('a quoted cell of spaces only', () => {
   it('round-trips through exportCsv', () => {
     const factory = createEventFactory('dev-r', 0, createHlcState('dev-r', 1000));
     const state = applyEvents(createEmptyState(), [
-      factory.create('DeckCreated', { deck_id: 'deck-r', name: 'R', note_type_id: KO.id }, 1000),
+      factory.create(
+        'DeckCreated',
+        { deck_id: 'deck-r', name: 'R', note_type_id: KO.id, language: 'ko' },
+        1000,
+      ),
       factory.create(
         'NoteUpserted',
         {
