@@ -209,6 +209,34 @@ describe('the sync path moves the shared snapshot counter when it decides (R10)'
   });
 });
 
+describe("the platform's snapshot caps reach the sync engine", () => {
+  it('a platform with a smaller cap skips a remote snapshot past it and replays segments', async () => {
+    const remote = await remoteWithSnapshot(T0, deck(0));
+    const capped = heldContext(remote);
+    // Far below the one-deck snapshot, as a phone's 25 MiB cap is below a 20k-card one.
+    (capped.ctx.platform as { syncSnapshotLimits?: object }).syncSnapshotLimits = {
+      maxUncompressedBytes: 64,
+    };
+    let replaced = false;
+    capped.ctx.onReplaceState = () => {
+      replaced = true;
+    };
+    await runSyncCycle(capped.ctx, 'dropbox');
+    expect(capped.state.sync.errorMessage).toBeUndefined();
+    expect(replaced).toBe(false);
+    expect(capped.ctx.stateRef.current.decks.size).toBe(1);
+
+    // Without the cap the same store hydrates the snapshot.
+    const uncapped = heldContext(remote);
+    let hydrated = false;
+    uncapped.ctx.onReplaceState = () => {
+      hydrated = true;
+    };
+    await runSyncCycle(uncapped.ctx, 'dropbox');
+    expect(hydrated).toBe(true);
+  });
+});
+
 describe('claimLocalSnapshot', () => {
   it('gives the claim back only while nothing else moved the counter', () => {
     const counter = { current: 10 };

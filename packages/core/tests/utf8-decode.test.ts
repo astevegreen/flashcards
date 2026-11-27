@@ -34,6 +34,20 @@ describe('decodeUtf8 (D20)', () => {
     }
   });
 
+  it('matches TextDecoder across its internal buffer boundary (4096 code units)', () => {
+    // A surrogate pair, a three-byte char and a bad byte land on every offset around the flush.
+    for (let pad = 4090; pad <= 4100; pad++) {
+      const tail = encodeUtf8('😀가\n');
+      const bytes = new Uint8Array(pad + tail.length + 1);
+      bytes.fill(0x61, 0, pad);
+      bytes.set(tail, pad);
+      bytes[bytes.length - 1] = 0xff;
+      expect(decodeUtf8(bytes)).toBe(reference.decode(bytes));
+    }
+    const big = encodeUtf8('한국어 😀 '.repeat(5000));
+    expect(decodeUtf8(big)).toBe(reference.decode(big));
+  });
+
   it('round-trips any string', () => {
     fc.assert(
       fc.property(fc.string({ unit: 'binary', maxLength: 64 }), (s) => {

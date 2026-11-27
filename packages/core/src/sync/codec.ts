@@ -17,6 +17,18 @@ export const SYNC_CODEC_LIMITS = {
   maxUncompressedBytes: 25 * 1024 * 1024, // 25 MiB
 } as const;
 
+/**
+ * Caps for `snapshots/<id>-<seq>.json.gz`. The compressed cap is the codec's, so transport read
+ * caps are unchanged; the decompressed cap is higher because a collection's state is mostly
+ * repetitive JSON (a 20k-card collection measured 69.7 MiB raw, 5.07 MiB gzipped). It still bounds
+ * a gzip bomb. Builds before this read snapshots only up to 25 MiB raw: they skip a bigger one
+ * and replay segments, as they did when no snapshot was written.
+ */
+export const SYNC_SNAPSHOT_LIMITS = {
+  maxCompressedBytes: SYNC_CODEC_LIMITS.maxCompressedBytes,
+  maxUncompressedBytes: 128 * 1024 * 1024, // 128 MiB
+} as const;
+
 export const SYNC_MEDIA_LIMITS = {
   maxMediaBlobBytes: 10 * 1024 * 1024, // 10 MiB
 } as const;
@@ -375,23 +387,29 @@ export function encodeSyncSnapshot(snapshot: SyncSnapshot): Uint8Array {
  */
 export function encodeReadableSyncSnapshot(
   snapshot: SyncSnapshot,
-  limits?: Partial<typeof SYNC_CODEC_LIMITS>,
+  limits?: Partial<typeof SYNC_SNAPSHOT_LIMITS>,
 ): Uint8Array | null {
   const raw = encodeUtf8(JSON.stringify(snapshot));
-  if (raw.byteLength > (limits?.maxUncompressedBytes ?? SYNC_CODEC_LIMITS.maxUncompressedBytes)) {
+  if (
+    raw.byteLength > (limits?.maxUncompressedBytes ?? SYNC_SNAPSHOT_LIMITS.maxUncompressedBytes)
+  ) {
     return null;
   }
   const gz = gzipSync(raw, { level: 6 });
-  return gz.byteLength > (limits?.maxCompressedBytes ?? SYNC_CODEC_LIMITS.maxCompressedBytes)
+  return gz.byteLength > (limits?.maxCompressedBytes ?? SYNC_SNAPSHOT_LIMITS.maxCompressedBytes)
     ? null
     : gz;
 }
 
+/** Decodes a snapshot under {@link SYNC_SNAPSHOT_LIMITS} (or `limits`, field by field). */
 export function decodeSyncSnapshot(
   compressed: Uint8Array,
-  limits?: Partial<typeof SYNC_CODEC_LIMITS>,
+  limits?: Partial<typeof SYNC_SNAPSHOT_LIMITS>,
 ): SyncSnapshot {
-  const rawBytes = safeGunzip(compressed, limits);
+  const rawBytes = safeGunzip(compressed, {
+    maxCompressedBytes: limits?.maxCompressedBytes ?? SYNC_SNAPSHOT_LIMITS.maxCompressedBytes,
+    maxUncompressedBytes: limits?.maxUncompressedBytes ?? SYNC_SNAPSHOT_LIMITS.maxUncompressedBytes,
+  });
   let parsed: unknown;
   try {
     parsed = JSON.parse(decodeUtf8(rawBytes));
