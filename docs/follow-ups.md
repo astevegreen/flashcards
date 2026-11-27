@@ -4,28 +4,32 @@ Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). The owner'
 
 ## Owner decisions open
 
-The decision queue was cleared on 2026-11-27 with the owner's go-ahead: every shipped default in the "Decisions needed" sections below was kept, and any of them can be reopened by asking. These are the only open questions that change what gets built or need the owner. Each has a recommendation; "accept all" takes every one. Details stay where each item is marked "Asked in" below.
+Questions waiting for the owner, each with a recommendation and its PR. None are open.
 
-### Study and editing
+### Decided 2026-11-27
 
-- [ ] **New decks copy the Settings card order.** A deck created or imported after choosing "Random (all decks)" starts in source order. Recommend: copy the Settings default when a deck is created or imported.
-- [ ] **Set the language of older Sentence, Cloze and Grammar decks (C8).** A deck linked from a sheet before #93 still speaks English, and no screen changes a deck's language. Recommend: offer once, for each such deck whose text is in another script, to set its language.
-- [ ] **Preview before a re-import archives notes (C9).** Re-importing with archive-on-upgrade archives every note whose `id` changed, with its review progress. Recommend: show how many notes it would archive, with Cancel.
-- [ ] **Starter-upgrade race (#83).** An unsynced edit of a field that still holds the old starter text can lose to the upgrade. Recommend: build the new event that lets replay order the upgrade against local edits.
-- [ ] **Wording when the web token helper fails.** Web Google now shows "helper unavailable" with tap-to-renew, not "sign in again". Recommend keep.
+The decision queue was cleared on 2026-11-27 with the owner's go-ahead: every shipped default in the "Decisions needed" sections below was kept, and any of them can be reopened by asking. The owner then accepted every recommendation below the same day. Items marked **To build** are approved work; tick their source item once merged.
 
-### Content and licences
+#### Study and editing
 
-- [ ] **Korean example sentences.** The only compatible source is Tatoeba (CC BY): per-sentence credits, no pinned release, uneven English, and matching inflected Korean to a headword needs morphology. Recommend: keep `example` empty for launch and revisit Tatoeba after.
-- [ ] **KRDict audio.** Its licence excludes sounds; using them needs written confirmation from NIKL. Recommend: keep it out, and give the dictionary a speaker button that uses device TTS instead.
+- [x] **New decks copy the Settings card order.** A deck created or imported after choosing "Random (all decks)" starts in source order. Recommend: copy the Settings default when a deck is created or imported. Decided 2026-11-27: **To build.**
+- [x] **Set the language of older Sentence, Cloze and Grammar decks (C8).** A deck linked from a sheet before #93 still speaks English, and no screen changes a deck's language. Recommend: offer once, for each such deck whose text is in another script, to set its language. Decided 2026-11-27: **To build.**
+- [x] **Preview before a re-import archives notes (C9).** Re-importing with archive-on-upgrade archives every note whose `id` changed, with its review progress. Recommend: show how many notes it would archive, with Cancel. Decided 2026-11-27: **To build.**
+- [x] **Starter-upgrade race (#83).** An unsynced edit of a field that still holds the old starter text can lose to the upgrade. Recommend: build the new event that lets replay order the upgrade against local edits. Decided 2026-11-27: **To build.**
+- [x] **Wording when the web token helper fails.** Web Google now shows "helper unavailable" with tap-to-renew, not "sign in again". Recommend keep. Decided 2026-11-27: Kept.
 
-### Money, accounts and remote data
+#### Content and licences
 
-- [ ] **Apple Developer Program account.** Signing, notarizing, iCloud on the Mac, and every iOS or Mac store release wait for it. Recommend: get it when you are ready to start TestFlight; it is on the launch path.
-- [ ] **Never rotate the licence key unless the private key leaks (#87).** Rotating locks out every key already issued. If it leaks, ship the old public key beside the new one for a transition. Recommend accept.
-- [ ] **Old sync snapshots stay in the cloud (#120).** Big collections upload a ~5 MiB snapshot every 500 events and never delete old ones. Recommend: delete nothing remote until a real collection shows the space matters, as already decided for segment files. Scaling the upload interval with the snapshot size needs no owner call.
-- [ ] **Dependabot alert 3 (`glib`, Linux desktop only).** No fix until Tauri moves to gtk-rs 0.20+, and app code never calls the unsound API. Recommend: dismiss it as tolerable risk with that note, and bump when Tauri does.
-- [ ] **Security jobs as required checks.** Recommend yes, once `dependency-review` tolerates being skipped outside pull requests.
+- [x] **Korean example sentences.** The only compatible source is Tatoeba (CC BY): per-sentence credits, no pinned release, uneven English, and matching inflected Korean to a headword needs morphology. Recommend: keep `example` empty for launch and revisit Tatoeba after. Decided 2026-11-27: Empty for launch; revisit Tatoeba after.
+- [x] **KRDict audio.** Its licence excludes sounds; using them needs written confirmation from NIKL. Recommend: keep it out, and give the dictionary a speaker button that uses device TTS instead. Decided 2026-11-27: Audio stays out. **To build:** a dictionary speaker button that uses device TTS.
+
+#### Money, accounts and remote data
+
+- [x] **Apple Developer Program account.** Signing, notarizing, iCloud on the Mac, and every iOS or Mac store release wait for it. Recommend: get it when you are ready to start TestFlight; it is on the launch path. Decided 2026-11-27: The owner gets it when ready to start TestFlight (owner action, under "Needs the owner (hands-on)").
+- [x] **Never rotate the licence key unless the private key leaks (#87).** Rotating locks out every key already issued. If it leaks, ship the old public key beside the new one for a transition. Recommend accept. Decided 2026-11-27: Accepted as policy.
+- [x] **Old sync snapshots stay in the cloud (#120).** Big collections upload a ~5 MiB snapshot every 500 events and never delete old ones. Recommend: delete nothing remote until a real collection shows the space matters, as already decided for segment files. Scaling the upload interval with the snapshot size needs no owner call. Decided 2026-11-27: Nothing remote is deleted; the threshold scaling stays listed under "Sync engine (#120)".
+- [x] **Dependabot alert 3 (`glib`, Linux desktop only).** No fix until Tauri moves to gtk-rs 0.20+, and app code never calls the unsound API. Recommend: dismiss it as tolerable risk with that note, and bump when Tauri does. Decided 2026-11-27: Dismissed as tolerable risk on GitHub, 2026-11-27.
+- [x] **Security jobs as required checks.** Recommend yes, once `dependency-review` tolerates being skipped outside pull requests. Decided 2026-11-27: **To build:** make `dependency-review` tolerate a skip outside pull requests, then the owner-approved ruleset change makes the Security jobs required.
 
 ## Phase 14 batch: what landed (2026-11-22)
 
@@ -440,6 +444,7 @@ Kept as shipped on 2026-11-27, when the owner approved clearing the decision que
 - [x] Only hits in allowed packs count toward the cap.
 - Moved to "Needs the owner (hands-on)": the upstream download and measurement.
 - [ ] The `SenseRelation` attribute (`lemma` / `writtenForm`) is unverified against a real export.
+- [ ] **To build (owner, 2026-11-27): a dictionary speaker button that uses device TTS; KRDict audio stays out.** **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending. The dictionary has no speaker button, so the TTS fallback is not wired either.
 
 ### #19 Linked OneDrive sources
 
@@ -535,6 +540,7 @@ Observed while bringing up the Capacitor Android debug build on a Pixel 9 Pro an
 - [x] **Clean up the old credit on decks seeded before 1.2.0.** There is no starter update path: seeding happens once, at onboarding (`startOnboardingDeck`), and `presetCatchUp.ts` is about deck-option presets, not deck content. Existing users keep the credit line in Notes (and the 1.0.0 glosses, see PR #28 above). A future update step would, per starter note, emit a `NoteUpserted` that clears `notes` (or leaves "Also read: …") **only when the field still exactly equals the old generated credit**. The old text is reproducible from `meaningSource`/`meaningEdited` (formats in `content/starters/README.md`). It must merge with any user edit (only that field changes, timestamped now) and run once per deck version (`DeckCreated.source.package_version`). Owner decision: build this, or leave existing decks as they are. Done in #83 (`packages/core/src/starters/upgrade.ts`): per starter note, one `fields_only` `NoteUpserted` clears the 1.0.0 or 1.1.0 credit, and the 1.0.0 gloss is replaced by the current one. Edited fields stay.
 - Moved to "Needs the owner (hands-on)": Tatoeba and example sentences.
 - [x] **No empty reveal step.** The study screen already drops reveal steps whose fields are all empty, so a Korean starter card (empty `example` and `notes`) now reveals in one step, and a Mandarin card shows the last step only when it has "Also read: …".
+- [ ] **To build (owner, 2026-11-27): the new event.** **Starter-upgrade race (#83).** An unsynced edit of a still-old-text field can lose to the upgrade. Fixing it in the UI would be a patch; it needs a new event. Recommend a `starter_upgraded` event, so replay can order the upgrade against local edits. Owner design call before anything is built.
 
 ### Review and consolidate tags (deferred by the user)
 
@@ -556,7 +562,7 @@ Proposed scheme:
 
 - [x] **Study screen `Method · Order` chip (session only).** Spaced repetition or Practice (cram over the current deck / filter, never changes FSRS); Deck order, Random (seeded), and Hardest first for Practice. Choices reset when the Study deck selection changes or the app restarts. Practice runs as the existing custom-study practice session, so its filter chip (×) and "Clear filter" end it too.
 - [x] **Settings › Study Preferences:** "Default study method" and "Card order (all decks)" (synced LWW preferences `study_method` / `study_order`; the order is also written to every deck's `new_card_order`). An "Apply to all" button appears when some decks use their own order.
-- **Asked in "Owner decisions open".** **New decks start with source order.** A deck created or imported after choosing "Random (all decks)" gets `new_card_order: 'source'` (the deck default) until "Apply to all" or its own deck options change it. Decide whether deck creation should copy the Settings default.
+- [ ] **To build (owner, 2026-11-27): copy the Settings card order into new decks.** **New decks start with source order.** A deck created or imported after choosing "Random (all decks)" gets `new_card_order: 'source'` (the deck default) until "Apply to all" or its own deck options change it. Decide whether deck creation should copy the Settings default.
 - [x] **Review order is collection-wide.** `study_order` orders reviews in every deck; only new-card order can differ per deck. Add a per-deck review order only if users ask for it. Kept (2026-11-27): built only if users ask.
 - [x] **"Newest first" order** (suggested in the Android review) is not built; the three orders above cover the decided scope. Kept (2026-11-27): built only if users ask.
 
@@ -569,7 +575,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [x] The 401 contract test doesn't prove that the token was force-refreshed. The fake ignores the Authorization header, and OneDrive's harness always returns the same token (`sync-transport-conformance.test.ts`). Done in #103: a token issuer rotates tokens in all three harnesses.
 - [x] No per-call-site over-cap test for the image and audio processors, the picker downloads or the Docs export. Only the shared reader (`net/read-capped.ts`) is covered. Done in #103.
 - [x] The 2 s interactive Retry-After ceiling is not tested in the OneDrive or Dropbox pickers. Done in #103.
-- **Asked in "Owner decisions open".** A token-helper reply with no token now returns 502, so web Google shows "helper unavailable" with tap-to-renew instead of AUTH_REQUIRED. Check that this is the wording we want.
+- **Decided in "Owner decisions open" (2026-11-27).** A token-helper reply with no token now returns 502, so web Google shows "helper unavailable" with tap-to-renew instead of AUTH_REQUIRED. Check that this is the wording we want.
 - [x] The 50 MB cap on Sheets `values.get` JSON is tighter than the same data as CSV. Done in #123: the read asks for compact JSON (`prettyPrint=false`) and the cap is the linked-file cap × 3 (150 MB), derived from `MAX_DRIVE_FILE_BYTES`.
 - [ ] Behaviour changes to keep in mind: the 401 refresh no longer counts as an attempt for OneDrive and Dropbox (up to `maxAttempts + 1` requests), Google no longer retries 501, and the Dropbox picker's network-error text changed.
 - [x] The native Dropbox and Microsoft auths keep their own `inFlightRefresh` (`dropbox-native-auth.ts`, `microsoft-native-auth.ts`). Move them onto `TokenRefresher`. Done in #97: both moved onto `TokenRefresher`.
@@ -672,9 +678,9 @@ The audit (`docs/Audit.md`, untracked in the main checkout) was about the plan f
 - [x] **C8:** the Sentence, Cloze and Grammar presets now speak and render their target-language fields in the deck's language (`noteTypeForDeck`), and a linked sentence sheet's deck language comes from the script of its Sentence column.
 - [x] **C9:** a `.flashpkg` deck file with two records sharing an `id` keeps the first and warns; records whose field keys match none of the note type's import blank and warn. Library and OneDrive/Dropbox `.flashpkg` imports now show package warnings.
 - [x] **C1:** a CSV/TSV quote that never closes, or has text after its closing quote, is read as plain text, so the rows after it are kept.
-- **Asked in "Owner decisions open".** **C8 reaches only new links.** A Sentence deck already linked from a sheet keeps the language `en` it was given, so it still speaks English, and no screen changes a deck's language. Recommend offering, once, to set the language of a Sentence, Cloze or Grammar deck whose text is in another script (owner: design).
+- [ ] **To build (owner, 2026-11-27): offer once to set the language.** **C8 reaches only new links.** A Sentence deck already linked from a sheet keeps the language `en` it was given, so it still speaks English, and no screen changes a deck's language. Recommend offering, once, to set the language of a Sentence, Cloze or Grammar deck whose text is in another script (owner: design).
 - [x] C8 minors (#93 review): the `.apkg` export takes the `{{tts}}` language of a shared built-in note type from the first deck it exports, and has no test for it. A user's own `lang` on a built-in Sentence, Cloze or Grammar field is overridden by the deck's language. The import status-line warnings have no UI test. Done in #124: an `.apkg` export with decks of several languages sharing a built-in note type writes one Anki note type per language (`Sentence (ko)`), a field `lang` that differs from the preset is kept, and the import status-line warnings have a render test.
-- **Asked in "Owner decisions open".** **C9, third point:** re-importing with archive-on-upgrade archives every note whose `id` changed, with its review progress. Recommend a preview that counts the notes it would archive.
+- [ ] **To build (owner, 2026-11-27): the archive-count preview.** **C9, third point:** re-importing with archive-on-upgrade archives every note whose `id` changed, with its review progress. Recommend a preview that counts the notes it would archive.
 - [x] Two CPU-heavy unit tests timed out under load and failed `pnpm gate` on main too: `backup-runner` "keeps pre-restore snapshots outside the rolling 14…" (~3.5 s alone, against the 5 s default) and `onedrive-transport` "retries a failed fragment…". Each now has a 30 s timeout.
 
 ### Left over from wave 3 (#87–#90)
@@ -733,7 +739,7 @@ The owner accepted every recommendation on 2026-11-26.
 Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
 - Moved to "Cross-platform gaps", under "Desktop": Tauri store builds accept licence keys whenever a public key is set (#87).
-- **Asked in "Owner decisions open".** **Rotating the licence key locks out every key already issued (#87).** Recommend never rotating unless the private key leaks. If it does, ship the old public key alongside the new one for a transition.
+- **Decided in "Owner decisions open" (2026-11-27).** **Rotating the licence key locks out every key already issued (#87).** Recommend never rotating unless the private key leaks. If it does, ship the old public key alongside the new one for a transition.
 - Moved to "Needs the owner (hands-on)", under "Unverified from batch 2026-11-26b": **An unguarded grammar entry like `-(으)ㄴ` may still show as `#NAME?` in Excel (#88, not verified).** It is in the "for other apps" CSV. Recommend checking once in Excel; if so, guard every leading `-` in that export too (the `'` prefix is invisible in Excel).
 
 ## Decisions needed (follow-ups batch, 2026-11-26)
@@ -796,6 +802,7 @@ Open items, grouped by PR. Dependabot and CI come last.
 - [ ] **Waiting on upstream:** #78 (Gradle 9.9) is closed; reopen when upstream ships (an AGP supporting Gradle 9.6+).
 - [x] CI: watch the next `publish-packs` run on main. wrangler-action 4 (#66) and actions/cache 6 (#67) haven't run there yet. It ran green on main on 2026-11-27.
 - [x] Dependabot 2026-11-27: #126 (codeql-action pins) and #127 (mdast-util-directive) merged; #125 (Gradle 9.9) closed, like #78, until AGP supports Gradle 9.6+; #128 (@types/node 25) closed with "ignore this major version", because the runtime is Node 24.
+- [ ] **To build (owner, 2026-11-27): make `dependency-review` tolerate a skip, then the Security jobs become required.** Decide whether the Security jobs (`security.yml`) become required checks. That needs a `dependency-review` that tolerates a skip, because it runs only on pull requests.
 
 ### Open on purpose
 
@@ -873,7 +880,7 @@ Open items, grouped by area. The batch ran one round; its fallout is here instea
 ### Sync engine (#120)
 
 - [ ] The mobile-browser PWA gets the 128 MiB snapshot cap; only Capacitor keeps 25 MiB.
-- [ ] **Scale the snapshot threshold with the snapshot size** (whether to prune old snapshots is asked in "Owner decisions open"). Big collections upload a ~5 MiB snapshot every 500 events.
+- [ ] **Scale the snapshot threshold with the snapshot size** (old snapshots are not pruned: decided in "Owner decisions open", 2026-11-27). Big collections upload a ~5 MiB snapshot every 500 events.
 - [ ] `packages/core/src/sync/engine.ts:99`: the `snapshotLimits` comment is stale.
 - [ ] `planHeadCompaction` re-folds full segments after a partial one (efficiency).
 - [ ] A legacy head with N ranges folds them all in one push. Unverified.
@@ -951,12 +958,10 @@ Only Chromium Playwright with faked endpoints has covered these (moved from "Not
 
 - [ ] **Check the KRDict topic attribute names on a real export.** The parser accepts `subjectCategory` / `semanticCategory` and the Korean labels (`주제 및 상황 범주`, `의미 범주`). If the first `build-packs.mjs --full` run gives no topics, find the real names in the XML and add them to `KRDICT_SUBJECT_CATEGORY_ATTS` / `KRDICT_SEMANTIC_CATEGORY_ATTS` in `scripts/packs/upstream-parsers.mjs`.
 - [ ] **Measure the full KRDict pack.** It has never been built here. `--full` now prints every file's size. **First-syllable sharding is written** (`docs/formats/packs.md`): a dictionary pack over 25 MiB gzipped (or with `--shard <id>`) becomes a version-2 index of search "stubs" plus `.sNN` shards cut at 초성 boundaries. All lookups work from the index; the shards behind the top results load lazily (at most 3 per lookup), and Settings > Packs has "Download all for offline". Still to check once built: that the index itself stays under 25 MiB (about 60% of the pack on the starter sample), and the shard count against the Pages 20k-file limit. Lazy shards and the tunables (3-shard cap, top-12 completion, 2 MiB shards) kept as shipped (2026-11-27).
-- **Asked in "Owner decisions open".** **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending. The dictionary has no speaker button, so the TTS fallback is not wired either.
-- **Asked in "Owner decisions open".** **Apple Developer account: the owner has none yet.** Signing, notarizing, wiring the entitlements and real iCloud tests wait until there is one. An account (Apple Developer Program) is also needed for any iOS or Mac store release, so it is on the launch path anyway.
-- **Asked in "Owner decisions open".** **Dependabot alert 3 (`glib` 0.18.5, Rust, `apps/desktop/src-tauri/Cargo.lock`): no fix here.** It comes in through Tauri's Linux GTK stack (gtk-rs 0.18); the patched glib 0.20 needs Tauri/wry to move to gtk-rs 0.20+. The unsound API (`VariantStrIter`) is not called by app code. Bump when Tauri does, or dismiss the alert as tolerable risk (owner's call).
-- **Asked in "Owner decisions open".** **Korean example sentences: not added (no compatible source).** The `example` field stays empty rather than invented. Checked 2026-11-25: Wikidata lexeme usage examples (P5831, CC0) exist on only 7 of the 204 pinned lexemes. KRDict 한국어기초사전 examples are CC BY-SA 2.0 KR (share-alike, rejected). Tatoeba is CC BY 2.0 FR (some CC0): no share-alike, but it needs per-sentence attribution, has no pinned release (weekly exports only), and matching inflected Korean to a NIKL headword needs morphological analysis; English translations are uneven. Owner decision: accept Tatoeba (CC BY) with a pinned snapshot and per-deck credits, or keep examples empty.
+- **Decided in "Owner decisions open" (2026-11-27).** **Apple Developer account: the owner has none yet.** Signing, notarizing, wiring the entitlements and real iCloud tests wait until there is one. An account (Apple Developer Program) is also needed for any iOS or Mac store release, so it is on the launch path anyway.
+- **Decided in "Owner decisions open" (2026-11-27).** **Dependabot alert 3 (`glib` 0.18.5, Rust, `apps/desktop/src-tauri/Cargo.lock`): no fix here.** It comes in through Tauri's Linux GTK stack (gtk-rs 0.18); the patched glib 0.20 needs Tauri/wry to move to gtk-rs 0.20+. The unsound API (`VariantStrIter`) is not called by app code. Bump when Tauri does, or dismiss the alert as tolerable risk (owner's call).
+- **Decided in "Owner decisions open" (2026-11-27).** **Korean example sentences: not added (no compatible source).** The `example` field stays empty rather than invented. Checked 2026-11-25: Wikidata lexeme usage examples (P5831, CC0) exist on only 7 of the 204 pinned lexemes. KRDict 한국어기초사전 examples are CC BY-SA 2.0 KR (share-alike, rejected). Tatoeba is CC BY 2.0 FR (some CC0): no share-alike, but it needs per-sentence attribution, has no pinned release (weekly exports only), and matching inflected Korean to a NIKL headword needs morphological analysis; English translations are uneven. Owner decision: accept Tatoeba (CC BY) with a pinned snapshot and per-deck credits, or keep examples empty.
 - [ ] Add `http://127.0.0.1` as a "Mobile and desktop" redirect URI on the Entra app, then switch `microsoft-loopback.ts` to `127.0.0.1` (review N8).
-- **Asked in "Owner decisions open".** Decide whether the Security jobs (`security.yml`) become required checks. That needs a `dependency-review` that tolerates a skip, because it runs only on pull requests.
 - [ ] Owner chores: delete the empty untracked `packages\ui\src\utils` in the main checkout. (`Korean-w9-base` and `Korean-w9-main` were gone by 2026-11-26.)
 - [ ] **Generate the Ed25519 licence key and set `VITE_LICENSE_PUBLIC_KEY`.** Keep the private key safe. Until then, licence keys are refused, with a warning where they are offered. Tooling done (#87): the owner generates the key and sets `VITE_LICENSE_PUBLIC_KEY`, see `docs/licensing.md`.
 
@@ -971,7 +976,3 @@ Only Chromium Playwright with faked endpoints has covered these (moved from "Not
 - [ ] Native shells and real sign-ins after #104 (Capacitor and Tauri were not run; neither were real Google, OneDrive or Dropbox sign-ins).
 - [ ] A lock stolen in a real browser while `yieldWriter` runs (#107).
 - [ ] A take-over arriving during boot in a real browser (#107).
-
-### Design calls
-
-- **Asked in "Owner decisions open".** **Starter-upgrade race (#83).** An unsynced edit of a still-old-text field can lose to the upgrade. Fixing it in the UI would be a patch; it needs a new event. Recommend a `starter_upgraded` event, so replay can order the upgrade against local edits. Owner design call before anything is built.
