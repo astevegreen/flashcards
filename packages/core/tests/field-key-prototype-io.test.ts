@@ -259,4 +259,14 @@ describe('find & replace and backup restore (S4)', () => {
       { meaning: 'school', constructor: '' },
     ]);
   });
+
+  it('restore sees an empty own `constructor` field and a missing one as the same note', () => {
+    const backup = bareState();
+    const { events } = collectionEvents([
+      { key: 'k1', fields: { meaning: 'school', constructor: '' } },
+    ]);
+    const current = replayAllEvents(events);
+    const steps = planBackupRestore(current, backup, { nowMs: t0 + 1000 }).steps;
+    expect(steps.filter((s) => s.type === 'NoteUpserted')).toEqual([]);
+  });
 });
