@@ -196,7 +196,7 @@ function checkCentralDirectory(
   if (!central) return;
   // The same names, in any order (the format doesn't tie the two orders together). Local names
   // are already unique, so a matching count of distinct central names makes the multisets equal.
-  const names = new Set(central.map((record) => decodeZipEntryName(record.bytes, record.utf8)));
+  const names = new Set(central.map(decodeZipEntryName));
   const matches =
     central.length === run.names.length &&
     names.size === central.length &&
@@ -223,8 +223,8 @@ function unflaggedRenames(records: readonly CentralDirectoryName[]): Map<string,
   const flagged = new Set<string>();
   const renames = new Map<string, string>();
   for (const record of records) {
-    if (record.utf8) flagged.add(decodeZipEntryName(record.bytes, true));
-    else renames.set(latin1(record.bytes), decodeZipEntryName(record.bytes, false));
+    if (record.utf8) flagged.add(decodeZipEntryName(record));
+    else renames.set(latin1(record.bytes), decodeZipEntryName(record));
   }
   for (const name of flagged) renames.delete(name);
   return renames;

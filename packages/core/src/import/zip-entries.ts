@@ -54,35 +54,42 @@ function decodeCp437(bytes: Uint8Array): string {
   return out;
 }
 
-/** True when `bytes` is well-formed UTF-8 (no overlong forms, surrogates or > U+10FFFF). */
+/**
+ * For a UTF-8 lead byte: how many continuation bytes follow, and the range the first one must
+ * fall in (which rules out overlong forms, surrogates and > U+10FFFF). `undefined` when `b`
+ * can't start a sequence.
+ */
+function utf8Lead(b: number): [needed: number, lower: number, upper: number] | undefined {
+  if (b >= 0xc2 && b <= 0xdf) return [1, 0x80, 0xbf];
+  if (b >= 0xe0 && b <= 0xef) return [2, b === 0xe0 ? 0xa0 : 0x80, b === 0xed ? 0x9f : 0xbf];
+  if (b >= 0xf0 && b <= 0xf4) return [3, b === 0xf0 ? 0x90 : 0x80, b === 0xf4 ? 0x8f : 0xbf];
+  return undefined;
+}
+
+/** Where the UTF-8 sequence that starts at `i` ends, or -1 when it is not well formed. */
+function utf8SequenceEnd(bytes: Uint8Array, i: number): number {
+  const b = bytes[i] ?? 0;
+  if (b < 0x80) return i + 1;
+  const lead = utf8Lead(b);
+  if (!lead) return -1;
+  const [needed, lower, upper] = lead;
+  const first = bytes[i + 1];
+  if (first === undefined || first < lower || first > upper) return -1;
+  for (let k = 2; k <= needed; k++) {
+    const c = bytes[i + k];
+    if (c === undefined || c < 0x80 || c > 0xbf) return -1;
+  }
+  return i + 1 + needed;
+}
+
+/** True when `bytes` is well-formed UTF-8. */
 function isWellFormedUtf8(bytes: Uint8Array): boolean {
-  let i = 0;
-  while (i < bytes.length) {
-    const b = bytes[i++] ?? 0;
-    if (b < 0x80) continue;
-    let needed: number;
-    let lower = 0x80;
-    let upper = 0xbf;
-    if (b >= 0xc2 && b <= 0xdf) needed = 1;
-    else if (b >= 0xe0 && b <= 0xef) {
-      needed = 2;
-      if (b === 0xe0) lower = 0xa0;
-      if (b === 0xed) upper = 0x9f;
-    } else if (b >= 0xf0 && b <= 0xf4) {
-      needed = 3;
-      if (b === 0xf0) lower = 0x90;
-      if (b === 0xf4) upper = 0x8f;
-    } else return false;
-    for (; needed > 0; needed--) {
-      const c = bytes[i++];
-      if (c === undefined || c < lower || c > upper) return false;
-      lower = 0x80;
-      upper = 0xbf;
-    }
+  for (let i = 0; i < bytes.length;) {
+    i = utf8SequenceEnd(bytes, i);
+    if (i < 0) return false;
   }
   return true;
 }
-
 /**
  * One entry name, decoded the same way by detection and extraction:
  * - general-purpose flag bit 11 set: UTF-8;
@@ -92,8 +99,9 @@ function isWellFormedUtf8(bytes: Uint8Array): boolean {
  *   0x82, a continuation byte). Anki's own `.apkg` files set the flag (Python `zipfile`) and name
  *   media by number, so they never reach the fallback.
  */
-export function decodeZipEntryName(bytes: Uint8Array, utf8Flag: boolean): string {
-  return utf8Flag || isWellFormedUtf8(bytes) ? decodeUtf8(bytes) : decodeCp437(bytes);
+export function decodeZipEntryName(name: CentralDirectoryName): string {
+  const { bytes } = name;
+  return name.utf8 || isWellFormedUtf8(bytes) ? decodeUtf8(bytes) : decodeCp437(bytes);
 }
 
 /** One central directory record's (or local header's) raw name. */
@@ -161,5 +169,5 @@ export function listZipEntryNames(bytes: Uint8Array, maxEntries = 100_000): stri
   if (!hasZipSignature(bytes)) return undefined;
   const records =
     centralDirectoryNameRecords(bytes, maxEntries) ?? localHeaderNameRecords(bytes, maxEntries);
-  return records.map((record) => decodeZipEntryName(record.bytes, record.utf8));
+  return records.map(decodeZipEntryName);
 }

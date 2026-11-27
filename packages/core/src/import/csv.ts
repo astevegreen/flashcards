@@ -128,24 +128,22 @@ function parseCells(raw: string, options?: CsvParseOptions): ParsedCells {
       } else {
         field += ch;
       }
+    } else if (ch === '"' && quoteEnd < 0 && isBlank(field) && i !== literalQuoteAt) {
+      field = '';
+      inQuotes = true;
+      fieldQuoted = true;
+      quoteStart = i;
+    } else if (ch === delimiter) {
+      endField();
+    } else if (ch === '\r') {
+      if (input[i + 1] === '\n') i += 1;
+      endRow();
+    } else if (ch === '\n') {
+      endRow();
+    } else if (quoteEnd >= 0 && !/\s/.test(ch)) {
+      i = unquote();
     } else {
-      if (ch === '"' && quoteEnd < 0 && isBlank(field) && i !== literalQuoteAt) {
-        field = '';
-        inQuotes = true;
-        fieldQuoted = true;
-        quoteStart = i;
-      } else if (ch === delimiter) {
-        endField();
-      } else if (ch === '\r') {
-        if (input[i + 1] === '\n') i += 1;
-        endRow();
-      } else if (ch === '\n') {
-        endRow();
-      } else if (quoteEnd >= 0 && !/\s/.test(ch)) {
-        i = unquote();
-      } else {
-        field += ch;
-      }
+      field += ch;
     }
   }
 

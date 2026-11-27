@@ -780,13 +780,16 @@ export function importFlashpkg(
       const recTags = normalizeTagList(rec.tags);
 
       // Upgrade-safe note matching: find existing note in targetDeck, else derive deterministically
-      const existingNote = matchExistingNote(rec.id);
+      const nextHash = computeNoteContentHash(rec.fields, recTags);
+      const existingNote = matchExistingNote(
+        rec.id,
+        (note) => computeNoteContentHash(note.fields, note.tags) === nextHash,
+      );
       const noteId = existingNote ? existingNote.id : deriveNoteId(targetDeckId, rec.id);
       seenNoteIds.add(noteId);
 
       if (existingNote) {
         const prevHash = computeNoteContentHash(existingNote.fields, existingNote.tags);
-        const nextHash = computeNoteContentHash(rec.fields, recTags);
         if (existingNote.archived) {
           events.push(eventFactory.create('NoteRestored', { note_id: noteId }, nowMs));
         }
@@ -797,8 +800,9 @@ export function importFlashpkg(
               {
                 note_id: noteId,
                 deck_id: targetDeckId,
-                // A note matched by its note id keeps its own key (`existingNoteMatcher`).
-                source_key: existingNote.source_key || rec.id,
+                // The note keeps its own key, even an empty one: one matched by its note id
+                // (`existingNoteMatcher`) was exported under that id, not under a key.
+                source_key: existingNote.source_key,
                 fields: rec.fields,
                 tags: recTags,
                 provenance: rec.provenance ?? { source: 'import', reviewed: true },

@@ -100,7 +100,7 @@ export function planAnkiCsvExport(
   const lines = [
     `#separator:${delimiter === '\t' ? 'Tab' : 'Comma'}`,
     '#html:true',
-    `#notetype:${headerValue(noteType?.name ?? '')}`,
+    ...(noteType ? [`#notetype:${headerValue(noteType.name)}`] : []),
     `#columns:${columns.map((c) => columnName(c, delimiter)).join(delimiter)}`,
     '#guid column:1',
     '#deck column:2',

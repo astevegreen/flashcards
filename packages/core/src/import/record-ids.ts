@@ -20,8 +20,10 @@ export function uniqueRecordIds(notes: readonly Note[]): string[] {
 /**
  * Finds the note of a deck that an imported record id came from, the inverse of
  * `uniqueRecordIds`: each note is matched at most once, tried in this order:
- * 1. a note whose source key is the record id: the first not yet matched, in `notes` order (the
- *    exporter's order, so the note that won the record id gets it back);
+ * 1. a note whose source key is the record id. Of those not yet matched, the exporter's pick
+ *    comes first: a live note before an archived one (archived notes are never exported), then
+ *    one whose content equals the record (`sameContent`; a subset export may have written a later
+ *    note under the key), then `notes` order (the exporter's order);
  * 2. a note whose id is the record id: it lost the race for its source key, so it was exported
  *    under its note id;
  * 3. a note whose id is the record id without its `~n` suffix.
@@ -29,7 +31,7 @@ export function uniqueRecordIds(notes: readonly Note[]): string[] {
  */
 export function existingNoteMatcher(
   notes: readonly Note[],
-): (recordId: string) => Note | undefined {
+): (recordId: string, sameContent?: (note: Note) => boolean) => Note | undefined {
   const bySourceKey = new Map<string, Note[]>();
   const byId = new Map<string, Note>();
   for (const note of notes) {
@@ -41,9 +43,19 @@ export function existingNoteMatcher(
   }
   const matched = new Set<string>();
   const free = (note: Note | undefined) => (note && !matched.has(note.id) ? note : undefined);
-  return (recordId) => {
+  const bySourceKeyMatch = (recordId: string, sameContent?: (note: Note) => boolean) => {
+    let best: Note | undefined;
+    let bestRank = Infinity;
+    for (const note of bySourceKey.get(recordId) ?? []) {
+      if (matched.has(note.id)) continue;
+      const rank = (note.archived ? 2 : 0) + (sameContent?.(note) ? 0 : 1);
+      if (rank < bestRank) [best, bestRank] = [note, rank];
+    }
+    return best;
+  };
+  return (recordId, sameContent) => {
     const found =
-      bySourceKey.get(recordId)?.find((note) => !matched.has(note.id)) ??
+      bySourceKeyMatch(recordId, sameContent) ??
       free(byId.get(recordId)) ??
       free(byId.get(recordId.replace(/~\d+$/, '')));
     if (found) matched.add(found.id);

@@ -119,6 +119,50 @@ describe('.flashpkg export then re-import into the same collection', () => {
   });
 });
 
+describe('re-import picks the note the exporter wrote under a shared key', () => {
+  /** A package-origin deck where an older note `old` and a newer note `new` share the key `k`. */
+  function sharedKeyDeck(archiveOld: boolean): { state: CollectionState; deckId: string } {
+    const { state: base, deckId } = packageDeckWithDuplicateKeys();
+    const f = createEventFactory('dev-user', 300, createHlcState('dev-user', T0 + 50_000));
+    const events = [
+      noteEvent(f, deckId, 'old', 'k', '옛것', -2),
+      noteEvent(f, deckId, 'new', 'k', '새것', 60),
+    ];
+    if (archiveOld) events.push(f.create('NoteArchived', { note_id: 'old' }, T0 + 50_001));
+    return { state: applyEvents(base, events), deckId };
+  }
+
+  function reimport(state: CollectionState, bytes: Uint8Array) {
+    const f = createEventFactory('dev-user', 400, createHlcState('dev-user', T0 + 60_000));
+    const res = importFlashpkg(bytes, state, f, {
+      nowMs: T0 + 60_000,
+      archiveRemovedOnUpgrade: true,
+    });
+    return { res, after: applyEvents(state, res.events) };
+  }
+
+  it('an archived older note with the same key is not restored over the live one', () => {
+    const { state, deckId } = sharedKeyDeck(true);
+    const { res, after } = reimport(
+      state,
+      exportFlashpkg(state, { deckId, packageId: PACKAGE_ID }),
+    );
+    expect(res.events.filter((e) => e.type.startsWith('Note'))).toEqual([]);
+    expect(after.notes.get('old')?.archived).toBe(true);
+    expect(after.notes.get('new')?.archived).toBeFalsy();
+    expect(after.notes.get('new')?.fields['word']).toBe('새것');
+  });
+
+  it('a subset export of the newer note matches it by content, not the older one', () => {
+    const { state, deckId } = sharedKeyDeck(false);
+    const bytes = exportFlashpkg(state, { deckId, packageId: PACKAGE_ID, noteIds: ['new'] });
+    const { res, after } = reimport(state, bytes);
+    expect(res.events.filter((e) => e.type.startsWith('Note'))).toEqual([]);
+    expect(after.notes.get('old')?.fields['word']).toBe('옛것');
+    expect(after.notes.get('new')?.fields['word']).toBe('새것');
+  });
+});
+
 describe('existingNoteMatcher', () => {
   const note = (id: string, sourceKey: string): Note =>
     ({ id, source_key: sourceKey }) as unknown as Note;
