@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { rateOne, storedEvents } from './helpers/writer-tabs.ts';
 
 /**
  * "Use here instead" while a rating is still being saved: the writer tab saves its queued writes
@@ -38,33 +39,6 @@ async function holdEventWrites(page: Page): Promise<void> {
   );
 }
 
-/** Number of stored events, read straight from IndexedDB. */
-async function storedEvents(page: Page): Promise<number> {
-  return page.evaluate(
-    (name) =>
-      new Promise<number>((resolve, reject) => {
-        const open = indexedDB.open(name);
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
-          const db = open.result;
-          const count = db.transaction('events').objectStore('events').count();
-          count.onsuccess = () => {
-            db.close();
-            resolve(count.result);
-          };
-        };
-      }),
-    DB,
-  );
-}
-
-async function rateOne(page: Page): Promise<void> {
-  const before = Number(await page.getByTestId('count-new').textContent());
-  await page.keyboard.press('Space');
-  await page.getByTestId('rate-easy').click();
-  await expect(page.getByTestId('count-new')).toHaveText(String(before - 1));
-}
-
 test('"Use here instead" waits for ratings still being saved, then hands over', async ({
   browser,
 }) => {
@@ -73,7 +47,7 @@ test('"Use here instead" waits for ratings still being saved, then hands over', 
   await first.goto(`/?device=${DEVICE}`);
   await expect(first.getByTestId('study-card')).toBeVisible();
   const newAtStart = Number(await first.getByTestId('count-new').textContent());
-  const eventsAtStart = await storedEvents(first);
+  const eventsAtStart = await storedEvents(first, DB);
 
   const second = await context.newPage();
   await second.goto(`/?device=${DEVICE}`);
@@ -94,7 +68,7 @@ test('"Use here instead" waits for ratings still being saved, then hands over', 
   await expect(second.getByTestId('study-card')).toBeVisible();
   await expect(second.getByTestId('count-new')).toHaveText(String(newAtStart - 2));
   await expect(first.getByTestId('other-tab')).toBeVisible();
-  expect(await storedEvents(second)).toBeGreaterThanOrEqual(eventsAtStart + 2);
+  expect(await storedEvents(second, DB)).toBeGreaterThanOrEqual(eventsAtStart + 2);
 
   await context.close();
 });
