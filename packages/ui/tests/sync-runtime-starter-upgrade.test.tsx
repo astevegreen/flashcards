@@ -81,6 +81,14 @@ const sync = (over: Partial<SyncUiState>): SyncUiState =>
 const flush = () => act(async () => undefined);
 
 function mount(state: CollectionState, syncState: SyncUiState) {
+  // The upgrade reads the state before its first await, so a read marks "past the gate".
+  const reads = { count: 0 };
+  const stateRef = {
+    get current() {
+      reads.count += 1;
+      return state;
+    },
+  };
   const emitted: (readonly KnownEvent[])[] = [];
   const emitEventsRef = {
     current: (events: readonly KnownEvent[]) => {
@@ -93,7 +101,7 @@ function mount(state: CollectionState, syncState: SyncUiState) {
       shell: { attach: () => undefined },
       emitEventsRef,
       syncState: next,
-      stateRef: { current: state },
+      stateRef,
       factoryRef: { current: factory() },
     }) as unknown as SyncRuntimeProps;
   host = document.body.appendChild(document.createElement('div'));
@@ -101,7 +109,7 @@ function mount(state: CollectionState, syncState: SyncUiState) {
   const render = (next: SyncUiState) =>
     act(() => root?.render(createElement(SyncRuntime, props(next))));
   render(syncState);
-  return { emitted, render };
+  return { emitted, render, reads };
 }
 
 /** Every emitted event belongs to the starter deck, and the upgrade rewrites its notes. */
@@ -140,10 +148,11 @@ describe('SyncRuntime starter-deck upgrade wiring', () => {
       status: 'synced',
       lastSyncedAt: Date.now() - 60_000,
     });
-    const { emitted, render } = mount(state, staleSync);
+    const { emitted, render, reads } = mount(state, staleSync);
     await flush();
     // The "synced" a device shows from its stored cursor says nothing about this launch: the gate
-    // is closed, so the effect returned before it loaded anything.
+    // is closed, so the effect returned before it read the state or loaded anything.
+    expect(reads.count).toBe(0);
     expect(upgradeRuns.count).toBe(0);
     expect(emitted).toHaveLength(0);
 
@@ -154,15 +163,19 @@ describe('SyncRuntime starter-deck upgrade wiring', () => {
 
   it('a read-only (upgrade required) device never upgrades', async () => {
     const state = await seeded110();
-    const { emitted } = mount(state, sync({ readOnly: true }));
+    const { emitted, reads } = mount(state, sync({ readOnly: true }));
     await flush();
+    expect(reads.count).toBe(0);
     expect(upgradeRuns.count).toBe(0);
     expect(emitted).toHaveLength(0);
   });
 
   it('a collection without a starter deck emits nothing and loads nothing', async () => {
-    const { emitted } = mount(createEmptyState(), sync({}));
+    const { emitted, reads } = mount(createEmptyState(), sync({}));
     await flush();
+    // Past the gate (the state was read once to look for a starter deck), then stopped there:
+    // the upgrade module was never asked for, so its entry point never ran.
+    expect(reads.count).toBe(1);
     expect(upgradeRuns.count).toBe(0);
     expect(emitted).toHaveLength(0);
   });

@@ -116,10 +116,10 @@ export function railHits(diff) {
   return hits;
 }
 
-// Whether an untagged line asserts a blocker: "Blocker: <something>" where the something is not none/n/a/no.
+// Whether an untagged line asserts a blocker: "Blocker: <something>" where the whole answer is not none/n/a/no.
 // Clean prose ("No blocker.", "No blockers found.", "Blocker: none") and negations are not assertions.
 function assertsBlocker(line) {
-  return /(?<![a-z])blocker\s*[:—-]\s*(?!(?:none|n\/a|no)(?![a-z]))\S/i.test(line)
+  return /(?<![a-z])blocker\s*[:—-]\s*(?!(?:none|n\/a|no)\s*[.!]?\s*$)\S/i.test(line)
     ? !/(?:no|not|without)\s+blockers?\s*[:—-]/i.test(line)
     : false;
 }
