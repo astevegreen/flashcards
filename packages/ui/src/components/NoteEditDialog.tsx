@@ -80,14 +80,33 @@ export function NoteEditDialog({
   const closedByCodeRef = useRef(false);
   const [draftFields, setDraftFields] = useState<Record<string, string>>({});
   const [tagsText, setTagsText] = useState('');
-  const openingRef = useRef<NoteEditSnapshot>({ fields: {}, tagsText: '' });
-  // Read by the dismiss handlers, which outlive a render.
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  // The note the drafts were last filled from, and its fields and tags at that moment.
+  const [opened, setOpened] = useState<{ note: Note | null; snapshot: NoteEditSnapshot }>({
+    note: null,
+    snapshot: { fields: {}, tagsText: '' },
+  });
+  // A new note fills the drafts in the same render, before the dialog shows.
+  if (opened.note !== note) {
+    const snapshot = note
+      ? { fields: { ...note.fields }, tagsText: note.tags.join(', ') }
+      : opened.snapshot;
+    setOpened({ note, snapshot });
+    if (note) {
+      setDraftFields({ ...snapshot.fields });
+      setTagsText(snapshot.tagsText);
+      setUploadError(null);
+    }
+  }
+  const dirty = hasNoteEditChanges(opened.snapshot, draftFields, tagsText);
+  // Read by the light-dismiss listener, which outlives a render.
   const dirtyRef = useRef(false);
-  dirtyRef.current = hasNoteEditChanges(openingRef.current, draftFields, tagsText);
+  useLayoutEffect(() => {
+    dirtyRef.current = dirty;
+  });
   const [uploadingField, setUploadingField] = useState<string | null>(null);
   // Synchronous twin of `uploadingField`: two pastes in one tick both see stale state.
   const uploadingRef = useRef(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const [activeTextField, setActiveTextField] = useState<string | null>(null);
   const [styleHint, setStyleHint] = useState<{ field: string; text: string } | null>(null);
   const textFieldRefs = useRef<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>({});
@@ -149,11 +168,6 @@ export function NoteEditDialog({
 
     if (note) {
       closedByCodeRef.current = false;
-      const opening = { fields: { ...note.fields }, tagsText: note.tags.join(', ') };
-      openingRef.current = opening;
-      setDraftFields({ ...opening.fields });
-      setTagsText(opening.tagsText);
-      setUploadError(null);
       if (!dialog.open) {
         dialog.showModal();
       }
@@ -330,7 +344,7 @@ export function NoteEditDialog({
     e.preventDefault();
     // Saving mid-upload would drop the image and orphan the blob `addMedia` is writing.
     if (!note || uploadingField !== null) return;
-    const changes = noteEditChanges(openingRef.current, draftFields, tagsText);
+    const changes = noteEditChanges(opened.snapshot, draftFields, tagsText);
     onSave(note, changes.fields, changes.tags);
     closeDialog('save');
   };
@@ -354,7 +368,7 @@ export function NoteEditDialog({
       className="flash-dialog m-auto w-[min(92vw,34rem)] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-0 text-[var(--fg)] shadow-2xl"
       onCancel={(e) => {
         // Escape, or a click outside with native closedby: unsaved edits are never lost silently.
-        if (!dirtyRef.current) return;
+        if (!dirty) return;
         e.preventDefault();
         if (window.confirm(DISCARD_NOTE_EDITS_PROMPT)) closeDialog('cancel');
       }}

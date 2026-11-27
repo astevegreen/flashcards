@@ -1,5 +1,5 @@
 import { compareCodeUnits, type Deck } from '@flash/core';
-import { Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Suspense, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { IMPORT_EXPORT_PANEL_HEIGHT } from './import-export-layout.ts';
@@ -43,6 +43,33 @@ const IMPORT_FORMATS: ReadonlyArray<{ id: ImportFormat; label: string }> = [
   { id: 'anki', label: 'Anki (.apkg)' },
 ];
 
+interface OpenRequest {
+  initialTab: ImportExportTab;
+  initialDeckId: string | undefined;
+  requestNonce: number;
+}
+
+function sameOpenRequest(a: OpenRequest, b: OpenRequest): boolean {
+  return (
+    a.initialTab === b.initialTab &&
+    a.initialDeckId === b.initialDeckId &&
+    a.requestNonce === b.requestNonce
+  );
+}
+
+/** The selected tab and deck; a new open request (tab, deck or nonce) resets them in the same render. */
+function useOpenRequestState(next: OpenRequest) {
+  const [tab, setTab] = useState<ImportExportTab>(next.initialTab);
+  const [deckChoice, setDeckChoice] = useState(next.initialDeckId ?? '');
+  const [request, setRequest] = useState(next);
+  if (!sameOpenRequest(request, next)) {
+    setRequest(next);
+    setTab(next.initialTab);
+    if (next.initialDeckId) setDeckChoice(next.initialDeckId);
+  }
+  return { tab, setTab, deckChoice, setDeckChoice };
+}
+
 function ImportExportPanel({
   initialTab = 'import',
   initialDeckId,
@@ -58,21 +85,17 @@ function ImportExportPanel({
   onError,
 }: Readonly<ImportExportPanelProps>) {
   const { state, stateVersion } = useApp();
-  const [tab, setTab] = useState<ImportExportTab>(initialTab);
+  const { tab, setTab, deckChoice, setDeckChoice } = useOpenRequestState({
+    initialTab,
+    initialDeckId,
+    requestNonce,
+  });
   const [importFormat, setImportFormat] = useState<ImportFormat>('csv');
-  const [deckChoice, setDeckChoice] = useState(initialDeckId ?? '');
   const [courseChoice, setCourseChoice] = useState('');
   const [pageChoice, setPageChoice] = useState('');
 
   const importTabRef = useRef<HTMLButtonElement | null>(null);
   const exportTabRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    setTab(initialTab);
-    if (initialDeckId) {
-      setDeckChoice(initialDeckId);
-    }
-  }, [initialTab, initialDeckId, requestNonce]);
 
   const decks = useMemo(
     () =>

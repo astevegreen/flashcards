@@ -147,23 +147,27 @@ export function SettingsScreen({ onOpenImportExport }: SettingsScreenProps = {})
   const [ttsTestMessage, setTtsTestMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [voiceListTick, setVoiceListTick] = useState(0);
 
-  useEffect(() => {
+  // A saved TTS config replaces the drafts in the same render.
+  const [draftedTtsConfig, setDraftedTtsConfig] = useState(audio.ttsConfig);
+  if (draftedTtsConfig !== audio.ttsConfig) {
+    setDraftedTtsConfig(audio.ttsConfig);
     setTtsProviderDraft(audio.ttsConfig.provider);
     setTtsApiKeyDraft(audio.ttsConfig.apiKey ?? '');
     setTtsAzureRegionDraft(audio.ttsConfig.azureRegion ?? '');
-  }, [audio.ttsConfig]);
+  }
 
+  // Only resync drafts when synced `tts_voices` actually changes (not on unrelated state ticks)
   const syncedVoicesKey = JSON.stringify(state.preferences.tts_voices ?? {});
-  useEffect(() => {
+  const [draftedVoicesKey, setDraftedVoicesKey] = useState(syncedVoicesKey);
+  if (draftedVoicesKey !== syncedVoicesKey) {
+    setDraftedVoicesKey(syncedVoicesKey);
     setVoiceDrafts({
       ja: state.preferences.tts_voices?.['ja'] ?? '',
       'zh-Hans': state.preferences.tts_voices?.['zh-Hans'] ?? '',
       ko: state.preferences.tts_voices?.['ko'] ?? '',
       en: state.preferences.tts_voices?.['en'] ?? '',
     });
-    // Only resync drafts when synced `tts_voices` actually changes (not on unrelated state ticks)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncedVoicesKey]);
+  }
 
   useEffect(() => {
     const bump = () => setVoiceListTick((t) => t + 1);

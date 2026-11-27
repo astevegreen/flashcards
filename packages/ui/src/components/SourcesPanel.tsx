@@ -187,15 +187,23 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     description?: string;
     packages: CatalogPackageInfo[];
   } | null>(null);
-  const [starterCatalogLoading, setStarterCatalogLoading] = useState(false);
+  const configuredStarterUrl = platform.starterCatalogUrl?.trim();
+  const [starterCatalogLoading, setStarterCatalogLoading] = useState(Boolean(configuredStarterUrl));
   const [starterCatalogError, setStarterCatalogError] = useState<string | null>(null);
+  // A new platform loads its catalog again: mark it loading in the same render.
+  const [starterCatalogPlatform, setStarterCatalogPlatform] = useState(platform);
+  if (starterCatalogPlatform !== platform) {
+    setStarterCatalogPlatform(platform);
+    if (configuredStarterUrl) {
+      setStarterCatalogLoading(true);
+      setStarterCatalogError(null);
+    }
+  }
 
   useEffect(() => {
     const starterUrl = platform.starterCatalogUrl?.trim();
     if (!starterUrl) return undefined;
     let cancelled = false;
-    setStarterCatalogLoading(true);
-    setStarterCatalogError(null);
 
     void (async () => {
       const cacheKey = `starter_catalog_cache_v1:${starterUrl}`;

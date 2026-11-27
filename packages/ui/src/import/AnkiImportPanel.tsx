@@ -229,7 +229,8 @@ function AnkiImportPanel({
   const [warnings, setWarnings] = useState<string[]>([]);
   const [imported, setImported] = useState<AnkiImportedNoteType[]>([]);
   const [prepared, setPrepared] = useState<PreparedPackage | null>(null);
-  const ankiModule = useRef<AnkiModule | null>(null);
+  // Set once the dry run loaded `@flash/core/anki`; the language picker after an import needs it.
+  const [ankiModule, setAnkiModule] = useState<AnkiModule | null>(null);
   // Bytes of the pending file already imported: they are transferred to the reader Worker, so a
   // second run (a re-render passing an equal file) would fail on a detached buffer.
   const startedPending = useRef<Uint8Array | null>(null);
@@ -260,7 +261,7 @@ function AnkiImportPanel({
     const raw = await reader.read(bytes, { includeReviewHistory: true });
     go('converting');
     const mod = await import('@flash/core/anki');
-    ankiModule.current = mod;
+    setAnkiModule(mod);
     // A throwaway factory: the dry run must not use up this device's event sequence numbers.
     const dryRun = createEventFactory('dry-run', 0, createHlcState('dry-run', Date.now()));
     const preview = mod.importAnkiPackage(raw, state, dryRun, {
@@ -275,7 +276,7 @@ function AnkiImportPanel({
 
   /** Converts again against the collection as it is now, then stores media and events. */
   const commit = async (pkg: PreparedPackage, withHistory: boolean) => {
-    const mod = ankiModule.current;
+    const mod = ankiModule;
     if (!mod) return;
     go('converting');
     const result = mod.importAnkiPackage(pkg.raw, state, getEventFactory(), {
@@ -348,7 +349,7 @@ function AnkiImportPanel({
   }, [pendingFile]);
 
   const handleLanguage = (noteType: AnkiImportedNoteType, fieldKey: string, lang: string) => {
-    const mod = ankiModule.current;
+    const mod = ankiModule;
     if (!mod) return;
     const events = mod.ankiFieldLanguageEvents(state, noteType, fieldKey, lang, getEventFactory());
     if (events.length > 0) emitEvents(events);
@@ -424,10 +425,10 @@ function AnkiImportPanel({
             )}
           </ul>
         )}
-        {phase === 'done' && ankiModule.current && (
+        {phase === 'done' && ankiModule && (
           <AnkiFieldLanguages
             noteTypes={imported}
-            languages={ankiModule.current.ANKI_FIELD_LANGUAGES}
+            languages={ankiModule.ANKI_FIELD_LANGUAGES}
             onChange={handleLanguage}
           />
         )}

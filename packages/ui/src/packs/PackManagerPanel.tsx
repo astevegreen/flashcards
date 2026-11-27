@@ -58,28 +58,30 @@ export function PackManagerPanel({ onInstalledPacksChanged }: PackManagerPanelPr
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Every state update waits for the pack manager to load, so the mount effect sets none itself.
   const refreshState = useCallback(
-    async (fetchRemoteCatalog = true) => {
-      if (!platform.getPackManager) return;
-      const mgr = await platform.getPackManager();
-      const currentUrl = mgr.getCatalogUrl() ?? '';
-      setCatalogUrlDraft(currentUrl);
-      const list = await mgr.listInstalledPacks();
-      setInstalled(list);
-      onInstalledPacksChanged?.(list);
+    (fetchRemoteCatalog = true): Promise<void> => {
+      if (!platform.getPackManager) return Promise.resolve();
+      return platform.getPackManager().then(async (mgr) => {
+        const currentUrl = mgr.getCatalogUrl() ?? '';
+        setCatalogUrlDraft(currentUrl);
+        const list = await mgr.listInstalledPacks();
+        setInstalled(list);
+        onInstalledPacksChanged?.(list);
 
-      if (fetchRemoteCatalog && currentUrl) {
-        setLoadingCatalog(true);
-        try {
-          const cat = await mgr.fetchCatalog(currentUrl);
-          setCatalog(cat);
-          setError(null);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
-        } finally {
-          setLoadingCatalog(false);
+        if (fetchRemoteCatalog && currentUrl) {
+          setLoadingCatalog(true);
+          try {
+            const cat = await mgr.fetchCatalog(currentUrl);
+            setCatalog(cat);
+            setError(null);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+          } finally {
+            setLoadingCatalog(false);
+          }
         }
-      }
+      });
     },
     [onInstalledPacksChanged, platform],
   );

@@ -6,7 +6,7 @@ import {
   type DeckPreset,
   type DeckPresetSettings,
 } from '@flash/core';
-import { Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Suspense, useMemo, useState, type FormEvent } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { useDeckOrganization } from './useDeckOrganization.ts';
@@ -42,7 +42,12 @@ function CommitNumberInput({
   onCommit: (next: number) => void;
 }>) {
   const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
+  // A new stored value replaces the draft in the same render (Object.is: NaN equals itself).
+  const [shown, setShown] = useState(value);
+  if (!Object.is(shown, value)) {
+    setShown(value);
+    setDraft(String(value));
+  }
   const commit = () => {
     const parsed = Number(draft);
     if (draft.trim() === '' || !Number.isFinite(parsed) || parsed < min || parsed > max) {
@@ -120,7 +125,12 @@ function NameField({
   onCommit,
 }: Readonly<{ label: string; value: string; testId: string; onCommit: (next: string) => void }>) {
   const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  // A new stored name replaces the draft in the same render.
+  const [shown, setShown] = useState(value);
+  if (shown !== value) {
+    setShown(value);
+    setDraft(value);
+  }
   const commit = () => {
     const next = draft.replace(/\s+/g, ' ').trim();
     if (!next) {

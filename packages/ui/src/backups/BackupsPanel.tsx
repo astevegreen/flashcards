@@ -6,7 +6,7 @@ import {
   type RestoreSummary,
 } from '@flash/core/backup';
 import type { StoredBackupInfo } from '@flash/platform';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { useSyncState } from '../state/syncStateStore.ts';
 import { tooLargeMessage } from '../components/pickedFileLimit.ts';
@@ -138,32 +138,38 @@ export function BackupsPanel() {
   const [pending, setPending] = useState<PendingRestore | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
-  const stateRef = useRef(state);
-  stateRef.current = state;
-  const metaRef = useRef(meta);
-  metaRef.current = meta;
-  const providerRef = useRef(syncState.provider);
-  providerRef.current = syncState.provider;
+  // The backup code reads the newest committed collection through these, from handlers only.
+  const latest = useRef({ state, meta, provider: syncState.provider });
+  useLayoutEffect(() => {
+    latest.current = { state, meta, provider: syncState.provider };
+  });
   const syncing = syncState.provider !== 'none';
 
   const ctx = useCallback(
     (): BackupContext => ({
       platform,
-      getState: () => stateRef.current,
+      getState: () => latest.current.state,
       getMeta: () => {
-        if (!metaRef.current) throw new Error('This device is still starting up. Try again.');
-        return metaRef.current;
+        const current = latest.current.meta;
+        if (!current) throw new Error('This device is still starting up. Try again.');
+        return current;
       },
-      getSyncProvider: () => providerRef.current,
+      getSyncProvider: () => latest.current.provider,
     }),
     [platform],
   );
 
-  const refresh = useCallback(async () => {
-    const store = await openBackupStore(storage);
-    if (store) setBackups(await store.list());
-    setLastError((await loadBackupStatus(storage))?.lastError ?? null);
-  }, [storage]);
+  const refresh = useCallback(
+    (): Promise<void> =>
+      openBackupStore(storage)
+        .then((store) => store?.list())
+        .then((list) => {
+          if (list) setBackups(list);
+          return loadBackupStatus(storage);
+        })
+        .then((status) => setLastError(status?.lastError ?? null)),
+    [storage],
+  );
 
   useEffect(() => {
     void refresh();
@@ -247,20 +253,21 @@ export function BackupsPanel() {
       }
     });
 
-  // The preview follows the collection (a sync can land while it is open).
-  useEffect(() => {
-    setPending((p) =>
-      p
-        ? {
-            label: p.label,
-            prepared: {
-              read: p.prepared.read,
-              plan: planBackupRestore(stateRef.current, p.prepared.read.state),
-            },
-          }
-        : p,
-    );
-  }, [stateVersion]);
+  // The preview follows the collection (a sync can land while it is open): re-plan during the
+  // render that sees a new collection version.
+  const [plannedVersion, setPlannedVersion] = useState(stateVersion);
+  if (plannedVersion !== stateVersion) {
+    setPlannedVersion(stateVersion);
+    if (pending) {
+      setPending({
+        label: pending.label,
+        prepared: {
+          read: pending.prepared.read,
+          plan: planBackupRestore(state, pending.prepared.read.state),
+        },
+      });
+    }
+  }
 
   const confirmRestore = () =>
     run(async () => {
