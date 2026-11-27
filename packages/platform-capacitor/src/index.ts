@@ -16,7 +16,7 @@ import type {
   StrokeDataProvider,
   SyncTransport,
 } from '@flash/platform';
-import { SyncTransportError } from '@flash/core';
+import { SYNC_CODEC_LIMITS, SyncTransportError } from '@flash/core';
 import { CapacitorGoogleAuth, type NativeGoogleSignInPlugin } from './auth/native-google-auth.ts';
 import {
   CapacitorMlKitInkRecognizer,
@@ -117,6 +117,15 @@ function capacitorStorageFrom(driver: SqliteDriver | undefined): Storage {
 }
 
 /**
+ * Phones hydrate and write cloud snapshots only up to the codec's 25 MiB raw cap, as before
+ * `SYNC_SNAPSHOT_LIMITS` rose to 128 MiB: a bigger one could exhaust a WebView's memory before the
+ * engine's error handling runs. They replay segments instead. Lift it once measured on a phone.
+ */
+export const CAPACITOR_SYNC_SNAPSHOT_LIMITS = {
+  maxUncompressedBytes: SYNC_CODEC_LIMITS.maxUncompressedBytes,
+} as const;
+
+/**
  * Creates a Capacitor (Android / iOS) `PlatformServices` bundle (§10.1, §11, §15 Phase 8).
  */
 export function createCapacitorPlatform(options: CreateCapacitorPlatformOptions): PlatformServices {
@@ -153,6 +162,7 @@ export function createCapacitorPlatform(options: CreateCapacitorPlatformOptions)
 
   return {
     deviceId: options.deviceId,
+    syncSnapshotLimits: CAPACITOR_SYNC_SNAPSHOT_LIMITS,
     deviceLabel: options.deviceLabel ?? 'Mobile Device',
     isDevMode: false,
     hasDeviceSlug: false,

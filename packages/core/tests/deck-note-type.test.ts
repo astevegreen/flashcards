@@ -69,6 +69,25 @@ describe('noteTypeForDeck (C8)', () => {
     expect(noteTypeForDeck(cloze, 'ko')).toBe(noteTypeForDeck(cloze, 'ko'));
   });
 
+  it("keeps a field language someone set over the deck's language", () => {
+    const base = preset(BUILTIN_NOTE_TYPE_IDS.SENTENCE);
+    // As a synced or restored NoteTypeChanged leaves it: the reading tagged as romanization.
+    const edited: NoteType = {
+      ...base,
+      fields: base.fields.map((f) => (f.key === 'reading' ? { ...f, lang: 'ko-Latn' } : f)),
+    };
+    const ko = noteTypeForDeck(edited, 'ko');
+    expect(langOf(ko, 'reading')).toBe('ko-Latn');
+    expect(langOf(ko, 'sentence')).toBe('ko');
+    expect(langOf(noteTypeForDeck(edited, 'zh-Hans'), 'reading')).toBe('ko-Latn');
+    // Every target field set by hand: nothing left for the deck to change.
+    const allSet: NoteType = {
+      ...base,
+      fields: base.fields.map((f) => ({ ...f, lang: f.lang === 'en' ? 'fr' : f.lang })),
+    };
+    expect(noteTypeForDeck(allSet, 'ko')).toBe(allSet);
+  });
+
   it('deckNoteType looks the note type up for a deck', () => {
     const sentence = preset(BUILTIN_NOTE_TYPE_IDS.SENTENCE);
     const state = { noteTypes: new Map([[sentence.id, sentence]]) };
