@@ -704,6 +704,16 @@ The owner accepted every recommendation on 2026-11-26.
 - [x] **D19 (review): a moved note's reviews replay under the new deck's FSRS params.** Recommend accept and document it. A card follows the settings of the deck it is in, as in Anki. Accepted and documented in `docs/design_blueprint.md` (§4.1).
 - [x] **S6 (review): CSV export allows formula injection.** Recommend prefixing `'` to cells that start with `=`, `+`, `-` or `@` only in the "for other apps" export, and skipping `-` followed by a Hangul letter, so grammar entries like `-(으)ㄴ` stay as they are. Partly done (#88); see "Left over from wave 3".
 
+### Left from the single-writer tab (#100)
+
+- [ ] No unit test covers the shell wiring in `apps/web/src/main.tsx` (`exposeWhenSaved` → `whenSaved`). The UI tests cover `AppProvider` and `FlashcardsApp`, and the e2e waits for each rating to land before "Use here instead", so deleting the shell link passes. Add an e2e that slows one write before the click.
+- [ ] A take-over request that arrives after the lock is held but before the app mounts finds no persist queue. Boot-time writes such as `setDeviceMeta`, sample seeding and migrations then fail on blocked storage and `boot()` rejects unhandled before the reload. The write barrier keeps started transactions whole and the next boot re-runs them, so nothing is lost. Wait for boot to finish before honouring a request.
+- [ ] `packages/ui/tests/writer-handoff-wiring.test.tsx` imports `apps/web/src/writer-handoff.ts`, so a library test depends on the app. Replace it with a local stand-in that records `release` and awaits `whenSaved`.
+- [ ] `blockWrites` replaces `storage.close` with a rejecting stub. If the lock is stolen while `yieldWriter` is still running, `stop()` calls that stub, which raises an unhandled rejection just before the reload and doesn't close the database (agy, #100).
+- [ ] `pause` in `writer-handoff.ts` doesn't check `signal.aborted` before waiting. A tap on "Use here instead" after this tab has already won the lock, but before the app has rendered over the waiting screen, waits a full 3 s round and keeps sending take-over requests (agy, #100).
+- [ ] Not verified in Safari, Firefox, Capacitor or Tauri, or in a real browser for a stolen lock or an old tab whose lazy chunk 404s after a deploy. Chromium 156 does reject a stolen holder's `request()` promise with `AbortError`, as the spec says.
+- [ ] Bundle: #100 takes initial study-screen JS to 159.95 of 160 KB. The next change that adds to the initial bundle needs a trim first.
+
 ## Decisions needed (wave 3, 2026-11-26)
 
 Each default below stays shipped until the owner decides.
@@ -720,13 +730,3 @@ The owner accepted every recommendation on 2026-11-26.
 - [x] **While Google is disconnected, linked Google Sheets and Docs rows now show "Connect Google to refresh this file." (permission needed)** instead of keeping their last state silently (#97). With the new launch refresh, a device that synced Sheets decks but never connected Google shows this after its first launch. Recommend keep. Decided 2026-11-26: keep.
 - [x] **agy's linked-issue filter trusts only the owner and write, maintain or admin collaborators; triage is untrusted (#94).** Recommend keep. Decided 2026-11-26: keep.
 - [x] **An agy review with no tagged line now retries rather than holds (#94).** Recommend keep. Decided 2026-11-26: keep.
-
-### Left from the single-writer tab (#100)
-
-- [ ] No unit test covers the shell wiring in `apps/web/src/main.tsx` (`exposeWhenSaved` → `whenSaved`). The UI tests cover `AppProvider` and `FlashcardsApp`, and the e2e waits for each rating to land before "Use here instead", so deleting the shell link passes. Add an e2e that slows one write before the click.
-- [ ] A take-over request that arrives after the lock is held but before the app mounts finds no persist queue. Boot-time writes such as `setDeviceMeta`, sample seeding and migrations then fail on blocked storage and `boot()` rejects unhandled before the reload. The write barrier keeps started transactions whole and the next boot re-runs them, so nothing is lost. Wait for boot to finish before honouring a request.
-- [ ] `packages/ui/tests/writer-handoff-wiring.test.tsx` imports `apps/web/src/writer-handoff.ts`, so a library test depends on the app. Replace it with a local stand-in that records `release` and awaits `whenSaved`.
-- [ ] `blockWrites` replaces `storage.close` with a rejecting stub. If the lock is stolen while `yieldWriter` is still running, `stop()` calls that stub, which raises an unhandled rejection just before the reload and doesn't close the database.
-- [ ] `pause` in `writer-handoff.ts` doesn't check `signal.aborted` before waiting. A tap on "Use here instead" after this tab has already won the lock, but before the app has rendered over the waiting screen, waits a full 3 s round and keeps sending take-over requests (agy, #100).
-- [ ] Not verified in Safari, Firefox, Capacitor or Tauri, or in a real browser for a stolen lock or an old tab whose lazy chunk 404s after a deploy. Chromium 156 does reject a stolen holder's `request()` promise with `AbortError`, as the spec says.
-- [ ] Bundle: #100 takes initial study-screen JS to 159.95 of 160 KB. The next change that adds to the initial bundle needs a trim first.
