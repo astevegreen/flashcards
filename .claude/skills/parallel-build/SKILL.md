@@ -1,9 +1,9 @@
 ---
 name: parallel-build
-description: Orchestrate two or more build agents at once in this repo (a batch of follow-ups, an overnight run). Use before starting the second concurrent build agent, or when the owner asks for a batch.
+description: Orchestrate two or more build agents at once in this repo (a batch of follow-ups, an overnight run, working the follow-ups down in rounds). Use before starting the second concurrent build agent, or when the owner asks for a batch.
 ---
 
-You are the **orchestrator**: you dispatch work to build agents, get each pull request reviewed and merged, and end with a short report. You write no product code, and you keep your context small.
+You are the **orchestrator**: you dispatch work to build agents, get each pull request reviewed and merged, run further rounds on what the merges left behind, and end with a short report. You write no product code, and you keep your context small.
 
 ## Dispatch
 
@@ -22,10 +22,21 @@ You are the **orchestrator**: you dispatch work to build agents, get each pull r
 
 1. Check CI yourself with `gh pr checks <n>`, not the agent's word.
 2. Run a fresh `reviewer` agent on the PR (only the PR number and the item it builds, never your opinion), then `node tools/gemini-audit.mjs pr <n>` and `node tools/sonar-gate.mjs <n>`. Reviewers find real must-fixes in about half of PRs here.
-3. Send blockers back to the build agent with `SendMessage`; it still has its context. Two rounds at most, then mark it **blocked** for the owner.
+3. Send blockers back to the build agent with `SendMessage`; it still has its context. Two fix passes at most, then mark it **blocked** for the owner.
 4. Merge as CLAUDE.md "Finishing a pull request" says, one at a time, in dependency order. After each merge, tell every agent with an open PR to merge `origin/main` into its branch, re-run `pnpm gate` and `pnpm size`, and push: each branch passes the size budget alone, but their sum can overflow it.
+
+## Rounds
+
+Fixing items raises new ones, so a run goes in **rounds**, 3 at most. Round 1 is the batch the owner asked for. A round ends when every one of its PRs is merged or blocked.
+
+1. **Triage** every new item the round raised: reviewer and agy notes that did not block, Sonar issues left open, each PR's "Decisions needed", and anything an agent found out of scope. Put each in the ledger under its round as one of:
+   - **fallout**: a bug, gap or missing test that a PR merged in this run introduced or left half-done;
+   - **decision**: needs the owner (design, scope, money, identity, deleting data);
+   - **backlog**: everything else, good ideas included.
+2. **Count the round's net**: items closed minus new items of all three kinds.
+3. **Start the next round** when it has fallout, the net is above zero and fewer than 3 rounds have run. Its batch is that fallout alone; decisions and backlog wait for the finish, and a blocked workstream stays with the owner. Otherwise, finish.
 
 ## Finish
 
-1. One last small agent ticks the merged items off `docs/follow-ups.md` and adds a "Decisions needed (<batch>)" section listing every default an agent picked, in a docs PR.
-2. Final message, short: merged PRs (number and title), open or blocked PRs with the reason, decisions needed with your recommendation, and what is unverified (devices, signing, real services).
+1. One last small agent, in a docs PR, ticks the merged items off `docs/follow-ups.md`, adds the backlog items under their areas, and adds a "Decisions needed (<batch>)" section listing every decision item and every default an agent picked.
+2. Final message, short: merged PRs (number and title), open or blocked PRs with the reason, each round's closed, added and net counts and why the run stopped, decisions needed with your recommendation, and what is unverified (devices, signing, real services).
