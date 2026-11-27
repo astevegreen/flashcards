@@ -256,6 +256,52 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     // Lines main already read as blockers stay blockers, so nothing that retried on main can merge now.
     'Blocker: none found',
     '**Blocker:** none',
+    // An answer that opens with none but goes on to name something is a blocker.
+    'Blockers: none, except a.ts:1 drops the check',
+    'Blockers: none except a missing guard',
+    'Blockers: None; but b.ts:2 swallows the error',
+    '**Blockers:** none - a.ts:1 wrong',
+    'Blockers: none (a.ts:1 is close)',
+    'Blockers: nothing, but a.ts:1 wrong',
+    'Blockers: nothing other than the missing test',
+    'Blockers: 0 new, 1 old: a.ts:1',
+    'Blockers: 0.5 of one',
+    'Blockers: no blockers, except a.ts:1',
+    'Blockers: no blockers but one risk',
+    'Blockers: N/A, though a.ts:1 is wrong',
+    'Blockers: none found. Blockers: a.ts:1',
+    'Blockers: zero apart from a.ts:1',
+    // Plain words after an opening name something too.
+    'Blockers: nothing handles the rejected import promise',
+    'Blockers: nothing stops data loss when the import overwrites settings',
+    '- Blockers: nothing persists the undo event',
+    'Blockers: zero tests cover the retry path',
+    'Blockers: 0 tests cover the new branch',
+    'Blockers: no blocker test exists for the retry',
+    'Blockers: none of the new paths has a test',
+    'Blockers: none except a missing guard in the retry',
+    'Blockers: zero',
+    // A label glued to the word before it once * is gone still counts.
+    'Summary**Blockers:** a.ts:1 drops the import check',
+    '**Review**Blockers: a.ts:1 wrong',
+    'Verdict*Blockers*: a.ts:1',
+    // A \r, U+2028 or U+2029 inside a line does not end the answer, and every label on the line is read.
+    '**Blockers:** none\r**Blockers:** a.ts:1 overwrites settings',
+    'Blockers: nothing\ra.ts:1 wrong',
+    'Blockers: none a.ts:1 wrong',
+    'Blockers: none found Blockers: a.ts:1 wrong',
+    // These "falsely retry" (follow-ups batch 2026-11-27): reading them as clean loosens the gate, so they keep
+    // retrying as on main until the owner decides (rail audit hold on #119).
+    'Blockers: 0',
+    'Blockers: 0.',
+    '**Blockers:** 0',
+    'Blockers: nothing',
+    'Blockers: Nothing.',
+    'Blockers: nothing found',
+    'Blockers: no blockers found',
+    'Blockers: No blockers.',
+    '**Blockers**: no blockers found',
+    'Blockers: nothing in this diff',
   ]) {
     const text = ['[note] a.ts:1 risk', real].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'retry', real);
@@ -272,6 +318,8 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Blockers — none in this diff',
     'Blockers: no',
     'No blockers: none',
+    'Blockers: none identified',
+    'Blockers: no.',
   ]) {
     const text = ['[note] a.ts:1 risk', clean].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'merge', clean);

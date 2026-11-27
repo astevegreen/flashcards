@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import {
   appendFileSync,
+  cpSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -13,17 +14,25 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BUILD = join(ROOT, 'scripts', 'build-packs.mjs');
 const run = (...args) =>
   spawnSync(process.execPath, [BUILD, '--starter', '--out', out, ...args], { encoding: 'utf8' });
 
+// One build, copied fresh for each test: a spawned build costs a second or more under load, and each test then
+// spawns only its own --check. The hook timeout covers that one build on a loaded machine.
+let pristine;
 let out;
+beforeAll(() => {
+  out = pristine = mkdtempSync(join(tmpdir(), 'flash-packs-pristine-'));
+  expect(run().status).toBe(0);
+}, 60_000);
+afterAll(() => rmSync(pristine, { recursive: true, force: true }));
 beforeEach(() => {
   out = mkdtempSync(join(tmpdir(), 'flash-packs-check-'));
-  expect(run().status).toBe(0);
+  cpSync(pristine, out, { recursive: true });
 });
 afterEach(() => rmSync(out, { recursive: true, force: true }));
 
@@ -33,7 +42,9 @@ function expectCheckFails(message) {
   expect(res.stderr).toContain(message);
 }
 
-describe('build-packs --starter --check', () => {
+// Each test spawns a Node process that rebuilds every starter pack: about 0.3 s idle, but seconds when other
+// gates load the machine, so these get more than vitest's 5 s default.
+describe('build-packs --starter --check', { timeout: 30_000 }, () => {
   it('passes on a fresh build', () => {
     const res = run('--check');
     expect(res.status).toBe(0);

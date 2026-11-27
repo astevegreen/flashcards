@@ -31,6 +31,16 @@ async function mount(storage = createMemoryStorage()) {
   return { m: mounted, storage };
 }
 
+/** Polls `check` until it passes, flushing React work inside act() between tries. */
+const settle = (check: () => void) =>
+  vi.waitFor(
+    async () => {
+      await flush(1);
+      check();
+    },
+    { timeout: 4_000, interval: 10 },
+  );
+
 const appendedTypes = (storage: ReturnType<typeof createMemoryStorage>) =>
   storage.appended.flat().map((e) => e.type);
 
@@ -39,7 +49,7 @@ describe('AppContext rateCard / undoLastReview / redoLastUndo (§9 UI state)', (
     const { m, storage } = await mount();
     const card = newCard(m);
     await act(async () => m.app().rateCard(card, 3, 1234.6, { typedAnswer: 'x' }));
-    await flush();
+    await settle(() => expect(appendedTypes(storage)).toContain('ReviewRecorded'));
 
     const app = m.app();
     expect(app.undoStack).toHaveLength(1);
@@ -66,9 +76,8 @@ describe('AppContext rateCard / undoLastReview / redoLastUndo (§9 UI state)', (
     };
     const { m } = await mount(storage);
     await act(async () => m.app().rateCard(newCard(m), 3, 1000));
-    await flush();
+    await settle(() => expect(together).toHaveLength(1));
 
-    expect(together).toHaveLength(1);
     expect(together[0]?.types).toEqual(['ReviewRecorded']);
     expect(together[0]?.seq).toBe(must(m.app().meta).seq);
     expect(storage.appended).toEqual([]);
@@ -83,10 +92,9 @@ describe('AppContext rateCard / undoLastReview / redoLastUndo (§9 UI state)', (
     await act(async () => {
       undone = m.app().undoLastReview();
     });
-    await flush();
+    await settle(() => expect(appendedTypes(storage)).toContain('ReviewUndone'));
 
     expect(undone).toBe(true);
-    expect(appendedTypes(storage)).toContain('ReviewUndone');
     expect(m.app().state.cards.get(card.id)?.schedule.reps).toBe(0);
     expect(m.app().undoStack).toHaveLength(0);
     expect(m.app().redoStack).toHaveLength(1);
@@ -197,9 +205,9 @@ describe('AppContext emitEvents with a failed persist', () => {
     storage.failAppend = new Error('QuotaExceededError');
     const card = newCard(m);
     await act(async () => m.app().rateCard(card, 3, 1000));
-    await flush();
-
-    expect(m.app().persistFailed).toBe(true);
+    // The write runs asynchronously; wait for its failure to show rather than for a tick count, which a loaded
+    // machine outran.
+    await settle(() => expect(m.app().persistFailed).toBe(true));
     // Optimistic: the review stands in this tab.
     expect(m.app().state.cards.get(card.id)?.schedule.reps).toBe(1);
     expect(storage.appended).toHaveLength(0);
@@ -207,8 +215,7 @@ describe('AppContext emitEvents with a failed persist', () => {
 
     storage.failAppend = undefined;
     await act(async () => m.app().retryPersist());
-    await flush();
-    expect(m.app().persistFailed).toBe(false);
+    await settle(() => expect(m.app().persistFailed).toBe(false));
     expect(appendedTypes(storage)).toContain('ReviewRecorded');
     await expect(m.app().whenSaved()).resolves.toBeUndefined();
   });

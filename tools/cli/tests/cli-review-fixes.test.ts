@@ -194,6 +194,30 @@ describe('--key-stdin at a terminal (S11)', () => {
     expect(await read('a', '\u001b\u001b', 'b', '\r')).toBe('ab\n');
     // A whole sequence after a lone Esc is still dropped.
     expect(await read('a\u001b', '\u001b[D', 'b\r')).toBe('ab\n');
+    // A lone Esc then O or [ typed on its own keeps that key.
+    expect(await read('a', '\u001b', 'O', '\r')).toBe('aO\n');
+    expect(await read('a', '\u001b', '[', 'b\r')).toBe('a[b\n');
+  });
+
+  it('drops a sequence split across two reads right after Esc', async () => {
+    const read = (...keys: string[]) =>
+      readKeyFromStdin({ stdin: rawTty(...keys).stdin, stderr: { write: () => true } });
+    expect(await read('ab\u001b', '[D', 'c\r')).toBe('abc\n');
+    expect(await read('ab\u001b', '[200~xy', '\u001b[201~\r')).toBe('abxy\n');
+    expect(await read('ab', '\u001b', 'OA', 'c\r')).toBe('abc\n');
+    expect(await read('ab', '\u001b', '[1;5Cd\r')).toBe('abd\n');
+    // Only a complete tail counts: an unfinished one is read as typed keys.
+    expect(await read('ab', '\u001b', '[1', '\r')).toBe('ab[1\n');
+  });
+
+  it('a control character ends an unfinished sequence and is read as itself', async () => {
+    const read = (...keys: string[]) =>
+      readKeyFromStdin({ stdin: rawTty(...keys).stdin, stderr: { write: () => true } });
+    // Esc, O, Enter in one read: Enter still ends the line instead of finishing an SS3 sequence.
+    expect(await read('ab\u001bO\r', 'late')).toBe('ab\n');
+    expect(await read('ab\u001b[1\r', 'late')).toBe('ab\n');
+    expect(await read('ab\u001bO\u007f', '\r')).toBe('a\n');
+    await expect(read('ab\u001bO\u0003')).rejects.toThrow(/Cancelled/);
   });
 
   it('cancels at Ctrl-C right after a lone Esc', async () => {

@@ -421,34 +421,42 @@ describe('leech backfill (NoteTagsAdded)', () => {
     expect(observe(hydrated).fieldHlcs).toEqual(observe(reference).fieldHlcs);
   });
 
-  it('converges under any concurrent backfills, tag edits, delivery order and chunking (property)', () => {
-    const tagArb = fc.constantFrom('topik-1', 'daily', 'leech', 'Leech', 'grammar::verbs');
-    const actionArb: fc.Arbitrary<ScenarioAction> = fc.oneof(
-      fc.record({
-        kind: fc.constant('backfill' as const),
-        device: fc.integer({ min: 0, max: 2 }),
-        seen: fc.double({ min: 0, max: 1, noNaN: true }),
-        dt: fc.integer({ min: -5_000, max: 60_000 }),
-      }),
-      fc.record({
-        kind: fc.constant('edit' as const),
-        device: fc.integer({ min: 0, max: 2 }),
-        note: fc.integer({ min: 0, max: 2 }),
-        tags: fc.uniqueArray(tagArb, { maxLength: 3, selector: (t) => t.toLowerCase() }),
-        dt: fc.integer({ min: -5_000, max: 60_000 }),
-      }),
-    );
-    fc.assert(
-      fc.property(
-        fc.array(fc.integer({ min: 0, max: LEECH_LAPSE_THRESHOLD + 2 }), {
-          minLength: 3,
-          maxLength: 3,
+  // CPU-bound: 120 replayed scenarios take about 0.7 s idle and several times that when parallel gates share the
+  // machine, so this one test gets 20 s rather than fewer runs.
+  it(
+    'converges under any concurrent backfills, tag edits, delivery order and chunking (property)',
+    {
+      timeout: 20_000,
+    },
+    () => {
+      const tagArb = fc.constantFrom('topik-1', 'daily', 'leech', 'Leech', 'grammar::verbs');
+      const actionArb: fc.Arbitrary<ScenarioAction> = fc.oneof(
+        fc.record({
+          kind: fc.constant('backfill' as const),
+          device: fc.integer({ min: 0, max: 2 }),
+          seen: fc.double({ min: 0, max: 1, noNaN: true }),
+          dt: fc.integer({ min: -5_000, max: 60_000 }),
         }),
-        fc.array(actionArb, { minLength: 1, maxLength: 12 }),
-        fc.integer({ min: 1, max: 100_000 }),
-        (lapses, actions, seed) => checkScenario(lapses, actions, seed),
-      ),
-      { numRuns: 120 },
-    );
-  });
+        fc.record({
+          kind: fc.constant('edit' as const),
+          device: fc.integer({ min: 0, max: 2 }),
+          note: fc.integer({ min: 0, max: 2 }),
+          tags: fc.uniqueArray(tagArb, { maxLength: 3, selector: (t) => t.toLowerCase() }),
+          dt: fc.integer({ min: -5_000, max: 60_000 }),
+        }),
+      );
+      fc.assert(
+        fc.property(
+          fc.array(fc.integer({ min: 0, max: LEECH_LAPSE_THRESHOLD + 2 }), {
+            minLength: 3,
+            maxLength: 3,
+          }),
+          fc.array(actionArb, { minLength: 1, maxLength: 12 }),
+          fc.integer({ min: 1, max: 100_000 }),
+          (lapses, actions, seed) => checkScenario(lapses, actions, seed),
+        ),
+        { numRuns: 120 },
+      );
+    },
+  );
 });
