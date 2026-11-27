@@ -131,6 +131,23 @@ describe('the Bring my cards preview reads quotes like the import', () => {
     expect(preview(text, false)[0]).toEqual({ word: ' 나무 ', meaning: 'tree' });
   });
 
+  it('drops a row 1 of quoted spaces when it is data, like any later row of blanks', () => {
+    const text = '"   ","   "\n"   ","   "\n하늘,sky\n';
+    expect(importFields(text, { hasHeaderRow: false })).toEqual([{ word: '하늘', meaning: 'sky' }]);
+    expect(preview(text, false)).toEqual([{ word: '하늘', meaning: 'sky' }]);
+    // No warning for row 1, as none for the later blank row.
+    const res = buildEventsFromCsv(text, {
+      deckId: 'deck-q',
+      noteType: KO,
+      eventFactory: createEventFactory('dev-q', 0, createHlcState('dev-q', 1000)),
+      nowMs: 2000,
+      hasHeaderRow: false,
+      columns: targets,
+    });
+    expect(res.importedCount).toBe(1);
+    expect(res.warnings).toEqual([]);
+  });
+
   it('without quote flags (a Sheet grid) every cell is trimmed, as before', () => {
     const grid = [
       ['word', 'meaning'],
