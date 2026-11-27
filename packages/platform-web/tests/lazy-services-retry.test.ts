@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // The first load of `lazy-services.ts` fails (as a chunk fetch would offline); later loads work.
 const loads = vi.hoisted(() => ({ count: 0 }));
@@ -9,6 +9,13 @@ vi.mock('../src/lazy-services.ts', async (importOriginal) => {
 });
 
 describe('createWebPlatform lazy services', () => {
+  // Load (and transform) the platform and the Google auth module it loads before the test runs: inside the test
+  // these first imports took seconds on a machine loaded by parallel gates. The mocked lazy-services module itself
+  // is still loaded, and failed, inside the test, so the retry it checks is unchanged.
+  beforeAll(async () => {
+    await Promise.all([import('../src/index.ts'), import('../src/auth/google-oauth-web.ts')]);
+  }, 60_000);
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });

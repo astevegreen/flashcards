@@ -91,15 +91,21 @@ function isControl(ch: string): boolean {
  * the bracketed-paste markers `ESC [200~` / `ESC [201~`), SS3 (`ESC O x`) and two-byte `ESC x`.
  * `skip(ch)` returns whether `ch` is part of one.
  *
- * A lone Esc key press is dropped without taking the next key with it: a terminal writes a whole
- * sequence at once, so an `ESC` that ends its chunk is a lone Esc (`endChunk` forgets it), and a
- * control character after `ESC` (Enter, Ctrl-C, Backspace, another Esc) is never a sequence's
- * second byte, so it is read as itself.
+ * A lone Esc key press is dropped without taking the next key with it. A control character
+ * (Enter, Ctrl-C, Backspace, another Esc) is never part of a sequence, so it ends one and is read
+ * as itself. A terminal usually writes a whole sequence at once, so an `ESC` that ends its chunk
+ * is taken as a lone Esc, unless the next chunk starts with a complete sequence tail (`[A`,
+ * `[200~`, `OP`): then the sequence was split across two reads and `startChunk` drops the tail.
+ * A lone Esc followed by an ordinary key press (`c`, or `O` or `[` on its own) keeps that key.
  */
-function escapeSkipper(): { skip: (ch: string) => boolean; endChunk: () => void } {
-  let state: 'text' | 'esc' | 'csi' | 'ss3' = 'text';
+function escapeSkipper(): {
+  skip: (ch: string) => boolean;
+  startChunk: (text: string) => string;
+  endChunk: () => void;
+} {
+  let state: 'text' | 'esc' | 'csi' | 'ss3' | 'escEnd' = 'text';
   const skip = (ch: string): boolean => {
-    if (state === 'esc' && isControl(ch)) state = 'text';
+    if (state !== 'text' && isControl(ch)) state = 'text';
     if (state === 'text') {
       if (ch !== ESC) return false;
       state = 'esc';
@@ -114,11 +120,24 @@ function escapeSkipper(): { skip: (ch: string) => boolean; endChunk: () => void 
     }
     return true;
   };
-  const endChunk = (): void => {
-    if (state === 'esc') state = 'text';
+  const startChunk = (text: string): string => {
+    if (state !== 'escEnd') return text;
+    state = 'text';
+    const tail = SPLIT_SEQUENCE_TAIL.exec(text);
+    return tail ? text.slice(tail[0].length) : text;
   };
-  return { skip, endChunk };
+  const endChunk = (): void => {
+    if (state === 'esc') state = 'escEnd';
+  };
+  return { skip, startChunk, endChunk };
 }
+
+/**
+ * A whole CSI tail (`[`, parameter bytes, intermediate bytes, a final byte) or SS3 tail (`O` and
+ * one printable character) at the start of a chunk. Each part matches different bytes, so the
+ * pattern cannot backtrack.
+ */
+const SPLIT_SEQUENCE_TAIL = /^(?:\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|O[\x21-\x7e])/;
 
 /**
  * One raw-mode key press applied to the key typed so far: the new key, or `null` once Enter or
@@ -147,8 +166,9 @@ async function readHiddenLine(
   setRawMode(true);
   try {
     for await (const chunk of stdin) {
-      const text =
-        typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
+      const text = escapes.startChunk(
+        typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true }),
+      );
       for (const ch of text) {
         if (escapes.skip(ch)) continue;
         const next = pressKey(key, ch);

@@ -19,7 +19,7 @@
     "@flash/platform": "workspace:*",
     "@tanstack/react-virtual": "^3.14.26",
     "hanzi-writer": "3.7.3",
-    "mdast-util-directive": "^3.2.0",
+    "mdast-util-directive": "^3.2.1",
     "mdast-util-from-markdown": "^2.1.0",
     "mdast-util-gfm-table": "^2.0.1",
     "micromark-extension-directive": "^4.0.0",
