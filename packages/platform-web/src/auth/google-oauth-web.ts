@@ -4,7 +4,7 @@ import { createPkcePair, randomBase64Url } from './pkce.ts';
 import { isFreshPkce } from './pkce-expiry.ts';
 import { reconnectRequiredTokens, requireAccessToken, TokenRefresher } from './token-refresher.ts';
 
-export const GOOGLE_OAUTH_SCOPES =
+const GOOGLE_OAUTH_SCOPES =
   'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file';
 
 const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';

@@ -68,21 +68,14 @@ import {
 } from './sourcesRegistry.ts';
 
 export {
-  isOnline,
   LINKED_SOURCES_KV_KEY,
   loadSourcesRegistry,
-  resolveNoteType,
   saveSourcesRegistry,
   type SourceRefreshSummary,
   type SourceRunContext,
   withSourcesLock,
 } from './sourcesRegistry.ts';
-export {
-  archivedDeckRefreshMessage,
-  canReadExcel,
-  excelUnreadableMessage,
-  readCloudTable as readOneDriveTable,
-} from './cloudFileSource.ts';
+export { readCloudTable as readOneDriveTable } from './cloudFileSource.ts';
 export {
   downloadGoogleDriveFile,
   linkGoogleDriveFile,
@@ -97,9 +90,6 @@ export {
   ONEDRIVE_RECONCILE_PREFIX,
   refreshSingleDropboxSource,
   refreshSingleOneDriveSource,
-  type DropboxLinkOptions,
-  type DropboxRefreshOptions,
-  type DropboxRefreshResult,
 } from './cloudFileProviders.ts';
 
 const GOOGLE_SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
@@ -140,7 +130,7 @@ function syncedSourceMatcher(
 }
 
 /** One `SourceUnlinked` per deck and page whose source `matches`. */
-export function planSourceUnlinkEvents(
+function planSourceUnlinkEvents(
   state: CollectionState,
   factory: EventFactory,
   matches: (source: SourceRef) => boolean,

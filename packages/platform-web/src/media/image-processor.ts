@@ -2,7 +2,7 @@ import { assertSafeHttpsUrl, sha256Hex } from '@flash/core/sources';
 import type { ImageProcessOptions, ProcessedImage } from '@flash/platform';
 import { overCapText, readBodyCapped } from '../net/read-capped.ts';
 
-export const IMAGE_PROCESSOR_LIMITS = {
+const IMAGE_PROCESSOR_LIMITS = {
   maxInputBytes: 20 * 1024 * 1024, // 20 MiB raw input cap
   maxOutputBytes: 10 * 1024 * 1024, // 10 MiB synced blob cap
   defaultMaxDimension: 1200,

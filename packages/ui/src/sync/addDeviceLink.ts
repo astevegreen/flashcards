@@ -59,7 +59,7 @@ export function parseAddDeviceParams(search: string): AddDeviceLink | undefined 
 }
 
 /** True when the query string carries any add-device param (valid or not) to strip. */
-export function hasAddDeviceParams(search: string): boolean {
+function hasAddDeviceParams(search: string): boolean {
   const params = new URLSearchParams(search);
   return params.has(ADD_DEVICE_PROVIDER_PARAM) || params.has(ADD_DEVICE_COLLECTION_PARAM);
 }

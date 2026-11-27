@@ -39,7 +39,7 @@ export function createSyncStateStore(initial: SyncUiState): SyncStateStore {
 
 export const SyncStateContext = createContext<SyncStateStore | null>(null);
 
-export function useSyncStateStore(): SyncStateStore {
+function useSyncStateStore(): SyncStateStore {
   const store = useContext(SyncStateContext);
   if (!store) throw new Error('useSyncState must be used inside AppProvider');
   return store;

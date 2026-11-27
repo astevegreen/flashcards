@@ -41,7 +41,7 @@ import {
  * archived, or an `.xlsx` this device can't read, is left alone and its row says why.
  */
 
-export type CloudFileKind = 'onedrive_file' | 'dropbox_file' | 'google_drive_file';
+type CloudFileKind = 'onedrive_file' | 'dropbox_file' | 'google_drive_file';
 
 /** The fields every linked cloud file row has (`LinkedOneDriveSource` and the others). */
 export interface CloudFileRow {
@@ -147,7 +147,7 @@ export function excelUnreadableMessage(name: string): string {
 }
 
 /** True when this device can read `.xlsx` (the web and PC shells; not the phone shells yet). */
-export async function canReadExcel(platform: PlatformServices): Promise<boolean> {
+async function canReadExcel(platform: PlatformServices): Promise<boolean> {
   try {
     const adapter = await platform.getLocalFolderSources();
     return adapter.canParseXlsx ? adapter.canParseXlsx() : true;
@@ -196,7 +196,7 @@ export async function readCloudTable(
 }
 
 /** The deck a file fills: the row's, else one derived from the provider prefix and file id. */
-export function cloudFileDeckId(prefix: string, fileId: string, deckId?: string): string {
+function cloudFileDeckId(prefix: string, fileId: string, deckId?: string): string {
   return deckId ?? uuidv5(FLASH_NAMESPACE_UUID, `${prefix}${fileId}`);
 }
 
@@ -351,7 +351,7 @@ function deckEvent(
   );
 }
 
-export function toSourceWarnings(
+function toSourceWarnings(
   warnings: ReadonlyArray<{ code: string; message: string; row?: number; header?: string }>,
 ): SourceWarning[] {
   return warnings.map((w) => ({

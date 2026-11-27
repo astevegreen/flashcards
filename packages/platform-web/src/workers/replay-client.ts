@@ -10,7 +10,7 @@ interface PendingCall {
 /**
  * Dedicated ES module Web Worker client running FSRS event replay off the main thread (§4.1 & §8).
  */
-export class WebReplayWorkerClient implements ReplayWorkerClient {
+class WebReplayWorkerClient implements ReplayWorkerClient {
   private readonly worker: Worker;
   private readonly pending = new Map<number, PendingCall>();
   private nextId = 1;

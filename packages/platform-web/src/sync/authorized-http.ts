@@ -14,7 +14,7 @@ const BASE_RETRY_DELAY_MS = 500;
  * A Retry-After longer than this fails the call (sync retries later) instead of hanging. Fine for
  * background sync; clients a user is waiting on pass a lower `maxRetryAfterMs`.
  */
-export const BACKGROUND_MAX_RETRY_AFTER_MS = 30_000;
+const BACKGROUND_MAX_RETRY_AFTER_MS = 30_000;
 /** The Retry-After ceiling for requests a user is watching (pickers, Sheets/Docs). */
 export const INTERACTIVE_MAX_RETRY_AFTER_MS = 2_000;
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);

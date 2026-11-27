@@ -16,7 +16,7 @@ import {
  */
 let lastSent = '';
 
-export function presetCatchUpEvents(
+function presetCatchUpEvents(
   state: CollectionState,
   factory: EventFactory,
   nowMs: number,

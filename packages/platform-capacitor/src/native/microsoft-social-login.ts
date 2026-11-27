@@ -29,7 +29,7 @@ import { assertNativeOAuthRedirect } from './deep-links.ts';
 import { registerOAuth2Provider } from './oauth2-providers.ts';
 
 /** Registered in Entra under "Mobile and desktop applications" (custom scheme already claimed). */
-export const DEFAULT_MICROSOFT_NATIVE_REDIRECT = 'flashcards://oauth/microsoft';
+const DEFAULT_MICROSOFT_NATIVE_REDIRECT = 'flashcards://oauth/microsoft';
 
 export interface MicrosoftSocialLoginConfig {
   clientId: string;

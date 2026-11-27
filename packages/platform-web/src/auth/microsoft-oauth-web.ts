@@ -9,7 +9,7 @@ import { reconnectRequiredTokens, requireAccessToken, TokenRefresher } from './t
 export const MICROSOFT_SYNC_SCOPES = ['Files.ReadWrite.AppFolder', 'offline_access'] as const;
 /** Optional read-only scope for the OneDrive file picker (incremental consent). */
 export const MICROSOFT_PICKER_SCOPE = 'Files.Read';
-export const DEFAULT_MICROSOFT_TENANT = 'consumers';
+const DEFAULT_MICROSOFT_TENANT = 'consumers';
 
 const MS_PKCE_KV_KEY = 'onedrive_oauth_pkce';
 const MS_TOKENS_KV_KEY = 'onedrive_oauth_tokens';
@@ -71,7 +71,7 @@ function stringOf(data: Record<string, unknown>, key: string): string {
 }
 
 /** Builds the Microsoft identity platform v2 authorize URL (authorization code + PKCE). */
-export function buildMicrosoftAuthorizeUrl(params: {
+function buildMicrosoftAuthorizeUrl(params: {
   tenant: string;
   clientId: string;
   redirectUri: string;

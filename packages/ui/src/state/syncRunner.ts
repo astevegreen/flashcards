@@ -33,7 +33,7 @@ import {
 import { snapshotWriteAllowed } from './rebuildSignal.ts';
 import { isNavigatorOnline } from './syncShell.ts';
 
-export function buildWatermarks(
+function buildWatermarks(
   deviceId: string,
   ownSeq: number,
   cursor?: SyncCursorState,

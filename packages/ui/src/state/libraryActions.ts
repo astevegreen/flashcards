@@ -40,7 +40,7 @@ type LibraryActionsApp = Pick<
   'getEventFactory' | 'getState' | 'emitEvents' | 'updateDeckSettings'
 >;
 
-export function createLibraryActions(app: LibraryActionsApp): LibraryActions {
+function createLibraryActions(app: LibraryActionsApp): LibraryActions {
   const { getEventFactory, getState, emitEvents, updateDeckSettings } = app;
   return {
     upsertLayout(layout, enableOnDeckId) {

@@ -2,7 +2,7 @@ import { assertSafeHttpsUrl, sha256Hex } from '@flash/core/sources';
 import type { ProcessedAudio } from '@flash/platform';
 import { overCapText, readBodyCapped } from '../net/read-capped.ts';
 
-export const AUDIO_PROCESSOR_LIMITS = {
+const AUDIO_PROCESSOR_LIMITS = {
   maxBytes: 10 * 1024 * 1024, // 10 MiB synced blob cap (matches SYNC_MEDIA_LIMITS.maxMediaBlobBytes)
 } as const;
 

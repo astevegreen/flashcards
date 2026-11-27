@@ -11,7 +11,7 @@ import { readBodyCapped, readTextCapped } from '../net/read-capped.ts';
 const DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
 
 /** Same cap as linked local-folder and OneDrive files. */
-export const MAX_DRIVE_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_DRIVE_FILE_BYTES = 50 * 1024 * 1024;
 /** One file's metadata reply is a few hundred bytes. */
 const MAX_DRIVE_META_BYTES = 1024 * 1024;
 

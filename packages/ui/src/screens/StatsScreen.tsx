@@ -38,7 +38,7 @@ const MATURITY_SEGMENTS = [
 
 const HEATMAP_LEVEL_OPACITY = [0, 0.3, 0.5, 0.75, 1] as const;
 
-export function formatDuration(ms: number): string {
+function formatDuration(ms: number): string {
   if (ms <= 0) return '0 min';
   const totalSeconds = Math.round(ms / 1000);
   if (totalSeconds < 60) return `${totalSeconds} s`;

@@ -30,11 +30,7 @@ export interface LoopbackSignInOptions {
 }
 
 /** Reads `code` from the loopback callback URL after checking `state` and `error`. */
-export function codeFromCallback(
-  callbackUrl: string,
-  expectedState: string,
-  provider: string,
-): string {
+function codeFromCallback(callbackUrl: string, expectedState: string, provider: string): string {
   const returned = new URL(callbackUrl);
   if (returned.searchParams.get('state') !== expectedState) {
     throw new Error('OAuth state mismatch.');

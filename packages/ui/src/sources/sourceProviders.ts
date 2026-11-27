@@ -4,9 +4,9 @@ import type { PlatformServices } from '@flash/platform';
  * Which linked-source providers this platform/build offers (§3), so the Sources panel lists only
  * what the user can actually link, and dev builds can say which env var a hidden provider needs.
  */
-export type LinkedSourceProviderId = 'google' | 'onedrive' | 'dropbox' | 'local_folder';
+type LinkedSourceProviderId = 'google' | 'onedrive' | 'dropbox' | 'local_folder';
 
-export interface LinkedSourceProvider {
+interface LinkedSourceProvider {
   id: LinkedSourceProviderId;
   /** Button-sized name. */
   name: string;
@@ -31,7 +31,7 @@ type ProviderPlatform = Pick<
   | 'supportsLocalFolderSync'
 >;
 
-export function linkedSourceProviders(platform: ProviderPlatform): LinkedSourceProvider[] {
+function linkedSourceProviders(platform: ProviderPlatform): LinkedSourceProvider[] {
   return [
     {
       id: 'google',

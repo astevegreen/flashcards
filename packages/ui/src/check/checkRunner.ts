@@ -126,7 +126,7 @@ export async function reAddUnlistedMedia(ctx: RemoveMediaContext): Promise<numbe
   return entries.length;
 }
 
-export type DatabaseCheckMode =
+type DatabaseCheckMode =
   /** Rebuilt from the whole event log. */
   | 'full'
   /** The log lacks history another device folded into a snapshot: rebuilt from the saved snapshot. */

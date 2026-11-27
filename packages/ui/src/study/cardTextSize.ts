@@ -11,7 +11,7 @@ export type CardTextSize = 's' | 'm' | 'l' | 'xl';
 
 export const CARD_TEXT_SIZES: readonly CardTextSize[] = ['s', 'm', 'l', 'xl'];
 
-export const CARD_TEXT_SIZE_STORAGE_KEY = 'flash:display:cardTextSize';
+const CARD_TEXT_SIZE_STORAGE_KEY = 'flash:display:cardTextSize';
 
 export function parseCardTextSize(raw: unknown): CardTextSize {
   return raw === 's' || raw === 'l' || raw === 'xl' ? raw : 'm';
