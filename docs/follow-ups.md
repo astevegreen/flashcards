@@ -826,7 +826,7 @@ Each default below stays shipped until the owner decides.
 - [ ] **Pack upgrade with "archive removed notes" (#114):** a package note that lost its source key to a moved-in duplicate now stays live with its old content (it was archived). The deck shows both notes. Recommend keep: it writes nothing and loses nothing.
 - [ ] **CSV with no header row (#114):** an all-blank row 1 (quoted spaces too) is now dropped silently like later blank rows; before, an unquoted one gave an "empty row skipped" warning. Recommend keep.
 - [ ] **agy merge gate, singular forms (#111):** "Blocker: none found" and "**Blocker:** none" still read as a blocker (retry), while the plural forms now merge. Clearing them loosens the check, so it's the owner's call. Recommend clear them, the same way as the plural forms.
-- [ ] **Sync read caps (#115):** head and manifest 25 MiB, segment 20 MiB, snapshot 30 MiB, media 20 MiB. An over-cap file is skipped the way an over-limit file already was. Technical; for information only.
+- [ ] **Sync read caps (#115):** head and manifest 25 MiB, segment 20 MiB, snapshot 30 MiB, media 20 MiB. An over-cap file is handled the way an over-limit file already was (skipped, or for head and manifest, the sync fails). Technical; for information only.
 - [ ] **#112 and #113 are technical, with no product defaults.** For information only.
 
 ## Needs the owner (hands-on)
