@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import type { ReactElement } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   holdWriter,
   holdWriterLock,
@@ -19,6 +19,19 @@ let count = 0;
 const freshName = () => `flashcards-db-tabs${++count}`;
 const realChunk = () => import('../src/other-tab.tsx');
 const chunkGone = () => Promise.reject(new Error('chunk gone'));
+
+// Load (and transform) the handoff chunk once before any test: inside a test its first import took seconds on a
+// loaded machine, longer than the waits below, which time the lock protocol rather than the module loader.
+beforeAll(async () => {
+  await realChunk();
+}, 60_000);
+
+/**
+ * vi.waitFor with 3 s instead of its 1 s default, for the waits that only need something to happen eventually:
+ * the writer answers on a 500 ms timer, and a loaded event loop can stretch two of them past 1 s. Waits that time
+ * the protocol (an answer "at once") keep their own short timeout.
+ */
+const eventually = (check: () => void) => vi.waitFor(check, { timeout: 3000 });
 
 interface TabOptions {
   load?: () => Promise<HandoffModule>;
@@ -79,7 +92,7 @@ describe('holdWriter', () => {
     const { locks } = fakeLocks();
     const name = freshName();
     const writer = openTab(locks, name, { load: () => new Promise<never>(() => undefined) });
-    await vi.waitFor(() => expect(writer.holds()).toBe(true));
+    await eventually(() => expect(writer.holds()).toBe(true));
 
     const asking = ask(name);
     try {
@@ -95,7 +108,7 @@ describe('holdWriter', () => {
     const { locks } = fakeLocks();
     const name = freshName();
     const writer = openTab(locks, name, { load: () => new Promise<never>(() => undefined) });
-    await vi.waitFor(() => expect(writer.holds()).toBe(true));
+    await eventually(() => expect(writer.holds()).toBe(true));
     // The writer's 500 ms answer timer never fires from here on.
     vi.useFakeTimers({ toFake: ['setInterval'] });
     const channel = new BroadcastChannel(`${name}:writer`);
@@ -125,7 +138,7 @@ describe('holdWriter', () => {
       saveQueued = r;
     });
     const writer = openTab(locks, name, { load: chunkGone, whenSaved: () => queuedWrite });
-    await vi.waitFor(() => expect(writer.holds()).toBe(true));
+    await eventually(() => expect(writer.holds()).toBe(true));
 
     ask(name).close();
     await tick(100);
@@ -135,7 +148,7 @@ describe('holdWriter', () => {
 
     saveQueued();
 
-    await vi.waitFor(() => expect(writer.reload).toHaveBeenCalledTimes(1));
+    await eventually(() => expect(writer.reload).toHaveBeenCalledTimes(1));
     expect(writer.storage.close).toHaveBeenCalled();
     expect(await holdWriterLock(locks, name, waitUpTo(500), vi.fn())).not.toBeNull();
   });
@@ -150,12 +163,12 @@ describe('holdWriter', () => {
     // Boot writes the device meta, seeds samples and migrates before the app mounts.
     const storage = { close: vi.fn(), setDeviceMeta: vi.fn(async () => undefined) };
     const writer = openTab(locks, name, { booted, storage });
-    await vi.waitFor(() => expect(writer.holds()).toBe(true));
+    await eventually(() => expect(writer.holds()).toBe(true));
 
     const asking = ask(name);
     try {
       // Answered at once, so the asking tab waits instead of stealing...
-      await vi.waitFor(() => expect(asking.answers()).toBeGreaterThan(0));
+      await eventually(() => expect(asking.answers()).toBeGreaterThan(0));
       await tick(100);
       // ...while boot's writes still land.
       await expect(storage.setDeviceMeta()).resolves.toBeUndefined();
@@ -163,7 +176,7 @@ describe('holdWriter', () => {
 
       finishBoot();
 
-      await vi.waitFor(() => expect(writer.reload).toHaveBeenCalledTimes(1));
+      await eventually(() => expect(writer.reload).toHaveBeenCalledTimes(1));
       await expect(storage.setDeviceMeta()).rejects.toThrow(BLOCKED_MESSAGE);
       expect(await holdWriterLock(locks, name, waitUpTo(500), vi.fn())).not.toBeNull();
     } finally {
@@ -176,11 +189,11 @@ describe('holdWriter', () => {
     const name = freshName();
     const load = vi.fn(chunkGone);
     const writer = openTab(locks, name, { load });
-    await vi.waitFor(() => expect(writer.holds()).toBe(true));
+    await eventually(() => expect(writer.holds()).toBe(true));
 
     await holdWriterLock(locks, name, { steal: true }, vi.fn());
 
-    await vi.waitFor(() => expect(writer.reload).toHaveBeenCalledTimes(1));
+    await eventually(() => expect(writer.reload).toHaveBeenCalledTimes(1));
     expect(writer.storage.close).toHaveBeenCalled();
     expect(load).not.toHaveBeenCalled();
   });
@@ -190,12 +203,12 @@ describe('holdWriter', () => {
     const name = freshName();
     const release = await holdWriterLock(locks, name, waitUpTo(10), vi.fn());
     const waiting = openTab(locks, name);
-    await vi.waitFor(() => expect(waiting.waiting()).toBe(true));
+    await eventually(() => expect(waiting.waiting()).toBe(true));
     expect(waiting.holds()).toBe(false);
 
     release?.(); // the writer tab closes
 
-    await vi.waitFor(() => expect(waiting.holds()).toBe(true));
+    await eventually(() => expect(waiting.holds()).toBe(true));
     expect(stats.steals).toBe(0);
   });
 
@@ -213,7 +226,7 @@ describe('holdWriter', () => {
     release?.();
     finishLoading();
 
-    await vi.waitFor(() => expect(waiting.holds()).toBe(true));
+    await eventually(() => expect(waiting.holds()).toBe(true));
     await tick(50);
     expect(waiting.events).toEqual(['render', 'held']);
   });
@@ -228,7 +241,7 @@ describe('holdWriter', () => {
 
     release?.();
 
-    await vi.waitFor(() => expect(waiting.holds()).toBe(true));
+    await eventually(() => expect(waiting.holds()).toBe(true));
     expect(waiting.events).toEqual(['held']);
     expect(stats.steals).toBe(0);
   });
@@ -237,13 +250,13 @@ describe('holdWriter', () => {
     const { locks, stats } = fakeLocks();
     const name = freshName();
     const first = openTab(locks, name);
-    await vi.waitFor(() => expect(first.holds()).toBe(true));
+    await eventually(() => expect(first.holds()).toBe(true));
     const second = openTab(locks, name);
-    await vi.waitFor(() => expect(second.waiting()).toBe(true));
+    await eventually(() => expect(second.waiting()).toBe(true));
 
     second.useHere();
 
-    await vi.waitFor(() => expect(second.holds()).toBe(true));
+    await eventually(() => expect(second.holds()).toBe(true));
     expect(first.reload).toHaveBeenCalledTimes(1);
     // Its own requests, still in flight when it won, are ignored.
     await tick(1200);
@@ -255,10 +268,10 @@ describe('holdWriter', () => {
     const { locks, stats } = fakeLocks();
     const name = freshName();
     const first = openTab(locks, name);
-    await vi.waitFor(() => expect(first.holds()).toBe(true));
+    await eventually(() => expect(first.holds()).toBe(true));
     const second = openTab(locks, name);
     const third = openTab(locks, name);
-    await vi.waitFor(() => expect(second.waiting() && third.waiting()).toBe(true));
+    await eventually(() => expect(second.waiting() && third.waiting()).toBe(true));
 
     second.useHere();
     third.useHere();

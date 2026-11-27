@@ -129,15 +129,24 @@ describe('note types with field keys that exist only on Object.prototype', () =>
       (b) => b.textContent === 'Options',
     );
     await act(async () => options?.click());
-    await flush(20);
+    // The options panel and the stroke provider load lazily, so wait for the coverage call itself rather than a
+    // tick count (flush(20) failed once in CI under load). Each poll flushes inside act().
+    const settle = (check: () => void) =>
+      vi.waitFor(
+        async () => {
+          await flush(1);
+          check();
+        },
+        { timeout: 4_000, interval: 10 },
+      );
     // The coverage effect asks the provider about the deck's characters: none.
-    expect(provider.getCacheCoverage).toHaveBeenCalledWith('ja', []);
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>('[data-testid="precache-deck-strokes-btn"]')
-        ?.click(),
+    await settle(() => expect(provider.getCacheCoverage).toHaveBeenCalledWith('ja', []));
+    const precache = '[data-testid="precache-deck-strokes-btn"]';
+    await settle(() => expect(container.querySelector(precache)).not.toBeNull());
+    const button = container.querySelector<HTMLButtonElement>(precache);
+    await act(async () => button?.click());
+    await settle(() =>
+      expect(provider.precacheCharacters).toHaveBeenCalledWith('ja', [], expect.anything()),
     );
-    await flush();
-    expect(provider.precacheCharacters).toHaveBeenCalledWith('ja', [], expect.anything());
   });
 });

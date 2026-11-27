@@ -28,7 +28,9 @@ afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
 
-describe('build-packs.mjs sharding', () => {
+// Each test spawns a Node process that rebuilds every starter pack: under a second idle, but seconds when other
+// gates load the machine, so these get more than vitest's 5 s default.
+describe('build-packs.mjs sharding', { timeout: 30_000 }, () => {
   it('--shard splits KRDict into an index plus shards that decode back to the full pack', () => {
     const out = outDir();
     // A stale shard from an earlier, more finely sharded build must be cleaned up.
