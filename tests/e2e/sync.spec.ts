@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createEventFactory } from '../../packages/core/src/events/replay.ts';
+import { createEventFactory, replayAllEvents } from '../../packages/core/src/events/replay.ts';
 import type { FlashEvent } from '../../packages/core/src/events/types.ts';
 import { createHlcState } from '../../packages/core/src/hlc.ts';
 import {
@@ -109,23 +109,38 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
     await expect(koRowB.getByLabel('Target retention')).toHaveValue('0.85');
 
     // Both devices hold the same event log, so replay gives them the same card schedules.
-    const readEventIds = async (p: typeof pageA, dbName: string) =>
+    const readEvents = async (p: typeof pageA, dbName: string) =>
       p.evaluate(async (name) => {
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
           const req = indexedDB.open(name);
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-        const keys = await new Promise<IDBValidKey[]>((resolve, reject) => {
-          const tx = db.transaction('events', 'readonly');
-          const req = tx.objectStore('events').getAllKeys();
-          req.onsuccess = () => resolve(req.result);
-          req.onerror = () => reject(req.error);
-        });
+        const rows = await new Promise<{ keys: IDBValidKey[]; events: unknown[] }>(
+          (resolve, reject) => {
+            const tx = db.transaction('events', 'readonly');
+            const store = tx.objectStore('events');
+            const keysReq = store.getAllKeys();
+            const rowsReq = store.getAll();
+            tx.oncomplete = () => resolve({ keys: keysReq.result, events: rowsReq.result });
+            tx.onerror = () => reject(tx.error);
+          },
+        );
         db.close();
         // Keys come back in IndexedDB key order, the same on both devices.
-        return keys.map(String);
+        return { ids: rows.keys.map(String), events: rows.events };
       }, dbName);
+
+    /** Each card's derived schedule (due, stability, state) after replaying a device's stored log. */
+    const schedulesOf = (events: unknown[]) =>
+      [...replayAllEvents(events as FlashEvent[]).cards.values()]
+        .map((c) => ({
+          id: c.id,
+          due: c.schedule.due,
+          stability: c.schedule.stability,
+          state: c.schedule.state,
+        }))
+        .sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
 
     // Reload Device B and verify persistence + identical event logs
     await pageB.reload();
@@ -133,10 +148,17 @@ test.describe('Phase 2 Cloud Sync & Web Worker Replay E2E', () => {
     await pageB.getByLabel('Select deck to study').selectOption({ label: 'Korean Core + Hanja' });
     await expect(pageB.getByTestId('count-new')).toHaveText(String(initialKoNew - 1));
 
-    const eventsA = await readEventIds(pageA, 'flashcards-db-synca');
-    const eventsB = await readEventIds(pageB, 'flashcards-db-syncb');
-    expect(eventsB.length).toBeGreaterThan(0);
-    expect(eventsB).toEqual(eventsA);
+    const logA = await readEvents(pageA, 'flashcards-db-synca');
+    const logB = await readEvents(pageB, 'flashcards-db-syncb');
+    expect(logB.ids.length).toBeGreaterThan(0);
+    expect(logB.ids).toEqual(logA.ids);
+    // The state both devices derive from those logs: the schedule of every card matches, and the
+    // review made on A has moved a card off its new-card schedule.
+    const schedulesA = schedulesOf(logA.events);
+    const schedulesB = schedulesOf(logB.events);
+    expect(schedulesB.length).toBeGreaterThan(0);
+    expect(schedulesB).toEqual(schedulesA);
+    expect(schedulesB.some((c) => c.stability > 0)).toBe(true);
 
     await context.close();
   });
