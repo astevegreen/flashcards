@@ -32,6 +32,7 @@ import {
   SyncCodecError,
 } from '../src/sync/codec.ts';
 import { runSync } from '../src/sync/engine.ts';
+import { assertSyncReadCapsCover } from '../src/sync/read-caps.ts';
 import type { SyncSnapshot } from '../src/sync/types.ts';
 import {
   createInitialSyncCursor,
@@ -924,6 +925,7 @@ describe('snapshots past the decoder limits (D12)', () => {
     expect(SYNC_SNAPSHOT_LIMITS.maxUncompressedBytes).toBe(128 * 1024 * 1024);
     // Same compressed cap, so transport read caps built on SYNC_CODEC_LIMITS still fit.
     expect(SYNC_SNAPSHOT_LIMITS.maxCompressedBytes).toBe(SYNC_CODEC_LIMITS.maxCompressedBytes);
+    expect(() => assertSyncReadCapsCover({ codec: SYNC_SNAPSHOT_LIMITS })).not.toThrow();
     // The measured 20k-card collection (69.7 MiB raw, 5.07 MiB gzipped) fits both.
     expect(69.7 * 1024 * 1024).toBeLessThan(SYNC_SNAPSHOT_LIMITS.maxUncompressedBytes);
     expect(5.07 * 1024 * 1024).toBeLessThan(SYNC_SNAPSHOT_LIMITS.maxCompressedBytes);
