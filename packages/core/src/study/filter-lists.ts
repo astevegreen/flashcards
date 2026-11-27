@@ -2,13 +2,12 @@ import type { CollectionState } from '../events/replay.ts';
 import type { Note } from '../model/types.ts';
 import {
   filterCards,
-  hasCardLevelCriteria,
   matchesCategoryCriterion,
-  normalizeCardFilter,
   type CardFilter,
   type CardFilterContext,
   type PerformanceCriterion,
 } from './filter.ts';
+import { hasCardLevelCriteria, normalizeCardFilter } from './filter-normalize.ts';
 import { compareCodeUnits } from '../compare.ts';
 
 /*

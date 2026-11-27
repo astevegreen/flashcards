@@ -74,6 +74,9 @@ export default defineConfig({
       },
     }),
   ],
+  // Dexie's ES2018+ module build: the package's default `import` entry wraps its ES5 UMD build,
+  // about 1.7 KB gzipped more of initial JS for the same library (§8). Same alias in vitest.config.ts.
+  resolve: { alias: [{ find: /^dexie$/, replacement: 'dexie/dist/modern/dexie.mjs' }] },
   // fsrs-browser resolves its `.wasm` via `import.meta.url`; pre-bundling would break that in dev.
   optimizeDeps: { exclude: ['fsrs-browser'] },
   build: {

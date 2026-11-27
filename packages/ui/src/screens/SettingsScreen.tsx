@@ -12,6 +12,7 @@ import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { LanguagesCard } from '../components/LanguagesCard.tsx';
 import { StudyRemindersSetting } from '../reminders/StudyRemindersSetting.tsx';
 import { useApp, type SyncUiStatus } from '../state/AppContext.tsx';
+import { useSyncState } from '../state/syncStateStore.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { CardTextSizeSetting } from '../study/CardTextSizeSetting.tsx';
 import { LeechAutoSuspendSetting } from '../study/LeechSettings.tsx';
@@ -104,7 +105,6 @@ export function SettingsScreen({ onOpenImportExport }: SettingsScreenProps = {})
     meta,
     entitlement,
     audio,
-    syncState,
     syncNow,
     connectGoogleDrive,
     connectDropbox,
@@ -116,6 +116,7 @@ export function SettingsScreen({ onOpenImportExport }: SettingsScreenProps = {})
     loadSampleDecks,
     resetLocalData,
   } = useApp();
+  const syncState = useSyncState();
   // Language-specific options show only for languages in use (UX #2); saved values are kept.
   const active = useActiveLanguages();
   const ttsLanguages = TTS_LANGUAGES.filter((l) => active.hasLanguage(l.key));

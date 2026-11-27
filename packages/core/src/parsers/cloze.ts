@@ -164,20 +164,6 @@ export function extractClozeNumbers(input: string): number[] {
 }
 
 /**
- * Returns all cloze answers matching `variant` (`c<variant>`) in document order.
- */
-export function extractClozeAnswersForVariant(input: string, variant: number): string[] {
-  if (!input || variant < 1) return [];
-  const out: string[] = [];
-  for (const seg of parseCloze(input)) {
-    if (seg.type === 'cloze' && seg.index === variant) {
-      out.push(seg.answer);
-    }
-  }
-  return out;
-}
-
-/**
  * Strips cloze markup (`{{c1::answer::hint}}` -> `answer`) for search indexing, previews, and TTS.
  */
 export function stripCloze(input: string): string {

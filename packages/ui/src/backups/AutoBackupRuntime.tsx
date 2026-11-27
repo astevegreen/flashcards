@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { useSyncState } from '../state/syncStateStore.ts';
 
 /** The first check waits until the app has settled after launch. */
 const AUTO_BACKUP_DELAY_MS = 8_000;
@@ -13,7 +14,8 @@ const PERSIST_NOTICE_KV_KEY = 'persist_notice_shown_v1';
  * save a copy off the device.
  */
 export function AutoBackupRuntime() {
-  const { platform, state, meta, syncState } = useApp();
+  const { platform, state, meta } = useApp();
+  const syncState = useSyncState();
   const latest = useRef({ state, meta, provider: syncState.provider });
   latest.current = { state, meta, provider: syncState.provider };
   const [persistNotice, setPersistNotice] = useState(false);

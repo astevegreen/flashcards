@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
+import { useSyncState } from '../state/syncStateStore.ts';
 import { applyCardTextSize, readCardTextSize } from '../study/cardTextSize.ts';
 import { getSidebarBadge, sidebarBadgeOpensSettings, sidebarBadgeTitle } from './sidebarBadge.ts';
 
@@ -66,7 +67,8 @@ const NAV_ITEMS: readonly { id: NavTab; label: string; icon: string }[] = [
 const PULL_REFRESH_THRESHOLD_PX = 64;
 
 export function AppShell({ activeTab, onSelectTab, children }: AppShellProps) {
-  const { platform, persistFailed, retryPersist, syncState, syncNow } = useApp();
+  const { platform, persistFailed, retryPersist, syncNow } = useApp();
+  const syncState = useSyncState();
   useState(initCardTextSize);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);

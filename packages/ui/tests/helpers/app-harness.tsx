@@ -120,6 +120,17 @@ export async function flush(times = 3): Promise<void> {
   }
 }
 
+/**
+ * Resolves once the lazy sync controller has attached and its effects (the `online` / `offline`
+ * listeners among them) are in place: the shell runs `syncNow` only after the controller attached,
+ * and act() flushes that commit's effects. With no provider `syncNow` changes nothing.
+ */
+export async function whenSyncReady(m: Mounted): Promise<void> {
+  await act(async () => {
+    await m.app().syncNow();
+  });
+}
+
 /** Moves fake timers forward by `ms` inside act(). */
 export async function advance(ms: number): Promise<void> {
   await act(async () => {

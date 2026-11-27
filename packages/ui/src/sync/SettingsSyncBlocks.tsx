@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
-import { peekAddDeviceExpectation } from './addDeviceExpectation.ts';
+import { useSyncState } from '../state/syncStateStore.ts';
+import { useAddDeviceExpectation } from './addDeviceExpectation.ts';
 import { AddDeviceCollectionNotice } from './AddDeviceCollectionNotice.tsx';
 import { type AddDeviceProvider } from './addDeviceLink.ts';
 import { isAddDeviceProvider } from './addDeviceLinkShare.ts';
@@ -19,17 +20,18 @@ import { planSyncMyDevices } from './syncProviders.ts';
  * so no service is offered twice.
  */
 export function useActiveSyncChoice(): AddDeviceProvider | undefined {
-  const { platform, syncState, addDeviceLink } = useApp();
+  const { platform, addDeviceLink } = useApp();
+  const syncState = useSyncState();
+  const expectation = useAddDeviceExpectation(platform.storage);
   if (syncState.provider !== 'none' && addDeviceLink === undefined) return undefined;
-  const link =
-    addDeviceLink ??
-    (syncState.provider === 'none' ? peekAddDeviceExpectation(platform.storage) : undefined);
+  const link = addDeviceLink ?? (syncState.provider === 'none' ? expectation : undefined);
   return planSyncMyDevices(platform, link).primary;
 }
 
 /** The one "Sync my devices" button while nothing syncs (or an add-device link names a provider). */
 export function SettingsSyncMyDevices() {
-  const { syncState, addDeviceLink } = useApp();
+  const { addDeviceLink } = useApp();
+  const syncState = useSyncState();
   if (syncState.provider !== 'none' && addDeviceLink === undefined) return null;
   return (
     <>
@@ -44,7 +46,7 @@ export function SettingsSyncMyDevices() {
  * add-device collection check on a device opened with such a link.
  */
 export function SettingsAddDevice() {
-  const { syncState } = useApp();
+  const syncState = useSyncState();
   const [open, setOpen] = useState(false);
   const canAddDevice = isAddDeviceProvider(syncState.provider) && !syncState.readOnly;
   return (

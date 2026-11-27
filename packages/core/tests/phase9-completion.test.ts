@@ -22,13 +22,13 @@ import {
 import {
   filterCards,
   LEECH_LAPSE_THRESHOLD,
-  normalizeCardFilter,
   planLeechTag,
   planLeechTagUndo,
   rankHardestCards,
   splitHardestCriterion,
   type CardFilter,
 } from '../src/study/filter.ts';
+import { normalizeCardFilter } from '../src/study/filter-normalize.ts';
 import { filterNoteIds } from '../src/study/filter-lists.ts';
 import { buildStudyQueue, compareCodeUnits } from '../src/study/queue.ts';
 import { planStudySetTagRewrites, rewriteStudySetFilter } from '../src/study/study-set-tags.ts';

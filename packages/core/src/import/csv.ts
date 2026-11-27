@@ -2,7 +2,7 @@ import { deriveNoteId, uuidv7 } from '../ids.ts';
 import type { EventFactory } from '../events/replay.ts';
 import type { KnownEvent } from '../events/types.ts';
 import type { Note, NoteType } from '../model/types.ts';
-import { convertAnkiRuby } from '../parsers/ruby.ts';
+import { convertAnkiRuby } from './anki-ruby.ts';
 import { normalizeTagList } from '../tags/index.ts';
 import { splitTagCell } from './tag-cell.ts';
 import {

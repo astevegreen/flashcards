@@ -38,6 +38,8 @@ import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { SourcesPanel } from '../components/SourcesPanel.tsx';
 import { isExportCancelled } from '../export/exportCancelled.ts';
 import { useApp } from '../state/AppContext.tsx';
+import { useLibraryActions } from '../state/libraryActions.ts';
+import { useSyncState } from '../state/syncStateStore.ts';
 import { importFlashpkgBytes, type LibraryImportContext } from '../import/libraryImports.ts';
 
 const LazyPageViewer = lazyWithRetry(() => import('../pages/PageViewer.tsx'), {
@@ -75,7 +77,8 @@ function DeckOptionsPanel({
   onAddLayout: (layout: Layout, deckId: string) => void;
   onUpdateLayout: (layout: Layout) => void;
 }) {
-  const { platform, state, stateVersion, rescheduleDeck } = useApp();
+  const { platform, state, stateVersion } = useApp();
+  const { rescheduleDeck } = useLibraryActions();
   const organize = useDeckOrganization();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const deckPreset = useMemo(() => getDeckPreset(state, deck.id), [state, stateVersion, deck.id]);
@@ -791,15 +794,12 @@ export function LibraryScreen({
     entitlement,
     emitEvents,
     getEventFactory,
-    createDeck,
     updateDeckSettings,
-    toggleDeckLayout,
-    upsertLayout,
-    upsertPage,
     markBackupCompleted,
-    syncState,
     meta,
   } = useApp();
+  const { createDeck, toggleDeckLayout, upsertLayout, upsertPage } = useLibraryActions();
+  const syncState = useSyncState();
 
   // Opening the Library copies every preset into any member deck that fell behind it (also run
   // after each sync, from AppContext). Once per visit; a read-only device writes nothing.

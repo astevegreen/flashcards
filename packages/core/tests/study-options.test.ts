@@ -13,9 +13,9 @@ import { SAMPLE_SEED_EPOCH_MS } from '../src/samples/decks.ts';
 import {
   compareSeededRandom,
   compareSourceOrder,
-  planCardOrderForAllDecks,
   resolveReviewOrder,
 } from '../src/study/card-order.ts';
+import { planCardOrderForAllDecks } from '../src/study/card-order-plan.ts';
 import { buildPracticeQueue, sortPracticeCards } from '../src/study/custom-study.ts';
 import { compareHardestCards } from '../src/study/filter.ts';
 import { buildStudyQueue } from '../src/study/queue.ts';

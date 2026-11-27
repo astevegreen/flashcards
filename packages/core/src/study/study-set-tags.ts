@@ -8,7 +8,8 @@ import {
   type TagOperation,
 } from '../tags/index.ts';
 import { listStudySets } from './custom-study.ts';
-import { normalizeCardFilter, type CardFilter, type CategoryCriterion } from './filter.ts';
+import { type CardFilter, type CategoryCriterion } from './filter.ts';
+import { normalizeCardFilter } from './filter-normalize.ts';
 
 /**
  * Phase 9: a collection-wide category rename, merge or delete (the tag manager) also rewrites the

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import * as fc from 'fast-check';
 import { formatPinyin, parsePinyin } from '../src/parsers/pinyin.ts';
-import { convertAnkiRuby, parseRuby, stripRuby } from '../src/parsers/ruby.ts';
+import { isHanCodePoint, parseRuby, stripRuby } from '../src/parsers/ruby.ts';
+import { convertAnkiRuby } from '../src/import/anki-ruby.ts';
 
 describe('Anki furigana conversion (§6.2)', () => {
   it('turns space-delimited Han bases into strict ruby and mixed bases into explicit ruby', () => {
@@ -19,6 +21,58 @@ describe('Anki furigana conversion (§6.2)', () => {
     expect(convertAnkiRuby('word [formal]')).toBe('word [formal]');
     expect(convertAnkiRuby('test[abc] and more')).toBe('test[abc] and more');
     expect(convertAnkiRuby('no brackets here')).toBe('no brackets here');
+  });
+
+  it('matches the earlier regular-expression rule on any mix of spaces, brackets and scripts', () => {
+    // The rule as it was written before the linear scan, kept here only as the reference.
+    const ideographicSpace = String.fromCodePoint(0x3000);
+    const isKana = (cp: number) => (cp >= 0x3040 && cp <= 0x309f) || (cp >= 0x30a0 && cp <= 0x30ff);
+    const reference = (input: string): string =>
+      input.replace(
+        new RegExp(String.raw`(^|[ ${ideographicSpace}])([^\s[\]{}|]+)\[([^\][]+)\]`, 'gu'),
+        (match, lead: string, base: string, reading: string) => {
+          const cps = Array.from(base).map((c) => c.codePointAt(0) ?? 0);
+          if (!cps.some(isHanCodePoint)) return match;
+          if (cps.every(isHanCodePoint)) return `${base}[${reading}]`;
+          if (cps.every((cp) => isHanCodePoint(cp) || isKana(cp))) return `{${base}|${reading}}`;
+          return `${lead}{${base}|${reading}}`;
+        },
+      );
+    const alphabet = [
+      ' ',
+      ideographicSpace,
+      '[',
+      ']',
+      '{',
+      '|',
+      '\t',
+      'a',
+      '!',
+      '日',
+      '本',
+      'た',
+      'ア',
+      '학',
+    ];
+    fc.assert(
+      fc.property(fc.array(fc.constantFrom(...alphabet), { maxLength: 24 }), (chars) => {
+        const input = chars.join('');
+        expect(convertAnkiRuby(input)).toBe(reference(input));
+      }),
+      { numRuns: 3000 },
+    );
+  });
+
+  it('stays linear on long adversarial imports (unclosed brackets, long space runs)', () => {
+    const space = String.fromCodePoint(0x3000);
+    const inputs = [
+      ` ${`${space}!`.repeat(50_000)}`,
+      `日[${' 日['.repeat(50_000)}`,
+      `${' 日'.repeat(50_000)}[`,
+    ];
+    const start = performance.now();
+    for (const input of inputs) convertAnkiRuby(input);
+    expect(performance.now() - start).toBeLessThan(1000);
   });
 });
 

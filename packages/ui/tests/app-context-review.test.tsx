@@ -2,7 +2,8 @@
 import type { ReviewRecordedPayload } from '@flash/core';
 import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useApp } from '../src/state/AppContext.tsx';
+import { useApp, type SyncUiState } from '../src/state/AppContext.tsx';
+import { useSyncState } from '../src/state/syncStateStore.ts';
 import {
   createMemoryStorage,
   createTestPlatform,
@@ -11,6 +12,7 @@ import {
   must,
   newCard,
   sampleEvents as seedEvents,
+  whenSyncReady,
   type Mounted,
 } from './helpers/app-harness.tsx';
 
@@ -212,29 +214,54 @@ describe('AppContext emitEvents with a failed persist', () => {
   });
 });
 
-describe('P3: a sync tick that changes nothing re-renders no useApp() consumer', () => {
-  it('skips the render for an unchanged sync state and renders for a changed one', async () => {
-    let renders = 0;
-    function Consumer() {
+describe('P3: a sync tick re-renders only the sync status readers', () => {
+  it('re-renders no useApp() consumer, and sync readers only when the state changed', async () => {
+    let appRenders = 0;
+    let syncRenders = 0;
+    let providerRenders = 0;
+    let latest: SyncUiState | undefined;
+    function AppConsumer() {
       useApp();
-      renders += 1;
+      appRenders += 1;
       return null;
     }
-    mounted = await mountWithApp(<Consumer />, { initialEvents: seedEvents() });
-    // Let the lazy SyncRuntime load and settle.
-    await flush(5);
-    expect(mounted.app().syncState.isOnline).toBe(true);
-    const before = renders;
+    function SyncConsumer() {
+      latest = useSyncState();
+      syncRenders += 1;
+      return null;
+    }
+    function ProviderConsumer() {
+      useSyncState((s) => s.provider);
+      providerRenders += 1;
+      return null;
+    }
+    mounted = await mountWithApp(
+      <>
+        <AppConsumer />
+        <SyncConsumer />
+        <ProviderConsumer />
+      </>,
+      { initialEvents: seedEvents() },
+    );
+    await whenSyncReady(mounted);
+    expect(latest?.isOnline).toBe(true);
+    const app0 = appRenders;
+    const sync0 = syncRenders;
+    const provider0 = providerRenders;
 
     // Already online: the controller's update returns an equal state, kept as the old object.
     await act(async () => void window.dispatchEvent(new Event('online')));
     await flush();
-    expect(renders).toBe(before);
+    expect(syncRenders).toBe(sync0);
+    expect(appRenders).toBe(app0);
 
-    // Control: going offline does change the state, and consumers see it.
+    // Going offline changes the state: its readers render, useApp() consumers still don't.
     await act(async () => void window.dispatchEvent(new Event('offline')));
     await flush();
-    expect(renders).toBeGreaterThan(before);
-    expect(mounted.app().syncState.isOnline).toBe(false);
+    expect(latest?.isOnline).toBe(false);
+    expect(syncRenders).toBeGreaterThan(sync0);
+    expect(appRenders).toBe(app0);
+    // A reader of one field skips ticks that leave that field alone.
+    expect(providerRenders).toBe(provider0);
   });
 });

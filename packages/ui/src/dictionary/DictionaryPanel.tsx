@@ -27,6 +27,7 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useState, type FormEv
 import { RichText } from '../components/RichText.tsx';
 import { DrawLookupPanel } from '../drawing/DrawLookupPanel.tsx';
 import { useApp } from '../state/AppContext.tsx';
+import { useLibraryActions } from '../state/libraryActions.ts';
 import {
   drawToolsVisible,
   useDrawScripts,
@@ -896,8 +897,8 @@ export function DictionaryPanel({
   initialDrawOpen = false,
   onOpenSettings,
 }: DictionaryPanelProps) {
-  const { platform, state, stateVersion, entitlement, emitEvents, getEventFactory, createDeck } =
-    useApp();
+  const { platform, state, stateVersion, entitlement, emitEvents, getEventFactory } = useApp();
+  const { createDeck } = useLibraryActions();
   const searchInputId = useId();
 
   const [installedPacks, setInstalledPacks] = useState<InstalledPackInfo[]>([]);

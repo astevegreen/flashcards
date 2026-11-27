@@ -1,6 +1,7 @@
 import type { CollectionArea, CollectionDifferenceKind } from '@flash/core/check';
 import { useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { useSyncState } from '../state/syncStateStore.ts';
 import {
   reAddUnlistedMedia,
   removeUnusedMedia,
@@ -55,7 +56,8 @@ const KIND_LABELS: Record<CollectionDifferenceKind, string> = {
 const SHOWN = 20;
 
 export function CheckPanel() {
-  const { platform, state, emitEvents, getEventFactory, syncState, syncNow, whenSaved } = useApp();
+  const { platform, state, emitEvents, getEventFactory, syncNow, whenSaved } = useApp();
+  const syncState = useSyncState();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);

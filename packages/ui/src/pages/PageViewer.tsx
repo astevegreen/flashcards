@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MediaImage } from '../components/MediaImage.tsx';
 import { RichText } from '../components/RichText.tsx';
 import { useApp } from '../state/AppContext.tsx';
+import { useLibraryActions } from '../state/libraryActions.ts';
 import { parsePageMarkdownToAst, type AstNode } from './markdownAst.ts';
 
 export interface PageViewerProps {
@@ -407,7 +408,8 @@ export function PageViewer({
   onStudyDeck,
   previewMode = false,
 }: PageViewerProps) {
-  const { state, markPageRead } = useApp();
+  const { state } = useApp();
+  const { markPageRead } = useLibraryActions();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const hasScrolledRef = useRef(false);
   const autoMarkedRef = useRef(false);

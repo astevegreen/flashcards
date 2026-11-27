@@ -8,6 +8,7 @@ import {
 import type { StoredBackupInfo } from '@flash/platform';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { useSyncState } from '../state/syncStateStore.ts';
 import { tooLargeMessage } from '../components/pickedFileLimit.ts';
 import {
   applyRestore,
@@ -118,13 +119,13 @@ export function BackupsPanel() {
     state,
     stateVersion,
     meta,
-    syncState,
     emitEvents,
     getEventFactory,
     markBackupCompleted,
     syncNow,
     clearUndoStack,
   } = useApp();
+  const syncState = useSyncState();
   const storage = platform.storage;
   const supported = typeof storage.openBackupStore === 'function';
   const [backups, setBackups] = useState<StoredBackupInfo[]>([]);

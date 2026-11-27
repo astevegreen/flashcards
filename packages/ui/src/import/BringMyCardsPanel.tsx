@@ -25,6 +25,7 @@ import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { describeImportError } from '../components/describeImportError.ts';
 import { gridToCsv, readXlsxGrid } from '../sources/cloudFileImport.ts';
 import { useApp } from '../state/AppContext.tsx';
+import { useLibraryActions } from '../state/libraryActions.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import type { PendingAnkiFile } from './AnkiImportPanel.tsx';
 import { BRING_MY_CARDS_PANEL_HEIGHT } from './bring-my-cards-layout.ts';
@@ -408,7 +409,8 @@ interface CsvRouteProps {
 }
 
 function CsvRoute({ name, text, detected, source, onBusyChange }: Readonly<CsvRouteProps>) {
-  const { state, createDeck } = useApp();
+  const { state } = useApp();
+  const { createDeck } = useLibraryActions();
   const ctx = useImportContext();
   const { grid, quotes } = useMemo(() => {
     const parsed = parseDelimitedTable(text, { delimiter: detected.delimiter });

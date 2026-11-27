@@ -53,12 +53,14 @@ export {
   tagAddRegisterKey,
 } from './events/tag-adds.ts';
 export * from './study/filter.ts';
+export * from './study/filter-normalize.ts';
 export * from './study/filter-lists.ts';
 export * from './tags/index.ts';
 export * from './tags/bulk.ts';
 export * from './tags/browse.ts';
 export * from './study/queue.ts';
 export * from './study/card-order.ts';
+export * from './study/card-order-plan.ts';
 export * from './decks/organization.ts';
 export * from './decks/description.ts';
 export * from './study/custom-study.ts';
@@ -67,8 +69,10 @@ export * from './study/reminders.ts';
 export * from './study/choice.ts';
 export * from './study/courses.ts';
 export * from './parsers/ruby.ts';
+export * from './import/anki-ruby.ts';
 export * from './parsers/pinyin.ts';
 export * from './parsers/cloze.ts';
+export * from './study/cloze-answers.ts';
 export * from './parsers/rich-text.ts';
 export * from './editor/rich-text-edit.ts';
 export * from './audio/tts.ts';

@@ -19,7 +19,7 @@ import {
   getPracticeRecords,
   listStudySets,
 } from '../src/study/custom-study.ts';
-import { normalizeCardFilter } from '../src/study/filter.ts';
+import { normalizeCardFilter } from '../src/study/filter-normalize.ts';
 import { getExtraNewCardsToday } from './helpers/extra-new-cards.ts';
 import { buildStudyQueue } from '../src/study/queue.ts';
 

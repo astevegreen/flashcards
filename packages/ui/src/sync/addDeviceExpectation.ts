@@ -1,4 +1,5 @@
 import type { Storage } from '@flash/platform';
+import { useSyncExternalStore } from 'react';
 import { isShareableCollectionId, type AddDeviceLink } from './addDeviceLink.ts';
 import { isAddDeviceProvider } from './addDeviceLinkShare.ts';
 
@@ -22,6 +23,18 @@ export function parseAddDeviceExpectation(raw: unknown): AddDeviceLink | undefin
 
 const settled = new WeakMap<KvStore, AddDeviceLink | undefined>();
 const reads = new WeakMap<KvStore, Promise<AddDeviceLink | undefined>>();
+const listeners = new Set<() => void>();
+
+function settle(storage: KvStore, value: AddDeviceLink | undefined): void {
+  settled.set(storage, value);
+  // A copy: a listener that subscribes again while being told must not be told twice.
+  for (const listener of [...listeners]) listener();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
 
 /** One read per storage object; started at app start so Settings can decide synchronously. */
 export function addDeviceExpectationResource(storage: KvStore): Promise<AddDeviceLink | undefined> {
@@ -34,7 +47,7 @@ export function addDeviceExpectationResource(storage: KvStore): Promise<AddDevic
     read = pending;
     reads.set(storage, pending);
     void pending.then((value) => {
-      if (reads.get(storage) === pending) settled.set(storage, value);
+      if (reads.get(storage) === pending) settle(storage, value);
     });
   }
   return read;
@@ -45,9 +58,19 @@ export function peekAddDeviceExpectation(storage: KvStore): AddDeviceLink | unde
   return settled.get(storage);
 }
 
+/**
+ * {@link peekAddDeviceExpectation} for a component: it re-renders when the expectation is read,
+ * saved or cleared. Sync status changes no longer re-render every `useApp()` consumer (P3), so a
+ * cleared link has to say so itself.
+ */
+export function useAddDeviceExpectation(storage: KvStore): AddDeviceLink | undefined {
+  const read = () => settled.get(storage);
+  return useSyncExternalStore(subscribe, read, read);
+}
+
 function remember(storage: KvStore, value: AddDeviceLink | undefined): void {
   reads.set(storage, Promise.resolve(value));
-  settled.set(storage, value);
+  settle(storage, value);
 }
 
 /** Saves the link a new device was opened with (only links that name a collection). */

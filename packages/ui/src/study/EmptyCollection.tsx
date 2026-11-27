@@ -10,6 +10,7 @@ import { FirstRunOnboarding } from '../onboarding/FirstRunOnboarding.tsx';
 import { onboardingRecordResource, saveOnboardingRecord } from '../onboarding/onboardingState.ts';
 import type { OnboardingDeckInfo } from '../onboarding/starterDecks.ts';
 import { useApp } from '../state/AppContext.tsx';
+import { useSyncState } from '../state/syncStateStore.ts';
 import { AddDeviceCollectionNotice } from '../sync/AddDeviceCollectionNotice.tsx';
 import {
   addDeviceExpectationResource,
@@ -63,7 +64,8 @@ export function EmptyCollection({
 }>) {
   const record = use(onboardingRecordResource(storage));
   const storedLink = use(addDeviceExpectationResource(storage));
-  const { syncState, meta } = useApp();
+  const { meta } = useApp();
+  const syncState = useSyncState();
   const [linkPending, setLinkPending] = useState(storedLink !== undefined);
   const [joinGivenUp, setJoinGivenUp] = useState(false);
   const plan = planEmptyCollection({
