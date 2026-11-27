@@ -1,4 +1,9 @@
-import { hasTraversalSegment } from '@flash/core';
+import {
+  assertSyncReadSize,
+  hasTraversalSegment,
+  syncReadCap,
+  SyncReadTooLargeError,
+} from '@flash/core';
 import type {
   LocalFolderSourcesAdapter,
   ScannedLocalFileDescriptor,
@@ -17,6 +22,10 @@ export interface TauriFsDirEntry {
 export interface TauriFsBridge {
   pickDirectory(): Promise<{ path: string; name: string } | null>;
   listDirectoryFiles(rootPath: string): Promise<TauriFsDirEntry[]>;
+  /**
+   * Over `maxBytes` it should reject without reading, with `code: 'TOO_LARGE'` and the file's
+   * `size` on the error.
+   */
   readFileBytes(absPath: string, maxBytes?: number): Promise<Uint8Array>;
   writeFileBytes(absPath: string, data: Uint8Array, opts?: { ifAbsent?: boolean }): Promise<void>;
   moveFile(fromPath: string, toPath: string): Promise<void>;
@@ -289,7 +298,21 @@ export class TauriFolderSyncTransport implements SyncTransport {
   }
 
   async read(path: string): Promise<Uint8Array> {
-    return this.bridge.readFileBytes(joinSafeRelative(this.rootPath, path));
+    const { kind, maxBytes } = syncReadCap(path);
+    let bytes: Uint8Array;
+    try {
+      bytes = await this.bridge.readFileBytes(joinSafeRelative(this.rootPath, path), maxBytes);
+    } catch (err) {
+      const e = err as { code?: unknown; size?: unknown } | null;
+      if (e?.code === 'TOO_LARGE') {
+        const size = typeof e.size === 'number' ? e.size : undefined;
+        throw new SyncReadTooLargeError('Desktop folder', path, kind, maxBytes, size);
+      }
+      throw err;
+    }
+    // A bridge that ignores `maxBytes`, or a file that grew after its size check.
+    assertSyncReadSize('Desktop folder', path, bytes.byteLength);
+    return bytes;
   }
 
   async write(path: string, data: Uint8Array, opts?: { ifAbsent?: boolean }): Promise<void> {

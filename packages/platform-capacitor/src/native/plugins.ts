@@ -403,7 +403,7 @@ interface ICloudDocumentsNative {
   listFiles(opts: {
     prefix: string;
   }): Promise<{ files: Array<{ path: string; size: number; updatedAt?: number }> }>;
-  readFile(opts: { path: string }): Promise<{ data: string }>;
+  readFile(opts: { path: string; maxBytes?: number }): Promise<{ data: string }>;
   writeFile(opts: { path: string; data: string; ifAbsent?: boolean }): Promise<void>;
 }
 
@@ -413,7 +413,10 @@ export function createICloudDocumentPlugin(): ICloudDocumentPlugin {
   return {
     isAvailable: async () => (await native.isAvailable()).available,
     listFiles: async ({ prefix }) => (await native.listFiles({ prefix })).files,
-    readFile: async ({ path }) => base64ToBytes((await native.readFile({ path })).data),
+    readFile: async ({ path, maxBytes }) =>
+      base64ToBytes(
+        (await native.readFile({ path, ...(maxBytes !== undefined ? { maxBytes } : {}) })).data,
+      ),
     writeFile: async ({ path, data, ifAbsent }) => {
       await native.writeFile({
         path,

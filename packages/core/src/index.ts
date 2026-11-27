@@ -89,4 +89,5 @@ export * from './import/flashpkg.ts';
 export * from './import/media-types.ts';
 export * from './sync/codec.ts';
 export * from './sync/engine.ts';
+export * from './sync/read-caps.ts';
 export * from './stats/index.ts';

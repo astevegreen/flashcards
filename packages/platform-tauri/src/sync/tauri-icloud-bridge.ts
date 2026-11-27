@@ -49,7 +49,13 @@ export function createTauriICloudDocumentPlugin(invoke: TauriInvoke): ICloudDocu
   return {
     isAvailable: async () => (await call<boolean>('icloud_available')) === true,
     listFiles: ({ prefix }) => call<RustFileEntry[]>('icloud_list_files', { prefix }),
-    readFile: async ({ path }) => toBytes(await call<unknown>('icloud_read_file', { path })),
+    readFile: async ({ path, maxBytes }) =>
+      toBytes(
+        await call<unknown>('icloud_read_file', {
+          path,
+          ...(maxBytes !== undefined ? { maxBytes } : {}),
+        }),
+      ),
     writeFile: async ({ path, data, ifAbsent }) => {
       // Raw bytes as the body (no JSON number array); the path travels URI-encoded in a header.
       await call<null>('icloud_write_file', data, {
