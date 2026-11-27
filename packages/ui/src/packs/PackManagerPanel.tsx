@@ -6,21 +6,12 @@ import type {
   PackInstallProgress,
 } from '@flash/platform';
 import { isPackForActiveLanguages } from '@flash/core';
-import { PACK_SECURITY_LIMITS } from '@flash/core/pack-limits';
+import { MAX_PACK_PICK_BYTES } from './packPickLimit.ts';
 import { tooLargeMessage } from '../components/pickedFileLimit.ts';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { ShowAllLanguagesSwitch, useShowAllLanguages } from './ShowAllLanguagesSwitch.tsx';
-
-/**
- * A picked pack may be gzip or plain JSON, so the larger of the two caps (uncompressed) applies
- * before the file is read (P8).
- */
-const MAX_PACK_PICK_BYTES = Math.max(
-  PACK_SECURITY_LIMITS.maxCompressedBytes,
-  PACK_SECURITY_LIMITS.maxUncompressedBytes,
-);
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

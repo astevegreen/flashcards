@@ -37,7 +37,9 @@ describe('dictionary deck presence index (P9)', () => {
     expect(d1?.exact.has('archived')).toBe(false);
     expect(index.get('d1')).toBe(d1);
     expect(reads).toBe(1);
+    // One pass over the collection serves every deck (not k × N).
     expect(index.get('d2')?.exact.has('二')).toBe(true);
-    expect(reads).toBe(2);
+    expect(index.get('missing')?.exact.size).toBe(0);
+    expect(reads).toBe(1);
   });
 });

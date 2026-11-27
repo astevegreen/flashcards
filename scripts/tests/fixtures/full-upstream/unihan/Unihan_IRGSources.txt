@@ -1,0 +1,5 @@
+# Synthetic test fixture in the Unihan_IRGSources.txt format.
+U+4E00	kRSUnicode	1.0
+U+4E00	kTotalStrokes	1
+U+5C71	kRSUnicode	46.0
+U+5C71	kTotalStrokes	3

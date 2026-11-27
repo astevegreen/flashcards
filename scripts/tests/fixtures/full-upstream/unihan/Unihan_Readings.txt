@@ -1,0 +1,6 @@
+# Synthetic test fixture in the Unihan_Readings.txt format (written for this repo, not upstream data).
+# Unicode Version 99.0.0
+U+4E00	kDefinition	one; single
+U+4E00	kHangul	일:0E
+U+5C71	kDefinition	hill; peak
+U+5C71	kHangul	산:0E

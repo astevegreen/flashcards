@@ -1,0 +1,11 @@
+{
+  "channel": {
+    "item": [
+      {
+        "target_code": "1",
+        "wordinfo": { "word": "산", "homonym_number": "1" },
+        "senseinfo": { "pos": "명사", "definition": "높이 솟은 땅." }
+      }
+    ]
+  }
+}
