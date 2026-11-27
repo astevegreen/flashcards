@@ -5,40 +5,29 @@ import {
   createEmptyState,
   createEventFactory,
   createHlcState,
-  FLASH_NAMESPACE_UUID,
   buildRetentionParamsPayload,
   getActiveFsrsParamsVersion,
-  getEnabledLayoutsForDeck,
   getTotalAppliedEventCount,
   planLeechBackfill,
   planLeechTag,
   planLeechTagUndo,
   resolveDeckFsrsConfig,
   shouldAutoSuspendLeech,
-  uuidv5,
   uuidv7,
   type Card,
   type CollectionPreferences,
   type CollectionState,
-  type Course,
   type DeckSettings,
   type EventFactory,
   type FlashEvent,
   type KnownEvent,
-  type Layout,
   type Note,
   type NoteTagsAddedPayload,
   type ReviewRating,
   type ReviewRecordedPayload,
   type SyncCursorState,
 } from '@flash/core';
-import type {
-  DeviceMeta,
-  EntitlementState,
-  PlatformServices,
-  SourcesRegistry,
-  SyncConfig,
-} from '@flash/platform';
+import type { DeviceMeta, EntitlementState, PlatformServices, SyncConfig } from '@flash/platform';
 import {
   createContext,
   Suspense,
@@ -47,6 +36,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 import {
@@ -63,11 +53,15 @@ import { snapshotWriteAllowed } from './rebuildSignal.ts';
 import { useAudioController, type AudioController } from './useAudioController.ts';
 import { isLeechBackfillReady } from './leechBackfillGate.ts';
 import { buildWatermarks, createSyncShell, initialSyncUiState } from './syncShell.ts';
-import type { SyncUiState } from './useSyncController.ts';
+import {
+  createSyncStateStore,
+  SyncStateContext,
+  useSyncState,
+  type SyncStateStore,
+} from './syncStateStore.ts';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
 import { claimLocalSnapshot, localSnapshotDue } from './localSnapshotCounter.ts';
-import { hasLinkedSources } from '../sources/hasLinkedSources.ts';
 import { putMediaTracked } from './recentMedia.ts';
 import { hasNewerReview, inStudyScope } from './undoGuard.ts';
 import type * as SnapshotApi from '@flash/core/snapshot';
@@ -97,6 +91,8 @@ export interface AppContextValue {
    */
   addDeviceLink: AddDeviceLink | undefined;
   state: CollectionState;
+  /** The live collection, for event handlers that run after a render (stable). */
+  getState: () => CollectionState;
   stateVersion: number;
   ready: boolean;
   meta: DeviceMeta | null;
@@ -106,7 +102,8 @@ export interface AppContextValue {
   activeDeckId: string | undefined;
   setActiveDeckId: (deckId: string | undefined) => void;
   audio: AudioController;
-  syncState: SyncUiState;
+  // The sync status is not here: `useSyncState()` (syncStateStore.ts), so a sync tick re-renders
+  // only its readers (P3).
   syncNow: () => Promise<void>;
   flushPendingSync: () => void;
   connectGoogleDrive: () => Promise<void>;
@@ -154,25 +151,11 @@ export interface AppContextValue {
     tts_key?: string;
     tts_lang_key?: string;
   }) => Promise<void>;
-  upsertLayout: (layout: Layout, enableOnDeckId?: string) => void;
-  upsertPage: (input: {
-    pageId?: string;
-    slug: string;
-    title: string;
-    markdown: string;
-    lang?: string;
-    tags: string[];
-  }) => string;
-  markPageRead: (pageId: string) => void;
-  upsertCourse: (course: Course) => void;
-  createDeck: (name: string, noteTypeId: string, language: string) => string;
+  // Deck, layout, page and course edits: `useLibraryActions()` (libraryActions.ts, lazy screens).
   updateDeckSettings: (
     deckId: string,
     patch: { name?: string; archived?: boolean; settings?: Partial<DeckSettings> },
   ) => void;
-  toggleDeckLayout: (deckId: string, layoutId: string) => void;
-  /** Re-applies the deck's current FSRS params to every past review (§4.1 explicit reschedule). */
-  rescheduleDeck: (deckId: string) => void;
   updatePreferences: (patch: Partial<CollectionPreferences>) => void;
   loadSampleDecks: () => void;
   markBackupCompleted: () => Promise<void>;
@@ -217,6 +200,57 @@ async function saveLocalSnapshot(
     localSeq: await storage.getMaxLocalSeq(),
     savedAt: Date.now(),
   });
+}
+
+interface LaunchSyncEffectsProps {
+  launchedAtMs: number;
+  collectionState: CollectionState;
+  stateRef: { readonly current: CollectionState };
+  factoryRef: { readonly current: EventFactory };
+  emitEventsRef: { readonly current: (events: readonly KnownEvent[]) => void };
+}
+
+/**
+ * The launch steps that wait on this launch's sync. A child of AppProvider that renders nothing,
+ * so the sync status it watches re-renders only it (P3).
+ *
+ * Leech backfill, once per app launch: cards that reached the leech threshold before leech
+ * tagging existed (or on an older build, or through an imported history) get the `leech` tag as
+ * set-union events, which converge when several devices backfill concurrently. With a sync
+ * provider it waits for a sync that completed during THIS launch (not the stale `synced` status
+ * a stored cursor shows at boot), so the plan sees the merged log (an earlier add, or a removal
+ * of the tag elsewhere, both skip the note). Leeches that arrive later are picked up at the next
+ * launch. Idempotent.
+ */
+function LaunchSyncEffects({
+  launchedAtMs,
+  collectionState,
+  stateRef,
+  factoryRef,
+  emitEventsRef,
+}: LaunchSyncEffectsProps) {
+  const backfillReady = useSyncState((s) => isLeechBackfillReady(s, launchedAtMs));
+  const backfillDoneRef = useRef(false);
+  useEffect(() => {
+    if (!backfillReady || backfillDoneRef.current) return;
+    backfillDoneRef.current = true;
+    const plan = planLeechBackfill(stateRef.current);
+    if (plan.length === 0) return;
+    const factory = factoryRef.current;
+    const nowMs = Date.now();
+    emitEventsRef.current(plan.map((payload) => factory.create('NoteTagsAdded', payload, nowMs)));
+  }, [backfillReady, collectionState, emitEventsRef, factoryRef, stateRef]);
+
+  // Deck option presets: after each sync completed in this launch, copy every preset into any
+  // member deck that fell behind it (lazy; see library/presetCatchUp.ts). Idempotent.
+  const presetCatchUpAt = useSyncState((s) => (backfillReady ? s.lastSyncedAt : undefined));
+  useEffect(() => {
+    if (presetCatchUpAt === undefined) return;
+    void import('../library/presetCatchUp.ts')
+      .then((m) => m.runPresetCatchUp(stateRef.current, factoryRef.current, emitEventsRef.current))
+      .catch(() => {});
+  }, [presetCatchUpAt, emitEventsRef, factoryRef, stateRef]);
+  return null;
 }
 
 export interface AppProviderProps {
@@ -374,13 +408,16 @@ export function AppProvider({
   }, []);
 
   // The sync controller loads after first paint (SyncRuntime); the shell queues for it (P1).
-  const [syncState, setSyncState] = useState<SyncUiState>(() =>
-    initialSyncUiState(
-      initialSyncConfig?.provider ?? (platform.hasDeviceSlug ? 'dev_channel' : 'none'),
-      initialMeta,
-      initialSyncConfig,
-      initialSyncCursor,
-      initialOAuthError,
+  // Held in a store, not in this component's state: a sync tick re-renders its readers only (P3).
+  const [syncStore] = useState<SyncStateStore>(() =>
+    createSyncStateStore(
+      initialSyncUiState(
+        initialSyncConfig?.provider ?? (platform.hasDeviceSlug ? 'dev_channel' : 'none'),
+        initialMeta,
+        initialSyncConfig,
+        initialSyncCursor,
+        initialOAuthError,
+      ),
     ),
   );
   const [syncController] = useState(() =>
@@ -471,22 +508,14 @@ export function AppProvider({
   }, [enqueuePersist, persistQueue, platform.storage, startedAtMs, syncController]);
 
   const getEventFactory = useCallback(() => factoryRef.current, []);
+  const getState = useCallback(() => stateRef.current, []);
+  const [launchedAtMs] = useState(() => Date.now());
   // Stable, so a sync tick (or any provider render) doesn't hand consumers a new one (P3).
   const clearUndoStack = useCallback(() => {
     setUndoStack([]);
     setRedoStack([]);
   }, []);
 
-  // Leech backfill, once per app launch: cards that reached the leech threshold before leech
-  // tagging existed (or on an older build, or through an imported history) get the `leech` tag as
-  // set-union events, which converge when several devices backfill concurrently. With a sync
-  // provider it waits for a sync that completed during THIS launch (not the stale `synced` status
-  // a stored cursor shows at boot), so the plan sees the merged log (an earlier add, or a removal
-  // of the tag elsewhere, both skip the note). Leeches that arrive later are picked up at the next
-  // launch. Idempotent.
-  const [launchedAtMs] = useState(() => Date.now());
-  const backfillReady = isLeechBackfillReady(syncState, launchedAtMs);
-  const backfillDoneRef = useRef(false);
   const emitEventsRef = useRef(emitEvents);
   emitEventsRef.current = emitEvents;
   // After `emitEventsRef`: SyncRuntime also hosts the launch-time starter-deck upgrade.
@@ -505,58 +534,27 @@ export function AppProvider({
       {...(startedAtMs !== undefined ? { startedAtMs } : {})}
       onStateMutated={handleRemoteStateMutated}
       onReplaceState={handleReplaceState}
-      syncState={syncState}
-      setSyncState={setSyncState}
+      syncStore={syncStore}
     />
   );
 
-  useEffect(() => {
-    if (!backfillReady || backfillDoneRef.current) return;
-    backfillDoneRef.current = true;
-    const plan = planLeechBackfill(stateRef.current);
-    if (plan.length === 0) return;
-    const factory = factoryRef.current;
-    const nowMs = Date.now();
-    emitEventsRef.current(plan.map((payload) => factory.create('NoteTagsAdded', payload, nowMs)));
-  }, [backfillReady, collectionState]);
-
-  // Deck option presets: after each sync completed in this launch, copy every preset into any
-  // member deck that fell behind it (lazy; see library/presetCatchUp.ts). Idempotent.
-  const presetCatchUpAt = backfillReady ? syncState.lastSyncedAt : undefined;
-  useEffect(() => {
-    if (presetCatchUpAt === undefined) return;
-    void import('../library/presetCatchUp.ts')
-      .then((m) => m.runPresetCatchUp(stateRef.current, factoryRef.current, emitEventsRef.current))
-      .catch(() => {});
-  }, [presetCatchUpAt]);
-
-  // Non-blocking post-first-paint source check (§3.1 modifiedTime check & §3.2 local folder rescan).
-  // Strictly lazy-loads sourceRunner ONLY if linked sources exist so initial bundle stays lean (§8).
+  // Non-blocking post-first-paint source check (§3.1 modifiedTime check & §3.2 local folder rescan),
+  // lazy so the initial bundle stays lean (§8); it loads sourceRunner only if a linked source exists.
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const saved = await platform.storage.getKv<SourcesRegistry>('linked_sources_v1');
-          if (!hasLinkedSources(saved)) {
-            // Decks synced from another device can carry sources Sources never saved here.
-            const { hasSyncedLinkedSource } = await import('../sources/hasSyncedLinkedSource.ts');
-            if (!hasSyncedLinkedSource(stateRef.current, saved)) return;
-          }
-          const { refreshAllSources } = await import('../sources/sourceRunner.ts');
-          await refreshAllSources(
-            {
-              platform,
-              getState: () => stateRef.current,
-              getEventFactory,
-              emitEvents,
-              entitlement: await refreshEntitlement(),
-            },
-            { requestFolderPermission: false },
-          );
-        } catch {
-          // Quiet background refresh failure; details surfaced in Library Sources panel
-        }
-      })();
+      import('../sources/launchSourceCheck.ts')
+        .then((m) =>
+          m.runLaunchSourceCheck({
+            platform,
+            getState,
+            getEventFactory,
+            emitEvents,
+            refreshEntitlement,
+          }),
+        )
+        .catch(() => {
+          // Offline before the chunk was cached: the next launch checks again.
+        });
     }, 50);
     return () => window.clearTimeout(timer);
     // Run once on app open
@@ -786,115 +784,6 @@ export function AppProvider({
     addMedia,
   });
 
-  const upsertLayout = useCallback(
-    (layout: Layout, enableOnDeckId?: string) => {
-      const factory = factoryRef.current;
-      const st = stateRef.current;
-      const nowMs = Date.now();
-      const events: KnownEvent[] = [factory.create('LayoutChanged', { layout }, nowMs)];
-      if (enableOnDeckId) {
-        const deck = st.decks.get(enableOnDeckId);
-        if (deck) {
-          const currentEnabled = getEnabledLayoutsForDeck(st, deck).map((l) => l.id);
-          if (!currentEnabled.includes(layout.id)) {
-            events.push(
-              factory.create(
-                'DeckSettingsChanged',
-                {
-                  deck_id: enableOnDeckId,
-                  settings: { enabled_layout_ids: [...currentEnabled, layout.id] },
-                },
-                nowMs,
-              ),
-            );
-          }
-        }
-      }
-      emitEvents(events);
-    },
-    [emitEvents],
-  );
-
-  const upsertPage = useCallback(
-    (input: {
-      pageId?: string;
-      slug: string;
-      title: string;
-      markdown: string;
-      lang?: string;
-      tags: string[];
-    }): string => {
-      const factory = factoryRef.current;
-      const nowMs = Date.now();
-      const cleanSlug =
-        input.slug
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af-]+/g, '-')
-          .replace(/^-+|-+$/g, '') || 'page';
-      const pageId =
-        input.pageId ?? uuidv5(FLASH_NAMESPACE_UUID, `page:native:${cleanSlug}:${uuidv7(nowMs)}`);
-      const ev = factory.create(
-        'PageUpserted',
-        {
-          page_id: pageId,
-          slug: cleanSlug,
-          title: input.title.trim() || cleanSlug,
-          markdown: input.markdown,
-          ...(input.lang ? { lang: input.lang } : {}),
-          tags: input.tags,
-          source: { kind: 'native', last_synced_at: nowMs },
-        },
-        nowMs,
-      );
-      emitEvents([ev]);
-      return pageId;
-    },
-    [emitEvents],
-  );
-
-  const markPageRead = useCallback(
-    (pageId: string) => {
-      const factory = factoryRef.current;
-      const nowMs = Date.now();
-      const ev = factory.create('PageRead', { page_id: pageId, read_at: nowMs }, nowMs);
-      emitEvents([ev]);
-    },
-    [emitEvents],
-  );
-
-  const upsertCourse = useCallback(
-    (course: Course) => {
-      const factory = factoryRef.current;
-      const ev = factory.create('CourseChanged', { course }, Date.now());
-      emitEvents([ev]);
-    },
-    [emitEvents],
-  );
-
-  const createDeck = useCallback(
-    (name: string, noteTypeId: string, language: string): string => {
-      const factory = factoryRef.current;
-      const nowMs = Date.now();
-      const deckId = uuidv5(FLASH_NAMESPACE_UUID, `${name}:${nowMs}:${uuidv7(nowMs)}`);
-      const ev = factory.create(
-        'DeckCreated',
-        {
-          deck_id: deckId,
-          name: name.trim(),
-          note_type_id: noteTypeId,
-          language,
-          source: { kind: 'native' },
-          created_at: nowMs,
-        },
-        nowMs,
-      );
-      emitEvents([ev]);
-      return deckId;
-    },
-    [emitEvents],
-  );
-
   const updateDeckSettings = useCallback(
     (
       deckId: string,
@@ -934,49 +823,6 @@ export function AppProvider({
         setActiveDeckId((prev) => (prev === deckId ? undefined : prev));
       }
       emitEvents(events);
-    },
-    [emitEvents],
-  );
-
-  const toggleDeckLayout = useCallback(
-    (deckId: string, layoutId: string) => {
-      const st = stateRef.current;
-      const deck = st.decks.get(deckId);
-      if (!deck) return;
-      const currentEnabled = getEnabledLayoutsForDeck(st, deck).map((l) => l.id);
-      const hasLayout = currentEnabled.includes(layoutId);
-      let nextIds: string[];
-      if (hasLayout) {
-        if (currentEnabled.length <= 1) return; // Always keep at least 1 layout active
-        nextIds = currentEnabled.filter((id) => id !== layoutId);
-      } else {
-        nextIds = [...currentEnabled, layoutId];
-      }
-      updateDeckSettings(deckId, { settings: { enabled_layout_ids: nextIds } });
-    },
-    [updateDeckSettings],
-  );
-
-  const rescheduleDeck = useCallback(
-    (deckId: string) => {
-      const factory = factoryRef.current;
-      const st = stateRef.current;
-      const deck = st.decks.get(deckId);
-      if (!deck) return;
-      const nowMs = Date.now();
-      const current = resolveDeckFsrsConfig(st, deckId, nowMs);
-      const ev = factory.create(
-        'DeckFSRSParamsChanged',
-        {
-          deck_id: deckId,
-          params_version: getActiveFsrsParamsVersion(st, deckId) + 1,
-          effective_from: nowMs,
-          params: { ...current, request_retention: deck.settings.target_retention },
-          reschedule_existing: true,
-        },
-        nowMs,
-      );
-      emitEvents([ev]);
     },
     [emitEvents],
   );
@@ -1070,9 +916,16 @@ export function AppProvider({
     await refreshEntitlement();
   }, [audio, enqueuePersist, persistQueue, platform, refreshEntitlement, syncController]);
 
-  // Once this device syncs with the link's provider, the link has done its job.
+  // Once this device syncs with the link's provider, the link has done its job. Only a provider
+  // change re-renders the provider here, not every sync tick (P3).
+  const readSyncProvider = () => syncStore.get().provider;
+  const syncProvider = useSyncExternalStore(
+    syncStore.subscribe,
+    readSyncProvider,
+    readSyncProvider,
+  );
   const addDeviceLink =
-    openedAddDeviceLink && syncState.provider !== openedAddDeviceLink.provider
+    openedAddDeviceLink && syncProvider !== openedAddDeviceLink.provider
       ? openedAddDeviceLink
       : undefined;
 
@@ -1080,6 +933,7 @@ export function AppProvider({
     platform,
     addDeviceLink,
     state: stateRef.current,
+    getState,
     stateVersion,
     ready: true,
     meta,
@@ -1094,7 +948,6 @@ export function AppProvider({
     activeDeckId,
     setActiveDeckId,
     audio,
-    syncState: syncState,
     syncNow: syncController.syncNow,
     flushPendingSync: syncController.flushPendingSync,
     connectGoogleDrive: syncController.connectGoogleDrive,
@@ -1114,14 +967,7 @@ export function AppProvider({
     setNoteArchived,
     markNoteReviewed,
     addMedia,
-    upsertLayout,
-    upsertPage,
-    markPageRead,
-    upsertCourse,
-    createDeck,
     updateDeckSettings,
-    toggleDeckLayout,
-    rescheduleDeck,
     updatePreferences,
     loadSampleDecks,
     markBackupCompleted,
@@ -1130,10 +976,19 @@ export function AppProvider({
   };
 
   return (
-    <AppContext.Provider value={value}>
-      {children}
-      <Suspense fallback={null}>{syncRuntime}</Suspense>
-    </AppContext.Provider>
+    <SyncStateContext.Provider value={syncStore}>
+      <AppContext.Provider value={value}>
+        {children}
+        <Suspense fallback={null}>{syncRuntime}</Suspense>
+        <LaunchSyncEffects
+          launchedAtMs={launchedAtMs}
+          collectionState={collectionState}
+          stateRef={stateRef}
+          factoryRef={factoryRef}
+          emitEventsRef={emitEventsRef}
+        />
+      </AppContext.Provider>
+    </SyncStateContext.Provider>
   );
 }
 

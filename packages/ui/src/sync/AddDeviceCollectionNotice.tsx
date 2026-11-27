@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { useSyncState } from '../state/syncStateStore.ts';
 import { checkAddDeviceCollection, isAddDeviceProvider } from './addDeviceLinkShare.ts';
 import {
   addDeviceExpectationResource,
@@ -22,7 +23,8 @@ export function AddDeviceCollectionNotice({
   /** Also told when the user dismisses the notice (the stored link is forgotten either way). */
   onDismiss?: () => void;
 }> = {}) {
-  const { platform, syncState, meta, resolveCollectionChoice } = useApp();
+  const { platform, meta, resolveCollectionChoice } = useApp();
+  const syncState = useSyncState();
   const storage = platform.storage;
   const [resolving, setResolving] = useState(false);
   const [expected, setExpected] = useState(() => peekAddDeviceExpectation(storage));

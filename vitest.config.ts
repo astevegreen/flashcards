@@ -5,6 +5,8 @@ import { defineConfig } from 'vitest/config';
 const coverageRun = process.argv.includes('--coverage');
 
 export default defineConfig({
+  // The Dexie build the web app ships (apps/web/vite.config.ts), so tests run the same code.
+  resolve: { alias: [{ find: /^dexie$/, replacement: 'dexie/dist/modern/dexie.mjs' }] },
   test: {
     include: [
       'packages/**/src/**/*.test.ts',

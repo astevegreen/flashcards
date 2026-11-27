@@ -14,7 +14,8 @@ import { createHlcState } from '../src/hlc.ts';
 import { deriveCardId, deriveNoteId } from '../src/ids.ts';
 import { BUILTIN_NOTE_TYPE_IDS } from '../src/model/presets.ts';
 import type { ReviewRating } from '../src/model/types.ts';
-import { filterCards, normalizeCardFilter } from '../src/study/filter.ts';
+import { filterCards } from '../src/study/filter.ts';
+import { normalizeCardFilter } from '../src/study/filter-normalize.ts';
 import { buildStudyQueue } from '../src/study/queue.ts';
 
 const DECK = 'deck-ko-suspend-prop';

@@ -15,11 +15,11 @@ import {
   filterCards,
   isCardFilterEmpty,
   keepHardestDueToday,
-  normalizeCardFilter,
   splitHardestCriterion,
   type CardFilter,
   type CardFilterContext,
 } from './filter.ts';
+import { normalizeCardFilter } from './filter-normalize.ts';
 import { compareSeededRandom, compareSourceOrder } from './card-order.ts';
 import { resolveDayStartHour, type StudyCounts, type StudyQueueResult } from './queue.ts';
 import { compareCodeUnits } from '../compare.ts';

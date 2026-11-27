@@ -4,6 +4,7 @@ import type { PendingXlsxReconciliation, PickedFile, PlatformServices } from '@f
 import { Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
+import { useLibraryActions } from '../state/libraryActions.ts';
 import type { SourceRunContext } from './sourcesRegistry.ts';
 import { linkedFileDeck } from './linkedFileDeck.ts';
 import type { LinkedFileMappingChoice } from './LinkedFileMapping.tsx';
@@ -119,8 +120,8 @@ export function CloudFilePickerPanel<Item extends CloudBrowseItem>({
   /** Hands a held rename review to the Sources panel, which shows the prompt. */
   onPendingReconciliation?: (rec: PendingXlsxReconciliation) => void;
 }>) {
-  const { platform, state, stateVersion, entitlement, getEventFactory, emitEvents, createDeck } =
-    useApp();
+  const { platform, state, stateVersion, entitlement, getEventFactory, emitEvents } = useApp();
+  const { createDeck } = useLibraryActions();
   const { key, label } = provider;
   const [session, setSession] = useState<CloudPickerSession<Item> | null>(null);
   const [access, setAccess] = useState<AccessState>('checking');

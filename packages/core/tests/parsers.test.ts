@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatPinyin, parsePinyin } from '../src/parsers/pinyin.ts';
-import { convertAnkiRuby, parseRuby, stripRuby } from '../src/parsers/ruby.ts';
+import { parseRuby, stripRuby } from '../src/parsers/ruby.ts';
+import { convertAnkiRuby } from '../src/parsers/anki-ruby.ts';
 
 describe('Anki furigana conversion (§6.2)', () => {
   it('turns space-delimited Han bases into strict ruby and mixed bases into explicit ruby', () => {

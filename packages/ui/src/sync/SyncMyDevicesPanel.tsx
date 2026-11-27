@@ -1,5 +1,6 @@
 import { useApp } from '../state/AppContext.tsx';
-import { peekAddDeviceExpectation } from './addDeviceExpectation.ts';
+import { useSyncState } from '../state/syncStateStore.ts';
+import { useAddDeviceExpectation } from './addDeviceExpectation.ts';
 import type { AddDeviceLink, AddDeviceProvider } from './addDeviceLink.ts';
 import { describeSyncProvider } from './syncProviderLabel.ts';
 import {
@@ -137,13 +138,13 @@ export function SyncMyDevicesPanel({
   /** `panel` only: a link to every sync setting. */
   onOpenSettings?: (() => void) | undefined;
 }>) {
-  const { platform, syncState, addDeviceLink: openedLink } = useApp();
+  const { platform, addDeviceLink: openedLink } = useApp();
+  const syncState = useSyncState();
+  const expectation = useAddDeviceExpectation(platform.storage);
   const { connect, connecting, error } = useConnectSyncProvider();
   // Back from a sign-in that did not finish, the page-load link is gone but the stored one still
   // says which provider the other device uses.
-  const addDeviceLink =
-    openedLink ??
-    (syncState.provider === 'none' ? peekAddDeviceExpectation(platform.storage) : undefined);
+  const addDeviceLink = openedLink ?? (syncState.provider === 'none' ? expectation : undefined);
   const plan = planSyncMyDevices(platform, addDeviceLink);
   const iCloudHint = iCloudOffHint(platform);
   const isPanel = variant === 'panel';

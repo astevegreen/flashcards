@@ -2,6 +2,7 @@ import type { CollectionState } from '@flash/core';
 import type { DeviceMeta } from '@flash/platform';
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { useSyncState } from '../state/syncStateStore.ts';
 import { SECURE_KEYS_LOST_KV_KEY } from '../state/secureKeysNotice.ts';
 import type { SyncUiState } from '../state/useSyncController.ts';
 import type { NavTab } from './AppShell.tsx';
@@ -43,7 +44,8 @@ function backupReminderDue(
  * Both are rare, so AppShell loads this lazily, outside the initial chunk (§8).
  */
 export function ShellNotices({ onSelectTab }: Readonly<{ onSelectTab: (tab: NavTab) => void }>) {
-  const { platform, state, meta, syncState, dismissBackupBanner } = useApp();
+  const { platform, state, meta, dismissBackupBanner } = useApp();
+  const syncState = useSyncState();
   const storage = platform.storage;
 
   // The phone apps leave a plain flag when the sign-in secrets were lost (Android: the Keystore

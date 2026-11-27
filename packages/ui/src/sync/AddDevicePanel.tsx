@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { useSyncState } from '../state/syncStateStore.ts';
 import { isShareableCollectionId, type AddDeviceProvider } from './addDeviceLink.ts';
 import {
   addDeviceJoinPhrase,
@@ -153,7 +154,8 @@ function AddDeviceBody({
 }
 
 export function AddDevicePanel() {
-  const { syncState, meta } = useApp();
+  const { meta } = useApp();
+  const syncState = useSyncState();
   const provider = syncState.provider;
   return (
     <section

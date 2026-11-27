@@ -1,11 +1,17 @@
 import type { KnownEvent } from '@flash/core';
-import { useLayoutEffect } from 'react';
+import { useLayoutEffect, useSyncExternalStore } from 'react';
 import { useStarterDeckUpgradeAtLaunch } from '../onboarding/starterUpgradeLaunch.ts';
 import type { SyncShell } from './syncShell.ts';
+import type { SyncStateStore } from './syncStateStore.ts';
 import { useSyncController, type UseSyncControllerOptions } from './useSyncController.ts';
 
-export interface SyncRuntimeProps extends UseSyncControllerOptions {
+export interface SyncRuntimeProps extends Omit<
+  UseSyncControllerOptions,
+  'syncState' | 'setSyncState'
+> {
   shell: SyncShell;
+  /** AppProvider's sync status store: this runtime reads and writes it (P3). */
+  syncStore: SyncStateStore;
   /** AppContext's `emitEvents`, for the launch-time starter-deck upgrade. */
   emitEventsRef: { readonly current: (events: readonly KnownEvent[]) => void };
 }
@@ -15,14 +21,10 @@ export interface SyncRuntimeProps extends UseSyncControllerOptions {
  * initial chunk (P1); until it attaches, `shell` stands in for it. It also hosts the launch-time
  * starter-deck upgrade, which waits on this launch's sync (onboarding/starterUpgradeLaunch.ts).
  */
-export function SyncRuntime({ shell, emitEventsRef, ...options }: SyncRuntimeProps) {
-  const controller = useSyncController(options);
+export function SyncRuntime({ shell, syncStore, emitEventsRef, ...options }: SyncRuntimeProps) {
+  const syncState = useSyncExternalStore(syncStore.subscribe, syncStore.get, syncStore.get);
+  const controller = useSyncController({ ...options, syncState, setSyncState: syncStore.set });
   useLayoutEffect(() => shell.attach(controller));
-  useStarterDeckUpgradeAtLaunch(
-    options.syncState,
-    options.stateRef,
-    options.factoryRef,
-    emitEventsRef,
-  );
+  useStarterDeckUpgradeAtLaunch(syncState, options.stateRef, options.factoryRef, emitEventsRef);
   return null;
 }

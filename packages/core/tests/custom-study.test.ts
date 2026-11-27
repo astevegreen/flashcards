@@ -21,12 +21,8 @@ import {
   listStudySets,
   normalizeStudySetName,
 } from '../src/study/custom-study.ts';
-import {
-  filterCards,
-  LEECH_LAPSE_THRESHOLD,
-  normalizeCardFilter,
-  shouldAutoSuspendLeech,
-} from '../src/study/filter.ts';
+import { filterCards, LEECH_LAPSE_THRESHOLD, shouldAutoSuspendLeech } from '../src/study/filter.ts';
+import { normalizeCardFilter } from '../src/study/filter-normalize.ts';
 import { applyFilterPreset } from '../src/study/filter-lists.ts';
 import { getExtraNewCardsToday } from './helpers/extra-new-cards.ts';
 import { buildStudyQueue } from '../src/study/queue.ts';

@@ -1,6 +1,7 @@
 import { canUseCloudSync } from '@flash/core/license';
 import { useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { useSyncState } from '../state/syncStateStore.ts';
 
 /**
  * Settings > Sync buttons for the OneDrive storage connector (§15 Phase 12). Rendered in the same
@@ -17,7 +18,8 @@ export function OneDriveSyncButtons({
   hideConnect?: boolean;
   onError: (message: string | null) => void;
 }>) {
-  const { platform, entitlement, syncState, connectOneDrive } = useApp();
+  const { platform, entitlement, connectOneDrive } = useApp();
+  const syncState = useSyncState();
   // Native sign-in (system browser / loopback) can take a while: one authorize at a time.
   const [connecting, setConnecting] = useState(false);
   if (!platform.oneDriveConfigured) return null;

@@ -1,12 +1,8 @@
 import type { CollectionState } from '../events/replay.ts';
 import type { Card } from '../model/types.ts';
 import { cardFilterToStatsFilter } from '../study/custom-study.ts';
-import {
-  filterCards,
-  isCardFilterEmpty,
-  normalizeCardFilter,
-  type CardFilterContext,
-} from '../study/filter.ts';
+import { filterCards, isCardFilterEmpty, type CardFilterContext } from '../study/filter.ts';
+import { normalizeCardFilter } from '../study/filter-normalize.ts';
 import {
   computeCollectionStats,
   type CollectionStats,

@@ -7,7 +7,7 @@ import {
   uuidv7,
   type CollectionState,
 } from '@flash/core';
-import type { AuthSession, PlatformServices, SyncConfig, SyncProviderKind } from '@flash/platform';
+import type { PlatformServices, SyncConfig } from '@flash/platform';
 import { createWebPlatform, resolveDeviceFromUrl } from '@flash/platform-web';
 import { FlashcardsApp } from '@flash/ui';
 import { StrictMode } from 'react';
@@ -43,25 +43,6 @@ function detectNativeRuntime(): NativeRuntime {
   if (w.Capacitor?.isNativePlatform?.()) return 'capacitor';
   if (w.__TAURI_INTERNALS__ !== undefined) return 'tauri';
   return null;
-}
-
-/**
- * Completes an OAuth redirect. OneDrive and Dropbox each return null unless the callback matches
- * their own pending PKCE state, so they run before Google (which rejects a foreign state).
- */
-async function handleOAuthRedirect(
-  platform: PlatformServices,
-): Promise<{ session: AuthSession | null; sessionProvider: SyncProviderKind }> {
-  if (platform.oneDriveConfigured && platform.getOneDriveAuth) {
-    const session = await (await platform.getOneDriveAuth()).handleRedirectCallback();
-    if (session) return { session, sessionProvider: 'onedrive' };
-  }
-  if (platform.dropboxConfigured && platform.getDropboxAuth) {
-    const session = await (await platform.getDropboxAuth()).handleRedirectCallback();
-    if (session) return { session, sessionProvider: 'dropbox' };
-  }
-  const session = await (await platform.getGoogleAuth()).handleRedirectCallback();
-  return { session, sessionProvider: 'google_drive' };
 }
 
 async function boot(): Promise<void> {
@@ -202,34 +183,14 @@ async function boot(): Promise<void> {
 
   if (nativeRuntime === null && (searchParams.has('code') || searchParams.has('error'))) {
     try {
-      const { session, sessionProvider } = await handleOAuthRedirect(platform);
-      if (session) {
-        // Only switch sync provider when sign-in was initiated for sync (or no provider was configured).
-        // Signing in from Library Sources keeps an existing Local Folder Sync configuration intact.
-        // A OneDrive picker sign-in (Files.Read for imports) never turns on OneDrive sync by itself.
-        const preserveExistingSync =
-          session.intent === 'sources' &&
-          (sessionProvider === 'onedrive' ||
-            sessionProvider === 'dropbox' ||
-            (syncConfig?.provider !== undefined && syncConfig.provider !== 'none'));
-        if (!preserveExistingSync) {
-          const switchingProvider = syncConfig?.provider !== sessionProvider;
-          syncConfig = { provider: sessionProvider, connectedAt: Date.now() };
-          await platform.storage.setSyncConfig(syncConfig);
-          if (switchingProvider) {
-            const { createInitialSyncCursor } = await import('@flash/core/sync');
-            syncCursor = createInitialSyncCursor();
-            await platform.storage.setSyncCursor(syncCursor);
-            if (meta.collectionId !== undefined) {
-              const { collectionId: _dropped, ...restMeta } = meta;
-              void _dropped;
-              meta = restMeta;
-              await platform.storage.setDeviceMeta(meta);
-            }
-          }
-        }
-      }
+      const { completeOAuthRedirect } = await import('./oauth-boot.ts');
+      ({ syncConfig, syncCursor, meta, initialOAuthError } = await completeOAuthRedirect(platform, {
+        syncConfig,
+        syncCursor,
+        meta,
+      }));
     } catch (err) {
+      // The sign-in chunk failed to load (offline, stale deploy): shown like a failed sign-in.
       initialOAuthError = err instanceof Error ? err.message : String(err);
     }
   }

@@ -16,10 +16,10 @@ import {
   isCardFilterEmpty,
   isLeechCard,
   LEECH_LAPSE_THRESHOLD,
-  normalizeCardFilter,
   type CardFilter,
   type CardFilterContext,
 } from '../src/study/filter.ts';
+import { normalizeCardFilter } from '../src/study/filter-normalize.ts';
 import {
   applyFilterPreset,
   BUILTIN_FILTER_PRESETS,

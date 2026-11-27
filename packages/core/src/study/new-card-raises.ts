@@ -6,7 +6,7 @@ import {
   isLeechCard,
   LEECH_CATEGORY,
   matchesCategoryCriterion,
-  normalizeCardFilter,
+  normalizeCategories,
   type CategoryCriterion,
 } from './filter.ts';
 import { compareCodeUnits } from '../compare.ts';
@@ -49,7 +49,7 @@ function parseRaise(payload: unknown): NewCardRaise | undefined {
   const deckIds = Array.isArray(p.deck_ids)
     ? p.deck_ids.filter((d): d is string => typeof d === 'string' && d.length > 0)
     : [];
-  const categories = normalizeCardFilter({ categories: p.categories }).categories;
+  const categories = normalizeCategories(p.categories);
   return {
     id: p.raise_id,
     extra: Math.min(MAX_EXTRA_NEW_CARDS, Math.floor(n)),

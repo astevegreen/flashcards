@@ -31,6 +31,7 @@ import { LazyErrorBoundary, lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { retryImport } from '../lazy/retryImport.ts';
 import type * as DeferredSyncPromptModuleType from '../onboarding/DeferredSyncPromptSlot.tsx';
 import { useApp, type AppContextValue, type UndoEntry } from '../state/AppContext.tsx';
+import { useSyncState } from '../state/syncStateStore.ts';
 import { inStudyScope } from '../state/undoGuard.ts';
 import { useActiveLanguages } from '../state/useActiveLanguages.ts';
 import { getAnswerMode } from '../study/answerModes/registry.ts';
@@ -313,9 +314,9 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
     markNoteReviewed,
     emitEvents,
     getEventFactory,
-    syncState,
     addDeviceLink,
   } = useApp();
+  const syncProvider = useSyncState((s) => s.provider);
   const rubyLanguage = useActiveLanguages().hasFeature('ruby');
 
   const [revealStep, setRevealStep] = useState(0);
@@ -1207,7 +1208,7 @@ export function StudyScreen({ onOpenLibrary, onOpenSettings }: StudyScreenProps)
       {deferredSyncPrompt.mod && (
         <deferredSyncPrompt.mod.DeferredSyncPromptSlot
           storage={platform.storage}
-          provider={syncState.provider}
+          provider={syncProvider}
           caughtUp={caughtUp}
           readyAtScreenMount={deferredSyncPrompt.readyAtMount}
           sessionReviewed={undoStack.length > 0}

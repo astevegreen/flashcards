@@ -9,6 +9,7 @@ import {
 } from '@flash/core';
 import { useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';
+import { useLibraryActions } from '../state/libraryActions.ts';
 
 export interface CoursesPanelProps {
   onOpenPage: (pageId: string) => void;
@@ -446,7 +447,8 @@ function CourseEditorForm({
 }
 
 export function CoursesPanel({ onOpenPage, onStudyDeck, onExportCourse }: CoursesPanelProps) {
-  const { state, stateVersion, upsertCourse } = useApp();
+  const { state, stateVersion } = useApp();
+  const { upsertCourse } = useLibraryActions();
   const [editorMode, setEditorMode] = useState<CourseEditorMode>(null);
 
   const nowMs = Date.now();
