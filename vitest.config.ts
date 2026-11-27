@@ -1,7 +1,9 @@
 import { defineConfig } from 'vitest/config';
 
-// V8 instrumentation slows heavy tests (snapshots, backups) to 3-6 s on a CI runner. With coverage
-// on they get 8 s (the whole suite passes at 5 s locally; 15 s before the D12 fixture got cheaper); plain `pnpm test` (and `pnpm gate`) keeps vitest's 5 s default.
+// V8 instrumentation slows the heaviest tests (the rolling-backup runner, up to 3.5 s locally and
+// up to 5.6 s on a CI runner, as measured in #90) past vitest's 5 s default, so with coverage on they get 8 s. The D12
+// snapshot tests no longer need it: their cap is injected (`snapshotLimits`), so they take
+// milliseconds. Plain `pnpm test` (and `pnpm gate`) keeps the 5 s default.
 const coverageRun = process.argv.includes('--coverage');
 
 export default defineConfig({
