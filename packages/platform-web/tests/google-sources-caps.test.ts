@@ -5,6 +5,7 @@ import {
   MAX_VALUES_JSON_BYTES,
   WebGoogleSourcesClient,
 } from '../src/sources/google-sheets-docs.ts';
+import { MAX_DRIVE_FILE_BYTES } from '../src/sources/google-drive-files.ts';
 import { declaredBody, streamedBody, type OversizedBody } from './helpers/oversized-body.ts';
 
 const auth = {
@@ -29,8 +30,8 @@ function client(route: (url: URL) => Response, sleeps: number[] = []) {
   });
 }
 
-/** A linked .csv/.xlsx file's cap (google-drive-files.ts, local-folder-sources.ts). */
-const LINKED_CSV_CAP = 50 * 1024 * 1024;
+/** A linked .csv/.xlsx file's cap, which a Sheet read must match. */
+const LINKED_CSV_CAP = MAX_DRIVE_FILE_BYTES;
 
 const meta = { id: 's1', name: 'Deck', mimeType: 'application/vnd.google-apps.spreadsheet' };
 
