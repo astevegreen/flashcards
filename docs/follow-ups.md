@@ -779,29 +779,29 @@ Open items, grouped by area.
 
 ### Merge-gate tooling
 
-- [ ] `tools/gemini/rails.mjs:126`: the `ANY_BLOCKER` regex has 2 SonarCloud MAJOR issues (S8786 backtracking, S5843 complexity 39). Strip `*` first, or split the regex.
-- [ ] A plural answer starting with "none" ("Blockers: none, except X") still reads clean.
-- [ ] "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" falsely retry.
+- [x] `tools/gemini/rails.mjs:126`: the `ANY_BLOCKER` regex has 2 SonarCloud MAJOR issues (S8786 backtracking, S5843 complexity 39). Strip `*` first, or split the regex. Split into three linear patterns in #119.
+- [x] A plural answer starting with "none" ("Blockers: none, except X") still reads clean. Fixed in #119 (allow-list after none / n/a).
+- [ ] "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" falsely retry. Not changed: clearing them loosens the gate, so it is the owner's call; see "Decisions needed (batch 2026-11-27b)".
 
 ### Sync
 
-- [ ] Transport read caps (`packages/platform-web/src/sync/sync-read-caps.ts`) are tied to the default `SYNC_CODEC_LIMITS` and `SYNC_MEDIA_LIMITS`. The engine's `maxMediaBlobBytes` and `snapshotLimits` overrides could drift past them. Link them or comment.
-- [ ] `head.json` `segments` grows about 60 bytes per push and is never pruned. Since #115 a head over 25 MiB (about 440k pushes) fails sync. Prune or compact.
-- [ ] 20k-card collections already exceed the snapshot codec limit (69.7 MiB raw, 5.07 MiB gzipped, measured), so they never get a snapshot.
-- [ ] Local-folder, iCloud/Capacitor and Tauri `read()` are still uncapped. The full streamed `read()` interface (#103 design note) is still open.
+- [x] Transport read caps (`packages/platform-web/src/sync/sync-read-caps.ts`) are tied to the default `SYNC_CODEC_LIMITS` and `SYNC_MEDIA_LIMITS`. The engine's `maxMediaBlobBytes` and `snapshotLimits` overrides could drift past them. Link them or comment. Linked in #117.
+- [x] `head.json` `segments` grows about 60 bytes per push and is never pruned. Since #115 a head over 25 MiB (about 440k pushes) fails sync. Prune or compact. Compacted in #120.
+- [x] 20k-card collections already exceed the snapshot codec limit (69.7 MiB raw, 5.07 MiB gzipped, measured), so they never get a snapshot. Fixed in #120 (128 MiB unpacked cap on desktop and web, 25 MiB on Capacitor).
+- [x] Local-folder, iCloud/Capacitor and Tauri `read()` are still uncapped. Capped in #117. The full streamed `read()` interface (#103 design note) is still open.
 
 ### Core import/export
 
-- [ ] The S4 sweep is half done: `note.fields[key]` is still read raw in `packages/core/src/import/csv-export.ts:124`, `export/anki/apkg.ts:502,542`, `sources/tabular.ts:517,610` and `sources/content-hash.ts:18`. A note type with a `constructor` field that a note lacks puts `Object`'s function into the export text, sort key or hash, or makes `hasRuby` throw. Route them through `noteField`, with tests.
+- [x] The S4 sweep is half done: `note.fields[key]` is still read raw in `packages/core/src/import/csv-export.ts:124`, `export/anki/apkg.ts:502,542`, `sources/tabular.ts:517,610` and `sources/content-hash.ts:18`. A note type with a `constructor` field that a note lacks puts `Object`'s function into the export text, sort key or hash, or makes `hasRuby` throw. Route them through `noteField`, with tests. Done in #118.
 
 ### CLI
 
-- [ ] `--key-stdin`: an escape sequence split across two reads right after Esc leaks its tail into the key, and Esc, `O`, Enter in one read loses the Enter. Unlikely on real terminals.
+- [x] `--key-stdin`: an escape sequence split across two reads right after Esc leaks its tail into the key, and Esc, `O`, Enter in one read loses the Enter. Unlikely on real terminals. Fixed in #119.
 
 ### Tests
 
-- [ ] Flaky `packages/ui/tests/note-field-prototype-keys-screens.test.tsx` "the Library stroke pre-cache counts no characters from them" (`flush(20)` timing; failed once in CI).
-- [ ] Local `pnpm gate` also times out under load in `app-context-review.test.tsx`, `starter-packs-check.test.mjs`, `shard-packs`, `writer-tabs`, `leech-backfill`, `lazy-services-retry` and `launch-source-check`.
+- [x] Flaky `packages/ui/tests/note-field-prototype-keys-screens.test.tsx` "the Library stroke pre-cache counts no characters from them" (`flush(20)` timing; failed once in CI). Waits on a condition since #119.
+- [x] Local `pnpm gate` also times out under load in `app-context-review.test.tsx`, `starter-packs-check.test.mjs`, `shard-packs`, `writer-tabs`, `leech-backfill`, `lazy-services-retry` and `launch-source-check`. Fixed by reading the causes in #119 (not reproduced).
 
 ## Decisions needed (batch 2026-11-26b)
 
@@ -828,6 +828,38 @@ Each default below stays shipped until the owner decides.
 - [ ] **agy merge gate, singular forms (#111):** "Blocker: none found" and "**Blocker:** none" still read as a blocker (retry), while the plural forms now merge. Clearing them loosens the check, so it's the owner's call. Recommend clear them, the same way as the plural forms.
 - [ ] **Sync read caps (#115):** head and manifest 25 MiB, segment 20 MiB, snapshot 30 MiB, media 20 MiB. An over-cap file is handled the way an over-limit file already was (skipped, or for head and manifest, the sync fails). Technical; for information only.
 - [ ] **#112 and #113 are technical, with no product defaults.** For information only.
+
+## Left over from the follow-ups batch 2026-11-27b (#117–#120)
+
+Open items, grouped by area. The batch ran one round; its fallout is here instead of a second round.
+
+### Sync transports (#117)
+
+- [ ] The native adapter cap wiring is untested: `createICloudDocumentPlugin` forwarding `maxBytes`, and `createFsBridge` returning TOO_LARGE with the size.
+- [ ] iCloud downloads an oversized placeholder before the `max_bytes` check (`icloud.rs` `placeholder_size`, and the Swift side). Check the placeholder size first.
+- [ ] `assertSyncReadCapsCover` rejects any override above the defaults, stricter than its description ("transports would refuse").
+
+### Sync engine (#120)
+
+- [ ] The mobile-browser PWA gets the 128 MiB snapshot cap; only Capacitor keeps 25 MiB.
+- [ ] Big collections upload a ~5 MiB snapshot every 500 events, and old snapshots are never pruned. Scale the threshold with the snapshot size (pruning deletes remote data: owner).
+- [ ] `packages/core/src/sync/engine.ts:99`: the `snapshotLimits` comment is stale.
+- [ ] `planHeadCompaction` re-folds full segments after a partial one (efficiency).
+- [ ] A legacy head with N ranges folds them all in one push. Unverified.
+
+### Merge-gate tooling and tests (#119)
+
+- [ ] `packages/ui/tests/app-context-review.test.tsx:79`: the wait passes the first time one persist is seen, so a later duplicate persist goes unnoticed. Flush once more after it and assert the count again.
+
+## Decisions needed (batch 2026-11-27b)
+
+Each default below stays shipped until the owner decides.
+
+- [ ] **agy merge gate, plural clean forms (#119):** "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" still retry. Clearing them loosens the check. Recommend clear them, with the same allow-list (only `found`, `identified` or `in this diff` may follow), because they are plain "no blockers" answers that cost needless retries.
+- [ ] **Snapshot cap (#120):** 128 MiB unpacked on desktop and web; phones (Capacitor) keep 25 MiB. Recommend keep, and measure a 20k-card snapshot on a real phone before raising the phone cap.
+- [ ] **Unlisted sync segment files are never deleted (#120):** cleaning them up deletes remote data. Recommend leave them until a real collection shows the space matters.
+- [ ] **Technical, for information (#119):** after none / n/a only `found`, `identified` or `in this diff` may follow, so "none (see notes)" retries; and a lone Esc followed by a read that is exactly a sequence tail drops that tail.
+- [ ] **Head compaction threshold 1000 segments (#120).** Technical; for information only.
 
 ## Needs the owner (hands-on)
 
