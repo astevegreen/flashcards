@@ -150,7 +150,10 @@ export async function holdWriter(s: WriterSetup): Promise<void> {
     ]);
     s.load()
       .then((m) => m.yieldWriter(s.storage, s.name, s.win, release, () => saved))
-      .catch(() => saved.then(() => stop(release)));
+      .catch(async () => {
+        await saved;
+        stop(release);
+      });
   };
   held = await holdWriterLock(s.locks, s.name, waitUpTo(500), onLost);
   // Without the screen's chunk, waits for the lock without the screen (never a steal).
