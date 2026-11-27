@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { useSyncState } from '../state/syncStateStore.ts';
 
@@ -17,7 +17,9 @@ export function AutoBackupRuntime() {
   const { platform, state, meta } = useApp();
   const syncState = useSyncState();
   const latest = useRef({ state, meta, provider: syncState.provider });
-  latest.current = { state, meta, provider: syncState.provider };
+  useLayoutEffect(() => {
+    latest.current = { state, meta, provider: syncState.provider };
+  });
   const [persistNotice, setPersistNotice] = useState(false);
 
   useEffect(() => {

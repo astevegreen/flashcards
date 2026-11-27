@@ -1,5 +1,5 @@
 import type { CollectionArea, CollectionDifferenceKind } from '@flash/core/check';
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { useSyncState } from '../state/syncStateStore.ts';
 import {
@@ -65,8 +65,11 @@ export function CheckPanel() {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [database, setDatabase] = useState<DatabaseCheckResult | null>(null);
   const [confirmRebuild, setConfirmRebuild] = useState(false);
+  // The checks read the newest committed collection through this, from handlers only.
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useLayoutEffect(() => {
+    stateRef.current = state;
+  });
   const syncing = syncState.provider !== 'none';
 
   const ctx = (): CheckContext => ({ platform, getState: () => stateRef.current });
@@ -156,8 +159,8 @@ export function CheckPanel() {
     if (noteIds.length > 0) {
       const decks = new Set<string>();
       for (const id of noteIds) {
-        const deckId = stateRef.current.notes.get(id)?.deck_id;
-        const name = deckId ? stateRef.current.decks.get(deckId)?.name : undefined;
+        const deckId = state.notes.get(id)?.deck_id;
+        const name = deckId ? state.decks.get(deckId)?.name : undefined;
         if (name) decks.add(name);
       }
       const where = decks.size > 0 ? ' in ' + [...decks].slice(0, 3).join(', ') : '';

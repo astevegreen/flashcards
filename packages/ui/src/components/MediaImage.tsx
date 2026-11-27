@@ -22,7 +22,7 @@ export const MISSING_MEDIA_RETRY_MS = 5_000;
 export function missingMediaRetryDelay(
   missing: { hash: string; atMs: number } | null,
   hash: string,
-  nowMs: number,
+  nowMs: number = Date.now(),
 ): number {
   if (missing?.hash !== hash) return 0;
   return Math.max(0, missing.atMs + MISSING_MEDIA_RETRY_MS - nowMs);
@@ -35,8 +35,10 @@ export function missingMediaRetryDelay(
  */
 export function MediaImage({ src, alt = '', className = '' }: MediaImageProps) {
   const { platform, stateVersion } = useApp();
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'missing' | 'blocked'>('loading');
+  // The object URL for the last hash read, and the last hash found missing: what shows is derived
+  // from them and the current `src` during render, so a new `src` never waits on an effect.
+  const [loaded, setLoaded] = useState<{ hash: string; url: string } | null>(null);
+  const [missingHash, setMissingHash] = useState<string | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const loadedHashRef = useRef<string | null>(null);
   // The hash last found missing, and when it was looked for.
@@ -58,16 +60,9 @@ export function MediaImage({ src, alt = '', className = '' }: MediaImageProps) {
   }, []);
 
   useEffect(() => {
-    if (!hash) {
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
-        objectUrlRef.current = null;
-      }
-      loadedHashRef.current = null;
-      setObjectUrl(null);
-      setStatus(trimmed ? 'blocked' : 'missing');
-      return undefined;
-    }
+    // Not a media reference: nothing to read. A loaded URL stays until the next read replaces it
+    // or the image unmounts, so switching back to that hash shows it without reading again.
+    if (!hash) return undefined;
 
     // Already loaded this exact content-addressed hash: do NOT flicker or re-read IndexedDB on unrelated stateVersion bumps!
     if (loadedHashRef.current === hash && objectUrlRef.current) {
@@ -83,8 +78,8 @@ export function MediaImage({ src, alt = '', className = '' }: MediaImageProps) {
       }
       loadedHashRef.current = null;
       missingRef.current = { hash, atMs: Date.now() };
-      setObjectUrl(null);
-      setStatus('missing');
+      setLoaded(null);
+      setMissingHash(hash);
     };
 
     const load = () =>
@@ -105,15 +100,15 @@ export function MediaImage({ src, alt = '', className = '' }: MediaImageProps) {
           objectUrlRef.current = url;
           loadedHashRef.current = hash;
           missingRef.current = null;
-          setObjectUrl(url);
-          setStatus('ready');
+          setLoaded({ hash, url });
+          setMissingHash(null);
         })
         .catch(() => {
           if (!cancelled) markMissing();
         });
 
     // Still missing: keep showing that, and look again only once the retry interval has passed.
-    const waitMs = missingMediaRetryDelay(missing, hash, Date.now());
+    const waitMs = missingMediaRetryDelay(missing, hash);
     if (waitMs > 0) {
       const timer = window.setTimeout(() => void load(), waitMs);
       return () => {
@@ -121,19 +116,24 @@ export function MediaImage({ src, alt = '', className = '' }: MediaImageProps) {
         window.clearTimeout(timer);
       };
     }
-    if (!missing) setStatus('loading');
     void load();
     return () => {
       cancelled = true;
     };
-  }, [hash, platform.storage, stateVersion, trimmed]);
+  }, [hash, platform.storage, stateVersion]);
 
   if (!trimmed) return null;
 
-  if (status === 'ready' && objectUrl) {
+  let status: 'loading' | 'ready' | 'missing' | 'blocked';
+  if (!hash) status = 'blocked';
+  else if (loaded?.hash === hash) status = 'ready';
+  else if (missingHash === hash) status = 'missing';
+  else status = 'loading';
+
+  if (status === 'ready' && loaded) {
     return (
       <img
-        src={objectUrl}
+        src={loaded.url}
         alt={alt}
         loading="lazy"
         decoding="async"

@@ -49,21 +49,25 @@ export default function GoogleDriveFileLinkPanel({
 }>) {
   const { platform, state, entitlement, getEventFactory, emitEvents } = useApp();
   const [index, setIndex] = useState(0);
-  const [step, setStep] = useState<Step>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
   const file = files[index];
+  const firstStep = (f: PickedDriveFile): Step =>
+    f.format === 'flashpkg' ? { kind: 'package' } : { kind: 'loading' };
+  const [step, setStep] = useState<Step>(() => (file ? firstStep(file) : { kind: 'loading' }));
+  // The next file (or a new platform) starts at its first step in the same render.
+  const [stepFor, setStepFor] = useState({ file, platform });
+  if (stepFor.file !== file || stepFor.platform !== platform) {
+    setStepFor({ file, platform });
+    if (file) setStep(firstStep(file));
+  }
 
   useEffect(() => {
     if (!file) {
       onClose();
       return undefined;
     }
+    if (file.format === 'flashpkg') return undefined;
     let cancelled = false;
-    if (file.format === 'flashpkg') {
-      setStep({ kind: 'package' });
-      return undefined;
-    }
-    setStep({ kind: 'loading' });
     void (async () => {
       try {
         // Through sourceRunner, so the Drive source shares its lazy chunk (no extra preload entry).

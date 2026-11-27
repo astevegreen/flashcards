@@ -168,11 +168,24 @@ export function CloudFilePickerPanel<Item extends CloudBrowseItem>({
     };
   }, [platform, provider]);
 
+  // A new folder listing (session, access or folder changed) shows Loading in the same render.
+  const listing = { session, access, folder: currentFolder?.folder };
+  const [listed, setListed] = useState(listing);
+  if (
+    listed.session !== listing.session ||
+    listed.access !== listing.access ||
+    listed.folder !== listing.folder
+  ) {
+    setListed(listing);
+    if (session && access === 'ready') {
+      setLoading(true);
+      setPanelError(null);
+    }
+  }
+
   useEffect(() => {
     if (!session || access !== 'ready') return undefined;
     let cancelled = false;
-    setLoading(true);
-    setPanelError(null);
     session
       .listFolder(currentFolder?.folder)
       .then((listed) => {

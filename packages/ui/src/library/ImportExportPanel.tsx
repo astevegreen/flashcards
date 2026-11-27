@@ -1,5 +1,5 @@
 import { compareCodeUnits, type Deck } from '@flash/core';
-import { Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Suspense, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import { useApp } from '../state/AppContext.tsx';
 import { IMPORT_EXPORT_PANEL_HEIGHT } from './import-export-layout.ts';
@@ -67,12 +67,19 @@ function ImportExportPanel({
   const importTabRef = useRef<HTMLButtonElement | null>(null);
   const exportTabRef = useRef<HTMLButtonElement | null>(null);
 
-  useEffect(() => {
+  // A new open request (tab, deck or nonce) switches the panel in the same render.
+  const [request, setRequest] = useState({ initialTab, initialDeckId, requestNonce });
+  if (
+    request.initialTab !== initialTab ||
+    request.initialDeckId !== initialDeckId ||
+    request.requestNonce !== requestNonce
+  ) {
+    setRequest({ initialTab, initialDeckId, requestNonce });
     setTab(initialTab);
     if (initialDeckId) {
       setDeckChoice(initialDeckId);
     }
-  }, [initialTab, initialDeckId, requestNonce]);
+  }
 
   const decks = useMemo(
     () =>

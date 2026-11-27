@@ -100,11 +100,9 @@ export function FindReplacePanel({ noteIds, onClose }: Readonly<FindReplacePanel
   } | null>(null);
   const plan = planned?.plan ?? null;
   const previewBehind = planned?.options !== options;
+  // Clearing the Find box drops the preview (in its onChange), so an empty pattern plans nothing.
   useEffect(() => {
-    if (options.find.length === 0) {
-      setPlanned(null);
-      return;
-    }
+    if (options.find.length === 0) return;
     const timer = window.setTimeout(
       () => setPlanned({ options, plan: planFindReplace(state, noteIds, options) }),
       PREVIEW_DELAY_MS,
@@ -168,6 +166,7 @@ export function FindReplacePanel({ noteIds, onClose }: Readonly<FindReplacePanel
           value={find}
           onChange={(e) => {
             setFind(e.target.value);
+            if (e.target.value.length === 0) setPlanned(null);
             setMessage(null);
           }}
           className={`${inputClass} w-40`}
