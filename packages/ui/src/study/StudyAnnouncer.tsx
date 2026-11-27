@@ -1,4 +1,3 @@
-import type { StudyCounts } from '@flash/core';
 import { useState } from 'react';
 
 export interface StudyAnnouncementState {
@@ -19,34 +18,23 @@ export function studyAnnouncementText({
   return 'Answer shown.';
 }
 
-/** The due-count chips as one labelled sentence; the chips themselves are hidden from readers. */
-export function dueCountsText(counts: Pick<StudyCounts, 'new' | 'learning' | 'due'>): string {
-  return `${counts.new} new, ${counts.learning} learning, ${counts.due} due for review`;
-}
-
 export interface StudyAnnouncerProps extends StudyAnnouncementState {
   cardId: string | undefined;
-  counts: Pick<StudyCounts, 'new' | 'learning' | 'due'>;
 }
 
 /**
- * Screen-reader text for the study header (the due counts) and a polite live region that
- * announces revealing a card and moving to the next one. Two cards in a row read the same
- * "Next card.", so each new card flips a trailing no-break space: the text changes and the
- * screen reader speaks it again.
+ * A polite live region that announces revealing a card and moving to the next one. Two cards in
+ * a row read the same "Next card.", so each new card flips a trailing no-break space: the text
+ * changes and the screen reader speaks it again. The due-count sentence is not here: the study
+ * screen renders it eagerly, so readers have it before this lazy chunk arrives.
  */
-export function StudyAnnouncer({ cardId, counts, ...state }: StudyAnnouncerProps) {
+export function StudyAnnouncer({ cardId, ...state }: StudyAnnouncerProps) {
   const [seen, setSeen] = useState({ cardId, serial: 0 });
   if (seen.cardId !== cardId) setSeen({ cardId, serial: seen.serial + 1 });
-  const text = studyAnnouncementText(state) + (seen.serial % 2 === 1 ? '\u00a0' : '');
+  const text = studyAnnouncementText(state) + (seen.serial % 2 === 1 ? ' ' : '');
   return (
-    <>
-      <p data-testid="study-due-counts" className="sr-only">
-        {dueCountsText(counts)}
-      </p>
-      <p data-testid="study-announcer" role="status" aria-live="polite" className="sr-only">
-        {text}
-      </p>
-    </>
+    <p data-testid="study-announcer" role="status" aria-live="polite" className="sr-only">
+      {text}
+    </p>
   );
 }
