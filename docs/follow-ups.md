@@ -783,6 +783,8 @@ Open items, grouped by area.
 - [x] `tools/gemini/rails.mjs:126`: the `ANY_BLOCKER` regex has 2 SonarCloud MAJOR issues (S8786 backtracking, S5843 complexity 39). Strip `*` first, or split the regex. Split into three linear patterns in #119.
 - [x] A plural answer starting with "none" ("Blockers: none, except X") still reads clean. Fixed in #119 (allow-list after none / n/a).
 - [x] "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" falsely retry. The owner cleared them on 2026-11-27; cleared in #134.
+- [ ] A bare plural heading `**Blockers:**` over an untagged list still reads clean (found in #134's review; older than #134). The singular `**Blocker:**` retries. Making the plural retry too only tightens the gate.
+- [ ] A negation with a colon hides what follows it: `Blockers: no blockers: a.ts:1 wrong` reads clean because `NEGATED_BLOCKER` matches first (found in #134's review; older than #134). Tightening only.
 
 ### Sync
 
