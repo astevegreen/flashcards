@@ -144,6 +144,63 @@ describe('--key-stdin at a terminal (S11)', () => {
     expect(text).toBe('key-from-tty\n');
   });
 
+  /** A TTY stdin that records raw-mode switches, fed one key press per chunk. */
+  function rawTty(...keys: string[]) {
+    const modes: boolean[] = [];
+    const stdin = Object.assign(lines(...keys), {
+      isTTY: true,
+      setRawMode: (raw: boolean) => {
+        modes.push(raw);
+      },
+    });
+    return { stdin, modes };
+  }
+
+  it('reads the key in raw mode at a TTY, so the terminal never echoes it', async () => {
+    const written: string[] = [];
+    const { stdin, modes } = rawTty('s', 'e', 'c', 'x', '\u007f', 'r', 'et', '\r', 'after');
+    const text = await readKeyFromStdin({ stdin, stderr: { write: (t) => written.push(t) } });
+    expect(text).toBe('secret\n');
+    expect(modes).toEqual([true, false]);
+    // Only the prompt and the closing newline reach the terminal: no key character.
+    expect(written).toEqual([KEY_STDIN_PROMPT, '\n']);
+  });
+
+  it('drops escape sequences, Tab and other control characters from the key', async () => {
+    const { stdin } = rawTty(
+      '\u001b[200~', // bracketed-paste start
+      'ab',
+      '\u001b[D', // left arrow
+      '\t',
+      'c\u001bOA', // SS3 up arrow
+      '\u001bx', // a two-byte escape
+      'd\u0001',
+      '\u001b[201~', // bracketed-paste end
+      '\r',
+    );
+    expect(await readKeyFromStdin({ stdin, stderr: { write: () => true } })).toBe('abcd\n');
+  });
+
+  it('leaves raw mode and reads nothing when Ctrl-C cancels', async () => {
+    const { stdin, modes } = rawTty('ab', '\u0003', 'c\r');
+    await expect(readKeyFromStdin({ stdin, stderr: { write: () => true } })).rejects.toThrow(
+      /Cancelled/,
+    );
+    expect(modes).toEqual([true, false]);
+  });
+
+  it('ends the key at Ctrl-D or end of input in raw mode', async () => {
+    expect(
+      await readKeyFromStdin({
+        stdin: rawTty('k1', '\u0004').stdin,
+        stderr: { write: () => true },
+      }),
+    ).toBe('k1\n');
+    expect(
+      await readKeyFromStdin({ stdin: rawTty('k2').stdin, stderr: { write: () => true } }),
+    ).toBe('k2\n');
+  });
+
   it('stays quiet when the key is piped in', async () => {
     const written: string[] = [];
     const text = await readKeyFromStdin({

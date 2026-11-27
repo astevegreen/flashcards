@@ -1,0 +1,4 @@
+# Synthetic test fixture in the CC-CEDICT format (written for this repo, not upstream data).
+#! date=9999-01-01T00:00:00Z
+山 山 [shan1] /hill/peak/
+一 一 [yi1] /one/single/

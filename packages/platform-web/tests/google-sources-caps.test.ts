@@ -2,6 +2,7 @@ import { isSyncTransportError } from '@flash/core';
 import type { Auth } from '@flash/platform';
 import { describe, expect, it, vi } from 'vitest';
 import { WebGoogleSourcesClient } from '../src/sources/google-sheets-docs.ts';
+import { declaredBody, streamedBody, type OversizedBody } from './helpers/oversized-body.ts';
 
 const auth = {
   getValidAccessToken: async () => 'token',
@@ -51,6 +52,36 @@ describe('WebGoogleSourcesClient reply caps (P8)', () => {
       values: values.values,
     });
     await expect(client(route(true)).readSheet('s1')).rejects.toThrow(/sheet values reply exceeds/);
+  });
+});
+
+describe('WebGoogleSourcesClient Docs export cap (10 MB)', () => {
+  const docMeta = { id: 'd1', name: 'Notes', mimeType: 'application/vnd.google-apps.document' };
+  const docClient = (exportReply: () => Response) =>
+    client((url) => (url.pathname.endsWith('/export') ? exportReply() : json(docMeta)));
+
+  it('exports a normal Doc as Markdown', async () => {
+    const c = docClient(() => new Response('# Notes\n\n- 개 dog\n'));
+    await expect(c.exportDocAsMarkdown('d1')).resolves.toMatchObject({
+      title: 'Notes',
+      markdown: '# Notes\n\n- 개 dog\n',
+    });
+  });
+
+  it('refuses an export whose Content-Length is over 10 MB', async () => {
+    const c = docClient(() => declaredBody(10 * 1024 * 1024 + 1));
+    await expect(c.exportDocAsMarkdown('d1')).rejects.toThrow(/Doc export exceeds/);
+  });
+
+  it('stops reading a streamed export once it passes 10 MB', async () => {
+    let body: OversizedBody | undefined;
+    const c = docClient(() => {
+      body = streamedBody(64 * 1024 * 1024, 1024 * 1024);
+      return body.response;
+    });
+    await expect(c.exportDocAsMarkdown('d1')).rejects.toThrow(/Doc export exceeds/);
+    expect(body?.cancelled).toBe(true);
+    expect(body?.pulled).toBeLessThan(16 * 1024 * 1024);
   });
 });
 

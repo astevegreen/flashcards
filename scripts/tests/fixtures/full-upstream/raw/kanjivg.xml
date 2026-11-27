@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic test fixture in the KanjiVG combined-XML format: one hand-written straight stroke. -->
+<kanjivg xmlns:kvg="http://kanjivg.tagaini.net">
+<kanji id="kvg:kanji_04e00"><g id="kvg:04e00" kvg:element="一">
+<path id="kvg:04e00-s1" kvg:type="㇐" d="M10,50L90,50"/>
+</g></kanji>
+</kanjivg>

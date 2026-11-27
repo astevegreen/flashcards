@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic test fixture in the KANJIDIC2 format (written for this repo, not upstream data). -->
+<kanjidic2>
+<header><database_version>9999-001</database_version></header>
+<character><literal>山</literal><radical><rad_value rad_type="classical">46</rad_value></radical>
+<misc><grade>1</grade><stroke_count>3</stroke_count></misc>
+<reading_meaning><rmgroup><reading r_type="ja_on">サン</reading><reading r_type="ja_kun">やま</reading>
+<meaning>hill</meaning></rmgroup></reading_meaning></character>
+</kanjidic2>
