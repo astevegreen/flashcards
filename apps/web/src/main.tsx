@@ -131,12 +131,15 @@ async function boot(): Promise<void> {
   if (!rootEl) {
     throw new Error('Root element #root not found');
   }
-  // A render that throws with no error boundary to catch it unmounts the app before its effects
-  // run, so `exposeWhenSaved` never comes: boot has finished then too (a waiting tab takes over
-  // at once, not by a steal after 120 s). The error is still reported, as React does by default.
+  // An app render that throws with no error boundary to catch it unmounts the app before its
+  // effects run, so `exposeWhenSaved` never comes: boot has finished then too (a waiting tab takes
+  // over at once, not by a steal after 120 s). Only once the app is rendered: the waiting screen
+  // shares this root, and a crash there comes before boot has read or written anything. The error
+  // is still reported, as React does by default.
+  let appRendered = false;
   const root = createRoot(rootEl, {
     onUncaughtError: (error) => {
-      markBooted();
+      if (appRendered) markBooted();
       reportError(error);
     },
   });
@@ -293,6 +296,7 @@ async function boot(): Promise<void> {
     }
   }
 
+  appRendered = true;
   root.render(
     <StrictMode>
       <FlashcardsApp
