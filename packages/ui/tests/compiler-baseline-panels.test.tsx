@@ -167,7 +167,7 @@ describe('MediaImage shows the image for the current src', () => {
     await mounted.rerender(<MediaImage src={`media:${B}`} />);
     await flush();
     expect(shownHash()).toBe(B);
-    expect(getMedia.mock.calls.length).toBe(reads);
+    expect(getMedia.mock.calls).toHaveLength(reads);
   });
 
   it('a hash found missing shows "pending sync", and another src replaces it', async () => {

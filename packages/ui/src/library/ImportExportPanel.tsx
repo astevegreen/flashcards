@@ -43,6 +43,20 @@ const IMPORT_FORMATS: ReadonlyArray<{ id: ImportFormat; label: string }> = [
   { id: 'anki', label: 'Anki (.apkg)' },
 ];
 
+interface OpenRequest {
+  initialTab: ImportExportTab;
+  initialDeckId: string | undefined;
+  requestNonce: number;
+}
+
+function sameOpenRequest(a: OpenRequest, b: OpenRequest): boolean {
+  return (
+    a.initialTab === b.initialTab &&
+    a.initialDeckId === b.initialDeckId &&
+    a.requestNonce === b.requestNonce
+  );
+}
+
 function ImportExportPanel({
   initialTab = 'import',
   initialDeckId,
@@ -69,11 +83,7 @@ function ImportExportPanel({
 
   // A new open request (tab, deck or nonce) switches the panel in the same render.
   const [request, setRequest] = useState({ initialTab, initialDeckId, requestNonce });
-  if (
-    request.initialTab !== initialTab ||
-    request.initialDeckId !== initialDeckId ||
-    request.requestNonce !== requestNonce
-  ) {
+  if (!sameOpenRequest(request, { initialTab, initialDeckId, requestNonce })) {
     setRequest({ initialTab, initialDeckId, requestNonce });
     setTab(initialTab);
     if (initialDeckId) {
