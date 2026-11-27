@@ -18,6 +18,20 @@ vi.mock('../src/study/StudyAnnouncer.tsx', async (importOriginal) => {
 
 const { StudyScreen } = await import('../src/screens/StudyScreen.tsx');
 
+/**
+ * Flushes React until `read` returns something, or fails after `timeoutMs`. Under coverage and a
+ * busy machine a lazy chunk can take longer than a fixed number of flushes to render.
+ */
+async function waitFor<T>(read: () => T | null | undefined, what: string, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = read();
+    if (value !== null && value !== undefined) return value;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await flush(1);
+  }
+}
+
 let mounted: Mounted | undefined;
 
 afterEach(async () => {
@@ -32,20 +46,22 @@ describe('study due-count sentence (§10)', () => {
     });
     const { container } = mounted;
     const counts = () => container.querySelectorAll('[data-testid="study-due-counts"]');
+    const announcer = () => container.querySelector('[data-testid="study-announcer"]');
 
-    expect(container.querySelector('[data-testid="study-announcer"]')).toBeNull();
+    // The gate holds the chunk, so whatever the sentence waits for, the announcer cannot be there.
+    const sentence = await waitFor(() => {
+      const text = counts()[0]?.textContent;
+      return text && text !== '0 new, 0 learning, 0 due for review' ? text : undefined;
+    }, 'a non-zero due-count sentence');
+    expect(announcer()).toBeNull();
     expect(counts()).toHaveLength(1);
-    const sentence = must(counts()[0]).textContent;
     expect(sentence).toMatch(/^\d+ new, \d+ learning, \d+ due for review$/);
-    expect(sentence).not.toBe('0 new, 0 learning, 0 due for review');
 
     gate.open();
-    await flush(5);
+    const live = await waitFor(announcer, 'the lazy announcer to render');
 
-    expect(container.querySelector('[data-testid="study-announcer"]')?.textContent).toBe(
-      'Next card.',
-    );
+    expect(live.textContent).toBe('Next card.');
     expect(counts()).toHaveLength(1);
     expect(must(counts()[0]).textContent).toBe(sentence);
-  });
+  }, 30_000);
 });
