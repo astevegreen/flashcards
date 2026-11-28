@@ -89,7 +89,10 @@ function upgradeIndex(state: CollectionState): UpgradeIndex {
     const { noteId, fields } = readUpgrade(ev);
     if (fields.length === 0) continue;
     let byField = index.byNote.get(noteId);
-    if (!byField) index.byNote.set(noteId, (byField = new Map()));
+    if (!byField) {
+      byField = new Map();
+      index.byNote.set(noteId, byField);
+    }
     for (const [field, upgrade] of fields) {
       const list = byField.get(field);
       if (list) list.push(upgrade);

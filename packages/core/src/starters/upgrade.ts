@@ -185,6 +185,29 @@ export interface StarterDeckUpgradePlan {
   upgraded: StarterDeckUpgradedPayload;
 }
 
+/** One note's fields still at an older release's text, or undefined when there are none. */
+function planStarterNoteUpgrade(
+  state: CollectionState,
+  deckId: string,
+  slug: string,
+  starter: StarterNote,
+  legacyGlosses: StarterLegacyGlosses,
+): StarterNoteUpgradedPayload | undefined {
+  // The id never changes, so a note the user moved to another deck is still found. The event
+  // names no deck, so the note stays where it is, even after a move that hasn't synced yet.
+  const note = state.notes.get(deriveNoteId(deckId, starter.key));
+  if (note === undefined) return undefined;
+  const fields: Record<string, StarterFieldUpgrade> = {};
+  for (const [field, values] of retiredStarterValues(slug, starter, legacyGlosses)) {
+    const value = note.fields[field];
+    const next = starter.fields[field];
+    const base = state.fieldHlcs.get(noteFieldRegisterKey(note.id, field));
+    if (value === undefined || next === undefined || base === undefined) continue;
+    if (values.has(value)) fields[field] = { value: next, base_hlc: base };
+  }
+  return Object.keys(fields).length === 0 ? undefined : { note_id: note.id, fields };
+}
+
 /**
  * Plans the upgrade of one starter deck to `info`'s release, or undefined when the deck is not
  * in the collection, is not that starter deck, or is already at (or past) that release.
@@ -201,20 +224,8 @@ export function planStarterDeckUpgrade(
 
   const notes: StarterNoteUpgradedPayload[] = [];
   for (const starter of content.notes) {
-    // The id never changes, so a note the user moved to another deck is still found. The event
-    // names no deck, so the note stays where it is, even after a move that hasn't synced yet.
-    const note = state.notes.get(deriveNoteId(deckId, starter.key));
-    if (note === undefined) continue;
-    const fields: Record<string, StarterFieldUpgrade> = {};
-    for (const [field, values] of retiredStarterValues(info.slug, starter, legacyGlosses)) {
-      const value = note.fields[field];
-      const next = starter.fields[field];
-      const base = state.fieldHlcs.get(noteFieldRegisterKey(note.id, field));
-      if (value === undefined || next === undefined || base === undefined) continue;
-      if (values.has(value)) fields[field] = { value: next, base_hlc: base };
-    }
-    if (Object.keys(fields).length === 0) continue;
-    notes.push({ note_id: note.id, fields });
+    const upgrade = planStarterNoteUpgrade(state, deckId, info.slug, starter, legacyGlosses);
+    if (upgrade !== undefined) notes.push(upgrade);
   }
 
   const plan: StarterDeckUpgradePlan = {
