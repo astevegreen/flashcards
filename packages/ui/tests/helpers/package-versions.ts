@@ -1,5 +1,6 @@
 import {
   applyEvents,
+  compareCodeUnits,
   BUILTIN_NOTE_TYPE_IDS,
   createEmptyState,
   createEventFactory,
@@ -42,5 +43,5 @@ export function activeWords(state: CollectionState): string[] {
   return [...state.notes.values()]
     .filter((n) => !n.archived)
     .map((n) => n.fields['word'] ?? '')
-    .sort();
+    .sort(compareCodeUnits);
 }
