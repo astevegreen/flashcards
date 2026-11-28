@@ -156,6 +156,7 @@ function cleanAnswer(answer) {
 // is neither empty nor clean. Clean prose ("No blocker.", "No blockers found.", "Blocker: none found",
 // "Blockers: 0") is not an assertion; singular and plural labels read the same way. A label followed only by *
 // ("**Blocker:**" or "**Blockers:**" as a heading over a list) is a blocker, since the list under it is untagged.
+// So is a label with the colon outside the bold ("**Blockers**:"): the * sits inside the label itself.
 function assertsBlocker(line) {
   const text = line.replaceAll('*', ' ');
   for (const label of text.matchAll(BLOCKER_LABEL)) {
@@ -164,7 +165,8 @@ function assertsBlocker(line) {
     const answer = text.slice(end);
     if (answer.trim() !== '') {
       if (!cleanAnswer(answer)) return true;
-    } else if (line.slice(end).trim() !== '') return true;
+    } else if (line.slice(end).trim() !== '' || line.slice(label.index, end).includes('*'))
+      return true;
   }
   return false;
 }

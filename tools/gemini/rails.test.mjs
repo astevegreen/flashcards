@@ -310,6 +310,16 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Blockers: a.ts:1 wrong. No blockers: otherwise',
     // A negation with * inside it is not a negation, as before.
     'No blockers**: a.ts:1 wrong',
+    // The colon outside the bold, over an untagged list, reads as a heading, not as clean.
+    '**Blockers**:',
+    '**Blocker**:',
+    '**Blockers** :',
+    '*Blockers*:',
+    '**No blockers**:',
+    // NEGATION_WORD needs a non-letter before no/not/without: a word that merely ends in one is no negation.
+    'Cannot blocker: a.ts:1 wrong',
+    'Casino blockers: a.ts:1 wrong',
+    'Know blockers: a.ts:1 wrong',
   ]) {
     const text = ['[note] a.ts:1 risk', real].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'retry', real);
@@ -349,6 +359,11 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Without blockers: merge',
     'No blockers — none',
     'Blockers:',
+    // The other side of the NEGATION_WORD boundary: no, not or without after a non-letter is a negation.
+    '(no blockers: a.ts:1 wrong)',
+    '- not blockers: a.ts:1 wrong',
+    '1no blockers: a.ts:1 wrong',
+    '**No blockers:** a.ts:1 wrong',
   ]) {
     const text = ['[note] a.ts:1 risk', clean].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'merge', clean);
@@ -360,6 +375,11 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
   // So does one under a bold plural heading.
   const plural = ['**Blockers:**', '1. a.ts:1 drops the check', '[note] b.ts:2 style'].join('\n');
   assert.equal(decide({ review: ok(plural) }).verdict, 'retry');
+  // And one under a heading with the colon outside the bold; tagged entries under it still get their fix pass.
+  const outside = ['**Blockers**:', '1. a.ts:1 drops the check', '[note] b.ts:2 style'].join('\n');
+  assert.equal(decide({ review: ok(outside) }).verdict, 'retry');
+  const tagged = ['**Blockers**:', '[blocker] a.ts:1 drops the check'].join('\n');
+  assert.equal(decide({ review: ok(tagged) }).verdict, 'fix');
   // A tagged blocker still gets its fix pass, whatever else the review says.
   const both = ['[blocker] a.ts:1 wrong', 'Blocker: also b'].join('\n');
   assert.equal(decide({ review: ok(both) }).verdict, 'fix');
