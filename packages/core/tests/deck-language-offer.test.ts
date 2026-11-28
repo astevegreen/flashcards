@@ -55,6 +55,13 @@ function stateOf(events: readonly FlashEvent[]): CollectionState {
   return state;
 }
 
+/** The offer for the deck with id `deckId`, which must exist. */
+function offerFor(state: CollectionState, deckId: string): string | undefined {
+  const deck = state.decks.get(deckId);
+  if (!deck) throw new Error(`no deck ${deckId}`);
+  return deckLanguageOffer(state, deck);
+}
+
 const KO_SENTENCES = [
   { sentence: '저는 학생이에요.', translation: 'I am a student.' },
   { sentence: '커피 주세요.', translation: 'Coffee, please.' },
@@ -82,9 +89,9 @@ describe('deckLanguageOffer', () => {
         { pattern: '是…的', example: '我是昨天来的。', explanation: 'Stresses when.' },
       ]),
     ]);
-    expect(deckLanguageOffer(state, state.decks.get('s')!)).toBe('ko');
-    expect(deckLanguageOffer(state, state.decks.get('c')!)).toBe('ja');
-    expect(deckLanguageOffer(state, state.decks.get('g')!)).toBe('zh-Hans');
+    expect(offerFor(state, 's')).toBe('ko');
+    expect(offerFor(state, 'c')).toBe('ja');
+    expect(offerFor(state, 'g')).toBe('zh-Hans');
   });
 
   it('offers nothing when the language matches, the text is Latin, or the type is not neutral', () => {
@@ -102,7 +109,7 @@ describe('deckLanguageOffer', () => {
       ]),
     ]);
     for (const id of ['match', 'hant', 'latin', 'vocab', 'empty', 'tr']) {
-      expect(deckLanguageOffer(state, state.decks.get(id)!), id).toBeUndefined();
+      expect(offerFor(state, id), id).toBeUndefined();
     }
   });
 
@@ -113,12 +120,12 @@ describe('deckLanguageOffer', () => {
       f.create('NoteArchived', { note_id: 's-n0' }, T0 + 10),
       f.create('NoteArchived', { note_id: 's-n1' }, T0 + 11),
     ];
-    expect(deckLanguageOffer(stateOf(events), stateOf(events).decks.get('s')!)).toBeUndefined();
+    expect(offerFor(stateOf(events), 's')).toBeUndefined();
     const archived = stateOf([
       ...deckEvents('s', BUILTIN_NOTE_TYPE_IDS.SENTENCE, 'en', KO_SENTENCES),
       f.create('DeckSettingsChanged', { deck_id: 's', archived: true }, T0 + 10),
     ]);
-    expect(deckLanguageOffer(archived, archived.decks.get('s')!)).toBeUndefined();
+    expect(offerFor(archived, 's')).toBeUndefined();
   });
 
   it('taking the offer sets the language by event and the offer never returns', () => {
@@ -129,14 +136,14 @@ describe('deckLanguageOffer', () => {
     applyEvents(state, answer);
     expect(state.decks.get('s')?.language).toBe('ko');
     expect(wasDeckLanguageOffered(state, 's')).toBe(true);
-    expect(deckLanguageOffer(state, state.decks.get('s')!)).toBeUndefined();
+    expect(offerFor(state, 's')).toBeUndefined();
 
     // Undo (a later DeckSettingsChanged back to en) does not bring the offer back.
     applyEvents(state, [
       factoryFor('dev-b').create('DeckSettingsChanged', { deck_id: 's', language: 'en' }, T0 + 200),
     ]);
     expect(state.decks.get('s')?.language).toBe('en');
-    expect(deckLanguageOffer(state, state.decks.get('s')!)).toBeUndefined();
+    expect(offerFor(state, 's')).toBeUndefined();
   });
 
   it('a dismissal survives replay in any order, duplication and a snapshot round trip', () => {
@@ -151,16 +158,16 @@ describe('deckLanguageOffer', () => {
     ]) {
       const state = replayAllEvents(log);
       expect(state.decks.get('s')?.language).toBe('en');
-      expect(deckLanguageOffer(state, state.decks.get('s')!)).toBeUndefined();
+      expect(offerFor(state, 's')).toBeUndefined();
     }
 
     const hydrated = deserializeCollectionState(
       JSON.parse(JSON.stringify(serializeCollectionState(stateOf([...base, ...dismiss])))),
     );
-    expect(deckLanguageOffer(hydrated, hydrated.decks.get('s')!)).toBeUndefined();
+    expect(offerFor(hydrated, 's')).toBeUndefined();
     // And the deck is offered on a fresh device that has not seen the dismissal yet.
     const fresh = stateOf(base);
-    expect(deckLanguageOffer(fresh, fresh.decks.get('s')!)).toBe('ko');
+    expect(offerFor(fresh, 's')).toBe('ko');
   });
 
   it('offers nothing for the sample decks or any starter deck', async () => {

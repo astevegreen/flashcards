@@ -33,7 +33,7 @@ import { DeckDescriptionField, DeckOverview } from '../library/DeckDescription.t
 import { DeckOrganizationPanel } from '../library/DeckOrganizationPanel.tsx';
 import { IMPORT_EXPORT_PANEL_HEIGHT } from '../library/import-export-layout.ts';
 import type { ImportExportTab } from '../library/ImportExportPanel.tsx';
-import type { DeckLanguageChange } from '../library/DeckLanguageOffer.tsx';
+import DeckLanguageOffer, { type DeckLanguageChange } from '../library/DeckLanguageOffer.tsx';
 import { runPresetCatchUp } from '../library/presetCatchUp.ts';
 import { useDeckOrganization } from '../library/useDeckOrganization.ts';
 import { setStudyFilter } from '../study/filterStore.ts';
@@ -53,9 +53,6 @@ const LazyPageEditor = lazyWithRetry(() => import('../pages/PageEditor.tsx'), {
 });
 const LazyFsrsOptimizerPanel = lazyWithRetry(() => import('../fsrs/FsrsOptimizerPanel.tsx'));
 const LazyImportExportPanel = lazyWithRetry(() => import('../library/ImportExportPanel.tsx'));
-const LazyDeckLanguageOffer = lazyWithRetry(() => import('../library/DeckLanguageOffer.tsx'), {
-  closeWith: 'onClose',
-});
 
 /** Furigana only exists in Japanese text, so only Japanese decks hide it on the front by default. */
 function isJapaneseLanguage(language: string): boolean {
@@ -1198,15 +1195,13 @@ export function LibraryScreen({
         </div>
 
         {(languageOffer !== undefined || changedLanguage !== undefined) && (
-          <Suspense fallback={null}>
-            <LazyDeckLanguageOffer
-              deck={deck}
-              offer={languageOffer}
-              change={changedLanguage}
-              onChanged={setLanguageChange}
-              onClose={() => setLanguageChange(null)}
-            />
-          </Suspense>
+          <DeckLanguageOffer
+            deck={deck}
+            offer={languageOffer}
+            change={changedLanguage}
+            onChanged={setLanguageChange}
+            onClose={() => setLanguageChange(null)}
+          />
         )}
 
         {description && overviewDeckId === deck.id && (
