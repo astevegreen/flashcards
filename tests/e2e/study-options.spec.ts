@@ -152,4 +152,29 @@ test.describe('Study method and card order', () => {
     await expect(page.getByTestId('study-options-btn')).toHaveText('SRS · Random');
     await expect(page.getByTestId('study-filter-chip')).toHaveCount(0);
   });
+
+  test('a deck created after choosing Random in Settings starts on Random', async ({ page }) => {
+    const db = 'flashcards-db-sopt-newdeck';
+    await page.goto('/?device=sopt-newdeck');
+    await expect(page.getByTestId('study-card')).toBeVisible();
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await page.getByTestId('settings-study-order').selectOption('random');
+    await expect(page.getByTestId('settings-study-order')).toHaveValue('random');
+
+    await page.getByRole('button', { name: 'Decks' }).first().click();
+    await page.getByPlaceholder('Deck name (e.g., TOPIK II Verbs)').fill('Shuffled Verbs');
+    await page.getByRole('button', { name: 'Create Deck' }).click();
+    await expect(page.getByText('Created deck "Shuffled Verbs".')).toBeVisible();
+
+    // The order is in the deck's own creation event, not a later settings change.
+    await expect
+      .poll(async () => {
+        const created = (await storedPayloads(page, db, 'DeckCreated')) as Array<{
+          name: string;
+          settings?: { new_card_order?: string };
+        }>;
+        return created.find((d) => d.name === 'Shuffled Verbs')?.settings?.new_card_order;
+      })
+      .toBe('random');
+  });
 });

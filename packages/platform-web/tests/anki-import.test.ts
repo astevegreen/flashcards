@@ -16,6 +16,7 @@ import {
   type CollectionState,
   type FlashEvent,
   type KnownEvent,
+  withNewDeckCardOrder,
 } from '@flash/core';
 import {
   ankiDeckId,
@@ -362,6 +363,31 @@ describe('Anki .apkg import: golden conversions', () => {
     expect(raw.format).toBe('anki21');
     const notes = raw.tables.notes?.rows ?? [];
     expect(notes).toHaveLength(2);
+  });
+});
+
+describe('Anki .apkg import: Settings card order', () => {
+  it('a new deck starts on the Settings card order; a re-import leaves it', async () => {
+    const state = createEmptyState();
+    const pref = createEventFactory('prefs', 0, createHlcState('prefs', NOW - 1)).create(
+      'PreferencesChanged',
+      { preferences: { study_order: 'random' } },
+      NOW - 1,
+    );
+    applyEvents(state, [pref]);
+    const raw = await read('basic-reversed.apkg');
+    const factory = createEventFactory('device-a', 0, createHlcState('device-a', NOW));
+    const first = withNewDeckCardOrder(
+      state,
+      importAnkiPackage(raw, state, factory, { nowMs: NOW }).events,
+    );
+    const creates = eventsOfType(first, 'DeckCreated');
+    expect(creates.length).toBeGreaterThan(0);
+    for (const c of creates) expect(c.payload.settings?.new_card_order).toBe('random');
+    applyEvents(state, first);
+    for (const d of state.decks.values()) expect(d.settings.new_card_order).toBe('random');
+    const again = importAnkiPackage(raw, state, factory, { nowMs: NOW + 1 }).events;
+    expect(eventsOfType(withNewDeckCardOrder(state, again), 'DeckCreated')).toHaveLength(0);
   });
 });
 
