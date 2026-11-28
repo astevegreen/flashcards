@@ -642,3 +642,143 @@ describe('starter-deck upgrade vs an unsynced edit', () => {
     );
   });
 });
+
+describe('starter-deck upgrade vs another device’s seed (HLC tie)', () => {
+  const slug = 'starter-ko-core';
+  const KEY = 'nikl:사람:noun';
+  /** A fresh install's factory, as the app builds it (HLC at 0), so its seed stamps the epoch. */
+  const fresh = (id: string) => createEventFactory(id, 0, createHlcState(id, 0));
+  const upgradeAt = STARTER_SEED_EPOCH_MS + 10 * 60_000;
+
+  /** The upgrade `factory` writes having seen only `seen`. */
+  async function upgradeSeeing(factory: EventFactory, seen: KnownEvent[]): Promise<KnownEvent[]> {
+    const { content, legacy } = await deck(slug);
+    const state = replay(seen);
+    const events: KnownEvent[] = [];
+    for (const info of starterDecksDueForUpgrade(state)) {
+      const plan = must(planStarterDeckUpgrade(state, info, content, legacy), 'plan');
+      events.push(...buildStarterDeckUpgradeEvents(factory, plan, upgradeAt));
+    }
+    return events;
+  }
+
+  /** A and B both seed a 1.0.0 deck at onboarding before syncing; A upgrades before B's seed. */
+  async function tie() {
+    const a = fresh('dev-a');
+    const b = fresh('dev-b');
+    const seedA = await legacySeed(a, slug, '1.0.0');
+    const seedB = await legacySeed(b, slug, '1.0.0');
+    const upA = await upgradeSeeing(a, seedA);
+    return { seedA, seedB, upA };
+  }
+
+  const target = async () =>
+    Object.fromEntries((await deck(slug)).content.notes.map((n) => [n.key, { ...n.fields }]));
+
+  it('the seeds tie on HLC except for the node id, and B’s holds the register', async () => {
+    const { seedA, seedB } = await tie();
+    const id = deriveNoteId(starterDeckId(slug), KEY);
+    const register = (state: CollectionState) => state.fieldHlcs.get(`note:${id}:field:notes`);
+    const hlcA = must(register(replay(seedA)), 'A register');
+    const hlcB = must(register(replay(seedA, seedB)), 'merged register');
+    expect(hlcB).toBe(register(replay(seedB)));
+    expect(hlcA.replace(/dev-a$/u, 'dev-b')).toBe(hlcB);
+  });
+
+  it('A’s upgrade shows over B’s later seed of the old text, in every delivery order', async () => {
+    const { seedA, seedB, upA } = await tie();
+    const expected = await target();
+    const orders = everyOrder([seedA, seedB, upA]);
+    for (const merged of [...orders.map((o) => replayInTurn(...o)), replay(seedA, seedB, upA)]) {
+      expect(noteFields(merged, slug)).toEqual(expected);
+      expect(starterDecksDueForUpgrade(merged)).toEqual([]);
+    }
+  });
+
+  it('a snapshot keeps it: B’s seed after hydration, and an older build’s snapshot', async () => {
+    const { seedA, seedB, upA } = await tie();
+    const expected = await target();
+    const hydrated = deserializeCollectionState(serializeCollectionState(replay(seedA, upA)));
+    applyEvents(hydrated, seedB);
+    expect(noteFields(hydrated, slug)).toEqual(expected);
+
+    const full = replay(seedA, seedB, upA);
+    expect(noteFields(deserializeCollectionState(serializeCollectionState(full)), slug)).toEqual(
+      expected,
+    );
+    // An older build keeps `StarterNoteUpgraded` in `unknownEvents` but shows the old text.
+    const snapshot = serializeCollectionState(full);
+    const oldNotes = new Map(
+      serializeCollectionState(replay(seedA, seedB)).notes.map((n) => [n.id, n]),
+    );
+    snapshot.notes = snapshot.notes.map((n) => must(oldNotes.get(n.id), n.id));
+    expect(noteFields(deserializeCollectionState(snapshot), slug)).toEqual(expected);
+  });
+
+  it('property: seeds never hide an upgrade, unsynced edits still win, in any order', async () => {
+    const expectedBase = await target();
+    const before = replay(await legacySeed(fresh('dev-x'), slug, '1.0.0'));
+    const old = noteFields(before, slug);
+    const keys = [KEY, 'nikl:나03:pronoun', 'nikl:것01:dependent-noun'];
+    const ids = ['dev-0', 'dev-a', 'dev-m', 'dev-z'];
+    const editArb = fc.record({
+      key: fc.constantFrom(...keys),
+      field: fc.constantFrom('notes', 'meaning'),
+      value: fc.constantFrom('mine', '', 'OLD'),
+      minute: fc.integer({ min: 1, max: 20 }),
+    });
+    await fc.assert(
+      fc.asyncProperty(
+        // Devices that seed before syncing, and which of them upgrade (each seeing only its seed).
+        fc.subarray(ids, { minLength: 2 }),
+        fc.array(fc.boolean(), { minLength: ids.length, maxLength: ids.length }),
+        fc.uniqueArray(editArb, { maxLength: 3, selector: (e) => e.minute }),
+        fc.integer({ min: 0, max: 1_000_000 }),
+        async (seeders, upgrades, edits, shuffleSeed) => {
+          const chunks: KnownEvent[][] = [];
+          const ups: KnownEvent[] = [];
+          for (const [i, id] of seeders.entries()) {
+            const factory = fresh(id);
+            const seed = await legacySeed(factory, slug, '1.0.0');
+            chunks.push(seed);
+            if (i === 0 || upgrades[i] === true) ups.push(...(await upgradeSeeing(factory, seed)));
+          }
+          chunks.push(ups);
+          // Offline edits on another device that no upgrading device has seen.
+          const editor = fresh('dev-e');
+          const expected = structuredClone(expectedBase);
+          const editEvents = [...edits]
+            .sort((x, y) => x.minute - y.minute)
+            .map((e) => {
+              const note = must(before.notes.get(deriveNoteId(starterDeckId(slug), e.key)), e.key);
+              const value = e.value === 'OLD' ? must(old[e.key]?.[e.field], e.field) : e.value;
+              must(expected[e.key], e.key)[e.field] = value;
+              return editor.create(
+                'NoteUpserted',
+                {
+                  note_id: note.id,
+                  deck_id: note.deck_id,
+                  source_key: note.source_key,
+                  fields: { [e.field]: value },
+                },
+                STARTER_SEED_EPOCH_MS + e.minute * 60_000,
+              );
+            });
+          chunks.push(...editEvents.map((e) => [e]));
+          let r = shuffleSeed;
+          for (let i = chunks.length - 1; i > 0; i -= 1) {
+            r = (r * 1_103_515_245 + 12_345) % 2_147_483_648;
+            const j = r % (i + 1);
+            [chunks[i], chunks[j]] = [must(chunks[j], 'chunk'), must(chunks[i], 'chunk')];
+          }
+          const inTurn = replayInTurn(...chunks);
+          expect(noteFields(inTurn, slug)).toEqual(expected);
+          expect(noteFields(replay(...chunks), slug)).toEqual(expected);
+          const hydrated = deserializeCollectionState(serializeCollectionState(inTurn));
+          expect(noteFields(hydrated, slug)).toEqual(expected);
+        },
+      ),
+      { numRuns: 25 },
+    );
+  });
+});
