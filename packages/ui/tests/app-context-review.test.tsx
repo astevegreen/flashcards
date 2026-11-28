@@ -77,6 +77,9 @@ describe('AppContext rateCard / undoLastReview / redoLastUndo (§9 UI state)', (
     const { m } = await mount(storage);
     await act(async () => m.app().rateCard(newCard(m), 3, 1000));
     await settle(() => expect(together).toHaveLength(1));
+    // The wait passes on the first persist; flush the work left after it so a duplicate persist shows up.
+    await flush();
+    expect(together).toHaveLength(1);
 
     expect(together[0]?.types).toEqual(['ReviewRecorded']);
     expect(together[0]?.seq).toBe(must(m.app().meta).seq);
