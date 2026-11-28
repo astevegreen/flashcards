@@ -54,13 +54,13 @@ const LazyPageEditor = lazyWithRetry(() => import('../pages/PageEditor.tsx'), {
 const LazyFsrsOptimizerPanel = lazyWithRetry(() => import('../fsrs/FsrsOptimizerPanel.tsx'));
 const LazyImportExportPanel = lazyWithRetry(() => import('../library/ImportExportPanel.tsx'));
 
-/** Furigana only exists in Japanese text, so only Japanese decks hide it on the front by default. */
 /** The device clock and its local time-zone offset, as `buildStudyQueue` takes them. */
 function readLocalClock(): { nowMs: number; tzOffsetMinutes: number } {
   const nowMs = Date.now();
   return { nowMs, tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset() };
 }
 
+/** Furigana only exists in Japanese text, so only Japanese decks hide it on the front by default. */
 function isJapaneseLanguage(language: string): boolean {
   const norm = language.toLowerCase();
   return norm === 'ja' || norm.startsWith('ja-');
