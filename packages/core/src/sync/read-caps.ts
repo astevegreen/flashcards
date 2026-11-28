@@ -68,9 +68,12 @@ export function syncReadCap(path: string): { kind: SyncFileKind; maxBytes: numbe
 }
 
 /**
- * Throws a `RangeError` when `limits` would let the engine accept a file larger than a
- * transport reads ({@link SYNC_READ_CAPS}): such a file would fail at the transport, not at the
- * engine's own check. Raise the caps (or the defaults they derive from) instead.
+ * Throws a `RangeError` when a snapshot or media limit override is above its default, that is,
+ * when the read caps it needs ({@link syncReadCapsFor}) are past the transports'
+ * ({@link SYNC_READ_CAPS}). This is stricter than "the transports would refuse the file": the
+ * caps keep their headroom over the limits, so the engine's own check, not the transport, refuses
+ * a file just past the limit. Lower overrides always pass. To read larger files, raise the
+ * defaults (`SYNC_CODEC_LIMITS`, `SYNC_MEDIA_LIMITS`) so the caps rise with them.
  */
 export function assertSyncReadCapsCover(limits: SyncReadLimits): void {
   const needed = syncReadCapsFor(limits);

@@ -91,7 +91,7 @@ describe('sync read caps', () => {
     ).not.toThrow();
   });
 
-  it('refuse an engine limit override the transports would not read', () => {
+  it('refuse any snapshot or media limit override above its default', () => {
     expect(() =>
       assertSyncReadCapsCover({ maxMediaBlobBytes: SYNC_MEDIA_LIMITS.maxMediaBlobBytes + 1 }),
     ).toThrow(RangeError);

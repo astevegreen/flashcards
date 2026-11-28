@@ -84,6 +84,12 @@ public class ICloudDocumentsPlugin: CAPPlugin, CAPBridgedPlugin {
             guard self.existsLocallyOrInCloud(url) else {
                 return call.reject("iCloud Drive sync file not found: \"\(path)\"", "NOT_FOUND")
             }
+            // Refuse an oversized file before downloading it when its size is known up front.
+            if let maxBytes, let size = self.sizeBeforeDownload(url), size > maxBytes {
+                return call.reject(
+                    "iCloud Drive sync file \"\(path)\" is \(size) bytes, over \(maxBytes).",
+                    "TOO_LARGE")
+            }
             if let error = self.ensureDownloaded(url) {
                 return self.reject(call, error, path: path)
             }
@@ -298,6 +304,31 @@ public class ICloudDocumentsPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     // MARK: - Downloading
+
+    /// A placeholder larger than this is not an iCloud placeholder; its size is not read.
+    private static let maxPlaceholderBytes = 64 * 1024
+
+    /// The size iCloud reports for a file before it is downloaded: the file's own size when it is
+    /// here (a not-yet-downloaded "dataless" file still reports its full size), else the
+    /// `NSURLFileSizeKey` in its `.<name>.icloud` placeholder. `nil` when neither says.
+    private func sizeBeforeDownload(_ url: URL) -> Int? {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: url.path) {
+            var probe = url
+            probe.removeAllCachedResourceValues()
+            return (try? probe.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        }
+        let placeholder = Self.placeholderURL(for: url)
+        guard
+            let placeholderSize = (try? placeholder.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+            placeholderSize <= Self.maxPlaceholderBytes,
+            let data = try? Data(contentsOf: placeholder),
+            let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
+            let dict = plist as? [String: Any],
+            let size = dict["NSURLFileSizeKey"] as? NSNumber
+        else { return nil }
+        return size.intValue
+    }
 
     /// Asks iCloud for the current version of a file and waits until it is on this device.
     private func ensureDownloaded(_ url: URL) -> Error? {
