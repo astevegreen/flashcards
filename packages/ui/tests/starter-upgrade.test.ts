@@ -13,7 +13,9 @@ import {
   findStarterDeck,
   loadStarterDeck,
   STARTER_SEED_EPOCH_MS,
+  starterDeckId,
 } from '../../core/src/starters/index.ts';
+import { deriveNoteId } from '../../core/src/ids.ts';
 import {
   legacyStarterFields,
   loadStarterLegacyGlosses,
@@ -71,8 +73,9 @@ describe('starter-deck upgrade at launch', () => {
     expect(emitted).toHaveLength(1);
     expect(starterDeckVersion(state, info)).toBe(info.version);
     for (const n of content.notes) {
+      const id = deriveNoteId(starterDeckId(SLUG), n.key);
       const ev = emitted[0]?.find(
-        (e) => e.type === 'NoteUpserted' && e.payload.source_key === n.key,
+        (e) => e.type === 'StarterNoteUpgraded' && e.payload.note_id === id,
       );
       expect(ev, n.key).toBeDefined();
     }

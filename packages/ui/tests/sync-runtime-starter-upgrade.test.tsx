@@ -20,6 +20,7 @@ import {
   starterDeckId,
   STARTER_SEED_EPOCH_MS,
 } from '../../core/src/starters/index.ts';
+import { deriveNoteId } from '../../core/src/ids.ts';
 import { legacyStarterFields, loadStarterLegacyGlosses } from '../../core/src/starters/upgrade.ts';
 import { SyncRuntime, type SyncRuntimeProps } from '../src/state/SyncRuntime.tsx';
 import type * as StarterUpgrade from '../src/onboarding/starterUpgrade.ts';
@@ -47,6 +48,8 @@ vi.mock('../src/onboarding/starterUpgrade.ts', async (original) => {
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const SLUG = 'starter-zh-common';
+/** The ids of the seeded deck's notes (filled by `seeded110`). */
+const seededNoteIds = new Set<string>();
 const factory = () =>
   createEventFactory('dev-a', 0, createHlcState('dev-a', STARTER_SEED_EPOCH_MS));
 
@@ -60,6 +63,7 @@ async function seeded110(): Promise<CollectionState> {
     ...n,
     fields: legacyStarterFields(SLUG, n, legacy, '1.1.0') ?? n.fields,
   }));
+  for (const n of notes) seededNoteIds.add(deriveNoteId(starterDeckId(SLUG), n.key));
   return applyEvents(
     createEmptyState(),
     buildStarterDeckEvents(factory(), { ...info, version: '1.1.0' }, { slug: SLUG, notes }),
@@ -119,10 +123,13 @@ function mount(state: CollectionState, syncState: SyncUiState) {
 function expectStarterUpgrade(events: readonly KnownEvent[] | undefined): void {
   expect(events?.length).toBeGreaterThan(0);
   const deckId = starterDeckId(SLUG);
-  expect(events?.some((e) => e.type === 'NoteUpserted')).toBe(true);
+  expect(events?.some((e) => e.type === 'StarterNoteUpgraded')).toBe(true);
   for (const e of events ?? []) {
-    const payload = e.payload as { deck_id?: string };
-    expect(payload.deck_id).toBe(deckId);
+    if (e.type === 'StarterNoteUpgraded') {
+      expect(seededNoteIds.has(e.payload.note_id)).toBe(true);
+    } else {
+      expect((e.payload as { deck_id?: string }).deck_id).toBe(deckId);
+    }
   }
 }
 
