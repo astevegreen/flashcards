@@ -5,6 +5,7 @@
 AGENTS.md above is shared with Antigravity; keep shared rules there and only Claude-specific ones here.
 
 - **Parallel builds:** run the `parallel-build` skill before starting two or more build agents at once.
+- **Handoff:** run `/handoff` when the owner says handoff or wrap up, when the handoff hook says the conversation is past the line, or before the owner moves to an unrelated task; `/handoff resume` picks a note up in a fresh session.
 - **Search** with the `scout` agent ("where is X"); keep file dumps out of the main context.
 - `.claude/settings.json` hooks check each edited file (ESLint, Prettier) and run `pnpm gate` before you finish. Fix the change, not the check.
 

@@ -41,3 +41,5 @@ dist-packs/
 .claude/worktrees/
 .claude/settings.local.json
 .claude/overnight/
+# Handoff notes (/handoff skill, tools/handoff-notes.mjs): shared by every worktree, never committed
+.handoff/
