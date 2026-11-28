@@ -325,6 +325,24 @@ export interface StarterDeckUpgradedPayload {
   package_version: string;
 }
 
+/** One field of a `StarterNoteUpgraded`. */
+export interface StarterFieldUpgrade {
+  /** The current release's text. */
+  value: string;
+  /** The HLC of the field register the upgrade saw holding an older release's text. */
+  base_hlc: string;
+}
+
+/**
+ * The starter-deck upgrade's new text for one note's fields. Log-retained, like
+ * `StarterDeckUpgraded`, and folded by replay so that an edit of the field the upgrading device
+ * had not seen always wins (see `events/starter-upgrades.ts`). It never writes the field register.
+ */
+export interface StarterNoteUpgradedPayload {
+  note_id: string;
+  fields: Record<string, StarterFieldUpgrade>;
+}
+
 export interface EventPayloadMap {
   ReviewRecorded: ReviewRecordedPayload;
   ReviewUndone: ReviewUndonePayload;
@@ -359,6 +377,7 @@ export interface EventPayloadMap {
   DeckFolderDeleted: DeckFolderDeletedPayload;
   DeckGroupingChanged: DeckGroupingChangedPayload;
   StarterDeckUpgraded: StarterDeckUpgradedPayload;
+  StarterNoteUpgraded: StarterNoteUpgradedPayload;
 }
 
 export type KnownEventType = keyof EventPayloadMap;
