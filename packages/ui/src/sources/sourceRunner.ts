@@ -59,6 +59,7 @@ import {
 import {
   archiveHoldReason,
   archivePreviewRequest,
+  throwIfArchiveHeld,
   carriesSource,
   isOnline,
   loadSourcesRegistry,
@@ -1545,11 +1546,10 @@ export async function refreshSinglePackageSubscription(
   });
   const overLimit = deckLimitReason(ctx.entitlement, state, newDeckIds(state, pkgRes.events));
   if (overLimit) throw new Error(overLimit);
-  const held = await archiveHoldReason(
+  await throwIfArchiveHeld(
     ctx,
-    archivePreviewRequest(pkgRes.manifest.name || sub.title, pkgRes.notesArchived),
+    archivePreviewRequest(pkgRes.manifest.name.trim() || sub.title, pkgRes.notesArchived),
   );
-  if (held) throw new Error(held);
 
   await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia);
   if (pkgRes.events.length > 0) {

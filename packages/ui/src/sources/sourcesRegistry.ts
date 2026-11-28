@@ -90,14 +90,50 @@ export async function archiveHoldReason(
   ctx: SourceRunContext,
   request: ArchivePreviewRequest,
 ): Promise<string | undefined> {
+  return (await archiveHold(ctx, request))?.message;
+}
+
+/**
+ * Thrown when a package import is held (no one to ask) or the user said Cancel. `cancelled` tells
+ * them apart: a Cancel is the user's choice, not a failure, so a link doesn't mark its row failed.
+ */
+export class ArchiveHoldError extends Error {
+  constructor(
+    message: string,
+    readonly cancelled: boolean,
+  ) {
+    super(message);
+    this.name = 'ArchiveHoldError';
+  }
+}
+
+/** `archiveHoldReason` for callers that stop by throwing (Drive files, subscriptions). */
+export async function throwIfArchiveHeld(
+  ctx: SourceRunContext,
+  request: ArchivePreviewRequest,
+): Promise<void> {
+  const held = await archiveHold(ctx, request);
+  if (held) throw new ArchiveHoldError(held.message, held.cancelled);
+}
+
+async function archiveHold(
+  ctx: SourceRunContext,
+  request: ArchivePreviewRequest,
+): Promise<{ message: string; cancelled: boolean } | undefined> {
   const { sourceName, notesArchived } = request;
   if (notesArchived <= 0) return undefined;
   const notes = notesPhrase(notesArchived);
   if (!ctx.confirmArchive) {
-    return `Not updated: this version of "${sourceName}" would archive ${notes} and ${notesArchived === 1 ? 'its' : 'their'} review progress. Refresh it in Sources to review.`;
+    return {
+      message: `Not updated: this version of "${sourceName}" would archive ${notes} and ${notesArchived === 1 ? 'its' : 'their'} review progress. Refresh it in Sources to review.`,
+      cancelled: false,
+    };
   }
   if (await ctx.confirmArchive(request)) return undefined;
-  return `Not updated: you cancelled the update of "${sourceName}", which would archive ${notes}.`;
+  return {
+    message: `Not updated: you cancelled the update of "${sourceName}", which would archive ${notes}.`,
+    cancelled: true,
+  };
 }
 
 export interface SourceRefreshSummary {

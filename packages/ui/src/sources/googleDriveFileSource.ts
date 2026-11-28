@@ -31,8 +31,8 @@ import {
 } from './cloudFileSource.ts';
 import { deckLimitReason, newDeckIds } from './deckLimit.ts';
 import {
-  archiveHoldReason,
   archivePreviewRequest,
+  throwIfArchiveHeld,
   type SourceRunContext,
 } from './sourcesRegistry.ts';
 import { putMediaListTracked } from '../state/recentMedia.ts';
@@ -205,11 +205,10 @@ async function pullDrivePackage(
   });
   const overLimit = deckLimitReason(ctx.entitlement, state, newDeckIds(state, pkgRes.events));
   if (overLimit) throw new Error(overLimit);
-  const held = await archiveHoldReason(
+  await throwIfArchiveHeld(
     ctx,
     archivePreviewRequest(pkgRes.manifest.name, pkgRes.notesArchived, picked.name),
   );
-  if (held) throw new Error(held);
   await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia);
   if (pkgRes.events.length > 0) ctx.emitEvents(pkgRes.events);
 

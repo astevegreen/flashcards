@@ -77,6 +77,19 @@ describe('package update that archives notes (C9 preview)', () => {
     expect(s.sub.version).toBe('1.0.0');
   });
 
+  it('a blank package title falls back to the subscription title', async () => {
+    const confirm = vi.fn(async () => false);
+    const s = subscribedAtV1(confirm);
+    await refreshSinglePackageSubscription(s.sub, s.ctx, { force: true });
+    expect(s.sub.title).toBe('Words');
+
+    s.serve(packageBytes(['k1', 'k4'], '2.0.0', '   '));
+    await expect(refreshSinglePackageSubscription(s.sub, s.ctx, { force: true })).rejects.toThrow(
+      /cancelled the update of "Words"/,
+    );
+    expect(confirm).toHaveBeenCalledWith({ sourceName: 'Words', notesArchived: 2 });
+  });
+
   it('Continue archives exactly the notes the preview counted', async () => {
     const confirm = vi.fn(async () => true);
     const s = subscribedAtV1(confirm);
