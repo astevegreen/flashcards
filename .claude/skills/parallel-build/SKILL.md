@@ -16,7 +16,7 @@ You are the **orchestrator**: you dispatch work to build agents, get each pull r
 
 ## Child rules (send with every brief)
 
-> Read `AGENTS.md` first and follow its "Workflow" section. Your `E2E_PORT` is <port> and your scratch folder is <path>. Done means: the change is built with unit tests (e2e where there is UI); `pnpm gate`, `pnpm build` and `pnpm size` pass locally; a PR against `main` is open with what changed, the bundle size before and after, and what could not be verified; and CI is green. Don't edit `docs/follow-ups.md` (the orchestrator does, once, at the end). Add no content or data under share-alike or unclear licences. A product decision you hit: pick the least-committal, reversible option, ship it, and list it under "Decisions needed" in the PR. Don't merge your PR or touch other PRs. Stuck after two real attempts: stop and report what blocks you. Your final message: the PR URL, a 3–5 line summary, and an "unverified" list.
+> Read `AGENTS.md` first and follow its "Workflow" section. Your `E2E_PORT` is <port> and your scratch folder is <path>. Done means: the change is built with unit tests (e2e where there is UI); `pnpm gate`, `pnpm build` and `pnpm size` pass locally; a PR against `main` is open with what changed, the bundle size before and after, and what could not be verified; and CI is green. Don't edit `docs/follow-ups.md` (the orchestrator does, once, at the end). Add no content or data under share-alike or unclear licences. A product decision you hit (design, scope, money, identity, deleting data): pick the least-committal, reversible option, ship it, and list it under "Decisions needed" in the PR with your recommendation. Every other choice is technical: make it yourself and list it under "Technical choices" in the PR. Don't merge your PR or touch other PRs. Stuck after two real attempts: stop and report what blocks you. Your final message: the PR URL, a 3–5 line summary, and an "unverified" list.
 
 ## Review and merge, per pull request
 
@@ -33,10 +33,12 @@ Fixing items raises new ones, so a run goes in **rounds**, 3 at most. Round 1 is
    - **fallout**: a bug, gap or missing test that a PR merged in this run introduced or left half-done;
    - **decision**: needs the owner (design, scope, money, identity, deleting data);
    - **backlog**: everything else, good ideas included.
+
+   A PR's "Technical choices" are settled: they stay in the PR and count as none of the three.
 2. **Count the round's net**: items closed (workstreams of this round whose PR merged; a blocked one does not count) minus new items of all three kinds.
 3. **Start the next round** when the round just ended raised fallout, its net is above zero and fewer than 3 rounds have run. Its batch is that fallout alone; decisions and backlog wait for the finish, and a blocked workstream stays with the owner. Otherwise, finish: fallout not yet worked moves to backlog.
 
 ## Finish
 
-1. One last small agent, in a docs PR, ticks the merged items off `docs/follow-ups.md`, adds the backlog items (unworked fallout included) under their areas, and adds a "Decisions needed (<batch>)" section listing every decision item and every default an agent picked.
+1. One last small agent, in a docs PR, ticks the merged items off `docs/follow-ups.md`, adds the backlog items (unworked fallout included) under their areas, and adds each decision item, with its recommendation and PR number, to "Owner decisions open" at the top of that file.
 2. Final message, short: merged PRs (number and title), open or blocked PRs with the reason, each round's closed, added and net counts, why the run stopped and the fallout it left unworked, decisions needed with your recommendation, and what is unverified (devices, signing, real services).

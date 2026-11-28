@@ -299,6 +299,17 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     '**Blocker:**',
     'Blocker: **',
     '**Blocker:** **',
+    // So does a plural one: a bold heading over an untagged list.
+    '**Blockers:**',
+    'Blockers: **',
+    '**Blockers:** **',
+    // A negated label hides nothing that follows it: every other label on the line is still read.
+    'Blockers: no blockers: a.ts:1 wrong',
+    'Blocker: no blocker - a.ts:1 wrong',
+    'No blockers: none. Blockers: a.ts:1 wrong',
+    'Blockers: a.ts:1 wrong. No blockers: otherwise',
+    // A negation with * inside it is not a negation, as before.
+    'No blockers**: a.ts:1 wrong',
   ]) {
     const text = ['[note] a.ts:1 risk', real].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'retry', real);
@@ -332,6 +343,12 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
     'Blockers: No blockers.',
     '**Blockers**: no blockers found',
     'Blockers: nothing in this diff',
+    // A negated label alone still reads clean, whatever follows it, and a plain empty label reads empty.
+    'No blockers: the diff only renames a helper',
+    'Not blocker - style only',
+    'Without blockers: merge',
+    'No blockers — none',
+    'Blockers:',
   ]) {
     const text = ['[note] a.ts:1 risk', clean].join('\n');
     assert.equal(decide({ review: ok(text) }).verdict, 'merge', clean);
@@ -340,6 +357,9 @@ test('a tagged note plus an untagged mid-line "Blocker" retries instead of readi
   // An untagged blocker listed under a bold singular heading does not merge.
   const heading = ['**Blocker:**', '1. a.ts:1 drops the check', '[note] b.ts:2 style'].join('\n');
   assert.equal(decide({ review: ok(heading) }).verdict, 'retry');
+  // So does one under a bold plural heading.
+  const plural = ['**Blockers:**', '1. a.ts:1 drops the check', '[note] b.ts:2 style'].join('\n');
+  assert.equal(decide({ review: ok(plural) }).verdict, 'retry');
   // A tagged blocker still gets its fix pass, whatever else the review says.
   const both = ['[blocker] a.ts:1 wrong', 'Blocker: also b'].join('\n');
   assert.equal(decide({ review: ok(both) }).verdict, 'fix');

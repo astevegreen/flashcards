@@ -1,6 +1,35 @@
 # Follow-ups
 
-Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). The owner's decisions of 2026-11-22 are recorded below; items marked **To build** are approved work. Tick an item off, or delete it, once it is resolved. Product decisions belong to the owner. Until one is made, the shipped default is the least-committal, reversible option described here.
+Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). The owner's decisions of 2026-11-22 are recorded below; items marked **To build** are approved work. Tick an item off, or delete it, once it is resolved. Product decisions belong to the owner. Until one is made, the shipped default is the least-committal, reversible option described here. Decision lists hold only what needs the owner (design, scope, money, identity, deleting data), each with a recommendation; a technical default an agent picks is recorded in its pull request.
+
+## Owner decisions open
+
+Questions waiting for the owner, each with a recommendation and its PR. None are open.
+
+### Decided 2026-11-27
+
+The decision queue was cleared on 2026-11-27 with the owner's go-ahead: every shipped default in the "Decisions needed" sections below was kept, and any of them can be reopened by asking. The owner then accepted every recommendation below the same day. Items marked **To build** are approved work; tick their source item once merged.
+
+#### Study and editing
+
+- [x] **New decks copy the Settings card order.** A deck created or imported after choosing "Random (all decks)" starts in source order. Recommend: copy the Settings default when a deck is created or imported. Decided 2026-11-27: **To build.**
+- [x] **Set the language of older Sentence, Cloze and Grammar decks (C8).** A deck linked from a sheet before #93 still speaks English, and no screen changes a deck's language. Recommend: offer once, for each such deck whose text is in another script, to set its language. Decided 2026-11-27: **To build.**
+- [x] **Preview before a re-import archives notes (C9).** Re-importing with archive-on-upgrade archives every note whose `id` changed, with its review progress. Recommend: show how many notes it would archive, with Cancel. Decided 2026-11-27: **To build.**
+- [x] **Starter-upgrade race (#83).** An unsynced edit of a field that still holds the old starter text can lose to the upgrade. Recommend: build the new event that lets replay order the upgrade against local edits. Decided 2026-11-27: **To build.**
+- [x] **Wording when the web token helper fails.** Web Google now shows "helper unavailable" with tap-to-renew, not "sign in again". Recommend keep. Decided 2026-11-27: Kept.
+
+#### Content and licences
+
+- [x] **Korean example sentences.** The only compatible source is Tatoeba (CC BY): per-sentence credits, no pinned release, uneven English, and matching inflected Korean to a headword needs morphology. Recommend: keep `example` empty for launch and revisit Tatoeba after. Decided 2026-11-27: Empty for launch; revisit Tatoeba after.
+- [x] **KRDict audio.** Its licence excludes sounds; using them needs written confirmation from NIKL. Recommend: keep it out, and give the dictionary a speaker button that uses device TTS instead. Decided 2026-11-27: Audio stays out. **To build:** a dictionary speaker button that uses device TTS.
+
+#### Money, accounts and remote data
+
+- [x] **Apple Developer Program account.** Signing, notarizing, iCloud on the Mac, and every iOS or Mac store release wait for it. Recommend: get it when you are ready to start TestFlight; it is on the launch path. Decided 2026-11-27: The owner gets it when ready to start TestFlight (owner action, under "Needs the owner (hands-on)").
+- [x] **Never rotate the licence key unless the private key leaks (#87).** Rotating locks out every key already issued. If it leaks, ship the old public key beside the new one for a transition. Recommend accept. Decided 2026-11-27: Accepted as policy.
+- [x] **Old sync snapshots stay in the cloud (#120).** Big collections upload a ~5 MiB snapshot every 500 events and never delete old ones. Recommend: delete nothing remote until a real collection shows the space matters, as already decided for segment files. Scaling the upload interval with the snapshot size needs no owner call. Decided 2026-11-27: Nothing remote is deleted; the threshold scaling stays listed under "Sync engine (#120)".
+- [x] **Dependabot alert 3 (`glib`, Linux desktop only).** No fix until Tauri moves to gtk-rs 0.20+, and app code never calls the unsound API. Recommend: dismiss it as tolerable risk with that note, and bump when Tauri does. Decided 2026-11-27: Dismissed as tolerable risk on GitHub, 2026-11-27.
+- [x] **Security jobs as required checks.** Recommend yes, once `dependency-review` tolerates being skipped outside pull requests. Decided 2026-11-27: **To build:** make `dependency-review` tolerate a skip outside pull requests, then the owner-approved ruleset change makes the Security jobs required.
 
 ## Phase 14 batch: what landed (2026-11-22)
 
@@ -204,12 +233,13 @@ On 2026-11-23 an agent compared the app with Anki, about 25 features. This secti
 - [x] **Paste images into fields.** Pasting or dropping an image on an image field's drop zone in `NoteEditDialog.tsx` goes through the same `processImage` → `addMedia` path as the file picker, with the same type and size checks (`editor-paste-image.spec.ts`). Defaults under "Decisions needed (2026-11-23 field editor)".
 - [x] **Find and replace across notes.** Browse > select notes > **Find and replace…** (`FindReplacePanel.tsx`, lazy). Planned in `@flash/core/find-replace` and appended as one batch of `NoteUpserted` events carrying only the changed fields, with a live count and preview. **Undo replace** puts the old text back in each field that still holds the replaced text. Defaults under "Decisions needed (find and replace)".
 - [x] **Redo after undo.** Study shows **Redo** after an Undo (also Ctrl/Cmd+Shift+Z and Ctrl+Y). `redoLastUndo` (`AppContext.tsx`) records the undone review again under a new id with its original time, answer and FSRS version, so replay gives the card the schedule it had before the Undo, and re-applies the leech suspend and tag that review made. Initial bundle +0.28 KB (156.32 KB gz).
-  - [ ] Default: a new answer ends the redo history; redo is refused once the card has a newer review (for example, synced from another device); FSRS reviews only, practice sessions keep their one-way Undo; up to 50 entries, cleared with the undo stack after a restore.
+  - [x] Default: a new answer ends the redo history; redo is refused once the card has a newer review (for example, synced from another device); FSRS reviews only, practice sessions keep their one-way Undo; up to 50 entries, cleared with the undo stack after a restore. Kept as shipped (2026-11-27).
 
 ### Waiting for customer feedback
 
 - [ ] **Recording audio.** This covers recording into a field while editing, and recording yourself during review to compare with the native audio. The owner deferred it until customers ask for it. If built, one recorder serves both uses, and recordings stay out of sync by default to save the user's quota.
 - [ ] **Multiple profiles on one device**, for example a family tablet. A possible future build item, depending on feedback. Today a device holds one collection (`collection_id`); each profile would need its own event log and its own sync connection.
+- **A per-deck review order and a "Newest first" order:** built only if users ask (see "Study method and card order").
 
 ### Not planned
 
@@ -234,10 +264,10 @@ In priority order. Items already recorded elsewhere in this file are only pointe
 3. [x] **Rich text in duplicate keys and Anki export (#45).** `normalizeDuplicateKey` strips the markup, so `{b:학교}` matches `학교`. The Anki CSV and `.apkg` writers convert it by default with `ankiRichTextToHtml` (`packages/core/src/export/anki/rich-text-html.ts`). Plain CSV keeps the markup, the same as ruby and cloze, so it round-trips into this app; `exportCsv({ stripRichText: true })` is an opt-in that nothing in the UI sets.
 4. [x] **`.apkg` review history.** The revlog item above.
 5. [x] **Streaming export on native.** New optional `Files.saveStream(name, mime)` returns a `FileSink` (`write`/`close`/`abort`). Tauri asks for a save location, then appends each chunk with the fs plugin; abort truncates the file to empty; Capacitor appends to a cache file (chunks joined to about 512 KB per bridge call), then opens the share sheet. The Anki CSV zip and `.apkg` exports use it when there is no `downloadBlob` (web is unchanged); others keep `downloadFile`. The backup `.flashpkg` download is streamed too since item 8. Not run on a device: item 7 below.
-   - [ ] Default: cancelling the save dialog shows "Export cancelled." as a status line, not an error (`ExportCancelledError`, `packages/ui/src/export/exportCancelled.ts`), for the Anki exports, both Export Backup buttons and a snapshot's Download.
+   - [x] Default: cancelling the save dialog shows "Export cancelled." as a status line, not an error (`ExportCancelledError`, `packages/ui/src/export/exportCancelled.ts`), for the Anki exports, both Export Backup buttons and a snapshot's Download. Kept as shipped (2026-11-27).
    - [x] Library > Export Backup writes the same backup file as Settings (`saveFullBackupFile`: `backup/state.json` with review history, streamed on native). Before, it wrote a plain `.flashpkg` without history.
    - [x] **Backpressure (2026-11-23):** `emit` may return a promise. `AnkiZipWriter.flush()` waits for every pending one, and the `.apkg` and Anki CSV writers flush before reading the next media file, so a disk slower than the zip holds at most one media file in memory. `saveStreamedZip` returns its write queue from `emit`.
-   - [ ] Default: a cancelled or failed desktop export leaves an empty file at the chosen path. No `fs:allow-remove` capability was added, since the app avoids delete powers in the user's folders. Capacitor deletes its cache file.
+   - [x] Default: a cancelled or failed desktop export leaves an empty file at the chosen path. No `fs:allow-remove` capability was added, since the app avoids delete powers in the user's folders. Capacitor deletes its cache file. Kept as shipped (2026-11-27).
 6. [x] **Missing tests:** `whenSaved()` and the reload prompt (backups), an e2e test with two image fields on one note, and the duplicate panel recompute (see that item). Done as e2e specs `rebuild-reload-prompt`, `editor-paste-two-image-fields` and `duplicate-finder-live`. The queue behind `whenSaved()` moved to `packages/ui/src/state/persistQueue.ts` and has unit tests (`persist-queue.test.ts`: whenSaved waits for a slow write, for writes queued meanwhile, and survives a failed write).
 7. [ ] **Real-world checks no CI run covers:** import both exports into real Anki (desktop and AnkiDroid); backups and media check on a real phone; two-device sync of presets, folders, descriptions and `MediaRemoved` through a real cloud folder.
 8. [x] **Leftovers from items 1–6 (2026-11-23), done the same day:**
@@ -249,13 +279,13 @@ In priority order. Items already recorded elsewhere in this file are only pointe
 
 ## Decisions needed (2026-11-23 batch)
 
-Defaults the 2026-11-23 agents picked. Each stays shipped until the owner decides.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **PR #27, iOS loss marker location:** the app's SQLite database, not UserDefaults (same backup behaviour, plain TypeScript). Markers are iOS-only; Android relies on its plugin's own Keystore-loss report.
-- [ ] **PR #27, Mac entitlement check:** only checks that an iCloud entitlement exists, not that it names `iCloud.app.flashcards.localfirst`. A launch-probe timeout counts as unknown: Google Drive stays the default, with no "iCloud Drive looks off" hint.
-- [ ] **PR #28, gloss choices:** 해 stays "year (counter)" without "sun"; every numeral is labelled native or Sino-Korean; 팔 fronts get no hint. Every sense in the hand-written starter KRDict fixture (dev and tests only) now gets the App badge, not just 먹다 and 춥다.
+- [x] **PR #27, iOS loss marker location:** the app's SQLite database, not UserDefaults (same backup behaviour, plain TypeScript). Markers are iOS-only; Android relies on its plugin's own Keystore-loss report.
+- [x] **PR #27, Mac entitlement check:** only checks that an iCloud entitlement exists, not that it names `iCloud.app.flashcards.localfirst`. A launch-probe timeout counts as unknown: Google Drive stays the default, with no "iCloud Drive looks off" hint.
+- [x] **PR #28, gloss choices:** 해 stays "year (counter)" without "sun"; every numeral is labelled native or Sino-Korean; 팔 fronts get no hint. Every sense in the hand-written starter KRDict fixture (dev and tests only) now gets the App badge, not just 먹다 and 춥다.
 - [x] **PR #28, existing starter decks:** devices that already loaded the 1.0.0 starter decks keep the old glosses (there is no upgrade path). Done in #83: a launch step upgrades decks seeded from an older release (see "Burn-down wave 2 follow-ups" and "Decisions needed (burn-down, 2026-11-26)").
-- [ ] **PR #29, Languages:** "Show all languages" is one per-device switch for the pack manager and the dictionary. Unticking a language also drops its onboarding choice. Unticking everything (with no decks) shows no language options. Cloze, Sentence and Grammar are language-neutral, so a mis-tagged neutral deck no longer counts through its fields. A Korean card that already stores ruby on a layout that hides it on the front keeps the Ruby toggle. Dev collections seeded with the old Korean sample keep its ruby.
+- [x] **PR #29, Languages:** "Show all languages" is one per-device switch for the pack manager and the dictionary. Unticking a language also drops its onboarding choice. Unticking everything (with no decks) shows no language options. Cloze, Sentence and Grammar are language-neutral, so a mis-tagged neutral deck no longer counts through its fields. A Korean card that already stores ruby on a layout that hides it on the front keeps the Ruby toggle. Dev collections seeded with the old Korean sample keep its ruby.
 
 ### Leftover nits from the 2026-11-23 batch
 
@@ -267,137 +297,137 @@ Defaults the 2026-11-23 agents picked. Each stays shipped until the owner decide
 
 ## Decisions needed (2026-11-23 nits batch)
 
-Defaults picked while clearing the leftover nits. Each stays shipped until the owner decides.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **Lazy chunks:** every `React.lazy` in `packages/ui` goes through `lazyWithRetry`: 2 retries (300 ms, then 1.2 s), and a retry as soon as the browser is back online. A chunk that still can't load shows "This part of the app isn't available offline yet. Reconnect and try again." with Retry, and Close on dialogs. Other errors inside a lazy part now show "This part of the app couldn't open. Try again." in place, instead of blanking the whole app. Card images and audio that can't load show nothing. Found through the `sync.spec.ts` flake: going offline before the first precache blanked the app.
-- [ ] **Sidebar badge** while a collection choice is pending: "Choose" (amber), tooltip "Choose a collection in Settings".
-- [ ] **Starter-deck CI check:** skips with a warning when every fetch of the pinned sources fails, rather than failing the job.
-- [ ] **`initialDrawOpen` with no CJK language:** the pad opens on Korean (Hanja).
-- [ ] **Furigana default:** based on the deck's language, not on whether Japanese is active anywhere in the collection.
-- [ ] **Typed-answer strictness with ruby:** `both` and `readings` layouts also accept the other form (see "#17" below).
-- [ ] **macOS temp sweep:** temp files must be at least an hour old before they're deleted.
-- [ ] **Dictionary shards:** loaded lazily, with an opt-in "Download all for offline" (see "Phase 10 remainder").
+- [x] **Lazy chunks:** every `React.lazy` in `packages/ui` goes through `lazyWithRetry`: 2 retries (300 ms, then 1.2 s), and a retry as soon as the browser is back online. A chunk that still can't load shows "This part of the app isn't available offline yet. Reconnect and try again." with Retry, and Close on dialogs. Other errors inside a lazy part now show "This part of the app couldn't open. Try again." in place, instead of blanking the whole app. Card images and audio that can't load show nothing. Found through the `sync.spec.ts` flake: going offline before the first precache blanked the app.
+- [x] **Sidebar badge** while a collection choice is pending: "Choose" (amber), tooltip "Choose a collection in Settings".
+- [x] **Starter-deck CI check:** skips with a warning when every fetch of the pinned sources fails, rather than failing the job.
+- [x] **`initialDrawOpen` with no CJK language:** the pad opens on Korean (Hanja).
+- [x] **Furigana default:** based on the deck's language, not on whether Japanese is active anywhere in the collection.
+- [x] **Typed-answer strictness with ruby:** `both` and `readings` layouts also accept the other form (see "#17" below).
+- [x] **macOS temp sweep:** temp files must be at least an hour old before they're deleted.
+- [x] **Dictionary shards:** loaded lazily, with an opt-in "Download all for offline" (see "Phase 10 remainder").
 
 ## Decisions needed (2026-11-23 field editor)
 
-Defaults picked while building the field editor items of "Anki feature gap" above. Each stays shipped until the owner decides.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **Pasted images, where they go:** a paste or drop on an image field's drop zone goes to that field. Anywhere else in the editor, an image with no text alongside it goes to the note's only image field; with no image field, or two or more, it is ignored. A file dropped anywhere else in the editor never opens in the browser tab.
-- [ ] **Pasted images, size cap:** a pasted or dropped file over 20 MiB is refused before it is read, the same cap `processImage` applies. The file picker still reads the file first.
-- [ ] **Rich-text syntax:** `{mark:content}` with exactly seven marks: `b`, `i`, `red`, `orange`, `green`, `blue`, `purple`. Lower case only; spans nest up to 8 deep; an empty span (`{b:}`) or an unclosed one stays literal. There is no escape for a literal `{b:x}`, the same as ruby.
-- [ ] **Rich text with ruby and cloze:** a span can't cut through ruby or cloze braces; the editor refuses such a selection with a hint. Inside a cloze, a span styles the revealed answer. A cloze hint shows its text unstyled.
-- [ ] **Palette:** red, orange, green, blue, purple, each with a light and a dark-theme shade (`.rich-*` in `apps/web/src/styles.css`). Bold renders as `<strong>`, italic as `<em>`.
-- [ ] **Editor:** the toolbar shows only under the focused text field, not under the pronunciation override or tags. Colours have no shortcut. Pressing the same mark on a selected span removes it; another colour on a coloured span swaps the colour. A preview line shows under any field that holds markup.
-- [ ] **Not changed by the rich-text PR:** Browse search (`packages/core/src/tags/browse.ts`) still matches on the raw text, so a word inside a span is found but a phrase across a span edge isn't. `.flashpkg` keeps the markup as typed; plain CSV keeps it (opt-in strip exists) and the Anki exports map it to `<b>`/`<i>`/colour (see "Decisions needed (Anki export)").
+- [x] **Pasted images, where they go:** a paste or drop on an image field's drop zone goes to that field. Anywhere else in the editor, an image with no text alongside it goes to the note's only image field; with no image field, or two or more, it is ignored. A file dropped anywhere else in the editor never opens in the browser tab.
+- [x] **Pasted images, size cap:** a pasted or dropped file over 20 MiB is refused before it is read, the same cap `processImage` applies. The file picker still reads the file first.
+- [x] **Rich-text syntax:** `{mark:content}` with exactly seven marks: `b`, `i`, `red`, `orange`, `green`, `blue`, `purple`. Lower case only; spans nest up to 8 deep; an empty span (`{b:}`) or an unclosed one stays literal. There is no escape for a literal `{b:x}`, the same as ruby.
+- [x] **Rich text with ruby and cloze:** a span can't cut through ruby or cloze braces; the editor refuses such a selection with a hint. Inside a cloze, a span styles the revealed answer. A cloze hint shows its text unstyled.
+- [x] **Palette:** red, orange, green, blue, purple, each with a light and a dark-theme shade (`.rich-*` in `apps/web/src/styles.css`). Bold renders as `<strong>`, italic as `<em>`.
+- [x] **Editor:** the toolbar shows only under the focused text field, not under the pronunciation override or tags. Colours have no shortcut. Pressing the same mark on a selected span removes it; another colour on a coloured span swaps the colour. A preview line shows under any field that holds markup.
+- [x] **Not changed by the rich-text PR:** Browse search (`packages/core/src/tags/browse.ts`) still matches on the raw text, so a word inside a span is found but a phrase across a span edge isn't. `.flashpkg` keeps the markup as typed; plain CSV keeps it (opt-in strip exists) and the Anki exports map it to `<b>`/`<i>`/colour (see "Decisions needed (Anki export)").
 
 ## Decisions needed (optional cards and duplicate finder, 2026-11-23)
 
-Defaults picked while building two items of the Anki feature gap list. Each stays shipped until the owner decides.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **Optional cards, empty field:** a card is made only when the field has a non-whitespace character. A card with no active review is simply not made (nothing to lose); one with reviews is kept as Empty. Undoing an Empty card's last review removes it. Empty cards count in stats history but not in the due forecast. No built-in layout has a rule, so existing collections are unchanged.
-- [ ] **Optional cards, scope:** the rule lives on the layout, so it applies to every deck that uses the layout (built-in layouts included), like the ruby setting. It is not per deck; the deck Options list says so.
-- [ ] **Optional cards, cloze:** no rule on a cloze layout's text fields. Emptying the text would change which c1/c2 variants exist, so studied cloze cards could not be kept as Empty.
-- [ ] **Empty-cards cleanup** (in "Check media and check database"): not built. Empty cards hold review history, so nothing is deleted; Browse lists them with the Empty filter.
-- [ ] **Duplicate finder, what matches:** the key field is the note type's `sortKey` field (else the first field), so two note types of one language can share a group. Keys are compared after NFC, folding full-width Latin and digits, half-width katakana and Hangul, and compatibility jamo (NFKC on those runs only; circled numbers and unit squares stay as they are), ruby reduced to one side (the base, but the Hangul side in Korean decks, so `學校[학교]` matches `학교`), trimming and collapsing inner spaces; case is kept. Notes only match within one deck language (`学校` in a Japanese and a Chinese deck is not a duplicate). Archived notes and archived decks are left out.
-- [ ] **Duplicate finder, scope:** "Only across decks" is on by default; unticking it also lists repeats inside one deck. The field editor's rich-text markup is stripped before comparing (`{b:학교}` matches `학교`, cloze answers included).
-- [ ] **Duplicate finder, actions:** Open (the note editor), Tag "duplicate" on the whole group (set-union `NoteTagsAdded`, so a concurrent tag edit is never overwritten), and Archive per note (history kept, restorable). **No merge:** cards are keyed by note id, so merging two notes' review histories would need a new event, not a cheap or safe change.
+- [x] **Optional cards, empty field:** a card is made only when the field has a non-whitespace character. A card with no active review is simply not made (nothing to lose); one with reviews is kept as Empty. Undoing an Empty card's last review removes it. Empty cards count in stats history but not in the due forecast. No built-in layout has a rule, so existing collections are unchanged.
+- [x] **Optional cards, scope:** the rule lives on the layout, so it applies to every deck that uses the layout (built-in layouts included), like the ruby setting. It is not per deck; the deck Options list says so.
+- [x] **Optional cards, cloze:** no rule on a cloze layout's text fields. Emptying the text would change which c1/c2 variants exist, so studied cloze cards could not be kept as Empty.
+- [x] **Empty-cards cleanup** (in "Check media and check database"): not built. Empty cards hold review history, so nothing is deleted; Browse lists them with the Empty filter.
+- [x] **Duplicate finder, what matches:** the key field is the note type's `sortKey` field (else the first field), so two note types of one language can share a group. Keys are compared after NFC, folding full-width Latin and digits, half-width katakana and Hangul, and compatibility jamo (NFKC on those runs only; circled numbers and unit squares stay as they are), ruby reduced to one side (the base, but the Hangul side in Korean decks, so `學校[학교]` matches `학교`), trimming and collapsing inner spaces; case is kept. Notes only match within one deck language (`学校` in a Japanese and a Chinese deck is not a duplicate). Archived notes and archived decks are left out.
+- [x] **Duplicate finder, scope:** "Only across decks" is on by default; unticking it also lists repeats inside one deck. The field editor's rich-text markup is stripped before comparing (`{b:학교}` matches `학교`, cloze answers included).
+- [x] **Duplicate finder, actions:** Open (the note editor), Tag "duplicate" on the whole group (set-union `NoteTagsAdded`, so a concurrent tag edit is never overwritten), and Archive per note (history kept, restorable). **No merge:** cards are keyed by note id, so merging two notes' review histories would need a new event, not a cheap or safe change.
 - [x] **Follow-up:** the duplicate panel recomputes every group on each state change while it is open (`DuplicateFinderPanel.tsx`). Behaviour is now pinned by `duplicate-finder-live.spec.ts` (an edit that breaks or creates a duplicate updates the groups). The code is unchanged: grouping needs the whole collection, so a per-note memo is not a small change. Revisit only if large imports feel slow.
 
 ## Decisions needed (Anki export)
 
-Defaults picked for "Export for Anki". Each stays shipped until the owner decides.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **CSV columns:** GUID, note type, deck, one column per field (named after the field label, without the characters Anki forbids), tags. Header lines: `#separator`, `#html:true`, `#columns`, `#guid column`, `#notetype column`, `#deck column`, `#tags column`. No BOM, because the header lines must start the file.
-- [ ] **Note type column:** names this app's note type. Anki skips rows whose note type it doesn't have (it creates missing decks, not note types), so the README says to create the note type first or to use `.apkg`. The other option: leave the column out, and Anki's import window asks for a note type.
-- [ ] **GUID:** a note imported from Anki gets its original GUID back, so the profile it came from gets no duplicate. Anki updates it only when it arrives with the note type it has there; under another note type it is a conflict, and Anki skips it unless "Merge note types" is ticked. Other notes use their own id.
-- [ ] **Media file names:** `<sha256>.<ext>`, in `collection.media/` inside the zip (Anki's text import copies no media). Media this device doesn't have is left out and counted in the message. Only the importers' media types (png, jpg, webp, gif, mp3, ogg, wav, m4a) are written; any other extension counts as missing. The zip is written one file at a time into Blob parts (stored media, deflated text), so a large audio deck is never held in memory twice; the native apps still get one array at the end.
-- [ ] **Text as HTML:** `<`, `>`, `&`, `"` are escaped, line breaks become `<br>`, and literal `[` / `]` are written as `&#91;` / `&#93;`, so Anki's furigana filter can't turn `test[abc]` into ruby. Ruby becomes ` base[reading]`. A space of the text right before a base is written `&#32;` (Anki consumes the literal space as the base marker), and a space inside a base is `&#160;`.
-- [ ] **Tags:** spaces inside a tag become `_` (Anki separates tags with spaces); `::` hierarchies are kept.
-- [ ] **Rich text:** the Anki CSV and `.apkg` writers convert the field editor's markup by default (`ankiRichTextToHtml`, `packages/core/src/export/anki/rich-text-html.ts`): `{b:…}` to `<b>`, `{i:…}` to `<i>`, colours to `<span style="color: #xxxxxx">`; text stays HTML-escaped and ruby, cloze (`{{c1::<b>word</b>}}`) and media keep working. Plain CSV keeps the markup as typed, the same as ruby and cloze, so it round-trips through `buildEventsFromCsv`; `exportCsv` has an opt-in `stripRichText: true` for a copy other apps will read (nothing in the UI sets it yet). `.flashpkg` keeps it too.
-- [ ] **Anki colours:** the light-theme shades of `.rich-*` are written inline: red `#dc2626`, orange `#c2410c`, green `#15803d`, blue `#2563eb`, purple `#7c3aed`. The dark-theme shades are not exported, because Anki fields carry no theme.
-- [ ] **Anki cloze hints:** markup inside a cloze hint (`{{c1::a::{b:hint}}}`) is converted like the answer. Anki inserts the hint's HTML as is, so a hint with markup shows styled in Anki but unstyled in the app. Kept as is: the hint is still converted.
-- [ ] **`.apkg` format:** the legacy `collection.anki2` (schema 11) plus the JSON `media` map. Every Anki since 2.1 (desktop, AnkiDroid, AnkiMobile) imports it; the newer `anki21b` needs zstd and protobuf writers for no gain here.
-- [ ] **`.apkg` ids:** a note type imported from Anki gets its Anki id back (and its card types keep their Anki order), so in the profile it came from Anki can update those notes while the note type's fields and card types are unchanged. The export message says so when the package has notes from Anki. Other note types and all decks get ids hashed from this app's ids, so a second export of the same deck matches them in Anki. Note and card ids count up from the export time. GUIDs follow the CSV rule above.
-- [ ] **`.apkg` templates:** one card template per layout enabled in the exported decks (all layouts if none is enabled). The front shows the front fields (`{{kanji:…}}` when a layout hides furigana on the front, `{{furigana:…}}` otherwise), typed layouts add `{{type:…}}`, the layout's spoken field gets `{{tts …}}` on the front or the answer, following when the layout speaks. Choice, listen and draw layouts become plain flip cards. A note type with a cloze layout becomes an Anki cloze note type with only that template, and the message warns when other layouts were dropped.
-- [ ] **`.apkg` cards:** all new, in note order; suspended cards stay suspended. Parent decks are created for `::` names. Superseded by the review-history lines below, except for cards with no active review.
-- [ ] **`.apkg` review history on by default:** `includeReviewHistory` defaults to true. The deck's Options menu runs the export straight away and has no dialog, so there is no "Include review history" tick; the message says how many reviews came along.
-- [ ] **`.apkg` revlog rows:** one per active review (undone ones left out), in replay order `(reviewed_at, hlc, review_id)`. The id is the review time in ms, moved up 1 ms past the previous row on a collision. `ease` is the rating, `ivl` / `lastIvl` are days or negative seconds for (re)learning steps, `type` is 0 learn / 1 review / 2 relearn from the state before the answer. No type 3 (filtered) rows: practice answers (`PracticeRecorded`) never reach FSRS here, so they are left out. `time` is the answer time capped at 60 s (Anki's default `maxTaken`). `col.conf.schedVer` is 2, so Anki (and this app's importer) reads learning eases as 1-4.
-- [ ] **`.apkg` card scheduling:** from replay. Learning and relearning cards are queue 1 with `due` in epoch seconds and `left` from the remaining ts-fsrs steps (1m 10m / 10m, the same as the exported deck options); review cards are queue 2 with `due` as a day number relative to `crt`, counted in the user's study days. A relearning card's `ivl` is its stability rounded, an approximation (its interval only at 90 % retention). `factor` is 2500 once a card has reached review, else 0; Anki's FSRS ignores it. `cards.data` is `{"s","d","dr","decay","lrt"}` (s to 4 places, d to 3, dr to 2, decay to 3 from `w[20]` or the FSRS-6 default 0.1542, `lrt` the last review in Unix seconds), which current Anki reads as the FSRS memory state. `dr` is the deck's current retention.
-- [ ] **`.apkg` crt:** the start of the user's current study day, in one collection-wide offset (the latest active review's, else UTC) and `preferences.day_start_hour` (deck overrides ignored). `col.conf` gets `rollover` and `creationOffset` (minutes west), so Anki's "today" for the package is 0 and its importer's `source_today - target_today` shift lands review cards on the right day in any time zone.
-- [ ] **`.apkg` Empty and buried cards:** a card marked empty (optional card whose field was cleared) is exported new, without its history. The app has no stored bury (sibling burying is worked out per day), so nothing is exported buried. When two cards share one Anki ord (a cloze note without markers), the one with more reviews keeps its history.
-- [ ] **`.apkg` writer:** SQLite is written with sql.js in a short-lived Web Worker, reached through the existing lazy Anki service (`AnkiPackageReader.writeCollection`) rather than a new platform getter, so the study-screen bundle doesn't grow. A write that fails or doesn't answer within 5 minutes is stopped with an error. The package is streamed like the CSV zip and downloaded as `application/octet-stream`.
-- [ ] **Importer:** `[ ] { } |` written as entities (`&#91;`, `&#124;`, …) in an Anki field never form ruby or cloze, as in Anki. They come back as the literal characters when that changes no ruby or cloze (so `test&#91;abc&#93;` stays `test[abc]`), and as fullwidth lookalikes (`［］｛｝｜`) when it would (`漢字&#91;かんじ&#93;` becomes `漢字［かんじ］`).
+- [x] **CSV columns:** GUID, note type, deck, one column per field (named after the field label, without the characters Anki forbids), tags. Header lines: `#separator`, `#html:true`, `#columns`, `#guid column`, `#notetype column`, `#deck column`, `#tags column`. No BOM, because the header lines must start the file.
+- [x] **Note type column:** names this app's note type. Anki skips rows whose note type it doesn't have (it creates missing decks, not note types), so the README says to create the note type first or to use `.apkg`. The other option: leave the column out, and Anki's import window asks for a note type.
+- [x] **GUID:** a note imported from Anki gets its original GUID back, so the profile it came from gets no duplicate. Anki updates it only when it arrives with the note type it has there; under another note type it is a conflict, and Anki skips it unless "Merge note types" is ticked. Other notes use their own id.
+- [x] **Media file names:** `<sha256>.<ext>`, in `collection.media/` inside the zip (Anki's text import copies no media). Media this device doesn't have is left out and counted in the message. Only the importers' media types (png, jpg, webp, gif, mp3, ogg, wav, m4a) are written; any other extension counts as missing. The zip is written one file at a time into Blob parts (stored media, deflated text), so a large audio deck is never held in memory twice; the native apps still get one array at the end.
+- [x] **Text as HTML:** `<`, `>`, `&`, `"` are escaped, line breaks become `<br>`, and literal `[` / `]` are written as `&#91;` / `&#93;`, so Anki's furigana filter can't turn `test[abc]` into ruby. Ruby becomes ` base[reading]`. A space of the text right before a base is written `&#32;` (Anki consumes the literal space as the base marker), and a space inside a base is `&#160;`.
+- [x] **Tags:** spaces inside a tag become `_` (Anki separates tags with spaces); `::` hierarchies are kept.
+- [x] **Rich text:** the Anki CSV and `.apkg` writers convert the field editor's markup by default (`ankiRichTextToHtml`, `packages/core/src/export/anki/rich-text-html.ts`): `{b:…}` to `<b>`, `{i:…}` to `<i>`, colours to `<span style="color: #xxxxxx">`; text stays HTML-escaped and ruby, cloze (`{{c1::<b>word</b>}}`) and media keep working. Plain CSV keeps the markup as typed, the same as ruby and cloze, so it round-trips through `buildEventsFromCsv`; `exportCsv` has an opt-in `stripRichText: true` for a copy other apps will read (nothing in the UI sets it yet). `.flashpkg` keeps it too.
+- [x] **Anki colours:** the light-theme shades of `.rich-*` are written inline: red `#dc2626`, orange `#c2410c`, green `#15803d`, blue `#2563eb`, purple `#7c3aed`. The dark-theme shades are not exported, because Anki fields carry no theme.
+- [x] **Anki cloze hints:** markup inside a cloze hint (`{{c1::a::{b:hint}}}`) is converted like the answer. Anki inserts the hint's HTML as is, so a hint with markup shows styled in Anki but unstyled in the app. Kept as is: the hint is still converted.
+- [x] **`.apkg` format:** the legacy `collection.anki2` (schema 11) plus the JSON `media` map. Every Anki since 2.1 (desktop, AnkiDroid, AnkiMobile) imports it; the newer `anki21b` needs zstd and protobuf writers for no gain here.
+- [x] **`.apkg` ids:** a note type imported from Anki gets its Anki id back (and its card types keep their Anki order), so in the profile it came from Anki can update those notes while the note type's fields and card types are unchanged. The export message says so when the package has notes from Anki. Other note types and all decks get ids hashed from this app's ids, so a second export of the same deck matches them in Anki. Note and card ids count up from the export time. GUIDs follow the CSV rule above.
+- [x] **`.apkg` templates:** one card template per layout enabled in the exported decks (all layouts if none is enabled). The front shows the front fields (`{{kanji:…}}` when a layout hides furigana on the front, `{{furigana:…}}` otherwise), typed layouts add `{{type:…}}`, the layout's spoken field gets `{{tts …}}` on the front or the answer, following when the layout speaks. Choice, listen and draw layouts become plain flip cards. A note type with a cloze layout becomes an Anki cloze note type with only that template, and the message warns when other layouts were dropped.
+- [x] **`.apkg` cards:** all new, in note order; suspended cards stay suspended. Parent decks are created for `::` names. Superseded by the review-history lines below, except for cards with no active review.
+- [x] **`.apkg` review history on by default:** `includeReviewHistory` defaults to true. The deck's Options menu runs the export straight away and has no dialog, so there is no "Include review history" tick; the message says how many reviews came along.
+- [x] **`.apkg` revlog rows:** one per active review (undone ones left out), in replay order `(reviewed_at, hlc, review_id)`. The id is the review time in ms, moved up 1 ms past the previous row on a collision. `ease` is the rating, `ivl` / `lastIvl` are days or negative seconds for (re)learning steps, `type` is 0 learn / 1 review / 2 relearn from the state before the answer. No type 3 (filtered) rows: practice answers (`PracticeRecorded`) never reach FSRS here, so they are left out. `time` is the answer time capped at 60 s (Anki's default `maxTaken`). `col.conf.schedVer` is 2, so Anki (and this app's importer) reads learning eases as 1-4.
+- [x] **`.apkg` card scheduling:** from replay. Learning and relearning cards are queue 1 with `due` in epoch seconds and `left` from the remaining ts-fsrs steps (1m 10m / 10m, the same as the exported deck options); review cards are queue 2 with `due` as a day number relative to `crt`, counted in the user's study days. A relearning card's `ivl` is its stability rounded, an approximation (its interval only at 90 % retention). `factor` is 2500 once a card has reached review, else 0; Anki's FSRS ignores it. `cards.data` is `{"s","d","dr","decay","lrt"}` (s to 4 places, d to 3, dr to 2, decay to 3 from `w[20]` or the FSRS-6 default 0.1542, `lrt` the last review in Unix seconds), which current Anki reads as the FSRS memory state. `dr` is the deck's current retention.
+- [x] **`.apkg` crt:** the start of the user's current study day, in one collection-wide offset (the latest active review's, else UTC) and `preferences.day_start_hour` (deck overrides ignored). `col.conf` gets `rollover` and `creationOffset` (minutes west), so Anki's "today" for the package is 0 and its importer's `source_today - target_today` shift lands review cards on the right day in any time zone.
+- [x] **`.apkg` Empty and buried cards:** a card marked empty (optional card whose field was cleared) is exported new, without its history. The app has no stored bury (sibling burying is worked out per day), so nothing is exported buried. When two cards share one Anki ord (a cloze note without markers), the one with more reviews keeps its history.
+- [x] **`.apkg` writer:** SQLite is written with sql.js in a short-lived Web Worker, reached through the existing lazy Anki service (`AnkiPackageReader.writeCollection`) rather than a new platform getter, so the study-screen bundle doesn't grow. A write that fails or doesn't answer within 5 minutes is stopped with an error. The package is streamed like the CSV zip and downloaded as `application/octet-stream`.
+- [x] **Importer:** `[ ] { } |` written as entities (`&#91;`, `&#124;`, …) in an Anki field never form ruby or cloze, as in Anki. They come back as the literal characters when that changes no ruby or cloze (so `test&#91;abc&#93;` stays `test[abc]`), and as fullwidth lookalikes (`［］｛｝｜`) when it would (`漢字&#91;かんじ&#93;` becomes `漢字［かんじ］`).
 
 ## Decisions needed (find and replace)
 
-Defaults picked while building find and replace. Each stays shipped until the owner decides.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **Scope:** the notes selected in Browse (select-all takes the visible list). Only text fields are searched (`text`, `reading`, `rich`), one field or all of them. Tags are not searched; the tag manager renames tags.
-- [ ] **Media stays safe:** image and audio fields are never searched, and `media:<sha256>` references inside a text field are never matched or changed.
-- [ ] **Literal by default:** case-insensitive, with **Match case** and **Regular expression** (JavaScript syntax, `$1` / `$<name>` / `$&` in the replacement). Ruby, cloze and rich-text markup are searched as typed, so a replace can change markup. A zero-length match (`^`, `x*`) replaces nothing. Find and replace text are NFC-normalized.
-- [ ] **Undo:** one level, for the last replace while the panel is open. A field edited since (here or synced in) keeps its new text. Not the study undo stack.
-- [ ] **Linked decks:** notes in decks fed by a Sheet, folder or package are changed too, with a warning that the next refresh may bring the old text back.
-- [ ] **Provenance:** a replace leaves the note's provenance as it is (the note editor marks edited notes as reviewed).
+- [x] **Scope:** the notes selected in Browse (select-all takes the visible list). Only text fields are searched (`text`, `reading`, `rich`), one field or all of them. Tags are not searched; the tag manager renames tags.
+- [x] **Media stays safe:** image and audio fields are never searched, and `media:<sha256>` references inside a text field are never matched or changed.
+- [x] **Literal by default:** case-insensitive, with **Match case** and **Regular expression** (JavaScript syntax, `$1` / `$<name>` / `$&` in the replacement). Ruby, cloze and rich-text markup are searched as typed, so a replace can change markup. A zero-length match (`^`, `x*`) replaces nothing. Find and replace text are NFC-normalized.
+- [x] **Undo:** one level, for the last replace while the panel is open. A field edited since (here or synced in) keeps its new text. Not the study undo stack.
+- [x] **Linked decks:** notes in decks fed by a Sheet, folder or package are changed too, with a warning that the next refresh may bring the old text back.
+- [x] **Provenance:** a replace leaves the note's provenance as it is (the note editor marks edited notes as reviewed).
 
 ## Decisions needed (deck presets and folders)
 
-Defaults picked while building presets and folders. Each stays shipped until the owner decides.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **Migration:** existing decks keep their own settings. No "Default" preset is created; a deck joins a preset only when the user picks one.
-- [ ] **What a preset holds:** new cards/day, max reviews/day, target retention and FSRS weights. New card order, layouts and the study-day start stay per deck.
-- [ ] **Limits:** each deck in a preset gets the preset's limits on its own count (20 new/day means 20 per deck), as in Anki. There is no pooled limit for the whole preset or folder. The app copies the preset's limits and retention into each member deck's own settings (ordinary `DeckSettingsChanged` events), so the study queue never reads presets.
-- [ ] **Weights:** a preset without optimized weights leaves each deck its own weights; the first pooled optimization sets the same weights on every deck in it. The pooled optimizer needs the usual 400 eligible reviews, counted across the preset's decks. Its "Current" estimate scores each deck with the weights it uses today, and it warns when the decks use different weights.
-- [ ] **Applying a preset:** joining a preset copies all its values into the deck; an edit copies only the fields it changed. Changing retention or weights writes one new FSRS parameters version per deck for future reviews. Existing due dates change only if the optimizer's "Reschedule existing cards" box is ticked.
-- [ ] **FSRS versions from presets** are numbered `time in ms × 1000 + a device number` instead of "active + 1", so two devices copying at once never write the same version and neither copy is lost. The optimizer's "Saved … as FSRS parameters v…" message then shows a long number for such decks.
-- [ ] **Leaving or deleting a preset:** the deck keeps the preset's limits and retention as its own settings.
-- [ ] **Deletes are final:** a deleted preset or folder never comes back, even if another device edited or renamed it later at the same time. Deleting writes nothing per deck, so a concurrent move of a deck to another folder or preset still stands.
-- [ ] **New presets:** "Save these settings as a preset" copies the deck's limits, retention and weights; a preset made in the Library panel starts at 20 / 200 / 0.90.
-- [ ] **Folders:** one level. With no folders the deck list looks as before; once one exists, unfiled decks show under "Not in a folder". Deleting a folder leaves its decks unfiled. "Study folder" is one session over the folder's decks (shown as a Study filter), each deck with its own limits.
-- [ ] **Packages:** `.flashpkg` export writes the presets and folders the exported decks use (`manifest.presets`, `manifest.folders`, `decks[].preset_id`, `decks[].folder_id`; all optional, so older packages stay valid and older builds ignore them). Import never overwrites what the user has. Each package preset or folder resolves once: a live one with the same id is used as it is; else a live one with the same name (trimmed, exact match, first by name then id); else none if this collection once deleted that id (a delete is final); else a new one with the package's id and values. A deck the import creates joins the preset and folder; joining copies the preset into the deck as the Library does (limits, retention, shared weights). An existing deck never joins a package preset, since that would overwrite the limits, retention and weights the user tuned on it; it joins a folder only if it never had a folder assignment, even a cleared one. Saves an import writes are marked `from_package`: per field, any preset or folder save the user wrote wins over every package save, whatever their HLCs (as for descriptions), so an import on a device that has not synced the user's edits never overwrites them. Package weights must be a 17, 19 or 21 vector inside the FSRS-6 model bounds, or the preset comes in without them.
-- [ ] **Packages, name match:** a package preset named like one of the user's (for example two "Daily" presets) joins the user's, with the user's values, rather than adding a second preset with the same name. Matching uses what each device has: two devices that import before syncing can resolve a name differently and leave one extra preset with the same name.
-- [ ] **Catch-up:** after each sync, and when the Library opens, the app compares every deck in a preset with the preset and copies the preset into any deck that differs. This heals a deck that joined during an edit elsewhere, a retention copy racing a weights copy, and an older build editing a member deck (the preset wins). It writes only real differences, and devices that agree on the preset write the same values.
-- [ ] **Bundle:** initial study-screen JS 156.43 KB gz before, 156.63 KB after. The 0.2 KB is the post-sync catch-up trigger and lazy-chunk names; presets, folders, the catch-up itself and their UI load with the Library or after a sync.
+- [x] **Migration:** existing decks keep their own settings. No "Default" preset is created; a deck joins a preset only when the user picks one.
+- [x] **What a preset holds:** new cards/day, max reviews/day, target retention and FSRS weights. New card order, layouts and the study-day start stay per deck.
+- [x] **Limits:** each deck in a preset gets the preset's limits on its own count (20 new/day means 20 per deck), as in Anki. There is no pooled limit for the whole preset or folder. The app copies the preset's limits and retention into each member deck's own settings (ordinary `DeckSettingsChanged` events), so the study queue never reads presets.
+- [x] **Weights:** a preset without optimized weights leaves each deck its own weights; the first pooled optimization sets the same weights on every deck in it. The pooled optimizer needs the usual 400 eligible reviews, counted across the preset's decks. Its "Current" estimate scores each deck with the weights it uses today, and it warns when the decks use different weights.
+- [x] **Applying a preset:** joining a preset copies all its values into the deck; an edit copies only the fields it changed. Changing retention or weights writes one new FSRS parameters version per deck for future reviews. Existing due dates change only if the optimizer's "Reschedule existing cards" box is ticked.
+- [x] **FSRS versions from presets** are numbered `time in ms × 1000 + a device number` instead of "active + 1", so two devices copying at once never write the same version and neither copy is lost. The optimizer's "Saved … as FSRS parameters v…" message then shows a long number for such decks.
+- [x] **Leaving or deleting a preset:** the deck keeps the preset's limits and retention as its own settings.
+- [x] **Deletes are final:** a deleted preset or folder never comes back, even if another device edited or renamed it later at the same time. Deleting writes nothing per deck, so a concurrent move of a deck to another folder or preset still stands.
+- [x] **New presets:** "Save these settings as a preset" copies the deck's limits, retention and weights; a preset made in the Library panel starts at 20 / 200 / 0.90.
+- [x] **Folders:** one level. With no folders the deck list looks as before; once one exists, unfiled decks show under "Not in a folder". Deleting a folder leaves its decks unfiled. "Study folder" is one session over the folder's decks (shown as a Study filter), each deck with its own limits.
+- [x] **Packages:** `.flashpkg` export writes the presets and folders the exported decks use (`manifest.presets`, `manifest.folders`, `decks[].preset_id`, `decks[].folder_id`; all optional, so older packages stay valid and older builds ignore them). Import never overwrites what the user has. Each package preset or folder resolves once: a live one with the same id is used as it is; else a live one with the same name (trimmed, exact match, first by name then id); else none if this collection once deleted that id (a delete is final); else a new one with the package's id and values. A deck the import creates joins the preset and folder; joining copies the preset into the deck as the Library does (limits, retention, shared weights). An existing deck never joins a package preset, since that would overwrite the limits, retention and weights the user tuned on it; it joins a folder only if it never had a folder assignment, even a cleared one. Saves an import writes are marked `from_package`: per field, any preset or folder save the user wrote wins over every package save, whatever their HLCs (as for descriptions), so an import on a device that has not synced the user's edits never overwrites them. Package weights must be a 17, 19 or 21 vector inside the FSRS-6 model bounds, or the preset comes in without them.
+- [x] **Packages, name match:** a package preset named like one of the user's (for example two "Daily" presets) joins the user's, with the user's values, rather than adding a second preset with the same name. Matching uses what each device has: two devices that import before syncing can resolve a name differently and leave one extra preset with the same name.
+- [x] **Catch-up:** after each sync, and when the Library opens, the app compares every deck in a preset with the preset and copies the preset into any deck that differs. This heals a deck that joined during an edit elsewhere, a retention copy racing a weights copy, and an older build editing a member deck (the preset wins). It writes only real differences, and devices that agree on the preset write the same values.
+- [x] **Bundle:** initial study-screen JS 156.43 KB gz before, 156.63 KB after. The 0.2 KB is the post-sync catch-up trigger and lazy-chunk names; presets, folders, the catch-up itself and their UI load with the Library or after a sync.
 
 ## Decisions needed (deck descriptions)
 
-Defaults picked while building deck descriptions. Each stays shipped until the owner decides.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **Plain text only**, up to 2,000 characters, line breaks kept. Markup is shown as typed, never rendered. The limited rich text from the field editor item could be reused later.
-- [ ] **Stored as its own event, not a `Deck` field:** `DeckDescriptionChanged` is log-retained and folded on demand, like the Study Set events, so the study-screen bundle does not grow and older builds keep the events. Last writer wins per deck; an empty description clears it.
-- [ ] **Starter decks** use the catalog's description (for example "Beginner (level A) Korean words from the NIKL learning vocabulary list…"). Starter decks added before this build get none; there is no backfill.
-- [ ] **Packages and backups:** `.flashpkg` export writes the deck's description in the manifest. Import fills it only for a deck that never had a description event, so a package update never brings back a description the user cleared. Package and starter descriptions are marked as such, and any description the user wrote or cleared wins over them, even from a device that has not synced the user's text yet. A Family Library `index.json` entry's own description is not copied; the deck description comes from the package manifest. A restore from backup writes the backup's description (or a clear) as the user's own text, so it wins over package descriptions.
-- [ ] **Overview:** only decks with a description show it. Study on any other deck starts at once, as before. "Study folder" and "All decks" skip the overview.
+- [x] **Plain text only**, up to 2,000 characters, line breaks kept. Markup is shown as typed, never rendered. The limited rich text from the field editor item could be reused later.
+- [x] **Stored as its own event, not a `Deck` field:** `DeckDescriptionChanged` is log-retained and folded on demand, like the Study Set events, so the study-screen bundle does not grow and older builds keep the events. Last writer wins per deck; an empty description clears it.
+- [x] **Starter decks** use the catalog's description (for example "Beginner (level A) Korean words from the NIKL learning vocabulary list…"). Starter decks added before this build get none; there is no backfill.
+- [x] **Packages and backups:** `.flashpkg` export writes the deck's description in the manifest. Import fills it only for a deck that never had a description event, so a package update never brings back a description the user cleared. Package and starter descriptions are marked as such, and any description the user wrote or cleared wins over them, even from a device that has not synced the user's text yet. A Family Library `index.json` entry's own description is not copied; the deck description comes from the package manifest. A restore from backup writes the backup's description (or a clear) as the user's own text, so it wins over package descriptions.
+- [x] **Overview:** only decks with a description show it. Study on any other deck starts at once, as before. "Study folder" and "All decks" skip the overview.
 
 ## Decisions needed (rolling backups, 2026-11-23)
 
-Defaults picked while building automatic backups. Each stays shipped until the owner decides.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **How many and how often:** keep 14 snapshots. A new one when the newest is 20 hours old and the collection changed. The first check runs 8 s after launch, then hourly and when the app returns to the foreground.
-- [ ] **Full snapshots:** weekly, only when media totals 100 MB or less (the `.flashpkg` import cap). Above that every snapshot is daily, and the media store and the sync folder hold the files. The newest full snapshot is kept even when older than the 14.
-- [ ] **Restore mechanism:** new events that move the collection to the backup, not a separate collection. Decks and notes the backup lacks are archived. Reviews made since are always kept: the "Also undo the reviews made after this backup" option was removed, because undoing those reviews could not itself be reversed. Not restorable: a review undone after the backup, pages the backup lacks (pages have no archive), Study Sets and practice sessions, and deck fields added after this PR.
-- [ ] **Reset keeps backups:** "Reset Local Device Data" leaves the backups on the device, so a reset can be undone, and keeps the images and audio a kept backup lists, so a daily snapshot restores whole. There is no "Delete all backups" button yet. Settings > Automatic backups says when no kept snapshot holds the media.
-- [ ] **Pre-restore snapshots:** kept apart from the rolling 14, newest 3 only. The backup being restored is never pruned to make room.
-- [ ] **Wrong clocks:** a snapshot stamped more than 10 minutes in the future is ignored for "due" and for the kind, and is pruned first.
-- [ ] **Low storage:** old snapshots are pruned only after a new one is stored. On web a snapshot is skipped when `navigator.storage.estimate()` leaves less than twice its size plus 50 MB free. Phones and desktop have no reliable free-space figure (the WebView estimate doesn't count the SQLite file), so there, after a failed snapshot, only daily snapshots (no media) are taken until one succeeds. A skipped or failed snapshot never touches the event log; Settings shows the last error until the next snapshot succeeds. A snapshot still running after 10 minutes with the app visible is stopped before it stores, prunes or copies anything (hidden time does not count, and a hidden tab starts no automatic snapshot).
-- [ ] **Restore and other devices:** when sync is connected, a restore pulls first. The confirmation says edits on a device that has not synced yet may survive it. The study undo stack is cleared after a restore.
-- [ ] **Backup files are checked:** `backup/state.json` is validated (Zod, `@flash/content-schema/backup-state`) before a preview; a malformed value rejects the whole backup.
-- [ ] **Phone storage:** archives sit in 1 MB chunks (`backup_chunks`), so no single SQLite parameter carries a whole backup. A failed write removes its chunks, and chunks without a backup row are swept when the backups are first opened after launch. Snapshots are zipped on the main thread in steps (fflate's async zip needs a `blob:` worker, which the CSP refuses).
-- [ ] **Sync-folder copy:** off by default. One copy per device per weekday, without media. A restore from the sync folder needs the media in the sync store, or in the full snapshot of the device it came from.
-- [ ] **Web storage:** IndexedDB with `navigator.storage.persist()`, requested by the backup check at launch, no longer by `AppContext` directly. When the browser refuses, Settings warns that backups can be cleared, and a one-time notice says so outside Settings (not shown when sync is connected).
-- [ ] **Downloads:** "Download" on a daily snapshot adds the media from this device to the file. Downloading counts as a backup for the reminder.
-- [ ] **Restore of presets, folders and descriptions:** a restore brings back each backup preset and folder with its name and values, puts every backup deck back in its preset and folder (or none), and writes the backup's description (or a clear). A preset or folder deleted since the backup can't come back under its id (deletes are final), and a preset's weights can't be cleared, so those come back as a new preset or folder with an id derived from the old one. Presets and folders made since the backup stay (nothing is deleted); the backup's decks just leave them. The confirm step counts these under "other settings".
+- [x] **How many and how often:** keep 14 snapshots. A new one when the newest is 20 hours old and the collection changed. The first check runs 8 s after launch, then hourly and when the app returns to the foreground.
+- [x] **Full snapshots:** weekly, only when media totals 100 MB or less (the `.flashpkg` import cap). Above that every snapshot is daily, and the media store and the sync folder hold the files. The newest full snapshot is kept even when older than the 14.
+- [x] **Restore mechanism:** new events that move the collection to the backup, not a separate collection. Decks and notes the backup lacks are archived. Reviews made since are always kept: the "Also undo the reviews made after this backup" option was removed, because undoing those reviews could not itself be reversed. Not restorable: a review undone after the backup, pages the backup lacks (pages have no archive), Study Sets and practice sessions, and deck fields added after this PR.
+- [x] **Reset keeps backups:** "Reset Local Device Data" leaves the backups on the device, so a reset can be undone, and keeps the images and audio a kept backup lists, so a daily snapshot restores whole. There is no "Delete all backups" button yet. Settings > Automatic backups says when no kept snapshot holds the media.
+- [x] **Pre-restore snapshots:** kept apart from the rolling 14, newest 3 only. The backup being restored is never pruned to make room.
+- [x] **Wrong clocks:** a snapshot stamped more than 10 minutes in the future is ignored for "due" and for the kind, and is pruned first.
+- [x] **Low storage:** old snapshots are pruned only after a new one is stored. On web a snapshot is skipped when `navigator.storage.estimate()` leaves less than twice its size plus 50 MB free. Phones and desktop have no reliable free-space figure (the WebView estimate doesn't count the SQLite file), so there, after a failed snapshot, only daily snapshots (no media) are taken until one succeeds. A skipped or failed snapshot never touches the event log; Settings shows the last error until the next snapshot succeeds. A snapshot still running after 10 minutes with the app visible is stopped before it stores, prunes or copies anything (hidden time does not count, and a hidden tab starts no automatic snapshot).
+- [x] **Restore and other devices:** when sync is connected, a restore pulls first. The confirmation says edits on a device that has not synced yet may survive it. The study undo stack is cleared after a restore.
+- [x] **Backup files are checked:** `backup/state.json` is validated (Zod, `@flash/content-schema/backup-state`) before a preview; a malformed value rejects the whole backup.
+- [x] **Phone storage:** archives sit in 1 MB chunks (`backup_chunks`), so no single SQLite parameter carries a whole backup. A failed write removes its chunks, and chunks without a backup row are swept when the backups are first opened after launch. Snapshots are zipped on the main thread in steps (fflate's async zip needs a `blob:` worker, which the CSP refuses).
+- [x] **Sync-folder copy:** off by default. One copy per device per weekday, without media. A restore from the sync folder needs the media in the sync store, or in the full snapshot of the device it came from.
+- [x] **Web storage:** IndexedDB with `navigator.storage.persist()`, requested by the backup check at launch, no longer by `AppContext` directly. When the browser refuses, Settings warns that backups can be cleared, and a one-time notice says so outside Settings (not shown when sync is connected).
+- [x] **Downloads:** "Download" on a daily snapshot adds the media from this device to the file. Downloading counts as a backup for the reminder.
+- [x] **Restore of presets, folders and descriptions:** a restore brings back each backup preset and folder with its name and values, puts every backup deck back in its preset and folder (or none), and writes the backup's description (or a clear). A preset or folder deleted since the backup can't come back under its id (deletes are final), and a preset's weights can't be cleared, so those come back as a new preset or folder with an id derived from the old one. Presets and folders made since the backup stay (nothing is deleted); the backup's decks just leave them. The confirm step counts these under "other settings".
 
 ## Decisions needed (check media and check database, 2026-11-23)
 
-Defaults picked while building the checks. Each stays shipped until the owner decides.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **Removal is an event:** `MediaRemoved` is a new event type, so removing a file reaches every synced device. Older builds keep the event unapplied and still list the file. A snapshot an older build wrote is folded on load; if that build also saw the same file added again after the removal, the re-add is lost (rare).
-- [ ] **What counts as used:** any `media:<sha256>` anywhere in notes (archived ones too), pages, decks, note types, layouts, courses and options. Spoken-audio caches are never offered for removal.
-- [ ] **Backups win over cleanup:** a file a kept backup lists stays on the device after removal from the collection, until that backup rolls off.
-- [ ] **Sync folder:** removed files stay in the sync folder (no delete in the transport). A device that downloads the history before the removal may store the file again; Check media there removes it.
-- [ ] **Rebuild from history:** offered only after a full rebuild finds differences. It rewrites this device's local snapshot and reloads, without touching the event log or other devices. No automatic check runs at launch. The reload waits for this tab's queued writes. Other open tabs of the same device show a "Reload now" prompt instead of reloading, so an open draft is not lost, and from then on they stop syncing and their edits write no snapshot over the rebuild. The rebuild and the compare run in steps, so the screen keeps responding.
-- [ ] **Re-add on edit:** every edit that starts using a `media:` file emits one `MediaAdded` for it, even when the file is still listed (one small event per newly used file). If the code for it or a stored-file lookup fails, that re-add waits and is tried again on the next edit or sync, three tries at most; after that Check media's "Add back to the collection" covers the file.
-- [ ] **Snapshots from before media removal:** the collection snapshot format is now version 2. A version 1 snapshot with media is not used to start a new device from the cloud (the segments are replayed instead), and at launch this device replays its own log instead when the log is complete. Otherwise the version 1 snapshot is used, and saved again as version 2 right away so later launches don't read the whole log first. Loading it gives an add record at its newest change for each file: a removal decided after the add but before that snapshot, arriving late, then keeps the file here while a full replay drops it (the safe side: nothing a note uses is lost).
+- [x] **Removal is an event:** `MediaRemoved` is a new event type, so removing a file reaches every synced device. Older builds keep the event unapplied and still list the file. A snapshot an older build wrote is folded on load; if that build also saw the same file added again after the removal, the re-add is lost (rare).
+- [x] **What counts as used:** any `media:<sha256>` anywhere in notes (archived ones too), pages, decks, note types, layouts, courses and options. Spoken-audio caches are never offered for removal.
+- [x] **Backups win over cleanup:** a file a kept backup lists stays on the device after removal from the collection, until that backup rolls off.
+- [x] **Sync folder:** removed files stay in the sync folder (no delete in the transport). A device that downloads the history before the removal may store the file again; Check media there removes it.
+- [x] **Rebuild from history:** offered only after a full rebuild finds differences. It rewrites this device's local snapshot and reloads, without touching the event log or other devices. No automatic check runs at launch. The reload waits for this tab's queued writes. Other open tabs of the same device show a "Reload now" prompt instead of reloading, so an open draft is not lost, and from then on they stop syncing and their edits write no snapshot over the rebuild. The rebuild and the compare run in steps, so the screen keeps responding.
+- [x] **Re-add on edit:** every edit that starts using a `media:` file emits one `MediaAdded` for it, even when the file is still listed (one small event per newly used file). If the code for it or a stored-file lookup fails, that re-add waits and is tried again on the next edit or sync, three tries at most; after that Check media's "Add back to the collection" covers the file.
+- [x] **Snapshots from before media removal:** the collection snapshot format is now version 2. A version 1 snapshot with media is not used to start a new device from the cloud (the segments are replayed instead), and at launch this device replays its own log instead when the log is complete. Otherwise the version 1 snapshot is used, and saved again as version 2 right away so later launches don't read the whole log first. Loading it gives an add record at its newest change for each file: a removal decided after the add but before that snapshot, arriving late, then keeps the file here while a full replay drops it (the safe side: nothing a note uses is lost).
 
 ## Leftover nits and known limitations
 
@@ -414,6 +444,7 @@ Defaults picked while building the checks. Each stays shipped until the owner de
 - [x] Only hits in allowed packs count toward the cap.
 - Moved to "Needs the owner (hands-on)": the upstream download and measurement.
 - [ ] The `SenseRelation` attribute (`lemma` / `writtenForm`) is unverified against a real export.
+- [ ] **To build (owner, 2026-11-27): a dictionary speaker button that uses device TTS; KRDict audio stays out.** **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. The dictionary has no speaker button yet, so the TTS fallback is not wired either.
 
 ### #19 Linked OneDrive sources
 
@@ -497,6 +528,7 @@ Observed while bringing up the Capacitor Android debug build on a Pixel 9 Pro an
 
 - [ ] **Background study reminders.** `boot.ts` (`platform-tauri`) uses `studyReminderDelivery: 'while-app-runs'` because `tauri-plugin-notification` cannot schedule OS notifications after quit (documented in Settings, no tray/daemon scheduler planned yet).
 - [ ] **Linux WebKitGTK media codecs & keyring availability.** `<audio>` playback of MP3/M4A clips on Linux depends on host GStreamer plugins (`gst-plugins-good`/`bad`/`ugly`), and Linux without Secret Service (GNOME Keyring/KWallet) falls back to SQLite token storage with a Settings warning; neither Linux runtime has been smoke-tested on a real machine.
+- [ ] **Gate Tauri store builds on `VITE_STORE_LICENSE_KEYS` before a Mac App Store or Microsoft Store build ships (#87).** Today Tauri accepts licence keys whenever a public key is set; only Capacitor checks the flag, and store builds are in-app purchase only (#74, App Store guideline 3.1.1).
 
 ### Web / PWA (`apps/web`, `@flash/platform-web`)
 
@@ -508,6 +540,7 @@ Observed while bringing up the Capacitor Android debug build on a Pixel 9 Pro an
 - [x] **Clean up the old credit on decks seeded before 1.2.0.** There is no starter update path: seeding happens once, at onboarding (`startOnboardingDeck`), and `presetCatchUp.ts` is about deck-option presets, not deck content. Existing users keep the credit line in Notes (and the 1.0.0 glosses, see PR #28 above). A future update step would, per starter note, emit a `NoteUpserted` that clears `notes` (or leaves "Also read: …") **only when the field still exactly equals the old generated credit**. The old text is reproducible from `meaningSource`/`meaningEdited` (formats in `content/starters/README.md`). It must merge with any user edit (only that field changes, timestamped now) and run once per deck version (`DeckCreated.source.package_version`). Owner decision: build this, or leave existing decks as they are. Done in #83 (`packages/core/src/starters/upgrade.ts`): per starter note, one `fields_only` `NoteUpserted` clears the 1.0.0 or 1.1.0 credit, and the 1.0.0 gloss is replaced by the current one. Edited fields stay.
 - Moved to "Needs the owner (hands-on)": Tatoeba and example sentences.
 - [x] **No empty reveal step.** The study screen already drops reveal steps whose fields are all empty, so a Korean starter card (empty `example` and `notes`) now reveals in one step, and a Mandarin card shows the last step only when it has "Also read: …".
+- [ ] **To build (owner, 2026-11-27): the new event.** **Starter-upgrade race (#83).** An unsynced edit of a still-old-text field can lose to the upgrade. Fixing it in the UI would be a patch; it needs a new event. Recommend a `starter_upgraded` event, so replay can order the upgrade against local edits.
 
 ### Review and consolidate tags (deferred by the user)
 
@@ -529,9 +562,9 @@ Proposed scheme:
 
 - [x] **Study screen `Method · Order` chip (session only).** Spaced repetition or Practice (cram over the current deck / filter, never changes FSRS); Deck order, Random (seeded), and Hardest first for Practice. Choices reset when the Study deck selection changes or the app restarts. Practice runs as the existing custom-study practice session, so its filter chip (×) and "Clear filter" end it too.
 - [x] **Settings › Study Preferences:** "Default study method" and "Card order (all decks)" (synced LWW preferences `study_method` / `study_order`; the order is also written to every deck's `new_card_order`). An "Apply to all" button appears when some decks use their own order.
-- [ ] **New decks start with source order.** A deck created or imported after choosing "Random (all decks)" gets `new_card_order: 'source'` (the deck default) until "Apply to all" or its own deck options change it. Decide whether deck creation should copy the Settings default.
-- [ ] **Review order is collection-wide.** `study_order` orders reviews in every deck; only new-card order can differ per deck. Add a per-deck review order only if users ask for it.
-- [ ] **"Newest first" order** (suggested in the Android review) is not built; the three orders above cover the decided scope.
+- [ ] **To build (owner, 2026-11-27): copy the Settings card order into new decks.** **New decks start with source order.** A deck created or imported after choosing "Random (all decks)" gets `new_card_order: 'source'` (the deck default) until "Apply to all" or its own deck options change it.
+- [x] **Review order is collection-wide.** `study_order` orders reviews in every deck; only new-card order can differ per deck. Add a per-deck review order only if users ask for it. Kept (2026-11-27): built only if users ask.
+- [x] **"Newest first" order** (suggested in the Android review) is not built; the three orders above cover the decided scope. Kept (2026-11-27): built only if users ask.
 
 ## Burn-down wave 2 follow-ups (2026-11-26)
 
@@ -542,7 +575,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [x] The 401 contract test doesn't prove that the token was force-refreshed. The fake ignores the Authorization header, and OneDrive's harness always returns the same token (`sync-transport-conformance.test.ts`). Done in #103: a token issuer rotates tokens in all three harnesses.
 - [x] No per-call-site over-cap test for the image and audio processors, the picker downloads or the Docs export. Only the shared reader (`net/read-capped.ts`) is covered. Done in #103.
 - [x] The 2 s interactive Retry-After ceiling is not tested in the OneDrive or Dropbox pickers. Done in #103.
-- [ ] A token-helper reply with no token now returns 502, so web Google shows "helper unavailable" with tap-to-renew instead of AUTH_REQUIRED. Check that this is the wording we want.
+- **Decided in "Owner decisions open" (2026-11-27).** A token-helper reply with no token now returns 502, so web Google shows "helper unavailable" with tap-to-renew instead of AUTH_REQUIRED. Check that this is the wording we want.
 - [x] The 50 MB cap on Sheets `values.get` JSON is tighter than the same data as CSV. Done in #123: the read asks for compact JSON (`prettyPrint=false`) and the cap is the linked-file cap × 3 (150 MB), derived from `MAX_DRIVE_FILE_BYTES`.
 - [ ] Behaviour changes to keep in mind: the 401 refresh no longer counts as an attempt for OneDrive and Dropbox (up to `maxAttempts + 1` requests), Google no longer retries 501, and the Dropbox picker's network-error text changed.
 - [x] The native Dropbox and Microsoft auths keep their own `inFlightRefresh` (`dropbox-native-auth.ts`, `microsoft-native-auth.ts`). Move them onto `TokenRefresher`. Done in #97: both moved onto `TokenRefresher`.
@@ -645,9 +678,9 @@ The audit (`docs/Audit.md`, untracked in the main checkout) was about the plan f
 - [x] **C8:** the Sentence, Cloze and Grammar presets now speak and render their target-language fields in the deck's language (`noteTypeForDeck`), and a linked sentence sheet's deck language comes from the script of its Sentence column.
 - [x] **C9:** a `.flashpkg` deck file with two records sharing an `id` keeps the first and warns; records whose field keys match none of the note type's import blank and warn. Library and OneDrive/Dropbox `.flashpkg` imports now show package warnings.
 - [x] **C1:** a CSV/TSV quote that never closes, or has text after its closing quote, is read as plain text, so the rows after it are kept.
-- [ ] **C8 reaches only new links.** A Sentence deck already linked from a sheet keeps the language `en` it was given, so it still speaks English, and no screen changes a deck's language. Recommend offering, once, to set the language of a Sentence, Cloze or Grammar deck whose text is in another script (owner: design).
+- [ ] **To build (owner, 2026-11-27): offer once to set the language.** **C8 reaches only new links.** A Sentence deck already linked from a sheet keeps the language `en` it was given, so it still speaks English, and no screen changes a deck's language. The offer covers each Sentence, Cloze or Grammar deck whose text is in another script.
 - [x] C8 minors (#93 review): the `.apkg` export takes the `{{tts}}` language of a shared built-in note type from the first deck it exports, and has no test for it. A user's own `lang` on a built-in Sentence, Cloze or Grammar field is overridden by the deck's language. The import status-line warnings have no UI test. Done in #124: an `.apkg` export with decks of several languages sharing a built-in note type writes one Anki note type per language (`Sentence (ko)`), a field `lang` that differs from the preset is kept, and the import status-line warnings have a render test.
-- [ ] **C9, third point:** re-importing with archive-on-upgrade archives every note whose `id` changed, with its review progress. Recommend a preview that counts the notes it would archive.
+- [ ] **To build (owner, 2026-11-27): the archive-count preview.** **C9, third point:** re-importing with archive-on-upgrade archives every note whose `id` changed, with its review progress. Recommend a preview that counts the notes it would archive.
 - [x] Two CPU-heavy unit tests timed out under load and failed `pnpm gate` on main too: `backup-runner` "keeps pre-restore snapshots outside the rolling 14…" (~3.5 s alone, against the 5 s default) and `onedrive-transport` "retries a failed fragment…". Each now has a 30 s timeout.
 
 ### Left over from wave 3 (#87–#90)
@@ -703,11 +736,11 @@ The owner accepted every recommendation on 2026-11-26.
 
 ## Decisions needed (wave 3, 2026-11-26)
 
-Each default below stays shipped until the owner decides.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **Tauri store builds accept licence keys whenever a public key is set (#87).** Only Capacitor checks `VITE_STORE_LICENSE_KEYS`. Recommend gating Tauri store builds the same way if a Mac App Store or Microsoft Store build ever ships.
-- [ ] **Rotating the licence key locks out every key already issued (#87).** Recommend never rotating unless the private key leaks. If it does, ship the old public key alongside the new one for a transition.
-- [ ] **An unguarded grammar entry like `-(으)ㄴ` may still show as `#NAME?` in Excel (#88, not verified).** It is in the "for other apps" CSV. Recommend checking once in Excel; if so, guard every leading `-` in that export too (the `'` prefix is invisible in Excel).
+- Moved to "Cross-platform gaps", under "Desktop": Tauri store builds accept licence keys whenever a public key is set (#87).
+- **Decided in "Owner decisions open" (2026-11-27).** **Rotating the licence key locks out every key already issued (#87).** Recommend never rotating unless the private key leaks. If it does, ship the old public key alongside the new one for a transition.
+- Moved to "Needs the owner (hands-on)", under "Unverified from batch 2026-11-26b": **An unguarded grammar entry like `-(으)ㄴ` may still show as `#NAME?` in Excel (#88, not verified).** It is in the "for other apps" CSV. Recommend checking once in Excel; if so, guard every leading `-` in that export too (the `'` prefix is invisible in Excel).
 
 ## Decisions needed (follow-ups batch, 2026-11-26)
 
@@ -769,6 +802,7 @@ Open items, grouped by PR. Dependabot and CI come last.
 - [ ] **Waiting on upstream:** #78 (Gradle 9.9) is closed; reopen when upstream ships (an AGP supporting Gradle 9.6+).
 - [x] CI: watch the next `publish-packs` run on main. wrangler-action 4 (#66) and actions/cache 6 (#67) haven't run there yet. It ran green on main on 2026-11-27.
 - [x] Dependabot 2026-11-27: #126 (codeql-action pins) and #127 (mdast-util-directive) merged; #125 (Gradle 9.9) closed, like #78, until AGP supports Gradle 9.6+; #128 (@types/node 25) closed with "ignore this major version", because the runtime is Node 24.
+- [x] **To build (owner, 2026-11-27): make `dependency-review` tolerate a skip, then the Security jobs become required.** Making the Security jobs (`security.yml`) required checks needs a `dependency-review` that tolerates a skip, because it runs only on pull requests. Done in #139: the job runs on every event and reports success outside pull requests; the ruleset change is the owner's next step.
 
 ### Open on purpose
 
@@ -783,8 +817,8 @@ Open items, grouped by area.
 - [x] `tools/gemini/rails.mjs:126`: the `ANY_BLOCKER` regex has 2 SonarCloud MAJOR issues (S8786 backtracking, S5843 complexity 39). Strip `*` first, or split the regex. Split into three linear patterns in #119.
 - [x] A plural answer starting with "none" ("Blockers: none, except X") still reads clean. Fixed in #119 (allow-list after none / n/a).
 - [x] "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" falsely retry. The owner cleared them on 2026-11-27; cleared in #134.
-- [ ] A bare plural heading `**Blockers:**` over an untagged list still reads clean (found in #134's review; older than #134). The singular `**Blocker:**` retries. Making the plural retry too only tightens the gate.
-- [ ] A negation with a colon hides what follows it: `Blockers: no blockers: a.ts:1 wrong` reads clean because `NEGATED_BLOCKER` matches first (found in #134's review; older than #134). Tightening only.
+- [x] A bare plural heading `**Blockers:**` over an untagged list still reads clean (found in #134's review; older than #134). The singular `**Blocker:**` retries. Making the plural retry too only tightens the gate. Done in #139.
+- [x] A negation with a colon hides what follows it: `Blockers: no blockers: a.ts:1 wrong` reads clean because `NEGATED_BLOCKER` matches first (found in #134's review; older than #134). Tightening only. Done in #139: only the negated label is skipped.
 
 ### Sync
 
@@ -808,23 +842,23 @@ Open items, grouped by area.
 
 ## Decisions needed (batch 2026-11-26b)
 
-Each default below stays shipped until the owner decides. All are **keep** unless noted.
+Kept as shipped on 2026-11-27, when the owner approved clearing the decision queue: every default below stands. Reopen one by asking.
 
-- [ ] **Anki CSV: the deck stays a column, and the note type moved to a `#notetype:` header (#102).** A `#deck:` header would drop the deck for most users, who import into a fresh Anki. Recommend keep.
-- [ ] **Zip names without the UTF-8 flag (#102):** read as UTF-8 when well-formed, else as CP437. Recommend keep.
-- [ ] **Local pack files are capped at 50 MB, was 150 MB (#103).** The codec already refused more. Recommend keep; raise it only if a real pack needs more.
-- [ ] **A stale cached `picker.js` callback without `state` is ignored (#103).** The user picks again. Recommend keep.
-- [ ] **A Dexie ES2018 build alias (#104).** Technical. Recommend keep.
-- [ ] **The launch source check fetches one small chunk about 50 ms after first paint (#104).** Recommend keep.
-- [ ] **New UI APIs `useSyncState`, `useLibraryActions` and `getState` (#104).** Technical; for information only.
-- [ ] **Single-writer `booted` has no timeout of its own (#107).** A hung boot is taken over after the asking tab's 120 s limit. Recommend keep.
-- [ ] **When boot fails, the error is still rethrown after `markBooted()` (#107).** Recommend keep.
-- [ ] **The knip un-exports in #108 also reach about 25 files outside `packages/ui`** (core, platform-web, platform-capacitor, platform-tauri), each only dropping an `export`. For information only.
-- [ ] **#107 and #108 are technical, with no product defaults beyond those listed.** For information only.
+- [x] **Anki CSV: the deck stays a column, and the note type moved to a `#notetype:` header (#102).** A `#deck:` header would drop the deck for most users, who import into a fresh Anki. Recommend keep.
+- [x] **Zip names without the UTF-8 flag (#102):** read as UTF-8 when well-formed, else as CP437. Recommend keep.
+- [x] **Local pack files are capped at 50 MB, was 150 MB (#103).** The codec already refused more. Recommend keep; raise it only if a real pack needs more.
+- [x] **A stale cached `picker.js` callback without `state` is ignored (#103).** The user picks again. Recommend keep.
+- [x] **A Dexie ES2018 build alias (#104).** Technical. Recommend keep.
+- [x] **The launch source check fetches one small chunk about 50 ms after first paint (#104).** Recommend keep.
+- [x] **New UI APIs `useSyncState`, `useLibraryActions` and `getState` (#104).** Technical; for information only.
+- [x] **Single-writer `booted` has no timeout of its own (#107).** A hung boot is taken over after the asking tab's 120 s limit. Recommend keep.
+- [x] **When boot fails, the error is still rethrown after `markBooted()` (#107).** Recommend keep.
+- [x] **The knip un-exports in #108 also reach about 25 files outside `packages/ui`** (core, platform-web, platform-capacitor, platform-tauri), each only dropping an `export`. For information only.
+- [x] **#107 and #108 are technical, with no product defaults beyond those listed.** For information only.
 
 ## Decisions needed (batch 2026-11-27)
 
-Each default below stays shipped until the owner decides.
+The owner decided every item below on 2026-11-27.
 
 - [x] **Pack upgrade with "archive removed notes" (#114):** a package note that lost its source key to a moved-in duplicate now stays live with its old content (it was archived). The deck shows both notes. Recommend keep: it writes nothing and loses nothing. Decided 2026-11-27: keep.
 - [x] **CSV with no header row (#114):** an all-blank row 1 (quoted spaces too) is now dropped silently like later blank rows; before, an unquoted one gave an "empty row skipped" warning. Recommend keep. Decided 2026-11-27: keep.
@@ -839,25 +873,25 @@ Open items, grouped by area. The batch ran one round; its fallout is here instea
 ### Sync transports (#117)
 
 - [ ] The full streamed `read()` interface (#103 design note) is still open; #115 and #117 only cap `read()` per file kind.
-- [ ] The native adapter cap wiring is untested: `createICloudDocumentPlugin` forwarding `maxBytes`, and `createFsBridge` returning TOO_LARGE with the size.
-- [ ] iCloud downloads an oversized placeholder before the `max_bytes` check (`icloud.rs` `placeholder_size`, and the Swift side). Check the placeholder size first.
-- [ ] `assertSyncReadCapsCover` rejects any override above the defaults, stricter than its description ("transports would refuse").
+- [x] The native adapter cap wiring is untested: `createICloudDocumentPlugin` forwarding `maxBytes`, and `createFsBridge` returning TOO_LARGE with the size. Done in #141.
+- [x] iCloud downloads an oversized placeholder before the `max_bytes` check (`icloud.rs` `placeholder_size`, and the Swift side). Check the placeholder size first. Done in #141.
+- [x] `assertSyncReadCapsCover` rejects any override above the defaults, stricter than its description ("transports would refuse"). Done in #141 (description fixed to match the code).
 
 ### Sync engine (#120)
 
-- [ ] The mobile-browser PWA gets the 128 MiB snapshot cap; only Capacitor keeps 25 MiB.
-- [ ] Big collections upload a ~5 MiB snapshot every 500 events, and old snapshots are never pruned. Scale the threshold with the snapshot size (pruning deletes remote data: owner).
-- [ ] `packages/core/src/sync/engine.ts:99`: the `snapshotLimits` comment is stale.
-- [ ] `planHeadCompaction` re-folds full segments after a partial one (efficiency).
-- [ ] A legacy head with N ranges folds them all in one push. Unverified.
+- [x] The mobile-browser PWA gets the 128 MiB snapshot cap; only Capacitor keeps 25 MiB. Decided: mobile browsers keep 25 MiB like Capacitor (an out-of-memory tab is killed before error handling runs); done in #140.
+- [x] **Scale the snapshot threshold with the snapshot size** (old snapshots are not pruned: decided in "Owner decisions open", 2026-11-27). Big collections upload a ~5 MiB snapshot every 500 events. Done in #140.
+- [x] `packages/core/src/sync/engine.ts:99`: the `snapshotLimits` comment is stale. Done in #140.
+- [x] `planHeadCompaction` re-folds full segments after a partial one (efficiency). Done in #140.
+- [x] A legacy head with N ranges folds them all in one push. Done in #140 (tested with 1,200 ranges).
 
 ### Merge-gate tooling and tests (#119)
 
-- [ ] `packages/ui/tests/app-context-review.test.tsx:79`: the wait passes the first time one persist is seen, so a later duplicate persist goes unnoticed. Flush once more after it and assert the count again.
+- [x] `packages/ui/tests/app-context-review.test.tsx:79`: the wait passes the first time one persist is seen, so a later duplicate persist goes unnoticed. Flush once more after it and assert the count again. Done in #139.
 
 ## Decisions needed (batch 2026-11-27b)
 
-Each default below stays shipped until the owner decides.
+The owner decided every item below on 2026-11-27.
 
 - [x] **agy merge gate, plural clean forms (#119):** "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" still retry. Clearing them loosens the check. Recommend clear them, with the same allow-list (only `found`, `identified` or `in this diff` may follow), because they are plain "no blockers" answers that cost needless retries. Decided 2026-11-27: clear; cleared in #134.
 - [x] **Snapshot cap (#120):** 128 MiB unpacked on desktop and web; phones (Capacitor) keep 25 MiB. Recommend keep, and measure a 20k-card snapshot on a real phone before raising the phone cap. Decided 2026-11-27: keep.
@@ -867,7 +901,7 @@ Each default below stays shipped until the owner decides.
 
 ## Decisions needed (batch 2026-11-27c)
 
-Each default below stays shipped until the owner decides.
+The owner decided every item below on 2026-11-27.
 
 - [x] **Sheets JSON memory ceiling (#123):** a Google Sheet read may now hold up to 150 MB of JSON (was 50 MB), so a sheet that loads as a linked CSV also loads here. Recommend keep; a factor of 2 (100 MB) would still cover every measured deck except mostly empty grids. Decided 2026-11-27: keep 150 MB.
 - [x] **A field's own language wins over the deck's (#124):** nothing records who set a field's `lang`, so a value that differs from the preset's default counts as set by the user. A user who deliberately picks the default value is not told apart. No screen edits a built-in's field languages today. Recommend keep. Decided 2026-11-27: keep.
@@ -923,13 +957,12 @@ Only Chromium Playwright with faked endpoints has covered these (moved from "Not
 ### Accounts, keys and settings
 
 - [ ] **Check the KRDict topic attribute names on a real export.** The parser accepts `subjectCategory` / `semanticCategory` and the Korean labels (`주제 및 상황 범주`, `의미 범주`). If the first `build-packs.mjs --full` run gives no topics, find the real names in the XML and add them to `KRDICT_SUBJECT_CATEGORY_ATTS` / `KRDICT_SEMANTIC_CATEGORY_ATTS` in `scripts/packs/upstream-parsers.mjs`.
-- [ ] **Measure the full KRDict pack.** It has never been built here. `--full` now prints every file's size. **First-syllable sharding is written** (`docs/formats/packs.md`): a dictionary pack over 25 MiB gzipped (or with `--shard <id>`) becomes a version-2 index of search "stubs" plus `.sNN` shards cut at 초성 boundaries. All lookups work from the index; the shards behind the top results load lazily (at most 3 per lookup), and Settings > Packs has "Download all for offline". Still to check once built: that the index itself stays under 25 MiB (about 60% of the pack on the starter sample), and the shard count against the Pages 20k-file limit. Owner choices pending: lazy shards versus downloading them all at install, and the tunables (3-shard cap, top-12 completion, 2 MiB shards).
-- [ ] **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. Owner decision pending. The dictionary has no speaker button, so the TTS fallback is not wired either.
-- **Apple Developer account: the owner has none yet.** Signing, notarizing, wiring the entitlements and real iCloud tests wait until there is one. An account (Apple Developer Program) is also needed for any iOS or Mac store release, so it is on the launch path anyway.
-- [ ] **Dependabot alert 3 (`glib` 0.18.5, Rust, `apps/desktop/src-tauri/Cargo.lock`): no fix here.** It comes in through Tauri's Linux GTK stack (gtk-rs 0.18); the patched glib 0.20 needs Tauri/wry to move to gtk-rs 0.20+. The unsound API (`VariantStrIter`) is not called by app code. Bump when Tauri does, or dismiss the alert as tolerable risk (owner's call).
-- [ ] **Korean example sentences: not added (no compatible source).** The `example` field stays empty rather than invented. Checked 2026-11-25: Wikidata lexeme usage examples (P5831, CC0) exist on only 7 of the 204 pinned lexemes. KRDict 한국어기초사전 examples are CC BY-SA 2.0 KR (share-alike, rejected). Tatoeba is CC BY 2.0 FR (some CC0): no share-alike, but it needs per-sentence attribution, has no pinned release (weekly exports only), and matching inflected Korean to a NIKL headword needs morphological analysis; English translations are uneven. Owner decision: accept Tatoeba (CC BY) with a pinned snapshot and per-deck credits, or keep examples empty.
+- [ ] **Measure the full KRDict pack.** It has never been built here. `--full` now prints every file's size. **First-syllable sharding is written** (`docs/formats/packs.md`): a dictionary pack over 25 MiB gzipped (or with `--shard <id>`) becomes a version-2 index of search "stubs" plus `.sNN` shards cut at 초성 boundaries. All lookups work from the index; the shards behind the top results load lazily (at most 3 per lookup), and Settings > Packs has "Download all for offline". Still to check once built: that the index itself stays under 25 MiB (about 60% of the pack on the starter sample), and the shard count against the Pages 20k-file limit. Lazy shards and the tunables (3-shard cap, top-12 completion, 2 MiB shards) kept as shipped (2026-11-27).
+- **Decided in "Owner decisions open" (2026-11-27).** **Apple Developer account: the owner has none yet.** Signing, notarizing, wiring the entitlements and real iCloud tests wait until there is one. An account (Apple Developer Program) is also needed for any iOS or Mac store release, so it is on the launch path anyway.
+- **Decided in "Owner decisions open" (2026-11-27).** **Dependabot alert 3 (`glib` 0.18.5, Rust, `apps/desktop/src-tauri/Cargo.lock`): no fix here.** It comes in through Tauri's Linux GTK stack (gtk-rs 0.18); the patched glib 0.20 needs Tauri/wry to move to gtk-rs 0.20+. The unsound API (`VariantStrIter`) is not called by app code. Bump when Tauri does, or dismiss the alert as tolerable risk (owner's call).
+- **Decided in "Owner decisions open" (2026-11-27).** **Korean example sentences: not added (no compatible source).** The `example` field stays empty rather than invented. Checked 2026-11-25: Wikidata lexeme usage examples (P5831, CC0) exist on only 7 of the 204 pinned lexemes. KRDict 한국어기초사전 examples are CC BY-SA 2.0 KR (share-alike, rejected). Tatoeba is CC BY 2.0 FR (some CC0): no share-alike, but it needs per-sentence attribution, has no pinned release (weekly exports only), and matching inflected Korean to a NIKL headword needs morphological analysis; English translations are uneven. Owner decision: accept Tatoeba (CC BY) with a pinned snapshot and per-deck credits, or keep examples empty.
+- [ ] **After launch: revisit Tatoeba for Korean example sentences** (owner, 2026-11-27: empty for launch).
 - [ ] Add `http://127.0.0.1` as a "Mobile and desktop" redirect URI on the Entra app, then switch `microsoft-loopback.ts` to `127.0.0.1` (review N8).
-- [ ] Decide whether the Security jobs (`security.yml`) become required checks. That needs a `dependency-review` that tolerates a skip, because it runs only on pull requests.
 - [ ] Owner chores: delete the empty untracked `packages\ui\src\utils` in the main checkout. (`Korean-w9-base` and `Korean-w9-main` were gone by 2026-11-26.)
 - [ ] **Generate the Ed25519 licence key and set `VITE_LICENSE_PUBLIC_KEY`.** Keep the private key safe. Until then, licence keys are refused, with a warning where they are offered. Tooling done (#87): the owner generates the key and sets `VITE_LICENSE_PUBLIC_KEY`, see `docs/licensing.md`.
 
@@ -938,12 +971,9 @@ Only Chromium Playwright with faked endpoints has covered these (moved from "Not
 - [ ] A real Anki import of the new CSV (#102): `#notetype:` with an existing and a missing note type, the deck column creating a missing deck, and `&#45;` showing as `-` without affecting the duplicate check.
 - [ ] Real Drive, macOS or CP437 zips with non-ASCII names (#102).
 - [ ] Whether Excel or Sheets treat fullwidth `＝` as a formula (#102).
+- [ ] Whether Excel shows an unguarded grammar entry like `-(으)ㄴ` in the "for other apps" CSV as `#NAME?` (#88). If so, guard every leading `-` in that export too (the `'` prefix is invisible in Excel).
 - [ ] `--key-stdin` in a real terminal on Windows and macOS (#103).
 - [ ] The picker `state` requirement on a real Android or iOS device (#103).
 - [ ] Native shells and real sign-ins after #104 (Capacitor and Tauri were not run; neither were real Google, OneDrive or Dropbox sign-ins).
 - [ ] A lock stolen in a real browser while `yieldWriter` runs (#107).
 - [ ] A take-over arriving during boot in a real browser (#107).
-
-### Design calls
-
-- [ ] **Starter-upgrade race (#83).** An unsynced edit of a still-old-text field can lose to the upgrade. Fixing it in the UI would be a patch; it needs a new event. Recommend a `starter_upgraded` event, so replay can order the upgrade against local edits. Owner design call before anything is built.

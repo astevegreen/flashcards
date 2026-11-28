@@ -33,14 +33,20 @@ permissions:
 # names the release. GitHub's own actions/* keep their major tag, like ci.yml.
 
 jobs:
+  # Runs on every event so it can be a required check: outside a pull request there is no diff to
+  # review, so its steps are skipped and the job reports success instead of "skipped".
   dependency-review:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@v7
 
-      - uses: actions/dependency-review-action@v5
+      - if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v5
+
+      - if: github.event_name != 'pull_request'
+        run: echo "No pull request, so no dependency diff to review."
 
   audit:
     runs-on: ubuntu-latest

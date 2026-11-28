@@ -109,6 +109,13 @@ export interface SyncCursorState {
   remoteWatermarks: Record<string, number>;
   remoteSegments: Record<string, number>;
   lastSnapshotTotalEvents: number;
+  /**
+   * Size of the last snapshot this device wrote, tried to write or hydrated; scales the snapshot
+   * threshold (`SyncEngineOptions.snapshotBytesPerEvent`). Gzipped, except for a snapshot refused
+   * before gzip because its raw JSON was past the cap: then the raw size, so the next try waits
+   * much longer (25,600+ events under a 25 MiB cap). Absent on cursors from older builds.
+   */
+  lastSnapshotBytes?: number;
   lastSyncedAt?: number;
   /** Content hashes confirmed uploaded to remote `media/<aa>/<sha256>.<ext>` store. */
   pushedMediaHashes?: string[];
