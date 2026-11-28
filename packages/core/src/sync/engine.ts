@@ -20,7 +20,7 @@ import {
   encodeDeviceHead,
   encodeEventsSegment,
   encodeManifest,
-  encodeReadableSyncSnapshot,
+  encodeSyncSnapshotWithSize,
   manifestPath,
   mediaObjectPath,
   parseDeviceHeadPath,
@@ -914,14 +914,14 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
           },
         };
 
-        // A snapshot too big to read back is not uploaded; the next try is `threshold` events
-        // later (D12).
-        const encoded = encodeReadableSyncSnapshot(snapshot, snapshotLimits);
+        // A snapshot too big to read back is not uploaded (D12). Its size still scales the
+        // interval, so a device under a low cap doesn't build and drop one every 500 events.
+        const { encoded, bytes } = encodeSyncSnapshotWithSize(snapshot, snapshotLimits);
+        cursor.lastSnapshotBytes = bytes;
         try {
           if (encoded) {
             await transport.write(targetPath, encoded, { ifAbsent: true });
             snapshotWritten = targetPath;
-            cursor.lastSnapshotBytes = encoded.byteLength;
           }
         } catch (err) {
           if (!isAlreadyExists(err)) {

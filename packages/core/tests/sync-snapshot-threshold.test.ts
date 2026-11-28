@@ -88,13 +88,43 @@ describe('snapshot threshold scales with the last snapshot', () => {
     expect(hydrated.cursor.lastSnapshotBytes).toBe(bytes);
   });
 
-  it('a snapshot over the cap is not uploaded and leaves the last size alone', async () => {
+  it('a snapshot over the cap is never uploaded, but its size scales the next try', async () => {
     const transport = new MemorySyncTransport();
-    const res = await sync(transport, 'dev-a', createInitialSyncCursor(), 2, {
-      snapshotLimits: { maxUncompressedBytes: 10 },
-    });
+    const capped = { snapshotLimits: { maxUncompressedBytes: 10 } };
+    const res = await sync(transport, 'dev-a', createInitialSyncCursor(), 2, capped);
     expect(res.snapshotWritten).toBeUndefined();
-    expect(res.cursor.lastSnapshotBytes).toBeUndefined();
+    expect([...transport.files.keys()].some((p) => p.includes('snapshots/'))).toBe(false);
+    // Refused before gzip: the raw JSON size.
+    const bytes = res.cursor.lastSnapshotBytes;
+    if (bytes === undefined) throw new Error('expected the attempted size');
+    expect(bytes).toBeGreaterThan(10);
     expect(res.cursor.lastSnapshotTotalEvents).toBe(2);
+
+    let built = 0;
+    const counting = {
+      ...capped,
+      buildSnapshotState: async () => {
+        built++;
+        return { state, totalEvents: 2 + bytes };
+      },
+    };
+    // Past the 2-event floor but short of the scaled interval: not even built.
+    await sync(transport, 'dev-a', res.cursor, 2 + bytes - 1, counting);
+    expect(built).toBe(0);
+    const again = await sync(transport, 'dev-a', res.cursor, 2 + bytes, counting);
+    expect(built).toBe(1);
+    expect(again.snapshotWritten).toBeUndefined();
+    expect([...transport.files.keys()].some((p) => p.includes('snapshots/'))).toBe(false);
+  });
+
+  it('a snapshot another run already wrote at the same path still records its size', async () => {
+    const transport = new MemorySyncTransport();
+    const first = await sync(transport, 'dev-a', createInitialSyncCursor(), 2);
+    if (!first.snapshotWritten) throw new Error('expected a snapshot');
+    // The same snapshot again from a cursor saved before it: the write finds the file.
+    const raced = await sync(transport, 'dev-a', createInitialSyncCursor(), 2);
+    expect(raced.snapshotWritten).toBeUndefined();
+    expect(raced.cursor.lastSnapshotBytes).toBe(first.cursor.lastSnapshotBytes);
+    expect(raced.cursor.lastSnapshotTotalEvents).toBe(2);
   });
 });

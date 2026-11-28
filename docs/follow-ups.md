@@ -883,7 +883,7 @@ Open items, grouped by area. The batch ran one round; its fallout is here instea
 - [x] **Scale the snapshot threshold with the snapshot size** (old snapshots are not pruned: decided in "Owner decisions open", 2026-11-27). Big collections upload a ~5 MiB snapshot every 500 events. Done in #140.
 - [x] `packages/core/src/sync/engine.ts:99`: the `snapshotLimits` comment is stale. Done in #140.
 - [x] `planHeadCompaction` re-folds full segments after a partial one (efficiency). Done in #140.
-- [x] A legacy head with N ranges folds them all in one push. Unverified. Done in #140 (tested with 1,200 ranges).
+- [x] A legacy head with N ranges folds them all in one push. Done in #140 (tested with 1,200 ranges).
 
 ### Merge-gate tooling and tests (#119)
 

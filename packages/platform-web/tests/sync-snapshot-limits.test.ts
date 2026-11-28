@@ -27,6 +27,8 @@ describe('mobile-browser snapshot cap', () => {
       { userAgent: UA.androidChrome },
       { userAgent: UA.iphone, maxTouchPoints: 5 },
       { userAgent: UA.ipadDesktop, platform: 'MacIntel', maxTouchPoints: 5 },
+      // Some browsers report an empty `platform`: the user agent still says Macintosh.
+      { userAgent: UA.ipadDesktop, platform: '', maxTouchPoints: 5 },
       { userAgent: UA.windowsChrome, userAgentData: { mobile: true } },
     ]) {
       expect(isMobileBrowser(hints)).toBe(true);

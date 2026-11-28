@@ -29,7 +29,7 @@ export function isMobileBrowser(hints: MobileHints | undefined): boolean {
   if (hints.userAgentData?.mobile === true) return true;
   const ua = hints.userAgent ?? '';
   if (/Android|iPhone|iPad|iPod|Mobi/i.test(ua)) return true;
-  return /Mac/.test(hints.platform ?? ua) && (hints.maxTouchPoints ?? 0) > 1;
+  return /Mac/.test(hints.platform || ua) && (hints.maxTouchPoints ?? 0) > 1;
 }
 
 /** The snapshot caps for this browser, or `undefined` for the engine's defaults (desktop). */
