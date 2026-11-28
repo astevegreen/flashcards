@@ -55,6 +55,12 @@ const LazyFsrsOptimizerPanel = lazyWithRetry(() => import('../fsrs/FsrsOptimizer
 const LazyImportExportPanel = lazyWithRetry(() => import('../library/ImportExportPanel.tsx'));
 
 /** Furigana only exists in Japanese text, so only Japanese decks hide it on the front by default. */
+/** The device clock and its local time-zone offset, as `buildStudyQueue` takes them. */
+function readLocalClock(): { nowMs: number; tzOffsetMinutes: number } {
+  const nowMs = Date.now();
+  return { nowMs, tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset() };
+}
+
 function isJapaneseLanguage(language: string): boolean {
   const norm = language.toLowerCase();
   return norm === 'ja' || norm.startsWith('ja-');
@@ -106,6 +112,28 @@ function DeckOptionsPanel({
   const [newPerDayDraft, setNewPerDayDraft] = useState(String(deck.settings.new_cards_per_day));
   const [maxRevDraft, setMaxRevDraft] = useState(String(deck.settings.max_reviews_per_day));
   const [retentionDraft, setRetentionDraft] = useState(String(deck.settings.target_retention));
+  // A limit that changes (a commit here, a sync, another tab) refills its draft during the render
+  // that sees the new value; a limit that stays the same keeps whatever is being typed.
+  const { new_cards_per_day, max_reviews_per_day, target_retention } = deck.settings;
+  const [seenLimits, setSeenLimits] = useState({
+    newPerDay: new_cards_per_day,
+    maxRev: max_reviews_per_day,
+    retention: target_retention,
+  });
+  if (
+    seenLimits.newPerDay !== new_cards_per_day ||
+    seenLimits.maxRev !== max_reviews_per_day ||
+    seenLimits.retention !== target_retention
+  ) {
+    setSeenLimits({
+      newPerDay: new_cards_per_day,
+      maxRev: max_reviews_per_day,
+      retention: target_retention,
+    });
+    if (seenLimits.newPerDay !== new_cards_per_day) setNewPerDayDraft(String(new_cards_per_day));
+    if (seenLimits.maxRev !== max_reviews_per_day) setMaxRevDraft(String(max_reviews_per_day));
+    if (seenLimits.retention !== target_retention) setRetentionDraft(String(target_retention));
+  }
 
   // Offline stroke pre-cache status for `draw`-capable decks (§6.4)
   const [strokeCoverage, setStrokeCoverage] = useState<{
@@ -226,18 +254,6 @@ function DeckOptionsPanel({
   const [speakOn, setSpeakOn] = useState<SpeakTiming>('front');
   const [clozeTyped, setClozeTyped] = useState(false);
   const [rubyDisplay, setRubyDisplay] = useState<RubyDisplay>('both');
-
-  useEffect(() => {
-    setNewPerDayDraft(String(deck.settings.new_cards_per_day));
-  }, [deck.settings.new_cards_per_day]);
-
-  useEffect(() => {
-    setMaxRevDraft(String(deck.settings.max_reviews_per_day));
-  }, [deck.settings.max_reviews_per_day]);
-
-  useEffect(() => {
-    setRetentionDraft(String(deck.settings.target_retention));
-  }, [deck.settings.target_retention]);
 
   const commitNewPerDay = () => {
     const parsed = Number(newPerDayDraft);
@@ -835,7 +851,11 @@ export function LibraryScreen({
   );
   const importExportRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
+  // A new request from the shell (a share target, a menu entry) opens the panel on its tab during
+  // the render that receives it.
+  const [seenImportExport, setSeenImportExport] = useState(initialImportExport);
+  if (seenImportExport !== initialImportExport) {
+    setSeenImportExport(initialImportExport);
     if (initialImportExport) {
       setImportExportPanel({
         open: true,
@@ -843,7 +863,7 @@ export function LibraryScreen({
         nonce: initialImportExport.nonce,
       });
     }
-  }, [initialImportExport]);
+  }
 
   const openDeckExport = (deck: Deck) => {
     setImportExportPanel((prev) => ({
@@ -892,8 +912,8 @@ export function LibraryScreen({
     [state, stateVersion],
   );
 
-  const nowMs = Date.now();
-  const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
+  // Read on every render, as before: each render shows the due counts as of that moment.
+  const { nowMs, tzOffsetMinutes } = readLocalClock();
   const queues = new Map(
     decks.map((d) => [d.id, buildStudyQueue(state, { deckId: d.id, nowMs, tzOffsetMinutes })]),
   );

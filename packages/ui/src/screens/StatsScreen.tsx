@@ -38,6 +38,12 @@ const MATURITY_SEGMENTS = [
 
 const HEATMAP_LEVEL_OPACITY = [0, 0.3, 0.5, 0.75, 1] as const;
 
+/** The device clock and its local time-zone offset, as the core stats contexts take them. */
+function readLocalClock(): { nowMs: number; tzOffsetMinutes: number } {
+  const nowMs = Date.now();
+  return { nowMs, tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset() };
+}
+
 function formatDuration(ms: number): string {
   if (ms <= 0) return '0 min';
   const totalSeconds = Math.round(ms / 1000);
@@ -387,13 +393,7 @@ function HardestCards({
   filter: CardFilter;
 }>) {
   const cards = useMemo(() => {
-    const nowMs = Date.now();
-    return computeHardestCards(
-      state,
-      filter,
-      { nowMs, tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset() },
-      HARDEST_CARDS_DEFAULT_LIMIT,
-    );
+    return computeHardestCards(state, filter, readLocalClock(), HARDEST_CARDS_DEFAULT_LIMIT);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, stateVersion, filter]);
   if (cards.length === 0) {
@@ -454,11 +454,7 @@ export function StatsScreen() {
   );
 
   const stats = useMemo(() => {
-    const nowMs = Date.now();
-    return computeFilteredCollectionStats(state, cardFilter, {
-      nowMs,
-      tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset(),
-    });
+    return computeFilteredCollectionStats(state, cardFilter, readLocalClock());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, stateVersion, cardFilter]);
 

@@ -20,8 +20,6 @@ export const REACT_COMPILER_BASELINE = {
   'layout/ShellNotices.tsx': ['purity'],
   'pages/PageViewer.tsx': ['purity'],
   'screens/BrowseScreen.tsx': ['incompatible-library'],
-  'screens/LibraryScreen.tsx': ['purity', 'set-state-in-effect'],
-  'screens/StatsScreen.tsx': ['purity'],
   'screens/StudyScreen.tsx': ['purity', 'set-state-in-effect'],
   'state/AppContext.tsx': ['refs'],
   'study/CustomStudySection.tsx': ['purity'],
