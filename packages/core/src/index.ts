@@ -64,6 +64,7 @@ export * from './study/card-order-plan.ts';
 export * from './decks/organization.ts';
 export * from './decks/description.ts';
 export * from './decks/new-deck-order.ts';
+export * from './decks/language-offer.ts';
 export * from './study/custom-study.ts';
 export * from './study/study-set-tags.ts';
 export * from './study/reminders.ts';

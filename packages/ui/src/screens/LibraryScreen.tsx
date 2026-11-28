@@ -1,6 +1,7 @@
 import {
   buildStudyQueue,
   compareCodeUnits,
+  deckLanguageOffer,
   getDeckDescription,
   getDeckFolder,
   getDeckOrganization,
@@ -32,6 +33,7 @@ import { DeckDescriptionField, DeckOverview } from '../library/DeckDescription.t
 import { DeckOrganizationPanel } from '../library/DeckOrganizationPanel.tsx';
 import { IMPORT_EXPORT_PANEL_HEIGHT } from '../library/import-export-layout.ts';
 import type { ImportExportTab } from '../library/ImportExportPanel.tsx';
+import type { DeckLanguageChange } from '../library/DeckLanguageOffer.tsx';
 import { runPresetCatchUp } from '../library/presetCatchUp.ts';
 import { useDeckOrganization } from '../library/useDeckOrganization.ts';
 import { setStudyFilter } from '../study/filterStore.ts';
@@ -51,6 +53,9 @@ const LazyPageEditor = lazyWithRetry(() => import('../pages/PageEditor.tsx'), {
 });
 const LazyFsrsOptimizerPanel = lazyWithRetry(() => import('../fsrs/FsrsOptimizerPanel.tsx'));
 const LazyImportExportPanel = lazyWithRetry(() => import('../library/ImportExportPanel.tsx'));
+const LazyDeckLanguageOffer = lazyWithRetry(() => import('../library/DeckLanguageOffer.tsx'), {
+  closeWith: 'onClose',
+});
 
 /** Furigana only exists in Japanese text, so only Japanese decks hide it on the front by default. */
 function isJapaneseLanguage(language: string): boolean {
@@ -813,6 +818,8 @@ export function LibraryScreen({
   const [expandedDeckId, setExpandedDeckId] = useState<string | null>(null);
   // Deck whose overview (description before study) is open.
   const [overviewDeckId, setOverviewDeckId] = useState<string | null>(null);
+  // The deck language just set from the one-time offer, while its Undo is shown.
+  const [languageChange, setLanguageChange] = useState<DeckLanguageChange | null>(null);
   const [showArchivedDecks, setShowArchivedDecks] = useState(false);
   const [newDeckName, setNewDeckName] = useState('');
   const [newDeckNoteTypeId, setNewDeckNoteTypeId] = useState('preset:vocab-ko');
@@ -1092,6 +1099,9 @@ export function LibraryScreen({
     );
     const enabledIds = new Set(getEnabledLayoutsForDeck(state, deck).map((l) => l.id));
     const isExpanded = expandedDeckId === deck.id;
+    // A read-only device can't write the answer, so it is not asked.
+    const languageOffer = readOnly ? undefined : deckLanguageOffer(state, deck);
+    const changedLanguage = languageChange?.deckId === deck.id ? languageChange : undefined;
 
     return (
       <div
@@ -1186,6 +1196,18 @@ export function LibraryScreen({
             </button>
           </div>
         </div>
+
+        {(languageOffer !== undefined || changedLanguage !== undefined) && (
+          <Suspense fallback={null}>
+            <LazyDeckLanguageOffer
+              deck={deck}
+              offer={languageOffer}
+              change={changedLanguage}
+              onChanged={setLanguageChange}
+              onClose={() => setLanguageChange(null)}
+            />
+          </Suspense>
+        )}
 
         {description && overviewDeckId === deck.id && (
           <DeckOverview

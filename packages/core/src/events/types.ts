@@ -325,6 +325,20 @@ export interface StarterDeckUpgradedPayload {
   package_version: string;
 }
 
+/**
+ * Records that the app offered once to set a Sentence, Cloze or Grammar deck's language to the
+ * one its text is written in (`decks/language-offer.ts`), and whether the user took it. The
+ * language change itself is a `DeckSettingsChanged`; this event only stops the offer coming back
+ * for that deck. Log-retained (kept in `unknownEvents`, folded by that module only), so it syncs,
+ * replays and survives snapshots without touching any register.
+ */
+export interface DeckLanguageOfferedPayload {
+  deck_id: string;
+  /** The language the deck's text looked like. */
+  language: string;
+  accepted: boolean;
+}
+
 export interface EventPayloadMap {
   ReviewRecorded: ReviewRecordedPayload;
   ReviewUndone: ReviewUndonePayload;
@@ -359,6 +373,7 @@ export interface EventPayloadMap {
   DeckFolderDeleted: DeckFolderDeletedPayload;
   DeckGroupingChanged: DeckGroupingChangedPayload;
   StarterDeckUpgraded: StarterDeckUpgradedPayload;
+  DeckLanguageOffered: DeckLanguageOfferedPayload;
 }
 
 export type KnownEventType = keyof EventPayloadMap;
