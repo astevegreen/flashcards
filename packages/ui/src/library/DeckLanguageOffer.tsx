@@ -47,8 +47,7 @@ export default function DeckLanguageOffer({
 
   if (change) {
     return (
-      <div
-        role="status"
+      <output
         data-testid={`deck-language-changed-${deck.id}`}
         className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 text-xs"
       >
@@ -76,7 +75,7 @@ export default function DeckLanguageOffer({
         <button type="button" className={buttonClass} onClick={onClose}>
           Close
         </button>
-      </div>
+      </output>
     );
   }
   if (!offer) return null;

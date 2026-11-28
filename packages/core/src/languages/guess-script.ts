@@ -9,6 +9,15 @@ export interface ScriptCounts {
   latin: number;
 }
 
+/** The script of one code point, or `undefined` for anything else. */
+function scriptOf(cp: number): keyof ScriptCounts | undefined {
+  if ((cp >= 0x3040 && cp <= 0x30ff) || (cp >= 0x31f0 && cp <= 0x31ff)) return 'kana';
+  if ((cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0x1100 && cp <= 0x11ff)) return 'hangul';
+  if (cp >= 0x4e00 && cp <= 0x9fff) return 'han';
+  if ((cp >= 0x41 && cp <= 0x5a) || (cp >= 0x61 && cp <= 0x7a)) return 'latin';
+  return undefined;
+}
+
 /**
  * Counts kana, Hangul, Han and basic Latin letters in the first {@link SAMPLE_LIMIT} characters
  * of `texts`. Other characters (digits, punctuation, spaces) count towards the limit only.
@@ -18,14 +27,10 @@ export function countScripts(texts: Iterable<string>): ScriptCounts {
   let seen = 0;
   for (const text of texts) {
     for (const ch of text) {
-      const cp = ch.codePointAt(0) ?? 0;
-      if ((cp >= 0x3040 && cp <= 0x30ff) || (cp >= 0x31f0 && cp <= 0x31ff)) counts.kana++;
-      else if ((cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0x1100 && cp <= 0x11ff)) counts.hangul++;
-      else if (cp >= 0x4e00 && cp <= 0x9fff) counts.han++;
-      else if ((cp >= 0x41 && cp <= 0x5a) || (cp >= 0x61 && cp <= 0x7a)) counts.latin++;
-      if (++seen >= SAMPLE_LIMIT) break;
+      const script = scriptOf(ch.codePointAt(0) ?? 0);
+      if (script) counts[script]++;
+      if (++seen >= SAMPLE_LIMIT) return counts;
     }
-    if (seen >= SAMPLE_LIMIT) break;
   }
   return counts;
 }

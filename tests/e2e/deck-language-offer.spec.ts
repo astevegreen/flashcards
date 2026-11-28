@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { storedPayloads } from './helpers/stored-events.ts';
 import { deckRow, startInLibrary } from './helpers/library.ts';
 
 /**
@@ -10,33 +11,6 @@ import { deckRow, startInLibrary } from './helpers/library.ts';
 const DECK = 'Old Sentences';
 const CSV =
   'sentence,translation\n저는 학생이에요.,I am a student.\n커피 주세요.,"Coffee, please."\n';
-
-async function storedPayloads(page: Page, dbName: string, type: string): Promise<unknown[]> {
-  return page.evaluate(
-    async ([name, eventType]) => {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const req = indexedDB.open(name);
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-      try {
-        return await new Promise<unknown[]>((resolve, reject) => {
-          const req = db
-            .transaction('events', 'readonly')
-            .objectStore('events')
-            .index('type')
-            .getAll(eventType);
-          req.onsuccess = () =>
-            resolve((req.result as Array<{ payload: unknown }>).map((e) => e.payload));
-          req.onerror = () => reject(req.error);
-        });
-      } finally {
-        db.close();
-      }
-    },
-    [dbName, type] as const,
-  );
-}
 
 /** Imports a Korean Sentence CSV as an English deck, then closes the import panel. */
 async function importEnglishKoreanDeck(page: Page): Promise<void> {
