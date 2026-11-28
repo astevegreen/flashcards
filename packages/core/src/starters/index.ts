@@ -1,4 +1,5 @@
 import type { EventFactory } from '../events/replay.ts';
+import { STARTER_SEED_EPOCH_MS } from '../events/starter-upgrades.ts';
 import type { KnownEvent } from '../events/types.ts';
 import { deriveNoteId, FLASH_NAMESPACE_UUID, uuidv5 } from '../ids.ts';
 import { STARTER_CATALOG } from './generated/catalog.ts';
@@ -19,11 +20,8 @@ export type {
  */
 export const STARTER_DECKS: readonly StarterDeckInfo[] = STARTER_CATALOG;
 
-/**
- * Fixed seed time for starter-deck events (like the sample decks): re-seeding the same deck on
- * another device produces the same timestamps, so it never overwrites a user's later edits (LWW).
- */
-export const STARTER_SEED_EPOCH_MS = Date.UTC(2025, 0, 1, 0, 0, 0);
+// The fixed seed time of starter-deck events (defined beside replay's use of it).
+export { STARTER_SEED_EPOCH_MS };
 
 const STARTER_BY_SLUG = new Map(STARTER_DECKS.map((d) => [d.slug, d]));
 
