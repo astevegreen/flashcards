@@ -57,6 +57,7 @@ import {
   refreshLinkedGoogleDriveFiles,
 } from './googleDriveFileSource.ts';
 import {
+  archiveHoldReason,
   carriesSource,
   isOnline,
   loadSourcesRegistry,
@@ -71,6 +72,7 @@ export {
   LINKED_SOURCES_KV_KEY,
   loadSourcesRegistry,
   saveSourcesRegistry,
+  type ArchivePreviewRequest,
   type SourceRefreshSummary,
   type SourceRunContext,
   withSourcesLock,
@@ -1086,6 +1088,12 @@ export async function scanSingleLocalFolder(
         if (overDeckLimit(state, newDeckIds(state, pkgRes.events, scanDecks), file.relativePath)) {
           continue;
         }
+        // Not cached either: the next scan asks again.
+        const held = await archiveHoldReason(ctx, file.name, pkgRes.notesArchived); // NOSONAR (S9382)
+        if (held) {
+          warnings.push({ code: 'archive_held', message: held, file: file.relativePath });
+          continue;
+        }
         // Files one at a time: each package checks the deck limit against the state so far.
         await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia); // NOSONAR (S9382)
         if (pkgRes.events.length > 0) {
@@ -1514,6 +1522,8 @@ export async function refreshSinglePackageSubscription(
   });
   const overLimit = deckLimitReason(ctx.entitlement, state, newDeckIds(state, pkgRes.events));
   if (overLimit) throw new Error(overLimit);
+  const held = await archiveHoldReason(ctx, sub.title, pkgRes.notesArchived);
+  if (held) throw new Error(held);
 
   await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia);
   if (pkgRes.events.length > 0) {
