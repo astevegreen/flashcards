@@ -802,7 +802,7 @@ Open items, grouped by PR. Dependabot and CI come last.
 - [ ] **Waiting on upstream:** #78 (Gradle 9.9) is closed; reopen when upstream ships (an AGP supporting Gradle 9.6+).
 - [x] CI: watch the next `publish-packs` run on main. wrangler-action 4 (#66) and actions/cache 6 (#67) haven't run there yet. It ran green on main on 2026-11-27.
 - [x] Dependabot 2026-11-27: #126 (codeql-action pins) and #127 (mdast-util-directive) merged; #125 (Gradle 9.9) closed, like #78, until AGP supports Gradle 9.6+; #128 (@types/node 25) closed with "ignore this major version", because the runtime is Node 24.
-- [ ] **To build (owner, 2026-11-27): make `dependency-review` tolerate a skip, then the Security jobs become required.** Making the Security jobs (`security.yml`) required checks needs a `dependency-review` that tolerates a skip, because it runs only on pull requests.
+- [x] **To build (owner, 2026-11-27): make `dependency-review` tolerate a skip, then the Security jobs become required.** Making the Security jobs (`security.yml`) required checks needs a `dependency-review` that tolerates a skip, because it runs only on pull requests. Done in #139: the job runs on every event and reports success outside pull requests; the ruleset change is the owner's next step.
 
 ### Open on purpose
 
@@ -817,8 +817,8 @@ Open items, grouped by area.
 - [x] `tools/gemini/rails.mjs:126`: the `ANY_BLOCKER` regex has 2 SonarCloud MAJOR issues (S8786 backtracking, S5843 complexity 39). Strip `*` first, or split the regex. Split into three linear patterns in #119.
 - [x] A plural answer starting with "none" ("Blockers: none, except X") still reads clean. Fixed in #119 (allow-list after none / n/a).
 - [x] "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" falsely retry. The owner cleared them on 2026-11-27; cleared in #134.
-- [ ] A bare plural heading `**Blockers:**` over an untagged list still reads clean (found in #134's review; older than #134). The singular `**Blocker:**` retries. Making the plural retry too only tightens the gate.
-- [ ] A negation with a colon hides what follows it: `Blockers: no blockers: a.ts:1 wrong` reads clean because `NEGATED_BLOCKER` matches first (found in #134's review; older than #134). Tightening only.
+- [x] A bare plural heading `**Blockers:**` over an untagged list still reads clean (found in #134's review; older than #134). The singular `**Blocker:**` retries. Making the plural retry too only tightens the gate. Done in #139.
+- [x] A negation with a colon hides what follows it: `Blockers: no blockers: a.ts:1 wrong` reads clean because `NEGATED_BLOCKER` matches first (found in #134's review; older than #134). Tightening only. Done in #139: only the negated label is skipped.
 
 ### Sync
 
@@ -873,21 +873,21 @@ Open items, grouped by area. The batch ran one round; its fallout is here instea
 ### Sync transports (#117)
 
 - [ ] The full streamed `read()` interface (#103 design note) is still open; #115 and #117 only cap `read()` per file kind.
-- [ ] The native adapter cap wiring is untested: `createICloudDocumentPlugin` forwarding `maxBytes`, and `createFsBridge` returning TOO_LARGE with the size.
-- [ ] iCloud downloads an oversized placeholder before the `max_bytes` check (`icloud.rs` `placeholder_size`, and the Swift side). Check the placeholder size first.
-- [ ] `assertSyncReadCapsCover` rejects any override above the defaults, stricter than its description ("transports would refuse").
+- [x] The native adapter cap wiring is untested: `createICloudDocumentPlugin` forwarding `maxBytes`, and `createFsBridge` returning TOO_LARGE with the size. Done in #141.
+- [x] iCloud downloads an oversized placeholder before the `max_bytes` check (`icloud.rs` `placeholder_size`, and the Swift side). Check the placeholder size first. Done in #141.
+- [x] `assertSyncReadCapsCover` rejects any override above the defaults, stricter than its description ("transports would refuse"). Done in #141 (description fixed to match the code).
 
 ### Sync engine (#120)
 
-- [ ] The mobile-browser PWA gets the 128 MiB snapshot cap; only Capacitor keeps 25 MiB.
-- [ ] **Scale the snapshot threshold with the snapshot size** (old snapshots are not pruned: decided in "Owner decisions open", 2026-11-27). Big collections upload a ~5 MiB snapshot every 500 events.
-- [ ] `packages/core/src/sync/engine.ts:99`: the `snapshotLimits` comment is stale.
-- [ ] `planHeadCompaction` re-folds full segments after a partial one (efficiency).
-- [ ] A legacy head with N ranges folds them all in one push. Unverified.
+- [x] The mobile-browser PWA gets the 128 MiB snapshot cap; only Capacitor keeps 25 MiB. Decided: mobile browsers keep 25 MiB like Capacitor (an out-of-memory tab is killed before error handling runs); done in #140.
+- [x] **Scale the snapshot threshold with the snapshot size** (old snapshots are not pruned: decided in "Owner decisions open", 2026-11-27). Big collections upload a ~5 MiB snapshot every 500 events. Done in #140.
+- [x] `packages/core/src/sync/engine.ts:99`: the `snapshotLimits` comment is stale. Done in #140.
+- [x] `planHeadCompaction` re-folds full segments after a partial one (efficiency). Done in #140.
+- [x] A legacy head with N ranges folds them all in one push. Done in #140 (tested with 1,200 ranges).
 
 ### Merge-gate tooling and tests (#119)
 
-- [ ] `packages/ui/tests/app-context-review.test.tsx:79`: the wait passes the first time one persist is seen, so a later duplicate persist goes unnoticed. Flush once more after it and assert the count again.
+- [x] `packages/ui/tests/app-context-review.test.tsx:79`: the wait passes the first time one persist is seen, so a later duplicate persist goes unnoticed. Flush once more after it and assert the count again. Done in #139.
 
 ## Decisions needed (batch 2026-11-27b)
 
@@ -928,6 +928,19 @@ Open items, grouped by area.
 ### Tests
 
 - [ ] Under heavy local load (several agents at once), `pnpm test:e2e` failed `phase4` Markdown pages and `rebuild-reload-prompt`, and unit tests `sync-read-caps` (100k segments) and `writer-tabs` (yielding) timed out; each passes alone (#129 run).
+
+## Left over from the follow-ups batch 2026-11-27c (#139–#141)
+
+Open items, grouped by area. The batch ran one round.
+
+### Merge-gate tooling (#139)
+
+- [ ] A heading with the colon outside the bold, `**Blockers**:` or `**Blocker**:`, over an untagged list still reads clean in `tools/gemini/rails.mjs`: after the `*` are stripped, the answer is empty. It is older than #139, and singular and plural behave the same. Making it retry only tightens the gate.
+- [ ] `tools/gemini/rails.mjs:135`: the `(?:^|[^a-z])` boundary in `NEGATION_WORD` (so `Cannot blocker: a.ts:1 wrong` is not read as negated) has no test in `rails.test.mjs` (agy note on #139).
+
+### Sync (#140, #141)
+
+- [ ] On-device check of the iCloud pre-download size check (`sizeBeforeDownload` in `ICloudDocumentsPlugin.swift`, `size_before_download` in `icloud.rs`) with dataless and `.icloud` placeholder files. CI compiles both, but neither has run on a device (#141).
 
 ## Needs the owner (hands-on)
 

@@ -389,16 +389,27 @@ export function encodeReadableSyncSnapshot(
   snapshot: SyncSnapshot,
   limits?: Partial<typeof SYNC_SNAPSHOT_LIMITS>,
 ): Uint8Array | null {
+  return encodeSyncSnapshotWithSize(snapshot, limits).encoded;
+}
+
+/**
+ * {@link encodeReadableSyncSnapshot}, plus the size it reached: the gzipped size, or the raw size
+ * when the raw JSON is already past the cap and is not gzipped at all.
+ */
+export function encodeSyncSnapshotWithSize(
+  snapshot: SyncSnapshot,
+  limits?: Partial<typeof SYNC_SNAPSHOT_LIMITS>,
+): { encoded: Uint8Array | null; bytes: number } {
   const raw = encodeUtf8(JSON.stringify(snapshot));
   if (
     raw.byteLength > (limits?.maxUncompressedBytes ?? SYNC_SNAPSHOT_LIMITS.maxUncompressedBytes)
   ) {
-    return null;
+    return { encoded: null, bytes: raw.byteLength };
   }
   const gz = gzipSync(raw, { level: 6 });
-  return gz.byteLength > (limits?.maxCompressedBytes ?? SYNC_SNAPSHOT_LIMITS.maxCompressedBytes)
-    ? null
-    : gz;
+  const fits =
+    gz.byteLength <= (limits?.maxCompressedBytes ?? SYNC_SNAPSHOT_LIMITS.maxCompressedBytes);
+  return { encoded: fits ? gz : null, bytes: gz.byteLength };
 }
 
 /** Decodes a snapshot under {@link SYNC_SNAPSHOT_LIMITS} (or `limits`, field by field). */

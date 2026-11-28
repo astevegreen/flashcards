@@ -9,6 +9,7 @@ import {
   ruleLayoutsForDeck,
   type CollectionState,
 } from './replay.ts';
+import { applyStarterNoteUpgrades, starterUpgradedNoteIds } from './starter-upgrades.ts';
 import { applySuspensionRegister, isSuspensionEventType } from './suspension.ts';
 import {
   applyTagAddRegisters,
@@ -141,6 +142,25 @@ export function canonicalizeAllTagAddNotes(state: CollectionState): void {
   for (const noteId of tagAddIndex(state).keys()) {
     const note = state.notes.get(noteId);
     if (note) canonicalizeNoteTags(state, note);
+  }
+}
+
+/**
+ * Re-applies retained `StarterNoteUpgraded` events to their notes (see ./starter-upgrades.ts). A
+ * snapshot written by a build that predates them keeps the events but still shows the old
+ * starter text; this makes hydrating it equal to a full replay. A no-op on this build's snapshots.
+ */
+export function canonicalizeAllStarterUpgradeNotes(state: CollectionState): void {
+  const sets = {
+    replayedCards: new Set<string>(),
+    changedCards: new Set<string>(),
+    removedCards: new Set<string>(),
+  };
+  for (const noteId of starterUpgradedNoteIds(state)) {
+    const note = state.notes.get(noteId);
+    if (note && applyStarterNoteUpgrades(state, note)) {
+      rebuildCardsForNote(state, noteId, sets.changedCards, sets.removedCards, sets.replayedCards);
+    }
   }
 }
 
