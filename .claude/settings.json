@@ -181,6 +181,17 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/tools/hooks/handoff-nudge.mjs"],
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -204,6 +215,12 @@
             "command": "node",
             "args": ["${CLAUDE_PROJECT_DIR}/tools/hooks/gate.mjs"],
             "timeout": 600
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/tools/hooks/handoff-nudge.mjs"],
+            "timeout": 15
           }
         ]
       }
