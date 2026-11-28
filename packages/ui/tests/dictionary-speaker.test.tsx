@@ -310,28 +310,16 @@ describe('dictionary speaker button', () => {
     expect(find('dict-audio-warning')).toBeNull();
   });
 
-  it('plays a clip already in the collection with no voice at all', async () => {
+  // Without `createTtsProvider` a saved cloud key can't synthesize here, so the clip in the
+  // collection (made by another device, in its voice) is what plays.
+  it.each([
+    ['with no voice at all', createMemoryStorage],
+    ['when cloud TTS is set up but this platform cannot run it', cloudStorage],
+  ])('plays a clip already in the collection %s', async (_case, makeStorage) => {
     const hash = 'a'.repeat(64);
-    const storage = createMemoryStorage();
+    const storage = makeStorage();
     storage.media.set(hash, { hash, mime: 'audio/mpeg', bytes: new Uint8Array([1]) });
     const audio = fakeAudioPlayer();
-    await mountPanel(
-      { audioPlayer: audio.player },
-      { storage, initialEvents: [...sampleEvents(), clipEvent(hash, '한국', 'ko')] },
-    );
-    expect(speaker('日本')).toBeNull();
-
-    await press('한국');
-    await vi.waitFor(() => expect(audio.playPreloaded).toHaveBeenCalledWith(hash, 1));
-  });
-
-  it('plays a cached clip when cloud TTS is set up but this platform cannot run it', async () => {
-    const hash = 'b'.repeat(64);
-    const storage = cloudStorage();
-    storage.media.set(hash, { hash, mime: 'audio/mpeg', bytes: new Uint8Array([1]) });
-    const audio = fakeAudioPlayer();
-    // No `createTtsProvider`: the saved key can't synthesize here, so the clip in the collection
-    // (made by another device, in its voice) is what plays.
     await mountPanel(
       { audioPlayer: audio.player },
       { storage, initialEvents: [...sampleEvents(), clipEvent(hash, '한국', 'ko')] },
@@ -342,7 +330,6 @@ describe('dictionary speaker button', () => {
     await vi.waitFor(() => expect(audio.playPreloaded).toHaveBeenCalledWith(hash, 1));
   });
 });
-
 describe('audio warnings stay where they came from', () => {
   it('keeps a dictionary failure off the study banner', async () => {
     const m = await mountCloud(quotaExceeded);
