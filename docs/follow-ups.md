@@ -4,7 +4,15 @@ Open items left after the Phase 14 batch (Streams A–D, 2026-11-22). The owner'
 
 ## Owner decisions open
 
-Questions waiting for the owner, each with a recommendation and its PR. None are open.
+Questions waiting for the owner, each with a recommendation and its PR.
+
+### Open, batch 2026-11-27 (#137, #138, #144)
+
+- [ ] **Background refreshes hold an update that would archive notes (#137).** Shipped: the update waits until a manual refresh says Continue. Recommend keeping it.
+- [ ] **Cancel on the archive preview isn't remembered (#137).** Shipped: the next manual refresh asks again. Recommend keeping it.
+- [ ] **What the dictionary speaker says for Hanja and Japanese entries (#138).** Shipped: the headword. Recommend speaking the 음훈 (물 수) for Hanja and the kana reading for JMdict entries, after listening on a device.
+- [ ] **Cloud TTS clips from lookups are saved in the collection and synced (#138), as on study cards.** Recommend keeping it.
+- [ ] **The language offer (#144).** Shipped: it shows only as a Library row, never on Study; "mostly another script" means CJK characters at least as many as Latin letters; it offers only ja, ko and zh; it asks once per deck, and Undo doesn't bring it back. Recommend keeping all four.
 
 ### Decided 2026-11-27
 
@@ -444,7 +452,8 @@ Kept as shipped on 2026-11-27, when the owner approved clearing the decision que
 - [x] Only hits in allowed packs count toward the cap.
 - Moved to "Needs the owner (hands-on)": the upstream download and measurement.
 - [ ] The `SenseRelation` attribute (`lemma` / `writtenForm`) is unverified against a real export.
-- [ ] **To build (owner, 2026-11-27): a dictionary speaker button that uses device TTS; KRDict audio stays out.** **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. The dictionary has no speaker button yet, so the TTS fallback is not wired either.
+- [x] **To build (owner, 2026-11-27): a dictionary speaker button that uses device TTS; KRDict audio stays out.** **KRDict audio licence: researched 2026-11-23, unclear, so audio stays out.** KRDict's copyright policy (https://krdict.korean.go.kr/eng/kboardPolicy/copyRightTermsInfo) puts text under CC BY-SA 2.0 KR (commercial use allowed, attribution and share-alike), which matches `packages/core/src/dictionary/licenses.ts`. Sounds and pronunciations are excluded from that grant: commercial use and modification are set per file, and no machine-readable flag or bulk audio download was found (the Open API has a `multimedia_info` link, unconfirmed without a key). To use it, the owner would need written confirmation from NIKL, or separately licensed audio. The dictionary has no speaker button yet, so the TTS fallback is not wired either. Done in #138: the dictionary has a speaker button that speaks the headword through the existing TTS chain, hidden without a voice.
+- [ ] The speaker button shows when cloud TTS is configured but `platform.createTtsProvider` is missing and only a language-key clip is cached, so a press stays silent (#138). Also, `SpeechWarning` shows the shared `lastAudioWarning`, so a study-card failure can appear in the dictionary.
 
 ### #19 Linked OneDrive sources
 
@@ -468,6 +477,7 @@ Kept as shipped on 2026-11-27, when the owner approved clearing the decision que
 - [x] The AppContext comment says Keystore/Keychain, but the notice is Android-only. Fixed in PR #27.
 - [x] While a collection choice is pending, the sidebar badge reads "Choose" (amber, tooltip "Choose a collection in Settings") and opens Settings. Pull-to-refresh still syncs and asks again.
 - [x] An answered collection choice latches: a sync that started before the answer drops its stale "choice required" result.
+- [ ] A local `DeckCreated` that carries an explicit `new_card_order` for a deterministic deck id (starter, sample, Anki, inbox) can beat a per-deck order set on another device under last-write-wins, when both create the deck offline (#136). Fix: `DeckCreated` settings lose to any `DeckSettingsChanged`.
 
 ### #21 How tags work
 
@@ -540,7 +550,8 @@ Observed while bringing up the Capacitor Android debug build on a Pixel 9 Pro an
 - [x] **Clean up the old credit on decks seeded before 1.2.0.** There is no starter update path: seeding happens once, at onboarding (`startOnboardingDeck`), and `presetCatchUp.ts` is about deck-option presets, not deck content. Existing users keep the credit line in Notes (and the 1.0.0 glosses, see PR #28 above). A future update step would, per starter note, emit a `NoteUpserted` that clears `notes` (or leaves "Also read: …") **only when the field still exactly equals the old generated credit**. The old text is reproducible from `meaningSource`/`meaningEdited` (formats in `content/starters/README.md`). It must merge with any user edit (only that field changes, timestamped now) and run once per deck version (`DeckCreated.source.package_version`). Owner decision: build this, or leave existing decks as they are. Done in #83 (`packages/core/src/starters/upgrade.ts`): per starter note, one `fields_only` `NoteUpserted` clears the 1.0.0 or 1.1.0 credit, and the 1.0.0 gloss is replaced by the current one. Edited fields stay.
 - Moved to "Needs the owner (hands-on)": Tatoeba and example sentences.
 - [x] **No empty reveal step.** The study screen already drops reveal steps whose fields are all empty, so a Korean starter card (empty `example` and `notes`) now reveals in one step, and a Mandarin card shows the last step only when it has "Also read: …".
-- [ ] **To build (owner, 2026-11-27): the new event.** **Starter-upgrade race (#83).** An unsynced edit of a still-old-text field can lose to the upgrade. Fixing it in the UI would be a patch; it needs a new event. Recommend a `starter_upgraded` event, so replay can order the upgrade against local edits.
+- [x] **To build (owner, 2026-11-27): the new event.** **Starter-upgrade race (#83).** An unsynced edit of a still-old-text field can lose to the upgrade. Fixing it in the UI would be a patch; it needs a new event. Recommend a `starter_upgraded` event, so replay can order the upgrade against local edits. Done in #142: an unsynced edit always wins over the starter upgrade, through the log-retained `StarterNoteUpgraded` event.
+- [ ] Seed factories stamp at `STARTER_SEED_EPOCH_MS`, so two devices that seed before syncing tie on HLC except for node id (#142). The upgrade can then be skipped for good on a field, and its pre-1.2 Notes/credit text stays. No user text is lost. Fix: treat a register written by an older release's starter seed as not an edit.
 
 ### Review and consolidate tags (deferred by the user)
 
@@ -562,7 +573,7 @@ Proposed scheme:
 
 - [x] **Study screen `Method · Order` chip (session only).** Spaced repetition or Practice (cram over the current deck / filter, never changes FSRS); Deck order, Random (seeded), and Hardest first for Practice. Choices reset when the Study deck selection changes or the app restarts. Practice runs as the existing custom-study practice session, so its filter chip (×) and "Clear filter" end it too.
 - [x] **Settings › Study Preferences:** "Default study method" and "Card order (all decks)" (synced LWW preferences `study_method` / `study_order`; the order is also written to every deck's `new_card_order`). An "Apply to all" button appears when some decks use their own order.
-- [ ] **To build (owner, 2026-11-27): copy the Settings card order into new decks.** **New decks start with source order.** A deck created or imported after choosing "Random (all decks)" gets `new_card_order: 'source'` (the deck default) until "Apply to all" or its own deck options change it.
+- [x] **To build (owner, 2026-11-27): copy the Settings card order into new decks.** **New decks start with source order.** A deck created or imported after choosing "Random (all decks)" gets `new_card_order: 'source'` (the deck default) until "Apply to all" or its own deck options change it. Done in #136: a new deck copies the Settings card order.
 - [x] **Review order is collection-wide.** `study_order` orders reviews in every deck; only new-card order can differ per deck. Add a per-deck review order only if users ask for it. Kept (2026-11-27): built only if users ask.
 - [x] **"Newest first" order** (suggested in the Android review) is not built; the three orders above cover the decided scope. Kept (2026-11-27): built only if users ask.
 
@@ -603,6 +614,7 @@ Left over from #72–#75 and #79–#85, which burned down the 2026-11-25 code re
 - [x] "Refresh all" still skips Google Sheets and Docs with no message while Google is disconnected. The Drive row message could apply to them too. Done in #97: linked sources and refresh.
 - [x] A device that has synced linked decks but never opened Sources doesn't refresh them at launch. The launch check reads only the saved registry (`sources/hasLinkedSources.ts`). Done in #97: linked sources and refresh.
 - [x] Local-folder `.xlsx` scans skip `canParseXlsx` (`sourceRunner.ts` ~1946). Done in #97: linked sources and refresh.
+- [ ] The folder archive dialog names the file rather than the package title (#137). The OneDrive, Dropbox and Drive picker contexts have no `confirmArchive`, so a re-link that would archive is held rather than asked.
 
 ### Import, CSV and zip (#72, #85)
 
@@ -678,9 +690,9 @@ The audit (`docs/Audit.md`, untracked in the main checkout) was about the plan f
 - [x] **C8:** the Sentence, Cloze and Grammar presets now speak and render their target-language fields in the deck's language (`noteTypeForDeck`), and a linked sentence sheet's deck language comes from the script of its Sentence column.
 - [x] **C9:** a `.flashpkg` deck file with two records sharing an `id` keeps the first and warns; records whose field keys match none of the note type's import blank and warn. Library and OneDrive/Dropbox `.flashpkg` imports now show package warnings.
 - [x] **C1:** a CSV/TSV quote that never closes, or has text after its closing quote, is read as plain text, so the rows after it are kept.
-- [ ] **To build (owner, 2026-11-27): offer once to set the language.** **C8 reaches only new links.** A Sentence deck already linked from a sheet keeps the language `en` it was given, so it still speaks English, and no screen changes a deck's language. The offer covers each Sentence, Cloze or Grammar deck whose text is in another script.
+- [x] **To build (owner, 2026-11-27): offer once to set the language.** **C8 reaches only new links.** A Sentence deck already linked from a sheet keeps the language `en` it was given, so it still speaks English, and no screen changes a deck's language. The offer covers each Sentence, Cloze or Grammar deck whose text is in another script. Done in #144: a one-time Library row per Sentence, Cloze or Grammar deck offers to set its language.
 - [x] C8 minors (#93 review): the `.apkg` export takes the `{{tts}}` language of a shared built-in note type from the first deck it exports, and has no test for it. A user's own `lang` on a built-in Sentence, Cloze or Grammar field is overridden by the deck's language. The import status-line warnings have no UI test. Done in #124: an `.apkg` export with decks of several languages sharing a built-in note type writes one Anki note type per language (`Sentence (ko)`), a field `lang` that differs from the preset is kept, and the import status-line warnings have a render test.
-- [ ] **To build (owner, 2026-11-27): the archive-count preview.** **C9, third point:** re-importing with archive-on-upgrade archives every note whose `id` changed, with its review progress. Recommend a preview that counts the notes it would archive.
+- [x] **To build (owner, 2026-11-27): the archive-count preview.** **C9, third point:** re-importing with archive-on-upgrade archives every note whose `id` changed, with its review progress. Recommend a preview that counts the notes it would archive. Done in #137: a re-import with archive-on-upgrade shows how many notes it would archive, with Continue and Cancel; background refreshes hold the update.
 - [x] Two CPU-heavy unit tests timed out under load and failed `pnpm gate` on main too: `backup-runner` "keeps pre-restore snapshots outside the rolling 14…" (~3.5 s alone, against the 5 s default) and `onedrive-transport` "retries a failed fragment…". Each now has a 30 s timeout.
 
 ### Left over from wave 3 (#87–#90)
@@ -741,6 +753,11 @@ Kept as shipped on 2026-11-27, when the owner approved clearing the decision que
 - Moved to "Cross-platform gaps", under "Desktop": Tauri store builds accept licence keys whenever a public key is set (#87).
 - **Decided in "Owner decisions open" (2026-11-27).** **Rotating the licence key locks out every key already issued (#87).** Recommend never rotating unless the private key leaks. If it does, ship the old public key alongside the new one for a transition.
 - Moved to "Needs the owner (hands-on)", under "Unverified from batch 2026-11-26b": **An unguarded grammar entry like `-(으)ㄴ` may still show as `#NAME?` in Excel (#88, not verified).** It is in the "for other apps" CSV. Recommend checking once in Excel; if so, guard every leading `-` in that export too (the `'` prefix is invisible in Excel).
+
+## Left over from batch 2026-11-27 (#136–#144)
+
+- [ ] Library (#144): no tests for the read-only guard on the language offer or for the Undo banner's Close. `LANGUAGE_NAMES` shows raw tags (`en-US`, or empty) in the offer copy.
+- [ ] Core (#136): `newDeckCardOrder` (`packages/core/src/decks/new-deck-order.ts`) repeats the `studyOrderToNewCardOrder` mapping (`packages/core/src/study/card-order.ts`); it should call it.
 
 ## Decisions needed (follow-ups batch, 2026-11-26)
 
