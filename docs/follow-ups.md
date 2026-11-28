@@ -802,7 +802,7 @@ Open items, grouped by PR. Dependabot and CI come last.
 - [ ] **Waiting on upstream:** #78 (Gradle 9.9) is closed; reopen when upstream ships (an AGP supporting Gradle 9.6+).
 - [x] CI: watch the next `publish-packs` run on main. wrangler-action 4 (#66) and actions/cache 6 (#67) haven't run there yet. It ran green on main on 2026-11-27.
 - [x] Dependabot 2026-11-27: #126 (codeql-action pins) and #127 (mdast-util-directive) merged; #125 (Gradle 9.9) closed, like #78, until AGP supports Gradle 9.6+; #128 (@types/node 25) closed with "ignore this major version", because the runtime is Node 24.
-- [ ] **To build (owner, 2026-11-27): make `dependency-review` tolerate a skip, then the Security jobs become required.** Making the Security jobs (`security.yml`) required checks needs a `dependency-review` that tolerates a skip, because it runs only on pull requests.
+- [x] **To build (owner, 2026-11-27): make `dependency-review` tolerate a skip, then the Security jobs become required.** Making the Security jobs (`security.yml`) required checks needs a `dependency-review` that tolerates a skip, because it runs only on pull requests. Done in #139: the job runs on every event and reports success outside pull requests; the ruleset change is the owner's next step.
 
 ### Open on purpose
 
@@ -817,8 +817,8 @@ Open items, grouped by area.
 - [x] `tools/gemini/rails.mjs:126`: the `ANY_BLOCKER` regex has 2 SonarCloud MAJOR issues (S8786 backtracking, S5843 complexity 39). Strip `*` first, or split the regex. Split into three linear patterns in #119.
 - [x] A plural answer starting with "none" ("Blockers: none, except X") still reads clean. Fixed in #119 (allow-list after none / n/a).
 - [x] "Blockers: 0", "Blockers: nothing" and "Blockers: no blockers found" falsely retry. The owner cleared them on 2026-11-27; cleared in #134.
-- [ ] A bare plural heading `**Blockers:**` over an untagged list still reads clean (found in #134's review; older than #134). The singular `**Blocker:**` retries. Making the plural retry too only tightens the gate.
-- [ ] A negation with a colon hides what follows it: `Blockers: no blockers: a.ts:1 wrong` reads clean because `NEGATED_BLOCKER` matches first (found in #134's review; older than #134). Tightening only.
+- [x] A bare plural heading `**Blockers:**` over an untagged list still reads clean (found in #134's review; older than #134). The singular `**Blocker:**` retries. Making the plural retry too only tightens the gate. Done in #139.
+- [x] A negation with a colon hides what follows it: `Blockers: no blockers: a.ts:1 wrong` reads clean because `NEGATED_BLOCKER` matches first (found in #134's review; older than #134). Tightening only. Done in #139: only the negated label is skipped.
 
 ### Sync
 
@@ -887,7 +887,7 @@ Open items, grouped by area. The batch ran one round; its fallout is here instea
 
 ### Merge-gate tooling and tests (#119)
 
-- [ ] `packages/ui/tests/app-context-review.test.tsx:79`: the wait passes the first time one persist is seen, so a later duplicate persist goes unnoticed. Flush once more after it and assert the count again.
+- [x] `packages/ui/tests/app-context-review.test.tsx:79`: the wait passes the first time one persist is seen, so a later duplicate persist goes unnoticed. Flush once more after it and assert the count again. Done in #139.
 
 ## Decisions needed (batch 2026-11-27b)
 

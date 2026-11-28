@@ -116,8 +116,18 @@ export function railHits(diff) {
   return hits;
 }
 
-// A negation ("No blockers: ...", "not blocker - ..."): the line says there is none.
-const NEGATED_BLOCKER = /(?:no|not|without)\s+blockers?\s*[:—-]/i;
+// A negated label ("No blockers: ...", "not blocker - ..."), read on the raw line with its * left in, says there is
+// none, so that label is skipped. Only that one: every other label on the line is still read, so
+// "Blockers: no blockers: a.ts:1 wrong" is a blocker. Two anchored tests, so nothing backtracks over the line.
+const NEGATION_WORD = /(?:^|[^a-z])(?:no|not|without)$/i;
+const RAW_LABEL = /^blockers?\s*[:—-]/i;
+function negatedLabel(line, index) {
+  const before = line.slice(0, index);
+  const word = before.trimEnd();
+  return (
+    word.length < before.length && NEGATION_WORD.test(word) && RAW_LABEL.test(line.slice(index))
+  );
+}
 // Singular or plural, read with every * turned into a space, so bold on either side of the colon ("**Blockers**: x",
 // "**Blockers:** x") reads like plain text and a label glued to the word before it ("Summary**Blockers:**") still
 // counts. Every label on the line is read, each with everything after it as its answer (\r, U+2028 and U+2029
@@ -142,26 +152,21 @@ function cleanAnswer(answer) {
   return CLEAN_REST.test(rest);
 }
 
-// Whether any "Blocker(s):" label on the line has an answer that is neither empty nor clean. A singular label
-// followed only by * ("**Blocker:**" as a heading over a list) has always been a blocker, and the owner's
-// 2026-11-27 decision did not clear it; the plural heading reads empty, as on main.
-function anyBlocker(line) {
+// Whether an untagged line asserts a blocker: any "Blocker(s):" label on it, other than a negated one, whose answer
+// is neither empty nor clean. Clean prose ("No blocker.", "No blockers found.", "Blocker: none found",
+// "Blockers: 0") is not an assertion; singular and plural labels read the same way. A label followed only by *
+// ("**Blocker:**" or "**Blockers:**" as a heading over a list) is a blocker, since the list under it is untagged.
+function assertsBlocker(line) {
   const text = line.replaceAll('*', ' ');
   for (const label of text.matchAll(BLOCKER_LABEL)) {
+    if (negatedLabel(line, label.index)) continue;
     const end = label.index + label[0].length;
     const answer = text.slice(end);
     if (answer.trim() !== '') {
       if (!cleanAnswer(answer)) return true;
-    } else if (!/blockers/i.test(label[0]) && line.slice(end).trim() !== '') return true;
+    } else if (line.slice(end).trim() !== '') return true;
   }
   return false;
-}
-
-// Whether an untagged line asserts a blocker. Clean prose ("No blocker.", "No blockers found.", "Blocker: none
-// found", "Blockers: 0") and negations are not assertions; singular and plural labels read the same way.
-function assertsBlocker(line) {
-  if (NEGATED_BLOCKER.test(line)) return false;
-  return anyBlocker(line);
 }
 
 // A review's findings in the format prompts/pr-audit.md asks for: "[blocker] file:line …" or "[note] …", maybe
