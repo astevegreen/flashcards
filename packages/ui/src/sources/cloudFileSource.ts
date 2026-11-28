@@ -23,6 +23,7 @@ import type {
   SourceWarning,
 } from '@flash/platform';
 import {
+  ArchiveHoldError,
   isOnline,
   loadSourcesRegistry,
   resolveNoteType,
@@ -513,6 +514,9 @@ function recordFailedLink<
   err: unknown,
   chosenColumnMap: boolean,
 ): void {
+  // The user said Cancel on the archive preview: nothing failed and nothing changed, so the row
+  // keeps its last status (Cancel isn't remembered; the next refresh or link asks again).
+  if (source.deckId && err instanceof ArchiveHoldError && err.cancelled) return;
   if (!source.deckId) {
     p.setRows(
       registry,

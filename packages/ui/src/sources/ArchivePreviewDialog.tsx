@@ -20,7 +20,7 @@ export default function ArchivePreviewDialog({
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const answeredRef = useRef(false);
   const titleId = useId();
-  const { sourceName, notesArchived } = request;
+  const { sourceName, notesArchived, fileName } = request;
   const notes = notesArchived === 1 ? '1 note' : `${notesArchived} notes`;
 
   useEffect(() => {
@@ -50,6 +50,11 @@ export default function ArchivePreviewDialog({
         {notesArchived === 1 ? 'it' : 'them'} with {notesArchived === 1 ? 'its' : 'their'} review
         progress. Cancel leaves this deck as it is.
       </p>
+      {fileName && (
+        <p data-testid="archive-preview-file" className="mt-1 truncate text-xs text-[var(--muted)]">
+          From {fileName}
+        </p>
+      )}
       <div className="mt-4 flex justify-end gap-2">
         <button
           type="button"

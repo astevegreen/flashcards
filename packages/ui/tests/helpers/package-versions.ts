@@ -13,7 +13,7 @@ import { exportFlashpkg } from '@flash/core/flashpkg';
 const DECK = 'pkg-deck';
 
 /** Versions of one package deck ("Words", `pkg:words`) holding a note per key (C9 tests). */
-export function packageBytes(keys: readonly string[], version: string): Uint8Array {
+export function packageBytes(keys: readonly string[], version: string, name = 'Words'): Uint8Array {
   const pkgState = createEmptyState();
   const f = createEventFactory('cli', 0, createHlcState('cli', 500));
   applyEvents(pkgState, [
@@ -35,7 +35,7 @@ export function packageBytes(keys: readonly string[], version: string): Uint8Arr
       ),
     ),
   ]);
-  return exportFlashpkg(pkgState, { packageId: 'pkg:words', name: 'Words', version });
+  return exportFlashpkg(pkgState, { packageId: 'pkg:words', name, version });
 }
 
 /** The `word` of every active note, sorted by code unit. */

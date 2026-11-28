@@ -6,6 +6,7 @@ import { useApp } from '../state/AppContext.tsx';
 import type { PickedDriveFile } from './googleDriveFileSource.ts';
 import { linkedFileDeck } from './linkedFileDeck.ts';
 import type { LinkedFileMappingChoice } from './LinkedFileMapping.tsx';
+import type { SourceRunContext } from './sourcesRegistry.ts';
 
 const LazyLinkedFileMapping = lazyWithRetry(() => import('./LinkedFileMapping.tsx'), {
   closeWith: 'onCancel',
@@ -39,6 +40,7 @@ export default function GoogleDriveFileLinkPanel({
   onErrorMessage,
   onPendingReconciliation,
   onRegistry,
+  confirmArchive,
 }: Readonly<{
   files: readonly PickedDriveFile[];
   onClose: () => void;
@@ -46,6 +48,11 @@ export default function GoogleDriveFileLinkPanel({
   onErrorMessage: (msg: string | null) => void;
   onPendingReconciliation: (rec: PendingXlsxReconciliation) => void;
   onRegistry: (registry: SourcesRegistry) => void;
+  /**
+   * The Sources panel's archive preview (C9): linking a `.flashpkg` that matches a deck already
+   * here asks before archiving the notes the new version drops. Absent, such a link is held.
+   */
+  confirmArchive?: SourceRunContext['confirmArchive'];
 }>) {
   const { platform, state, entitlement, getEventFactory, emitEvents } = useApp();
   const [index, setIndex] = useState(0);
@@ -105,7 +112,14 @@ export default function GoogleDriveFileLinkPanel({
       const { linkGoogleDriveFile } = await import('./sourceRunner.ts');
       const res = await linkGoogleDriveFile(
         file,
-        { platform, getState: () => state, getEventFactory, emitEvents, entitlement },
+        {
+          platform,
+          getState: () => state,
+          getEventFactory,
+          emitEvents,
+          entitlement,
+          ...(confirmArchive ? { confirmArchive } : {}),
+        },
         choice,
       );
       onRegistry(res.registry);

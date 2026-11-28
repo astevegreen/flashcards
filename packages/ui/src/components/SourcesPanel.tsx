@@ -1028,6 +1028,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
             onStatusMessage={onStatusMessage}
             onErrorMessage={onErrorMessage}
             onRegistry={setRegistry}
+            confirmArchive={confirmArchive}
             onPendingReconciliation={(held) =>
               setPendingReconciliations((prev) => [
                 ...prev.filter(
@@ -1055,6 +1056,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
             onStatusMessage={onStatusMessage}
             onErrorMessage={onErrorMessage}
             onClose={() => setShowOneDrivePicker(false)}
+            confirmArchive={confirmArchive}
             onPendingReconciliation={(held) =>
               setPendingReconciliations((prev) => [
                 ...prev.filter(
@@ -1081,6 +1083,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
             onStatusMessage={onStatusMessage}
             onErrorMessage={onErrorMessage}
             onClose={() => setShowDropboxPicker(false)}
+            confirmArchive={confirmArchive}
             onPendingReconciliation={(held) =>
               setPendingReconciliations((prev) => [
                 ...prev.filter(

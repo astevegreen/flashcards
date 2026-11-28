@@ -1,5 +1,6 @@
 import type { OneDriveBrowseItem, PendingXlsxReconciliation } from '@flash/platform';
 import { CloudFilePickerPanel, type CloudPickerProvider } from './CloudFilePickerPanel.tsx';
+import type { SourceRunContext } from './sourcesRegistry.ts';
 
 const ONEDRIVE: CloudPickerProvider<OneDriveBrowseItem> = {
   key: 'onedrive',
@@ -37,6 +38,7 @@ export default function OneDrivePickerPanel(
     onErrorMessage: (msg: string) => void;
     onClose: () => void;
     onPendingReconciliation?: (rec: PendingXlsxReconciliation) => void;
+    confirmArchive?: SourceRunContext['confirmArchive'];
   }>,
 ) {
   return <CloudFilePickerPanel provider={ONEDRIVE} {...props} />;
