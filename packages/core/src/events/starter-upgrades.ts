@@ -16,13 +16,17 @@ import type { UnknownEvent } from './types.ts';
  * - an edit the upgrading device had not seen (made offline on another device, with any HLC)
  *   is newer than `base_hlc` (HLCs grow along causality), and wins in every delivery order;
  * - an edit made after the upgrade synced is newer too, and wins;
- * - the seed's own write, even when it arrives after the upgrade, is not, so the upgrade shows.
+ * - the seed's own write, even when it arrives after the upgrade, is not, so the upgrade shows;
+ * - a seed is never an edit: a register stamped at `STARTER_SEED_EPOCH_MS` does not hide the
+ *   upgrade even when it is newer than `base_hlc`. Two devices that seed a deck before syncing
+ *   stamp the same wall time and counters, so their seeds differ only by node id, and one's
+ *   upgrade must not lose to the other's seed of the old text.
  *
- * Known gap: the register must be the one the upgrading device saw. If two devices seeded the same
- * starter deck (on an older release) before syncing, and one upgraded before it saw the other's
- * seed, the newer seed may hold the register: it reads as an unseen edit, and that field keeps the
- * old text (`StarterDeckUpgraded` stops a re-run). That costs one stale credit or gloss, never a
- * user's text.
+ * Known gap: a seed stamps the epoch only on a device whose clock had not passed it (no earlier
+ * events, as at onboarding). A deck seeded after other events carries the device's clock; if that
+ * is newer than another device's upgrade base, it still hides that field's upgrade
+ * (`StarterDeckUpgraded` stops a re-run): one stale credit or gloss, never a user's text. An edit
+ * stamped at the epoch needs a device clock set before 2025, and would show the upgrade.
  *
  * When several upgrades apply to a field, the one with the greatest `(hlc, id)` shows. Every
  * input is an event in the log and the register is LWW, so any delivery order, duplicate or
@@ -33,6 +37,16 @@ import type { UnknownEvent } from './types.ts';
  * them verbatim (it shows the old text until it updates; hydration then re-applies them).
  */
 export const STARTER_NOTE_UPGRADED = 'StarterNoteUpgraded';
+
+/**
+ * Fixed seed time for starter-deck events (like the sample decks): re-seeding the same deck on
+ * another device produces the same timestamps, so it never overwrites a user's later edits (LWW).
+ * `starters/index.ts` re-exports it; it lives here so replay loads no starter catalog.
+ */
+export const STARTER_SEED_EPOCH_MS = Date.UTC(2025, 0, 1, 0, 0, 0);
+
+/** The wall-time prefix of an HLC stamped at `STARTER_SEED_EPOCH_MS` (see `formatHlc`). */
+const SEED_WALL = `${STARTER_SEED_EPOCH_MS.toString(16).padStart(12, '0')}-`;
 
 /** The register a `NoteUpserted` writes for one note field (see `applyNoteUpserted`). */
 export function noteFieldRegisterKey(noteId: string, field: string): string {
@@ -121,7 +135,14 @@ export function applyStarterNoteUpgrades(state: CollectionState, note: Note): bo
     const register = state.fieldHlcs.get(noteFieldRegisterKey(note.id, field));
     let winner: FieldUpgrade | undefined;
     for (const upgrade of upgrades) {
-      if (register !== undefined && compareHlc(register, upgrade.base) > 0) continue;
+      // A newer register is an unseen edit, unless a starter seed wrote it.
+      if (
+        register !== undefined &&
+        compareHlc(register, upgrade.base) > 0 &&
+        !register.startsWith(SEED_WALL)
+      ) {
+        continue;
+      }
       if (winner === undefined || isLater(upgrade, winner)) winner = upgrade;
     }
     if (winner !== undefined && note.fields[field] !== winner.value) {

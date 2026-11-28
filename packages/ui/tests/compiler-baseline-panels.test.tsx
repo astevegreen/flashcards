@@ -155,7 +155,7 @@ describe('MediaImage shows the image for the current src', () => {
   const A = 'aa'.repeat(32);
   const B = 'bb'.repeat(32);
 
-  it('switches between hashes and back without a stale image or a second read', async () => {
+  it('switches between hashes and back without a stale image', async () => {
     const storage = createMemoryStorage();
     storage.media.set(A, { hash: A, mime: 'image/png', bytes: new Uint8Array([1]) });
     storage.media.set(B, { hash: B, mime: 'image/png', bytes: new Uint8Array([2]) });
@@ -180,14 +180,14 @@ describe('MediaImage shows the image for the current src', () => {
     await act(async () => release());
     await waitFor(() => shownHash() === B, 'image B');
 
-    // An unsafe src is blocked at once; the image comes back when the src does, unread.
+    // An unsafe src is blocked at once and releases the image; it is read again when the src returns.
     await mounted.rerender(<MediaImage src="javascript:alert(1)" />);
     expect(byTestId(mounted, 'media-image-blocked')).not.toBeNull();
     const reads = getMedia.mock.calls.length;
     await mounted.rerender(<MediaImage src={`media:${B}`} />);
     await flush();
     expect(shownHash()).toBe(B);
-    expect(getMedia.mock.calls).toHaveLength(reads);
+    expect(getMedia.mock.calls).toHaveLength(reads + 1);
   });
 
   it('a hash found missing shows "pending sync", and another src replaces it', async () => {
@@ -516,37 +516,93 @@ describe('SettingsScreen TTS drafts follow the saved values', () => {
 });
 
 describe('SourcesPanel starter catalog', () => {
-  it('a new platform shows its catalog as loading and drops the old error', async () => {
-    const platformWith = (url: string, fetchCatalog: () => Promise<never>) =>
-      createTestPlatform(createMemoryStorage(), {
-        starterCatalogUrl: url,
+  // The app picks its platform once per boot (`apps/web/src/main.tsx` renders `FlashcardsApp`
+  // once), so a new platform means a new page: a fresh root and `AppProvider` over the same
+  // device storage. Each boot here is one such page load.
+  it('each boot checks the catalog again: an old error is gone, a cached catalog shows', async () => {
+    const URL = 'https://a.test/index.json';
+    const storage = createMemoryStorage();
+    const catalog = {
+      notModified: false,
+      rawJson: JSON.stringify({
+        format_version: 1,
+        name: 'Family Starters',
+        description: 'Decks for the family.',
+        packages: [],
+      }),
+    };
+    const boot = async (fetchCatalog: () => Promise<unknown>) => {
+      const platform = createTestPlatform(storage, {
+        starterCatalogUrl: URL,
         getPackageFetcher: async () => ({ fetchCatalog }) as never,
       } as Partial<PlatformServices>);
-    const failing = platformWith('https://a.test/index.json', () =>
-      Promise.reject(new Error('catalog down')),
-    );
-    const hanging = platformWith('https://b.test/index.json', () => new Promise<never>(() => {}));
-    const meta = testMeta();
-    const ui = (platform: PlatformServices) => (
-      <AppProvider platform={platform} initialMeta={meta}>
-        <SourcesPanel onStatusMessage={() => undefined} onErrorMessage={() => undefined} />
-      </AppProvider>
-    );
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    const text = () => container.textContent ?? '';
-    try {
-      await act(async () => root.render(ui(failing)));
-      await waitFor(() => text().includes('catalog down'), 'the first catalog to fail');
-      expect(text()).not.toContain('Checking catalog');
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      await act(async () =>
+        root.render(
+          <AppProvider platform={platform} initialMeta={testMeta()}>
+            <SourcesPanel onStatusMessage={() => undefined} onErrorMessage={() => undefined} />
+          </AppProvider>,
+        ),
+      );
+      return {
+        text: () => container.textContent ?? '',
+        close: async () => {
+          await act(async () => root.unmount());
+          container.remove();
+        },
+      };
+    };
+    const hang = () => new Promise<never>(() => {});
 
-      await act(async () => root.render(ui(hanging)));
-      expect(text()).not.toContain('catalog down');
-      expect(text()).toContain('Checking catalog');
+    // Boot 1: the catalog can't load and nothing is cached, so the error shows.
+    const first = await boot(() => Promise.reject(new Error('catalog down')));
+    try {
+      await waitFor(() => first.text().includes('catalog down'), 'the first catalog to fail');
+      expect(first.text()).not.toContain('Checking catalog');
     } finally {
-      await act(async () => root.unmount());
-      container.remove();
+      await first.close();
     }
-  }, 20_000);
+
+    // Boot 2: still checking. The last boot's error is not carried over.
+    const second = await boot(hang);
+    try {
+      expect(second.text()).toContain('Checking catalog');
+      expect(second.text()).not.toContain('catalog down');
+    } finally {
+      await second.close();
+    }
+
+    // Boot 3: the catalog loads, and is cached on the device.
+    const third = await boot(async () => catalog);
+    try {
+      await waitFor(() => third.text().includes('Family Starters'), 'the catalog to load');
+      await waitFor(() => !third.text().includes('Checking catalog'), 'the check to finish');
+      expect(await storage.getKv(`starter_catalog_cache_v1:${URL}`)).toMatchObject({
+        name: 'Family Starters',
+      });
+    } finally {
+      await third.close();
+    }
+
+    // Boot 4: while it checks again, the cached catalog shows.
+    const fourth = await boot(hang);
+    try {
+      await waitFor(() => fourth.text().includes('Family Starters'), 'the cached catalog');
+      expect(fourth.text()).toContain('Checking catalog');
+    } finally {
+      await fourth.close();
+    }
+
+    // Boot 5: a failed check over a cached catalog keeps it and shows no error.
+    const fifth = await boot(() => Promise.reject(new Error('catalog down')));
+    try {
+      await waitFor(() => !fifth.text().includes('Checking catalog'), 'the check to fail');
+      expect(fifth.text()).toContain('Family Starters');
+      expect(fifth.text()).not.toContain('catalog down');
+    } finally {
+      await fifth.close();
+    }
+  }, 30_000);
 });

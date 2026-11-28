@@ -1,5 +1,6 @@
 import type { DropboxBrowseItem, PendingXlsxReconciliation } from '@flash/platform';
 import { CloudFilePickerPanel, type CloudPickerProvider } from './CloudFilePickerPanel.tsx';
+import type { SourceRunContext } from './sourcesRegistry.ts';
 
 const APP_FOLDER = <strong>Dropbox › Apps › Flashcards</strong>;
 
@@ -54,6 +55,7 @@ export default function DropboxPickerPanel(
     onErrorMessage: (msg: string) => void;
     onClose: () => void;
     onPendingReconciliation?: (rec: PendingXlsxReconciliation) => void;
+    confirmArchive?: SourceRunContext['confirmArchive'];
   }>,
 ) {
   return <CloudFilePickerPanel provider={DROPBOX} {...props} />;

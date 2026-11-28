@@ -462,11 +462,27 @@ describe('linked Google Drive files (§3.1, drive.file)', () => {
 
     const written = emitted.length;
     await expect(refreshSingleGoogleDriveFileSource(source, asking)).rejects.toThrow(/cancelled/);
-    expect(answer).toHaveBeenCalledWith({ sourceName: 'Drive Pack', notesArchived: 2 });
+    expect(answer).toHaveBeenCalledWith({
+      sourceName: 'Drive Pack',
+      notesArchived: 2,
+      fileName: 'pack.flashpkg',
+    });
     await expect(refreshSingleGoogleDriveFileSource(source, ctx)).rejects.toThrow(/Not updated/);
     expect(emitted).toHaveLength(written);
     expect(source.version).toBe('1.0.0');
     expect(words()).toEqual(['물', '불', '흙']);
+
+    // Re-linking from the picker and saying Cancel isn't a failure: the saved row keeps its status.
+    const savedBefore = (await loadSourcesRegistry(ctx.platform, state)).googleDriveFiles?.[0];
+    expect(savedBefore?.lastStatus).toBe('synced');
+    await expect(
+      linkGoogleDriveFile({ id: 'pkg-1', name: 'pack.flashpkg', mimeType: PKG }, asking),
+    ).rejects.toThrow(/cancelled/);
+    const savedAfter = (await loadSourcesRegistry(ctx.platform, state)).googleDriveFiles?.[0];
+    expect(savedAfter?.lastStatus).toBe('synced');
+    expect(savedAfter?.lastError).toBeUndefined();
+    expect(savedAfter?.version).toBe('1.0.0');
+    expect(emitted).toHaveLength(written);
 
     answer.mockResolvedValue(true);
     await refreshSingleGoogleDriveFileSource(source, asking);

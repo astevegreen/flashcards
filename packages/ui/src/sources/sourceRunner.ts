@@ -58,6 +58,8 @@ import {
 } from './googleDriveFileSource.ts';
 import {
   archiveHoldReason,
+  archivePreviewRequest,
+  throwIfArchiveHeld,
   carriesSource,
   isOnline,
   loadSourcesRegistry,
@@ -1106,7 +1108,12 @@ export async function scanSingleLocalFolder(
           continue;
         }
         // Not cached either: the next scan asks again.
-        const held = await archiveHoldReason(ctx, file.name, pkgRes.notesArchived); // NOSONAR (S9382)
+        const request = archivePreviewRequest(
+          pkgRes.manifest.name,
+          pkgRes.notesArchived,
+          file.name,
+        );
+        const held = await archiveHoldReason(ctx, request); // NOSONAR (S9382)
         if (held) {
           warnings.push({ code: 'archive_held', message: held, file: file.relativePath });
           continue;
@@ -1539,8 +1546,10 @@ export async function refreshSinglePackageSubscription(
   });
   const overLimit = deckLimitReason(ctx.entitlement, state, newDeckIds(state, pkgRes.events));
   if (overLimit) throw new Error(overLimit);
-  const held = await archiveHoldReason(ctx, sub.title, pkgRes.notesArchived);
-  if (held) throw new Error(held);
+  await throwIfArchiveHeld(
+    ctx,
+    archivePreviewRequest(pkgRes.manifest.name.trim() || sub.title, pkgRes.notesArchived),
+  );
 
   await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia);
   if (pkgRes.events.length > 0) {

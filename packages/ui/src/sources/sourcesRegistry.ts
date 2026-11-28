@@ -56,8 +56,25 @@ export interface SourceRunContext {
 
 /** A package re-import that would archive notes no longer in the package (C9). */
 export interface ArchivePreviewRequest {
+  /** The package's title (its manifest `name`): what the user knows the deck by. */
   sourceName: string;
   notesArchived: number;
+  /** The file it came from (a folder or Drive `.flashpkg`), when that differs from the title. */
+  fileName?: string;
+}
+
+/** A package import's request: titled by its manifest name, else by the file it came from. */
+export function archivePreviewRequest(
+  packageName: string,
+  notesArchived: number,
+  fileName?: string,
+): ArchivePreviewRequest {
+  const sourceName = packageName.trim() || fileName || 'this package';
+  return {
+    sourceName,
+    notesArchived,
+    ...(fileName && fileName !== sourceName ? { fileName } : {}),
+  };
 }
 
 function notesPhrase(count: number): string {
@@ -71,16 +88,52 @@ function notesPhrase(count: number): string {
  */
 export async function archiveHoldReason(
   ctx: SourceRunContext,
-  sourceName: string,
-  notesArchived: number,
+  request: ArchivePreviewRequest,
 ): Promise<string | undefined> {
+  return (await archiveHold(ctx, request))?.message;
+}
+
+/**
+ * Thrown when a package import is held (no one to ask) or the user said Cancel. `cancelled` tells
+ * them apart: a Cancel is the user's choice, not a failure, so a link doesn't mark its row failed.
+ */
+export class ArchiveHoldError extends Error {
+  constructor(
+    message: string,
+    readonly cancelled: boolean,
+  ) {
+    super(message);
+    this.name = 'ArchiveHoldError';
+  }
+}
+
+/** `archiveHoldReason` for callers that stop by throwing (Drive files, subscriptions). */
+export async function throwIfArchiveHeld(
+  ctx: SourceRunContext,
+  request: ArchivePreviewRequest,
+): Promise<void> {
+  const held = await archiveHold(ctx, request);
+  if (held) throw new ArchiveHoldError(held.message, held.cancelled);
+}
+
+async function archiveHold(
+  ctx: SourceRunContext,
+  request: ArchivePreviewRequest,
+): Promise<{ message: string; cancelled: boolean } | undefined> {
+  const { sourceName, notesArchived } = request;
   if (notesArchived <= 0) return undefined;
   const notes = notesPhrase(notesArchived);
   if (!ctx.confirmArchive) {
-    return `Not updated: this version of "${sourceName}" would archive ${notes} and ${notesArchived === 1 ? 'its' : 'their'} review progress. Refresh it in Sources to review.`;
+    return {
+      message: `Not updated: this version of "${sourceName}" would archive ${notes} and ${notesArchived === 1 ? 'its' : 'their'} review progress. Refresh it in Sources to review.`,
+      cancelled: false,
+    };
   }
-  if (await ctx.confirmArchive({ sourceName, notesArchived })) return undefined;
-  return `Not updated: you cancelled the update of "${sourceName}", which would archive ${notes}.`;
+  if (await ctx.confirmArchive(request)) return undefined;
+  return {
+    message: `Not updated: you cancelled the update of "${sourceName}", which would archive ${notes}.`,
+    cancelled: true,
+  };
 }
 
 export interface SourceRefreshSummary {

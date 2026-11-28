@@ -47,7 +47,6 @@ export interface CloudTtsSynthParams {
     tts_key?: string;
     tts_lang_key?: string;
   }) => Promise<void>;
-  setLastAudioWarning: (warning: string | null) => void;
 }
 
 export async function runCloudTtsSynthesis(
@@ -64,7 +63,6 @@ export async function runCloudTtsSynthesis(
     ttsLangKey,
     override,
     addMedia,
-    setLastAudioWarning,
   } = params;
 
   const createTtsProvider = platform.createTtsProvider;
@@ -141,7 +139,6 @@ export async function runCloudTtsSynthesis(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const warning = `Cloud TTS failed — falling back (${msg})`;
-      setLastAudioWarning(warning);
       return { audio: null, warning };
     }
   };
@@ -203,6 +200,7 @@ export async function runTestTtsVoice(
     lang: normLang,
     bcp47Lang: toBcp47SpeechTag(normLang),
   };
+  // No banner setter: Settings shows the warning in its own message, not on the study banner.
   const result = await speakTargetInternal(target, 1.0, draftOverride);
   if (result.played) {
     const label =

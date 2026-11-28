@@ -60,9 +60,17 @@ export function MediaImage({ src, alt = '', className = '' }: MediaImageProps) {
   }, []);
 
   useEffect(() => {
-    // Not a media reference: nothing to read. A loaded URL stays until the next read replaces it
-    // or the image unmounts, so switching back to that hash shows it without reading again.
-    if (!hash) return undefined;
+    // Not a media reference: nothing to read, so release any loaded object URL now. Switching back
+    // to that hash reads it again.
+    if (!hash) {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+        setLoaded(null);
+      }
+      loadedHashRef.current = null;
+      return undefined;
+    }
 
     // Already loaded this exact content-addressed hash: do NOT flicker or re-read IndexedDB on unrelated stateVersion bumps!
     if (loadedHashRef.current === hash && objectUrlRef.current) {

@@ -77,6 +77,19 @@ describe('package update that archives notes (C9 preview)', () => {
     expect(s.sub.version).toBe('1.0.0');
   });
 
+  it('a blank package title falls back to the subscription title', async () => {
+    const confirm = vi.fn(async () => false);
+    const s = subscribedAtV1(confirm);
+    await refreshSinglePackageSubscription(s.sub, s.ctx, { force: true });
+    expect(s.sub.title).toBe('Words');
+
+    s.serve(packageBytes(['k1', 'k4'], '2.0.0', '   '));
+    await expect(refreshSinglePackageSubscription(s.sub, s.ctx, { force: true })).rejects.toThrow(
+      /cancelled the update of "Words"/,
+    );
+    expect(confirm).toHaveBeenCalledWith({ sourceName: 'Words', notesArchived: 2 });
+  });
+
   it('Continue archives exactly the notes the preview counted', async () => {
     const confirm = vi.fn(async () => true);
     const s = subscribedAtV1(confirm);
@@ -160,13 +173,17 @@ describe('package update that archives notes (C9 preview)', () => {
 
     bytes = V2;
     await scanSingleLocalFolder(folder, ctx);
-    expect(confirm).toHaveBeenCalledWith({ sourceName: 'words.flashpkg', notesArchived: 2 });
+    expect(confirm).toHaveBeenCalledWith({
+      sourceName: 'Words',
+      notesArchived: 2,
+      fileName: 'words.flashpkg',
+    });
     expect(activeWords(state)).toEqual(['k1', 'k2', 'k3']);
     expect(folder.files['words.flashpkg']?.contentHash).toBe(cachedV1);
     expect(folder.warnings?.map((w) => w.code)).toContain('archive_held');
     const heldRes = { updated: false, notesTouched: 0, pagesTouched: 0, inboxImported: 0 };
     expect(folderScanStatusMessage(folder, heldRes)).toMatch(
-      /^Not updated: you cancelled the update of "words\.flashpkg", which would archive 2 notes\.$/,
+      /^Not updated: you cancelled the update of "Words", which would archive 2 notes\.$/,
     );
     expect(folderScanStatusMessage(folder, { ...heldRes, updated: true, notesTouched: 1 })).toBe(
       `Scanned "Cards" (1 note change(s), 0 page(s), 0 Inbox). ${folder.warnings?.[0]?.message}`,
@@ -187,8 +204,29 @@ describe('package update that archives notes (C9 preview)', () => {
   it('the hold message is singular for one note', async () => {
     const { archiveHoldReason } = await import('../src/sources/sourcesRegistry.ts');
     const ctx = {} as Parameters<typeof archiveHoldReason>[0];
-    expect(await archiveHoldReason(ctx, 'W', 1)).toMatch(/archive 1 note and its review progress/);
-    expect(await archiveHoldReason(ctx, 'W', 2)).toMatch(/archive 2 notes and their review/);
-    expect(await archiveHoldReason(ctx, 'W', 0)).toBeUndefined();
+    const req = (notesArchived: number) => ({ sourceName: 'W', notesArchived });
+    expect(await archiveHoldReason(ctx, req(1))).toMatch(/archive 1 note and its review progress/);
+    expect(await archiveHoldReason(ctx, req(2))).toMatch(/archive 2 notes and their review/);
+    expect(await archiveHoldReason(ctx, req(0))).toBeUndefined();
+  });
+
+  it('the request names the package title, and the file only when it differs', async () => {
+    const { archivePreviewRequest } = await import('../src/sources/sourcesRegistry.ts');
+    expect(archivePreviewRequest('Words', 2, 'words.flashpkg')).toEqual({
+      sourceName: 'Words',
+      notesArchived: 2,
+      fileName: 'words.flashpkg',
+    });
+    expect(archivePreviewRequest('Words', 2)).toEqual({ sourceName: 'Words', notesArchived: 2 });
+    expect(archivePreviewRequest('a.flashpkg', 1, 'a.flashpkg')).toEqual({
+      sourceName: 'a.flashpkg',
+      notesArchived: 1,
+    });
+    // A package without a title falls back to its file, then to plain words.
+    expect(archivePreviewRequest('  ', 1, 'b.flashpkg')).toEqual({
+      sourceName: 'b.flashpkg',
+      notesArchived: 1,
+    });
+    expect(archivePreviewRequest('', 1).sourceName).toBe('this package');
   });
 });
