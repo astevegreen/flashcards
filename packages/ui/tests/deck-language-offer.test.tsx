@@ -23,7 +23,7 @@ import {
 
 const T0 = Date.UTC(2026, 10, 1);
 
-function linkedSentenceDeck(): FlashEvent[] {
+function linkedSentenceDeck(language: string): FlashEvent[] {
   const f = createEventFactory('other', 0, createHlcState('other', T0));
   return [
     f.create(
@@ -32,7 +32,7 @@ function linkedSentenceDeck(): FlashEvent[] {
         deck_id: 'old-link',
         name: 'Sheet sentences',
         note_type_id: BUILTIN_NOTE_TYPE_IDS.SENTENCE,
-        language: 'en-US',
+        language,
       },
       T0,
     ),
@@ -55,7 +55,7 @@ afterEach(async () => {
   mounted = undefined;
 });
 
-async function mountLibrary(readOnly = false) {
+async function mountLibrary(readOnly = false, language = 'en-US') {
   const storage = createMemoryStorage();
   const library = createElement(LibraryScreen, { onStudyDeck: () => undefined });
   // A read-only sync state (a newer-format collection) for the inner tree only.
@@ -74,7 +74,7 @@ async function mountLibrary(readOnly = false) {
     : library;
   mounted = await mountWithApp(ui, {
     platform: createTestPlatform(storage),
-    initialEvents: linkedSentenceDeck(),
+    initialEvents: linkedSentenceDeck(language),
   });
   const m = mounted;
   const find = (id: string) =>
@@ -150,5 +150,19 @@ describe('Library deck language offer', () => {
     expect(find('deck-language-offer-old-link')).toBeNull();
     expect(m.app().state.decks.get('old-link')?.language).toBe('ko');
     expect(appendedTypes()).toEqual(['DeckSettingsChanged', 'DeckLanguageOffered']);
+  });
+
+  it('reads an empty language as "no language"', async () => {
+    const { find, waitFor } = await mountLibrary(false, '');
+    await waitFor('deck-language-offer-old-link');
+    expect(find('deck-language-offer-old-link')?.textContent).toContain(
+      'its language is no language',
+    );
+  });
+
+  it('names a language outside the app list through Intl.DisplayNames', async () => {
+    const { find, waitFor } = await mountLibrary(false, 'fr');
+    await waitFor('deck-language-offer-old-link');
+    expect(find('deck-language-offer-old-link')?.textContent).toContain('its language is French');
   });
 });
