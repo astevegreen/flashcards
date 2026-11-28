@@ -180,6 +180,24 @@ function cloudStorage(): MemoryStorage {
   return storage;
 }
 
+/** A TTS clip another device made for `text` in `lang`, synced in under its language key. */
+function clipEvent(hash: string, text: string, lang: string) {
+  const factory = createEventFactory('other', 0, createHlcState('other', Date.now()));
+  return factory.create(
+    'MediaAdded',
+    {
+      media: {
+        hash,
+        ext: 'mp3',
+        mime: 'audio/mpeg',
+        size: 1,
+        tts_lang_key: computeTtsLangCacheKey(text, lang),
+      },
+    },
+    Date.now(),
+  );
+}
+
 afterEach(async () => {
   await mounted?.unmount();
   mounted = undefined;
@@ -287,28 +305,105 @@ describe('dictionary speaker button', () => {
     const hash = 'a'.repeat(64);
     const storage = createMemoryStorage();
     storage.media.set(hash, { hash, mime: 'audio/mpeg', bytes: new Uint8Array([1]) });
-    const factory = createEventFactory('other', 0, createHlcState('other', Date.now()));
-    const clip = factory.create(
-      'MediaAdded',
-      {
-        media: {
-          hash,
-          ext: 'mp3',
-          mime: 'audio/mpeg',
-          size: 1,
-          tts_lang_key: computeTtsLangCacheKey('한국', 'ko'),
-        },
-      },
-      Date.now(),
-    );
     const audio = fakeAudioPlayer();
     await mountPanel(
       { audioPlayer: audio.player },
-      { storage, initialEvents: [...sampleEvents(), clip] },
+      { storage, initialEvents: [...sampleEvents(), clipEvent(hash, '한국', 'ko')] },
     );
     expect(speaker('日本')).toBeNull();
 
     await press('한국');
     await vi.waitFor(() => expect(audio.playPreloaded).toHaveBeenCalledWith(hash, 1));
+  });
+
+  it('plays a cached clip when cloud TTS is set up but this platform cannot run it', async () => {
+    const hash = 'b'.repeat(64);
+    const storage = cloudStorage();
+    storage.media.set(hash, { hash, mime: 'audio/mpeg', bytes: new Uint8Array([1]) });
+    const audio = fakeAudioPlayer();
+    // No `createTtsProvider`: the saved key can't synthesize here, so the clip in the collection
+    // (made by another device, in its voice) is what plays.
+    await mountPanel(
+      { audioPlayer: audio.player },
+      { storage, initialEvents: [...sampleEvents(), clipEvent(hash, '한국', 'ko')] },
+    );
+    expect(speaker('日本')).toBeNull();
+
+    await press('한국');
+    await vi.waitFor(() => expect(audio.playPreloaded).toHaveBeenCalledWith(hash, 1));
+  });
+});
+
+describe('audio warnings stay where they came from', () => {
+  const failing = () =>
+    fakeTtsProvider(async () => {
+      throw new Error('quota exceeded');
+    });
+
+  it('keeps a dictionary failure off the study banner', async () => {
+    const tts = failing();
+    const m = await mountPanel(
+      { audioPlayer: fakeAudioPlayer().player, createTtsProvider: async () => tts.provider },
+      { storage: cloudStorage() },
+    );
+
+    await press('한국');
+    await vi.waitFor(() =>
+      expect(find('dict-audio-warning')?.textContent).toContain('quota exceeded'),
+    );
+    expect(m.app().audio.lastAudioWarning).toBeNull();
+  });
+
+  it('keeps a study-card failure out of the dictionary', async () => {
+    const tts = failing();
+    const m = await mountPanel(
+      { audioPlayer: fakeAudioPlayer().player, createTtsProvider: async () => tts.provider },
+      { storage: cloudStorage() },
+    );
+
+    await act(async () => {
+      await m.app().audio.speakTarget({
+        rawText: '공부',
+        normalizedText: '공부',
+        lang: 'ko',
+        bcp47Lang: 'ko-KR',
+      });
+    });
+    await flush();
+    expect(m.app().audio.lastAudioWarning).toContain('quota exceeded');
+    expect(find('dict-audio-warning')).toBeNull();
+  });
+
+  it('keeps a Settings voice test failure off the study banner', async () => {
+    const tts = failing();
+    const m = await mountPanel(
+      { audioPlayer: fakeAudioPlayer().player, createTtsProvider: async () => tts.provider },
+      { storage: cloudStorage() },
+    );
+
+    let message = '';
+    await act(async () => {
+      message = (await m.app().audio.testTtsVoice('ko')).message;
+    });
+    expect(message).toContain('quota exceeded');
+    expect(m.app().audio.lastAudioWarning).toBeNull();
+  });
+
+  it('clears the dictionary warning on a press that speaks', async () => {
+    let fail = true;
+    const tts = fakeTtsProvider(async () => {
+      if (fail) throw new Error('quota exceeded');
+      return { bytes: new Uint8Array([4]), mime: 'audio/mpeg', ext: 'mp3', voiceId: 'google:ko' };
+    });
+    await mountPanel(
+      { audioPlayer: fakeAudioPlayer().player, createTtsProvider: async () => tts.provider },
+      { storage: cloudStorage() },
+    );
+
+    await press('한국');
+    await vi.waitFor(() => expect(find('dict-audio-warning')).not.toBeNull());
+    fail = false;
+    await press('日本');
+    await vi.waitFor(() => expect(find('dict-audio-warning')).toBeNull());
   });
 });

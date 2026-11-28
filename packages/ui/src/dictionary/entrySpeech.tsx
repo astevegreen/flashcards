@@ -5,7 +5,7 @@
  */
 import { computeTtsLangCacheKey, normalizeAudioLang, normalizeTtsText } from '@flash/core';
 import type { DeviceSpeechPlayer } from '@flash/platform';
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { isNavigatorOnline } from '../state/syncShell.ts';
 import { isCloudTtsConfigured } from '../state/useAudioController.ts';
@@ -65,6 +65,25 @@ export function useCanSpeak(langs: readonly string[]): (text: string, lang: stri
   };
 }
 
+/**
+ * The dictionary's own speech warning, kept apart from the study banner's lastAudioWarning so a
+ * failure in one never shows in the other. Module state: every speaker button writes it and the
+ * panel's one SpeechWarning reads it.
+ */
+let speechWarning: string | null = null;
+const warningListeners = new Set<() => void>();
+
+function setSpeechWarning(next: string | null): void {
+  if (speechWarning === next) return;
+  speechWarning = next;
+  for (const listener of warningListeners) listener();
+}
+
+function subscribeWarning(onChange: () => void): () => void {
+  warningListeners.add(onChange);
+  return () => warningListeners.delete(onChange);
+}
+
 export function EntrySpeakerButton({
   headword,
   lang,
@@ -78,7 +97,9 @@ export function EntrySpeakerButton({
       title="Play pronunciation"
       onClick={() => {
         audio.unlock();
-        void audio.speakText(headword, lang);
+        void audio.speakText(headword, lang).then((result) => {
+          setSpeechWarning(result.warning ?? null);
+        });
       }}
       className="inline-flex min-h-9 min-w-9 select-none items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-sm hover:border-[var(--accent)] active:scale-95"
     >
@@ -87,17 +108,23 @@ export function EntrySpeakerButton({
   );
 }
 
-/** Why the last cloud TTS request failed, so a press that stays silent says so. */
+/** Why the last press fell back or stayed silent (a cloud TTS failure, say), so it says so. */
 export function SpeechWarning() {
-  const { audio } = useApp();
-  if (!audio.lastAudioWarning) return null;
+  const warning = useSyncExternalStore(subscribeWarning, () => speechWarning);
+  // A warning belongs to the panel it came from; closing the panel drops it.
+  useEffect(() => () => setSpeechWarning(null), []);
+  if (!warning) return null;
   return (
     <output
       data-testid="dict-audio-warning"
       className="flex items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs text-[var(--muted)]"
     >
-      <span className="min-w-0 flex-1 break-words">{audio.lastAudioWarning}</span>
-      <button type="button" onClick={audio.dismissAudioWarning} className="font-semibold underline">
+      <span className="min-w-0 flex-1 break-words">{warning}</span>
+      <button
+        type="button"
+        onClick={() => setSpeechWarning(null)}
+        className="font-semibold underline"
+      >
         Dismiss
       </button>
     </output>
