@@ -18,6 +18,7 @@ import {
   type PendingPagePatch,
 } from './replay.ts';
 import {
+  canonicalizeAllStarterUpgradeNotes,
   canonicalizeAllTagAddNotes,
   canonicalizeOptionalCards,
   foldMediaRemovedFromUnknown,
@@ -541,6 +542,8 @@ export function deserializeCollectionState(serialized: SerializedCollectionState
   // ...and those that hydrated a newer snapshot keep the add registers but may have rewritten
   // `note.tags` without the adds: re-derive every such note so hydration equals a full replay.
   canonicalizeAllTagAddNotes(state);
+  // ...and those that predate `StarterNoteUpgraded` kept it but still show the old starter text.
+  canonicalizeAllStarterUpgradeNotes(state);
   // Snapshots from builds that predate optional cards derived every card of a rule layout.
   canonicalizeOptionalCards(state);
   return state;
