@@ -690,6 +690,12 @@ function copyDeckSetting<K extends keyof DeckSettings>(
   target[key] = (Array.isArray(value) ? [...value] : value) as DeckSettings[K];
 }
 
+/**
+ * Applies each present setting under its LWW register. `fromCreate` (a `DeckCreated`'s settings)
+ * uses its own `deck:<id>:created:<key>` register and never applies once any
+ * `DeckSettingsChanged` set that key, so a create's settings lose to every change in any merge
+ * order: a deterministic deck created offline on two devices keeps the order the user chose.
+ */
 function applyDeckSettingsPatchTarget(
   state: CollectionState,
   deckId: string,
@@ -697,12 +703,17 @@ function applyDeckSettingsPatchTarget(
   settings: Partial<DeckSettings>,
   hlc: string,
   collector?: ApplyMutationCollector,
+  fromCreate?: boolean,
 ): boolean {
   let layoutsChanged = false;
   for (const key of DECK_SETTING_KEYS) {
+    const changed = `deck:${deckId}:settings:${key}`;
     if (
       settings[key] !== undefined &&
-      shouldApplyLww(state, `deck:${deckId}:settings:${key}`, hlc, collector)
+      (fromCreate
+        ? !state.fieldHlcs.has(changed) &&
+          shouldApplyLww(state, `deck:${deckId}:created:${key}`, hlc, collector)
+        : shouldApplyLww(state, changed, hlc, collector))
     ) {
       copyDeckSetting(target, settings, key);
       if (key === 'enabled_layout_ids') layoutsChanged = true;
@@ -879,7 +890,7 @@ function applyDeckCreated(ctx: ApplyEventContext, p: EventPayloadMap['DeckCreate
     applyDeckCreatedFields(ctx, deck, p, initialRet);
   }
   if (p.settings) {
-    applyDeckSettingsPatchTarget(state, p.deck_id, deck.settings, p.settings, hlc, collector);
+    applyDeckSettingsPatchTarget(state, p.deck_id, deck.settings, p.settings, hlc, collector, true);
   }
   collector?.deckIds.add(p.deck_id);
   dirtyDecks.add(p.deck_id);
