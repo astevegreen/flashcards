@@ -1,13 +1,13 @@
-import { SYNC_CODEC_LIMITS } from '@flash/core';
-
 /**
  * Snapshot caps for a phone or tablet browser: the codec's 25 MiB raw cap, as on Capacitor
  * (`CAPACITOR_SYNC_SNAPSHOT_LIMITS`). A mobile browser tab has no more memory than the app's
  * WebView, and the OS kills the tab outright when it runs out, before the engine's error handling
  * runs; past the cap the device replays segments instead, which is slower but cannot crash.
+ * Written out rather than imported: importing `SYNC_CODEC_LIMITS` here would pull the sync codec
+ * into the boot chunk (§8). A test keeps the two equal.
  */
 export const MOBILE_WEB_SYNC_SNAPSHOT_LIMITS = {
-  maxUncompressedBytes: SYNC_CODEC_LIMITS.maxUncompressedBytes,
+  maxUncompressedBytes: 25 * 1024 * 1024,
 } as const;
 
 /** The navigator fields {@link isMobileBrowser} reads. */
