@@ -261,7 +261,35 @@ pub fn sweep_stale_temps(root: &Path, now: SystemTime) -> usize {
     removed
 }
 
-/// With `max_bytes`, a file larger than that fails with `TOO_LARGE` before it is read.
+fn too_large(relative: &str, size: u64, max: u64) -> IcloudError {
+    IcloudError::new(
+        "TOO_LARGE",
+        format!("iCloud Drive sync file \"{relative}\" is {size} bytes, over {max}."),
+    )
+}
+
+/// The size iCloud reports for a file before it is downloaded: the file's own length when it is
+/// here (a not-yet-downloaded "dataless" file on current macOS still reports its full size), else
+/// the size in its `.<name>.icloud` placeholder. `None` when neither says.
+///
+/// A local copy is sized before iCloud is asked for the current version, so a stale local copy
+/// over the cap (possible only for a mutable file such as the manifest) fails `TOO_LARGE` even
+/// when the newer remote version would fit. Accepted: immutable segments and snapshots are
+/// unaffected, and the engine handles `TOO_LARGE` as it handles a codec error.
+fn size_before_download(path: &Path) -> Option<u64> {
+    if let Ok(meta) = fs::metadata(path) {
+        return Some(meta.len());
+    }
+    let placeholder = placeholder_path(path);
+    let meta = fs::metadata(&placeholder).ok()?;
+    if meta.len() > MAX_PLACEHOLDER_BYTES {
+        return None;
+    }
+    placeholder_size(&fs::read(&placeholder).ok()?)
+}
+
+/// With `max_bytes`, a file larger than that fails with `TOO_LARGE` before it is read, and before
+/// it is downloaded when its size is known up front (from the file or its iCloud placeholder).
 pub fn read_file(
     root: &Path,
     relative: &str,
@@ -275,16 +303,18 @@ pub fn read_file(
             format!("iCloud Drive sync file not found: \"{relative}\""),
         ));
     }
+    if let Some(max) = max_bytes {
+        if let Some(size) = size_before_download(&path).filter(|&size| size > max) {
+            return Err(too_large(relative, size, max));
+        }
+    }
     ensure_downloaded(&path)?;
     if let Some(max) = max_bytes {
         let size = fs::metadata(&path)
             .map_err(|e| IcloudError::io(&e, relative))?
             .len();
         if size > max {
-            return Err(IcloudError::new(
-                "TOO_LARGE",
-                format!("iCloud Drive sync file \"{relative}\" is {size} bytes, over {max}."),
-            ));
+            return Err(too_large(relative, size, max));
         }
     }
     fs::read(&path).map_err(|e| IcloudError::io(&e, relative))
@@ -768,6 +798,52 @@ mod tests {
             b"12345"
         );
         let err = read_file(&root, "sync/big.seg", Some(4), no_download).unwrap_err();
+        assert_eq!(err.code, "TOO_LARGE");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn max_bytes_refuses_an_oversized_placeholder_without_downloading() {
+        let root = temp_root("bigplaceholder");
+        fs::create_dir_all(root.join("sync")).unwrap();
+        fs::write(
+            root.join("sync").join(".remote.seg.icloud"),
+            placeholder_plist(4096),
+        )
+        .unwrap();
+        let asked = std::cell::Cell::new(false);
+        let download = |_: &Path| {
+            asked.set(true);
+            Err(IcloudError::new("NETWORK", "offline"))
+        };
+        let err = read_file(&root, "sync/remote.seg", Some(4095), download).unwrap_err();
+        assert_eq!(err.code, "TOO_LARGE");
+        assert!(err.message.contains("4096"));
+        assert!(!asked.get(), "an oversized placeholder must not be downloaded");
+
+        // At or under the cap, and with no cap, the download is still asked for.
+        let err = read_file(&root, "sync/remote.seg", Some(4096), download).unwrap_err();
+        assert_eq!(err.code, "NETWORK");
+        assert!(asked.replace(false));
+        read_file(&root, "sync/remote.seg", None, download).unwrap_err();
+        assert!(asked.replace(false));
+
+        // A placeholder whose size cannot be read falls back to the check after the download.
+        fs::write(root.join("sync").join(".broken.seg.icloud"), b"not a plist").unwrap();
+        let err = read_file(&root, "sync/broken.seg", Some(1), download).unwrap_err();
+        assert_eq!(err.code, "NETWORK");
+        assert!(asked.get());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn max_bytes_refuses_a_large_local_file_before_downloading() {
+        let root = temp_root("bigdataless");
+        write_file(&root, "sync/big.seg", b"12345", false).unwrap();
+        let err = read_file(&root, "sync/big.seg", Some(4), |_| {
+            panic!("an oversized file must not be downloaded")
+        })
+        .unwrap_err();
         assert_eq!(err.code, "TOO_LARGE");
         fs::remove_dir_all(root).unwrap();
     }
