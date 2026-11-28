@@ -155,7 +155,7 @@ describe('MediaImage shows the image for the current src', () => {
   const A = 'aa'.repeat(32);
   const B = 'bb'.repeat(32);
 
-  it('switches between hashes and back without a stale image or a second read', async () => {
+  it('switches between hashes and back without a stale image', async () => {
     const storage = createMemoryStorage();
     storage.media.set(A, { hash: A, mime: 'image/png', bytes: new Uint8Array([1]) });
     storage.media.set(B, { hash: B, mime: 'image/png', bytes: new Uint8Array([2]) });
@@ -180,14 +180,14 @@ describe('MediaImage shows the image for the current src', () => {
     await act(async () => release());
     await waitFor(() => shownHash() === B, 'image B');
 
-    // An unsafe src is blocked at once; the image comes back when the src does, unread.
+    // An unsafe src is blocked at once and releases the image; it is read again when the src returns.
     await mounted.rerender(<MediaImage src="javascript:alert(1)" />);
     expect(byTestId(mounted, 'media-image-blocked')).not.toBeNull();
     const reads = getMedia.mock.calls.length;
     await mounted.rerender(<MediaImage src={`media:${B}`} />);
     await flush();
     expect(shownHash()).toBe(B);
-    expect(getMedia.mock.calls).toHaveLength(reads);
+    expect(getMedia.mock.calls).toHaveLength(reads + 1);
   });
 
   it('a hash found missing shows "pending sync", and another src replaces it', async () => {
