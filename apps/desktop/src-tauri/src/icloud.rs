@@ -271,6 +271,11 @@ fn too_large(relative: &str, size: u64, max: u64) -> IcloudError {
 /// The size iCloud reports for a file before it is downloaded: the file's own length when it is
 /// here (a not-yet-downloaded "dataless" file on current macOS still reports its full size), else
 /// the size in its `.<name>.icloud` placeholder. `None` when neither says.
+///
+/// A local copy is sized before iCloud is asked for the current version, so a stale local copy
+/// over the cap (possible only for a mutable file such as the manifest) fails `TOO_LARGE` even
+/// when the newer remote version would fit. Accepted: immutable segments and snapshots are
+/// unaffected, and the engine handles `TOO_LARGE` as it handles a codec error.
 fn size_before_download(path: &Path) -> Option<u64> {
     if let Ok(meta) = fs::metadata(path) {
         return Some(meta.len());

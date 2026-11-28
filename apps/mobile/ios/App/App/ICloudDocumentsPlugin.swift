@@ -311,6 +311,11 @@ public class ICloudDocumentsPlugin: CAPPlugin, CAPBridgedPlugin {
     /// The size iCloud reports for a file before it is downloaded: the file's own size when it is
     /// here (a not-yet-downloaded "dataless" file still reports its full size), else the
     /// `NSURLFileSizeKey` in its `.<name>.icloud` placeholder. `nil` when neither says.
+    ///
+    /// A local copy is sized before iCloud is asked for the current version, so a stale local copy
+    /// over the cap (possible only for a mutable file such as the manifest) fails TOO_LARGE even
+    /// when the newer remote version would fit. Accepted: immutable segments and snapshots are
+    /// unaffected, and the engine handles TOO_LARGE as it handles a codec error.
     private func sizeBeforeDownload(_ url: URL) -> Int? {
         let fm = FileManager.default
         if fm.fileExists(atPath: url.path) {
