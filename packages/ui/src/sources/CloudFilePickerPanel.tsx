@@ -112,6 +112,7 @@ export function CloudFilePickerPanel<Item extends CloudBrowseItem>({
   onErrorMessage,
   onClose,
   onPendingReconciliation,
+  confirmArchive,
 }: Readonly<{
   provider: CloudPickerProvider<Item>;
   onStatusMessage: (msg: string) => void;
@@ -119,6 +120,8 @@ export function CloudFilePickerPanel<Item extends CloudBrowseItem>({
   onClose: () => void;
   /** Hands a held rename review to the Sources panel, which shows the prompt. */
   onPendingReconciliation?: (rec: PendingXlsxReconciliation) => void;
+  /** The Sources panel's archive preview (C9), so a link that would archive notes asks first. */
+  confirmArchive?: SourceRunContext['confirmArchive'];
 }>) {
   const { platform, state, stateVersion, entitlement, getEventFactory, emitEvents } = useApp();
   const { createDeck } = useLibraryActions();
@@ -271,7 +274,13 @@ export function CloudFilePickerPanel<Item extends CloudBrowseItem>({
     try {
       const res = await provider.link(
         item,
-        { platform, getState: () => state, getEventFactory, emitEvents },
+        {
+          platform,
+          getState: () => state,
+          getEventFactory,
+          emitEvents,
+          ...(confirmArchive ? { confirmArchive } : {}),
+        },
         choice,
       );
       if (res.pending) onPendingReconciliation?.(res.pending);

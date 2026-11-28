@@ -462,7 +462,11 @@ describe('linked Google Drive files (§3.1, drive.file)', () => {
 
     const written = emitted.length;
     await expect(refreshSingleGoogleDriveFileSource(source, asking)).rejects.toThrow(/cancelled/);
-    expect(answer).toHaveBeenCalledWith({ sourceName: 'Drive Pack', notesArchived: 2 });
+    expect(answer).toHaveBeenCalledWith({
+      sourceName: 'Drive Pack',
+      notesArchived: 2,
+      fileName: 'pack.flashpkg',
+    });
     await expect(refreshSingleGoogleDriveFileSource(source, ctx)).rejects.toThrow(/Not updated/);
     expect(emitted).toHaveLength(written);
     expect(source.version).toBe('1.0.0');

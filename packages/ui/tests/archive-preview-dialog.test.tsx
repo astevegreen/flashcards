@@ -101,6 +101,9 @@ async function openPreview(m: Mounted): Promise<HTMLDialogElement> {
     'archive preview dialog',
   );
   expect(dialog.textContent).toContain('Archive 2 notes?');
+  expect(dialog.textContent).toContain('“Words”');
+  // A URL subscription has no file to name.
+  expect(dialog.querySelector('[data-testid="archive-preview-file"]')).toBeNull();
   return dialog;
 }
 

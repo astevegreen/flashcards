@@ -56,8 +56,25 @@ export interface SourceRunContext {
 
 /** A package re-import that would archive notes no longer in the package (C9). */
 export interface ArchivePreviewRequest {
+  /** The package's title (its manifest `name`): what the user knows the deck by. */
   sourceName: string;
   notesArchived: number;
+  /** The file it came from (a folder or Drive `.flashpkg`), when that differs from the title. */
+  fileName?: string;
+}
+
+/** A package import's request: titled by its manifest name, else by the file it came from. */
+export function archivePreviewRequest(
+  packageName: string,
+  notesArchived: number,
+  fileName?: string,
+): ArchivePreviewRequest {
+  const sourceName = packageName.trim() || fileName || 'this package';
+  return {
+    sourceName,
+    notesArchived,
+    ...(fileName && fileName !== sourceName ? { fileName } : {}),
+  };
 }
 
 function notesPhrase(count: number): string {
@@ -71,15 +88,15 @@ function notesPhrase(count: number): string {
  */
 export async function archiveHoldReason(
   ctx: SourceRunContext,
-  sourceName: string,
-  notesArchived: number,
+  request: ArchivePreviewRequest,
 ): Promise<string | undefined> {
+  const { sourceName, notesArchived } = request;
   if (notesArchived <= 0) return undefined;
   const notes = notesPhrase(notesArchived);
   if (!ctx.confirmArchive) {
     return `Not updated: this version of "${sourceName}" would archive ${notes} and ${notesArchived === 1 ? 'its' : 'their'} review progress. Refresh it in Sources to review.`;
   }
-  if (await ctx.confirmArchive({ sourceName, notesArchived })) return undefined;
+  if (await ctx.confirmArchive(request)) return undefined;
   return `Not updated: you cancelled the update of "${sourceName}", which would archive ${notes}.`;
 }
 
