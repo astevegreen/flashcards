@@ -92,8 +92,7 @@ export function SpeechWarning() {
   const { audio } = useApp();
   if (!audio.lastAudioWarning) return null;
   return (
-    <div
-      role="status"
+    <output
       data-testid="dict-audio-warning"
       className="flex items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs text-[var(--muted)]"
     >
@@ -101,6 +100,6 @@ export function SpeechWarning() {
       <button type="button" onClick={audio.dismissAudioWarning} className="font-semibold underline">
         Dismiss
       </button>
-    </div>
+    </output>
   );
 }
