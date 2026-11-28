@@ -1,6 +1,7 @@
 import type { CollectionState, EventFactory } from '../events/replay.ts';
 import type { DeckLanguageOfferedPayload, KnownEvent, UnknownEvent } from '../events/types.ts';
 import { guessCjkLanguageFromText } from '../languages/guess-script.ts';
+import { normalizeLanguage } from '../languages/normalize.ts';
 import { noteField } from '../model/note-fields.ts';
 import { BUILTIN_NOTE_TYPE_IDS } from '../model/presets.ts';
 import type { Deck } from '../model/types.ts';
@@ -24,6 +25,9 @@ const TEXT_FIELDS: ReadonlyMap<string, readonly string[]> = new Map([
   [BUILTIN_NOTE_TYPE_IDS.CLOZE, ['text']],
   [BUILTIN_NOTE_TYPE_IDS.GRAMMAR, ['pattern', 'example']],
 ]);
+
+/** Languages also written in Han characters alone, so Han-only text never argues against them. */
+const HAN_USING_LANGUAGES: ReadonlySet<string> = new Set(['ja', 'ko']);
 
 /** Notes looked at per deck; the script guess stops at a few thousand characters anyway. */
 const NOTE_SAMPLE = 50;
@@ -54,10 +58,6 @@ export function wasDeckLanguageOffered(state: CollectionState, deckId: string): 
   return offeredDecks(state).has(deckId);
 }
 
-function primarySubtag(language: string): string {
-  return language.split('-')[0]?.toLowerCase() ?? '';
-}
-
 function* deckTexts(state: CollectionState, deck: Deck, keys: readonly string[]) {
   let taken = 0;
   for (const noteId of state.noteIdsByDeck.get(deck.id) ?? []) {
@@ -74,13 +74,19 @@ function* deckTexts(state: CollectionState, deck: Deck, keys: readonly string[])
 /**
  * The language to offer for `deck`, or `undefined` when there is nothing to offer: the deck is
  * archived, not Sentence, Cloze or Grammar, was offered before, its text is not mostly Japanese,
- * Korean or Chinese script, or its language already matches (`zh-Hant` matches Hanzi text).
+ * Korean or Chinese script, or its language already matches (`zh-Hant` matches Hanzi text; `ja`
+ * and `ko` match text that is only Han characters, such as yojijukugo or Hanja).
  */
 export function deckLanguageOffer(state: CollectionState, deck: Deck): string | undefined {
   const keys = TEXT_FIELDS.get(deck.note_type_id);
   if (!keys || deck.archived || wasDeckLanguageOffered(state, deck.id)) return undefined;
   const detected = guessCjkLanguageFromText(deckTexts(state, deck, keys));
-  if (!detected || primarySubtag(detected) === primarySubtag(deck.language)) return undefined;
+  if (!detected || normalizeLanguage(detected) === normalizeLanguage(deck.language))
+    return undefined;
+  // Han alone reads as Chinese, but Japanese yojijukugo and Korean Hanja decks are Han-only too.
+  if (detected === 'zh-Hans' && HAN_USING_LANGUAGES.has(normalizeLanguage(deck.language))) {
+    return undefined;
+  }
   return detected;
 }
 

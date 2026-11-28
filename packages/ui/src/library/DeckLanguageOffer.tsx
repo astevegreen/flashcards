@@ -24,7 +24,8 @@ export interface DeckLanguageChange {
  * The one-time offer on a Library deck row (`decks/language-offer.ts`): set a Sentence, Cloze or
  * Grammar deck's language to the one its text is written in. Either answer writes events, so the
  * offer never shows again for that deck. After a change, the row shows Undo until it is closed.
- * Lazy-loaded: the Library imports it only for a deck with an offer or a change to undo.
+ * Not in the initial bundle: `LibraryScreen` imports it statically, so it ships in the Library
+ * screen's own lazy chunk (a separate chunk would add a name to the entry's preload map).
  */
 export default function DeckLanguageOffer({
   deck,

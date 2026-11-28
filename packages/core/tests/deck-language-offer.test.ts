@@ -97,6 +97,8 @@ describe('deckLanguageOffer', () => {
   it('offers nothing when the language matches, the text is Latin, or the type is not neutral', () => {
     const state = stateOf([
       ...deckEvents('match', BUILTIN_NOTE_TYPE_IDS.SENTENCE, 'ko-KR', KO_SENTENCES),
+      ...deckEvents('under', BUILTIN_NOTE_TYPE_IDS.SENTENCE, 'ko_KR', KO_SENTENCES),
+      ...deckEvents('spaced', BUILTIN_NOTE_TYPE_IDS.SENTENCE, ' KO ', KO_SENTENCES),
       ...deckEvents('hant', BUILTIN_NOTE_TYPE_IDS.SENTENCE, 'zh-Hant', [
         { sentence: '我是學生。' },
       ]),
@@ -108,9 +110,25 @@ describe('deckLanguageOffer', () => {
         { sentence: 'Good morning.', translation: '좋은 아침이에요.' },
       ]),
     ]);
-    for (const id of ['match', 'hant', 'latin', 'vocab', 'empty', 'tr']) {
+    for (const id of ['match', 'under', 'spaced', 'hant', 'latin', 'vocab', 'empty', 'tr']) {
       expect(offerFor(state, id), id).toBeUndefined();
     }
+  });
+
+  it('Han-only text never asks a ja or ko deck to become Chinese', () => {
+    const state = stateOf([
+      ...deckEvents('yoji', BUILTIN_NOTE_TYPE_IDS.SENTENCE, 'ja', [{ sentence: '一期一会' }]),
+      ...deckEvents('hanja', BUILTIN_NOTE_TYPE_IDS.GRAMMAR, 'ko-KR', [
+        { pattern: '學而時習之', example: '溫故知新' },
+      ]),
+      ...deckEvents('en', BUILTIN_NOTE_TYPE_IDS.SENTENCE, 'en', [{ sentence: '一期一会' }]),
+      // Kana still means Japanese, so a ko deck written in Japanese is asked.
+      ...deckEvents('kana', BUILTIN_NOTE_TYPE_IDS.SENTENCE, 'ko', [{ sentence: '学生です。' }]),
+    ]);
+    expect(offerFor(state, 'yoji')).toBeUndefined();
+    expect(offerFor(state, 'hanja')).toBeUndefined();
+    expect(offerFor(state, 'en')).toBe('zh-Hans');
+    expect(offerFor(state, 'kana')).toBe('ja');
   });
 
   it('skips archived decks and archived notes', () => {
