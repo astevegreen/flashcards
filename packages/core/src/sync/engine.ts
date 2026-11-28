@@ -20,7 +20,7 @@ import {
   encodeDeviceHead,
   encodeEventsSegment,
   encodeManifest,
-  encodeReadableSyncSnapshot,
+  encodeSyncSnapshotWithSize,
   manifestPath,
   mediaObjectPath,
   parseDeviceHeadPath,
@@ -83,8 +83,21 @@ export interface SyncEngineOptions {
    * than this many segments that are not full (default `1000`). Keeps the head small.
    */
   maxUnpackedHeadSegments?: number;
-  /** Write a new snapshot when >= N new events occurred since last snapshot (default `500`). */
+  /**
+   * Write a new snapshot when >= N new events occurred since last snapshot (default `500`). This
+   * is the floor: past it, the threshold grows with the last snapshot's size
+   * ({@link snapshotBytesPerEvent}).
+   */
   snapshotThreshold?: number;
+  /**
+   * Gzipped snapshot bytes that one new event pays for (default `1024`): the next snapshot waits
+   * for `ceil(lastSnapshotBytes / snapshotBytesPerEvent)` new events when that is more than
+   * `snapshotThreshold`. A 20k-card collection (about 5 MiB gzipped) then snapshots every ~5,000
+   * events instead of every 500; collections up to 500 KiB keep the 500-event interval. After a
+   * snapshot refused because its raw JSON was past `snapshotLimits`, `lastSnapshotBytes` is that
+   * raw size, so the next try waits much longer (25,600+ events under a 25 MiB cap).
+   */
+  snapshotBytesPerEvent?: number;
   /** Injectable clock for deterministic tests. */
   nowMs?: () => number;
   /** Injectable collection ID generator for deterministic tests. */
@@ -96,8 +109,10 @@ export interface SyncEngineOptions {
   /** Max allowed media blob size in bytes (default `SYNC_MEDIA_LIMITS.maxMediaBlobBytes`). */
   maxMediaBlobBytes?: number;
   /**
-   * Size caps for reading and writing snapshots (default `SYNC_SNAPSHOT_LIMITS`). Only tests set
-   * it, to exercise the over-cap path (D12) without a 128 MiB fixture.
+   * Size caps for reading and writing snapshots, field by field (default `SYNC_SNAPSHOT_LIMITS`).
+   * Platforms with less memory pass lower caps (`PlatformServices.syncSnapshotLimits`: phones and
+   * mobile browsers keep 25 MiB raw); tests pass them to exercise the over-cap path (D12) without
+   * a 128 MiB fixture.
    */
   snapshotLimits?: Partial<typeof SYNC_SNAPSHOT_LIMITS>;
   /**
@@ -110,6 +125,7 @@ export interface SyncEngineOptions {
 
 const DEFAULT_MAX_EVENTS_PER_SEGMENT = 2000;
 const DEFAULT_SNAPSHOT_THRESHOLD = 500;
+const DEFAULT_SNAPSHOT_BYTES_PER_EVENT = 1024;
 const DEFAULT_MAX_UNPACKED_HEAD_SEGMENTS = 1000;
 const MAX_SEGMENT_COLLISION_RETRIES = 16;
 
@@ -122,6 +138,9 @@ function cloneCursor(cursor: SyncCursorState): SyncCursorState {
     remoteWatermarks: { ...cursor.remoteWatermarks },
     remoteSegments: { ...cursor.remoteSegments },
     lastSnapshotTotalEvents: cursor.lastSnapshotTotalEvents,
+    ...(cursor.lastSnapshotBytes !== undefined
+      ? { lastSnapshotBytes: cursor.lastSnapshotBytes }
+      : {}),
     ...(cursor.lastSyncedAt !== undefined ? { lastSyncedAt: cursor.lastSyncedAt } : {}),
     ...(cursor.pushedMediaHashes !== undefined
       ? { pushedMediaHashes: [...cursor.pushedMediaHashes] }
@@ -182,25 +201,58 @@ function mergeSegmentRanges(
 }
 
 /**
- * The ranges to fold when `head.json` lists more than `maxUnpacked` segments after its leading
- * run of full ones (`count >= packedCount`), or `null`. The fold is always a suffix of the list:
- * readers fetch segments in `seg` order and stop at the first unreadable one, so `seg` order has
- * to stay `seq` order. Ranges that overlap or run backwards are left alone.
+ * The ranges to fold when `head.json` lists more than `maxUnpacked` segments that are not full
+ * (`count < packedCount`), or `null`. The fold is always a suffix of the list: readers fetch
+ * segments in `seg` order and stop at the first unreadable one, so `seg` order has to stay `seq`
+ * order. Ranges that overlap or run backwards are left alone.
+ *
+ * The fold starts at the first segment that is not full, unless at most half of `maxUnpacked`
+ * such segments come before the last full one: then it starts after that full segment, so the full
+ * segments in between are not written again (a push of more than `packedCount` events lands as
+ * full segments after the small ones before it). The head still ends up with at most half the
+ * budget plus one segment that is not full.
  */
 function planHeadCompaction(
   segments: readonly SegmentRange[],
   packedCount: number,
   maxUnpacked: number,
 ): { keep: SegmentRange[]; fold: SegmentRange[] } | null {
-  let keep = 0;
-  while (keep < segments.length && (segments[keep]?.count ?? 0) >= packedCount) keep++;
-  if (segments.length - keep <= maxUnpacked) return null;
+  const isFull = (s: SegmentRange | undefined) => (s?.count ?? 0) >= packedCount;
+  let firstPartial = 0;
+  while (firstPartial < segments.length && isFull(segments[firstPartial])) firstPartial++;
+  let partials = 0;
+  let lastFull = -1;
+  for (let i = 0; i < segments.length; i++) {
+    if (isFull(segments[i])) lastFull = i;
+    else partials++;
+  }
+  if (partials <= maxUnpacked) return null;
   for (let i = 1; i < segments.length; i++) {
     const prev = segments[i - 1];
     const cur = segments[i];
     if (!prev || !cur || cur.seg <= prev.seg || cur.from_seq <= prev.to_seq) return null;
   }
-  return { keep: segments.slice(0, keep), fold: segments.slice(keep) };
+  let start = firstPartial;
+  if (lastFull > firstPartial) {
+    let partialsBefore = 0;
+    for (let i = 0; i < lastFull; i++) if (!isFull(segments[i])) partialsBefore++;
+    if (partialsBefore <= Math.floor(maxUnpacked / 2)) start = lastFull + 1;
+  }
+  return { keep: segments.slice(0, start), fold: segments.slice(start) };
+}
+
+/**
+ * New events needed before the next snapshot: `floor` events, or more for a big collection, so
+ * that each snapshot upload is paid for by `bytesPerEvent` bytes per event since the last one.
+ * Old remote snapshots are never deleted, so this also bounds how fast they pile up.
+ */
+export function effectiveSnapshotThreshold(
+  floor: number,
+  lastSnapshotBytes: number | undefined,
+  bytesPerEvent: number,
+): number {
+  if (!lastSnapshotBytes || !(bytesPerEvent > 0)) return floor;
+  return Math.max(floor, Math.ceil(lastSnapshotBytes / bytesPerEvent));
 }
 
 function sameRanges(a: readonly SegmentRange[], b: readonly SegmentRange[]): boolean {
@@ -262,6 +314,7 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
     maxFormatVersion = SYNC_FORMAT_VERSION,
     maxEventsPerSegment = DEFAULT_MAX_EVENTS_PER_SEGMENT,
     snapshotThreshold = DEFAULT_SNAPSHOT_THRESHOLD,
+    snapshotBytesPerEvent = DEFAULT_SNAPSHOT_BYTES_PER_EVENT,
     maxUnpackedHeadSegments = DEFAULT_MAX_UNPACKED_HEAD_SEGMENTS,
     nowMs = () => Date.now(),
     generateCollectionId = () => `col-${uuidv7(nowMs())}`,
@@ -402,6 +455,7 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
             cursor.lastSnapshotTotalEvents,
             snap.total_events,
           );
+          cursor.lastSnapshotBytes = snapBytes.byteLength;
           break;
         }
       } catch (err) {
@@ -824,9 +878,14 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
         ? hydratedSnapshot.total_events + pulledEvents.length
         : (options.currentTotalEvents ?? 0) + pulledEvents.length;
 
-    if (estimatedTotal - cursor.lastSnapshotTotalEvents >= snapshotThreshold) {
+    const threshold = effectiveSnapshotThreshold(
+      snapshotThreshold,
+      cursor.lastSnapshotBytes,
+      snapshotBytesPerEvent,
+    );
+    if (estimatedTotal - cursor.lastSnapshotTotalEvents >= threshold) {
       const built = await buildSnapshotState(pulledEvents, hydratedSnapshot);
-      if (built && built.totalEvents - cursor.lastSnapshotTotalEvents >= snapshotThreshold) {
+      if (built && built.totalEvents - cursor.lastSnapshotTotalEvents >= threshold) {
         const watermarks: Record<string, number> = { ...cursor.remoteWatermarks };
         const ownWatermark = Math.max(localOwnSeq, cursor.lastPushedSeq);
         if (ownWatermark > 0) {
@@ -857,9 +916,10 @@ export async function runSync(options: SyncEngineOptions): Promise<SyncRunResult
           },
         };
 
-        // A snapshot too big to read back is not uploaded; the next try is `snapshotThreshold`
-        // events later (D12).
-        const encoded = encodeReadableSyncSnapshot(snapshot, snapshotLimits);
+        // A snapshot too big to read back is not uploaded (D12). Its size still scales the
+        // interval, so a device under a low cap doesn't build and drop one every 500 events.
+        const { encoded, bytes } = encodeSyncSnapshotWithSize(snapshot, snapshotLimits);
+        cursor.lastSnapshotBytes = bytes;
         try {
           if (encoded) {
             await transport.write(targetPath, encoded, { ifAbsent: true });

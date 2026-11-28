@@ -10,6 +10,7 @@ import {
   deviceHeadPath,
   deviceSegmentPath,
   encodeDeviceHead,
+  encodeEventsSegment,
 } from '../src/sync/codec.ts';
 import { runSync, type SyncEngineOptions } from '../src/sync/engine.ts';
 import { createInitialSyncCursor, type SyncCursorState } from '../src/sync/types.ts';
@@ -297,5 +298,79 @@ describe('head.json segments compaction', () => {
     const res = await pushA(transport, cursor, events, 5);
     expect((await readHead(transport)).segments).toHaveLength(5);
     expect(res.pushedSegments).toBe(1);
+  });
+
+  it('folds only the small segments after a big push, not the full ones before them', async () => {
+    const transport = new MemorySyncTransport();
+    const events = makeEvents(13);
+    let cursor = (await pushA(transport, createInitialSyncCursor(), events, 1)).cursor;
+    // One push of eight events lands as two full segments after the small one.
+    cursor = (await pushA(transport, cursor, events, 9)).cursor;
+    for (let n = 10; n <= 12; n++) cursor = (await pushA(transport, cursor, events, n)).cursor;
+    const before = await readHead(transport);
+    expect(before.segments?.map((s) => s.count)).toEqual([1, 4, 4, 1, 1, 1]);
+
+    // Four small segments: one before the full ones (at most half the budget), three after.
+    const res = await pushA(transport, cursor, events, 13);
+    const head = await expectHeadConsistent(transport, 13);
+    expect(head.segments?.map((s) => s.count)).toEqual([1, 4, 4, 4]);
+    // The leading small one and the full ones are still the same files.
+    expect(head.segments?.slice(0, 3)).toEqual(before.segments?.slice(0, 3));
+    expect(res.pushedSegments).toBe(1);
+    expect((await pullB(transport)).pulledEvents.map((e) => e.id)).toEqual(events.map((e) => e.id));
+  });
+
+  it('folds from the first small segment when more than half the budget comes before a full one', async () => {
+    const transport = new MemorySyncTransport();
+    const events = makeEvents(13);
+    let cursor = createInitialSyncCursor();
+    for (const n of [1, 2, 10, 11, 12]) cursor = (await pushA(transport, cursor, events, n)).cursor;
+    expect((await readHead(transport)).segments?.map((s) => s.count)).toEqual([1, 1, 4, 4, 1, 1]);
+
+    await pushA(transport, cursor, events, 13);
+    const head = await expectHeadConsistent(transport, 13);
+    expect(head.segments?.map((s) => s.count)).toEqual([4, 4, 4, 1]);
+  });
+
+  it('a legacy head with more ranges than the budget folds them all in one push', async () => {
+    const N = 1200;
+    const defaults = { maxEventsPerSegment: 2000, maxUnpackedHeadSegments: 1000 };
+    const transport = new MemorySyncTransport();
+    const events = makeEvents(N + 1);
+    await pushA(transport, createInitialSyncCursor(), events, 1, defaults);
+    // An older build wrote one segment per event and listed every one of them.
+    const ranges = events.slice(0, N).map((ev, i) => ({
+      seg: i + 1,
+      from_seq: ev.seq,
+      to_seq: ev.seq,
+      count: 1,
+    }));
+    for (const [i, ev] of events.slice(1, N).entries()) {
+      await transport.write(deviceSegmentPath('dev-a', i + 2), encodeEventsSegment([ev]));
+    }
+    await transport.write(
+      deviceHeadPath('dev-a'),
+      encodeDeviceHead({
+        device_id: 'dev-a',
+        last_segment: N,
+        last_seq: N,
+        updated_at: t0,
+        segments: ranges,
+      }),
+    );
+    const reader = await pullB(transport);
+    expect(reader.pulledEvents).toHaveLength(N);
+
+    // The upgraded build reconnects with a cleared cursor and pushes one event.
+    const res = await pushA(transport, createInitialSyncCursor(), events, N + 1, defaults);
+    expect(res.pushedEventCount).toBe(1);
+    expect(res.pushedSegments).toBe(1);
+    const head = await expectHeadConsistent(transport, N + 1);
+    expect(head.segments).toEqual([{ seg: N + 1, from_seq: 1, to_seq: N + 1, count: N + 1 }]);
+    expect(res.cursor.pushedSegments).toEqual(head.segments);
+
+    // Both the reader that synced against the old head and a fresh one end up with every event.
+    expect((await pullB(transport, reader.cursor)).pulledEvents.map((e) => e.seq)).toEqual([N + 1]);
+    expect((await pullB(transport)).pulledEvents.map((e) => e.id)).toEqual(events.map((e) => e.id));
   });
 });

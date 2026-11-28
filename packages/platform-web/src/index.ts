@@ -5,11 +5,17 @@ import { WebFiles } from './files/web-files.ts';
 import type { LazyWebServices } from './lazy-services.ts';
 import { loadOnceUntilFailure } from './load-once.ts';
 import { DexieStorage } from './storage/dexie-storage.ts';
+import { webSyncSnapshotLimits } from './sync/snapshot-limits.ts';
 
 export { DexieStorage } from './storage/dexie-storage.ts';
 export { WebFiles } from './files/web-files.ts';
 export { WebAudioPlayer } from './audio/web-audio-player.ts';
 export { WebDeviceSpeechPlayer, getMissingVoiceInstructions } from './audio/device-speech.ts';
+export {
+  isMobileBrowser,
+  MOBILE_WEB_SYNC_SNAPSHOT_LIMITS,
+  webSyncSnapshotLimits,
+} from './sync/snapshot-limits.ts';
 
 export interface ResolvedDevice {
   slug?: string;
@@ -123,9 +129,13 @@ export function createWebPlatform(options?: CreateWebPlatformOptions): PlatformS
     (async (...args: unknown[]) =>
       ((await lazy())[key] as (...a: unknown[]) => unknown)(...args)) as LazyWebServices[K];
 
+  const syncSnapshotLimits = webSyncSnapshotLimits();
+
   return {
     deviceId: resolved.deviceId,
     deviceLabel: resolved.label,
+    // Phone and tablet browsers keep the 25 MiB snapshot cap, as the Capacitor apps do.
+    ...(syncSnapshotLimits ? { syncSnapshotLimits } : {}),
     isDevMode,
     hasDeviceSlug: Boolean(resolved.slug),
     storage,
