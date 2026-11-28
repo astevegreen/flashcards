@@ -155,6 +155,21 @@ function longLivedHead(ranges: number): Uint8Array {
   );
 }
 
+let head100k: Uint8Array | undefined;
+
+/** {@link longLivedHead} for 100k ranges, built once and shared by every transport's test. */
+function longLivedHead100k(): Uint8Array {
+  head100k ??= longLivedHead(100_000);
+  return head100k;
+}
+
+/** The first index where `a` and `b` differ, or -1 when they hold the same bytes. */
+function firstDifference(a: Uint8Array, b: Uint8Array): number {
+  const length = Math.max(a.length, b.length);
+  for (let i = 0; i < length; i++) if (a[i] !== b[i]) return i;
+  return -1;
+}
+
 describe('sync file kinds and caps', () => {
   it('classifies every sync path the engine reads', () => {
     expect(syncFileKind(manifestPath())).toBe('head');
@@ -225,10 +240,13 @@ describe.each([
   it('still reads the head.json of a device with 100k pushed segments', async () => {
     const { transport, setDownload } = make();
     await transport.write(HEAD, new TextEncoder().encode('{}'));
-    const head = longLivedHead(100_000);
+    const head = longLivedHead100k();
     expect(head.byteLength).toBeGreaterThan(5 * MiB); // about 60 bytes a range
     setDownload(() => new Response(head.slice()));
-    expect(await transport.read(HEAD)).toEqual(head);
+    const read = await transport.read(HEAD);
+    // A deep `toEqual` walks the 6 MB element by element and timed out under load; this doesn't.
+    expect(read.byteLength).toBe(head.byteLength);
+    expect(firstDifference(read, head)).toBe(-1);
   });
 });
 

@@ -1,6 +1,7 @@
 import type { KnownEvent } from '../events/types.ts';
 import type { CollectionState } from '../events/replay.ts';
 import type { NewCardOrder } from '../model/types.ts';
+import { studyOrderToNewCardOrder } from '../study/card-order.ts';
 
 /**
  * The new-card order a deck created now starts with: the Settings "Card order (all decks)"
@@ -9,9 +10,7 @@ import type { NewCardOrder } from '../model/types.ts';
  */
 export function newDeckCardOrder(state: CollectionState): NewCardOrder | undefined {
   const order = state.preferences.study_order;
-  if (order === 'random') return 'random';
-  if (order === 'deck') return 'source';
-  return undefined;
+  return order === undefined ? undefined : studyOrderToNewCardOrder(order);
 }
 
 /**
