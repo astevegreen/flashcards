@@ -180,6 +180,21 @@ function cloudStorage(): MemoryStorage {
   return storage;
 }
 
+/** Mounts the panel with a saved cloud key whose provider runs `synthesize`. */
+function mountCloud(synthesize: TtsProvider['synthesize']): Promise<Mounted> {
+  const tts = fakeTtsProvider(synthesize);
+  return mountPanel(
+    { audioPlayer: fakeAudioPlayer().player, createTtsProvider: async () => tts.provider },
+    { storage: cloudStorage() },
+  );
+}
+
+const quotaExceeded = async (): Promise<never> => {
+  throw new Error('quota exceeded');
+};
+
+const clip = { bytes: new Uint8Array([4]), mime: 'audio/mpeg', ext: 'mp3', voiceId: 'google:ko' };
+
 /** A TTS clip another device made for `text` in `lang`, synced in under its language key. */
 function clipEvent(hash: string, text: string, lang: string) {
   const factory = createEventFactory('other', 0, createHlcState('other', Date.now()));
@@ -281,13 +296,7 @@ describe('dictionary speaker button', () => {
   });
 
   it('shows why a cloud request failed', async () => {
-    const tts = fakeTtsProvider(async () => {
-      throw new Error('quota exceeded');
-    });
-    await mountPanel(
-      { audioPlayer: fakeAudioPlayer().player, createTtsProvider: async () => tts.provider },
-      { storage: cloudStorage() },
-    );
+    await mountCloud(quotaExceeded);
     expect(find('dict-audio-warning')).toBeNull();
 
     await press('한국');
@@ -335,17 +344,8 @@ describe('dictionary speaker button', () => {
 });
 
 describe('audio warnings stay where they came from', () => {
-  const failing = () =>
-    fakeTtsProvider(async () => {
-      throw new Error('quota exceeded');
-    });
-
   it('keeps a dictionary failure off the study banner', async () => {
-    const tts = failing();
-    const m = await mountPanel(
-      { audioPlayer: fakeAudioPlayer().player, createTtsProvider: async () => tts.provider },
-      { storage: cloudStorage() },
-    );
+    const m = await mountCloud(quotaExceeded);
 
     await press('한국');
     await vi.waitFor(() =>
@@ -355,11 +355,7 @@ describe('audio warnings stay where they came from', () => {
   });
 
   it('keeps a study-card failure out of the dictionary', async () => {
-    const tts = failing();
-    const m = await mountPanel(
-      { audioPlayer: fakeAudioPlayer().player, createTtsProvider: async () => tts.provider },
-      { storage: cloudStorage() },
-    );
+    const m = await mountCloud(quotaExceeded);
 
     await act(async () => {
       await m.app().audio.speakTarget({
@@ -375,11 +371,7 @@ describe('audio warnings stay where they came from', () => {
   });
 
   it('keeps a Settings voice test failure off the study banner', async () => {
-    const tts = failing();
-    const m = await mountPanel(
-      { audioPlayer: fakeAudioPlayer().player, createTtsProvider: async () => tts.provider },
-      { storage: cloudStorage() },
-    );
+    const m = await mountCloud(quotaExceeded);
 
     let message = '';
     await act(async () => {
@@ -391,19 +383,59 @@ describe('audio warnings stay where they came from', () => {
 
   it('clears the dictionary warning on a press that speaks', async () => {
     let fail = true;
-    const tts = fakeTtsProvider(async () => {
+    await mountCloud(async () => {
       if (fail) throw new Error('quota exceeded');
-      return { bytes: new Uint8Array([4]), mime: 'audio/mpeg', ext: 'mp3', voiceId: 'google:ko' };
+      return clip;
     });
-    await mountPanel(
-      { audioPlayer: fakeAudioPlayer().player, createTtsProvider: async () => tts.provider },
-      { storage: cloudStorage() },
-    );
 
     await press('한국');
     await vi.waitFor(() => expect(find('dict-audio-warning')).not.toBeNull());
     fail = false;
     await press('日本');
     await vi.waitFor(() => expect(find('dict-audio-warning')).toBeNull());
+  });
+
+  it('ignores a press that settles after a newer one, or after the panel closed', async () => {
+    let release = (): void => {};
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await mountCloud(async (text) => {
+      // The first word answers late; the second fails at once.
+      if (text === '한국') {
+        await slow;
+        return clip;
+      }
+      throw new Error('quota exceeded');
+    });
+
+    await press('한국');
+    await press('日本');
+    await vi.waitFor(() => expect(find('dict-audio-warning')).not.toBeNull());
+    await act(async () => {
+      release();
+    });
+    await flush();
+    // The superseded press doesn't wipe the newer press's warning.
+    expect(find('dict-audio-warning')?.textContent).toContain('quota exceeded');
+
+    // A press still pending when the panel closes doesn't follow it to the next panel.
+    let fail = (): void => {};
+    const late = new Promise<void>((_resolve, reject) => {
+      fail = () => reject(new Error('late failure'));
+    });
+    await must(mounted, 'a mounted panel').unmount();
+    await mountCloud(async () => {
+      await late.catch(() => {});
+      throw new Error('late failure');
+    });
+    await press('한국');
+    await must(mounted, 'a mounted panel').unmount();
+    await act(async () => {
+      fail();
+    });
+    await flush();
+    await mountCloud(quotaExceeded);
+    expect(find('dict-audio-warning')).toBeNull();
   });
 });

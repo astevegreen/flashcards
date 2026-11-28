@@ -71,6 +71,8 @@ export function useCanSpeak(langs: readonly string[]): (text: string, lang: stri
  * panel's one SpeechWarning reads it.
  */
 let speechWarning: string | null = null;
+/** Bumped by each press and by closing the panel, so only the latest press's result counts. */
+let latestPress = 0;
 const warningListeners = new Set<() => void>();
 
 function setSpeechWarning(next: string | null): void {
@@ -97,8 +99,9 @@ export function EntrySpeakerButton({
       title="Play pronunciation"
       onClick={() => {
         audio.unlock();
+        const press = ++latestPress;
         void audio.speakText(headword, lang).then((result) => {
-          setSpeechWarning(result.warning ?? null);
+          if (press === latestPress) setSpeechWarning(result.warning ?? null);
         });
       }}
       className="inline-flex min-h-9 min-w-9 select-none items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-sm hover:border-[var(--accent)] active:scale-95"
@@ -112,7 +115,13 @@ export function EntrySpeakerButton({
 export function SpeechWarning() {
   const warning = useSyncExternalStore(subscribeWarning, () => speechWarning);
   // A warning belongs to the panel it came from; closing the panel drops it.
-  useEffect(() => () => setSpeechWarning(null), []);
+  useEffect(
+    () => () => {
+      latestPress += 1;
+      setSpeechWarning(null);
+    },
+    [],
+  );
   if (!warning) return null;
   return (
     <output

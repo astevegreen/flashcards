@@ -249,7 +249,7 @@ export function useAudioController({
       const normLang = normalizeAudioLang(lang);
       const langKey = computeTtsLangCacheKey(normalizedText, normLang);
       // Without a provider factory cloud TTS can't run here, so a clip in another voice must do.
-      const cloudConfigured = isCloudTtsConfigured(cfg) && platform.createTtsProvider;
+      const cloudConfigured = isCloudTtsConfigured(cfg) && !!platform.createTtsProvider;
       const voiceOverride =
         override !== undefined
           ? override.voiceOverride?.trim() || undefined
@@ -372,11 +372,9 @@ export function useAudioController({
           ...(override !== undefined ? { override } : {}),
           addMedia,
         });
-        if (synthRes.warning) {
-          cloudWarning = synthRes.warning;
-          report?.(cloudWarning);
-        }
+        cloudWarning = synthRes.warning;
         if (isStale()) return { source: 'none', played: false };
+        if (cloudWarning) report?.(cloudWarning);
         if (synthRes.audio) {
           const ok = await player.playPreloaded(synthRes.audio.hash, rate);
           if (ok) {
