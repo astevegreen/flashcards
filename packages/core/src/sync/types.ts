@@ -109,6 +109,11 @@ export interface SyncCursorState {
   remoteWatermarks: Record<string, number>;
   remoteSegments: Record<string, number>;
   lastSnapshotTotalEvents: number;
+  /**
+   * Gzipped size of the last snapshot this device wrote or hydrated; scales the snapshot
+   * threshold (`SyncEngineOptions.snapshotBytesPerEvent`). Absent on cursors from older builds.
+   */
+  lastSnapshotBytes?: number;
   lastSyncedAt?: number;
   /** Content hashes confirmed uploaded to remote `media/<aa>/<sha256>.<ext>` store. */
   pushedMediaHashes?: string[];
