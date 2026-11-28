@@ -12,6 +12,7 @@ import {
   type EventFactory,
   type KnownEvent,
 } from '../src/index.ts';
+import { computeStatePatch, mergeStatePatch } from '../src/events/patch.ts';
 import { deserializeCollectionState, serializeCollectionState } from '../src/events/snapshot.ts';
 import { createHlcState as hlcAt } from '../src/hlc.ts';
 import { deriveNoteId } from '../src/ids.ts';
@@ -551,6 +552,17 @@ describe('starter-deck upgrade vs an unsynced edit', () => {
     expect(noteFields(hydrated, slug)[KEY]).toEqual(await current(KEY));
     applyEvents(hydrated, [editB]);
     expect(noteFields(hydrated, slug)[KEY]).toEqual({ ...(await current(KEY)), ...fields });
+  });
+
+  it('reaches the main thread through a worker patch, then loses to the late edit', async () => {
+    const { seed, upA, editB, fields } = await race(true);
+    const worker = replay(seed);
+    const main = replay(seed);
+    mergeStatePatch(main, computeStatePatch(worker, upA));
+    expect(serializeCollectionState(main)).toEqual(serializeCollectionState(replay(seed, upA)));
+    mergeStatePatch(main, computeStatePatch(worker, [editB]));
+    expect(noteFields(main, slug)[KEY]).toEqual({ ...(await current(KEY)), ...fields });
+    expect(serializeCollectionState(main)).toEqual(serializeCollectionState(worker));
   });
 
   it('hydrating an older build’s snapshot (event kept, old text shown) shows the upgrade', async () => {

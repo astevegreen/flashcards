@@ -18,6 +18,12 @@ import type { UnknownEvent } from './types.ts';
  * - an edit made after the upgrade synced is newer too, and wins;
  * - the seed's own write, even when it arrives after the upgrade, is not, so the upgrade shows.
  *
+ * Known gap: the register must be the one the upgrading device saw. If two devices seeded the same
+ * starter deck (on an older release) before syncing, and one upgraded before it saw the other's
+ * seed, the newer seed may hold the register: it reads as an unseen edit, and that field keeps the
+ * old text (`StarterDeckUpgraded` stops a re-run). That costs one stale credit or gloss, never a
+ * user's text.
+ *
  * When several upgrades apply to a field, the one with the greatest `(hlc, id)` shows. Every
  * input is an event in the log and the register is LWW, so any delivery order, duplicate or
  * chunking gives the same fields.
