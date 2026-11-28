@@ -87,19 +87,38 @@ function ask(name: string): { answers: () => number; close: () => void } {
 
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Polls `check` on the real `setTimeout` for up to 3 s. Unlike `vi.waitFor`, it never advances
+ * fake timers, so with `setInterval` faked a passing check can't come from the writer's timer.
+ */
+async function untilReal(check: () => boolean): Promise<void> {
+  for (let waited = 0; !check(); waited += 10) {
+    if (waited >= 3000) throw new Error('condition not met within 3 s');
+    await tick(10);
+  }
+}
+
 describe('holdWriter', () => {
   it('answers "yielding" at once, before the handoff chunk has loaded', async () => {
     const { locks } = fakeLocks();
     const name = freshName();
     const writer = openTab(locks, name, { load: () => new Promise<never>(() => undefined) });
     await eventually(() => expect(writer.holds()).toBe(true));
+    // With the writer's 500 ms answer timer under test control, an answer that arrives before the
+    // timer is advanced can only be the immediate one. A real-time window (200 ms) for "at once"
+    // timed out on a loaded machine.
+    vi.useFakeTimers({ toFake: ['setInterval'] });
 
     const asking = ask(name);
     try {
-      await vi.waitFor(() => expect(asking.answers()).toBeGreaterThan(0), { timeout: 200 });
-      // ...and keeps answering, so the asking tab doesn't steal while the chunk loads.
-      await vi.waitFor(() => expect(asking.answers()).toBeGreaterThan(1), { timeout: 1500 });
+      await untilReal(() => asking.answers() === 1);
+      // ...and keeps answering on its timer, so the asking tab doesn't steal while the chunk loads.
+      vi.advanceTimersByTime(500);
+      await untilReal(() => asking.answers() === 2);
+      await tick(50);
+      expect(asking.answers()).toBe(2);
     } finally {
+      vi.useRealTimers();
       asking.close();
     }
   });
@@ -120,7 +139,10 @@ describe('holdWriter', () => {
     try {
       for (let i = 1; i <= 3; i++) {
         channel.postMessage(take);
-        await vi.waitFor(() => expect(answers).toBe(i), { timeout: 500 });
+        // Not vi.waitFor: it advances fake timers while polling, so on a loaded machine the
+        // writer's interval would fire and answer too.
+        await untilReal(() => answers >= i);
+        expect(answers).toBe(i);
       }
       await tick(100);
       expect(answers).toBe(3);

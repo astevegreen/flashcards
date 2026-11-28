@@ -33,8 +33,12 @@ test.describe('Reload prompt after a rebuild in another tab', () => {
     // The listener mounts lazily. Another device's rebuild is announced repeatedly across that
     // window and must show nothing; then this device's own is announced until the prompt appears
     // (which also shows the listener was live for the earlier messages).
+    // The announcing tab only needs this origin's BroadcastChannel, not the app. A second app page
+    // on this device queued for the writer lock: on a loaded machine it could still hold that
+    // request when this page reloaded, so the reload came back to "open in another tab". A plain
+    // same-origin text file (`.txt` skips the service worker's app fallback) boots nothing.
     const other = await context.newPage();
-    await other.goto('/?device=rebuildprompt');
+    await other.goto('/THIRD-PARTY-NOTICES.txt');
     for (let i = 0; i < 8; i++) {
       await announce(other, 'device-someone-else');
       await page.waitForTimeout(200); // NOSONAR (S2925): a negative needs a timed window; no event marks "ignored"
