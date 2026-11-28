@@ -110,8 +110,10 @@ export interface SyncCursorState {
   remoteSegments: Record<string, number>;
   lastSnapshotTotalEvents: number;
   /**
-   * Gzipped size of the last snapshot this device wrote or hydrated; scales the snapshot
-   * threshold (`SyncEngineOptions.snapshotBytesPerEvent`). Absent on cursors from older builds.
+   * Size of the last snapshot this device wrote, tried to write or hydrated; scales the snapshot
+   * threshold (`SyncEngineOptions.snapshotBytesPerEvent`). Gzipped, except for a snapshot refused
+   * before gzip because its raw JSON was past the cap: then the raw size, so the next try waits
+   * much longer (25,600+ events under a 25 MiB cap). Absent on cursors from older builds.
    */
   lastSnapshotBytes?: number;
   lastSyncedAt?: number;

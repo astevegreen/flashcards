@@ -93,7 +93,9 @@ export interface SyncEngineOptions {
    * Gzipped snapshot bytes that one new event pays for (default `1024`): the next snapshot waits
    * for `ceil(lastSnapshotBytes / snapshotBytesPerEvent)` new events when that is more than
    * `snapshotThreshold`. A 20k-card collection (about 5 MiB gzipped) then snapshots every ~5,000
-   * events instead of every 500; collections up to 500 KiB keep the 500-event interval.
+   * events instead of every 500; collections up to 500 KiB keep the 500-event interval. After a
+   * snapshot refused because its raw JSON was past `snapshotLimits`, `lastSnapshotBytes` is that
+   * raw size, so the next try waits much longer (25,600+ events under a 25 MiB cap).
    */
   snapshotBytesPerEvent?: number;
   /** Injectable clock for deterministic tests. */
