@@ -77,7 +77,7 @@ export async function archiveHoldReason(
   if (notesArchived <= 0) return undefined;
   const notes = notesPhrase(notesArchived);
   if (!ctx.confirmArchive) {
-    return `Not updated: this version of "${sourceName}" would archive ${notes} and their review progress. Refresh it in Sources to review.`;
+    return `Not updated: this version of "${sourceName}" would archive ${notes} and ${notesArchived === 1 ? 'its' : 'their'} review progress. Refresh it in Sources to review.`;
   }
   if (await ctx.confirmArchive({ sourceName, notesArchived })) return undefined;
   return `Not updated: you cancelled the update of "${sourceName}", which would archive ${notes}.`;

@@ -131,6 +131,7 @@ describe('package update that archives notes (C9 preview)', () => {
       readFileBytes: async () => bytes,
     } as unknown as LocalFolderSourcesAdapter;
     const confirm = vi.fn(async () => false);
+    const emitted: KnownEvent[] = [];
     const ctx = {
       platform: {
         getLocalFolderSources: async () => adapter,
@@ -138,7 +139,10 @@ describe('package update that archives notes (C9 preview)', () => {
       } as unknown as PlatformServices,
       getState: () => state,
       getEventFactory: () => factory,
-      emitEvents: (events: readonly KnownEvent[]) => applyEvents(state, events),
+      emitEvents: (events: readonly KnownEvent[]) => {
+        emitted.push(...events);
+        applyEvents(state, events);
+      },
       confirmArchive: confirm,
     };
     const folder: LinkedLocalFolder = {
@@ -159,5 +163,24 @@ describe('package update that archives notes (C9 preview)', () => {
     expect(activeWords(state)).toEqual(['k1', 'k2', 'k3']);
     expect(folder.files['words.flashpkg']?.contentHash).toBe(cachedV1);
     expect(folder.warnings?.map((w) => w.code)).toContain('archive_held');
+
+    // Continue on the next scan: the counted notes are archived and the new version is cached.
+    confirm.mockResolvedValue(true);
+    const written = emitted.length;
+    await scanSingleLocalFolder(folder, ctx);
+    expect(emitted.slice(written).filter((e) => e.type === 'NoteArchived')).toHaveLength(2);
+    expect(activeWords(state)).toEqual(['k1', 'k4']);
+    const cachedV2 = folder.files['words.flashpkg']?.contentHash;
+    expect(cachedV2).toBeDefined();
+    expect(cachedV2).not.toBe(cachedV1);
+    expect(folder.warnings?.map((w) => w.code) ?? []).not.toContain('archive_held');
+  });
+
+  it('the hold message is singular for one note', async () => {
+    const { archiveHoldReason } = await import('../src/sources/sourcesRegistry.ts');
+    const ctx = {} as Parameters<typeof archiveHoldReason>[0];
+    expect(await archiveHoldReason(ctx, 'W', 1)).toMatch(/archive 1 note and its review progress/);
+    expect(await archiveHoldReason(ctx, 'W', 2)).toMatch(/archive 2 notes and their review/);
+    expect(await archiveHoldReason(ctx, 'W', 0)).toBeUndefined();
   });
 });
