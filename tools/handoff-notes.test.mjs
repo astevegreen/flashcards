@@ -20,7 +20,7 @@ import { sh, tempRepo, writeFiles } from './hooks/test-helpers.mjs';
 const NOW = new Date(2026, 9, 17, 14, 5);
 const LATER = new Date(2026, 9, 17, 15, 30);
 const DRAFT =
-  '# Handoff: card draw\n(save fills this line)\n\n## Goal\nDraw cards.\n\n## Next\n1. Edit packages/engine/src/draw.ts\n';
+  '# Handoff: card draw\n(save fills this line)\n\n## Goal\nDraw cards.\n\n## Next\n1. Edit packages/core/src/replay.ts\n';
 const posix = (p) => toPosix(canonical(p));
 const repoWithNotes = () => tempRepo({ '.gitignore': '.handoff/\n' });
 const lineTwo = (file) => readFileSync(file, 'utf8').split('\n')[1];
@@ -252,7 +252,7 @@ test("an index that won't parse is left as it is, never replaced by one entry", 
 // ---- no note when nothing is outstanding: save, close and the SessionStart sweep -----------------
 
 const withNext = (next, extra = '') =>
-  DRAFT.replace('1. Edit packages/engine/src/draw.ts', next) + extra;
+  DRAFT.replace('1. Edit packages/core/src/replay.ts', next) + extra;
 const doneNote = (repo, name) => readFileSync(path.join(repo, '.handoff', 'done', name), 'utf8');
 
 test('nothingOutstanding: Complete alone, numbered or with trailing words', () => {

@@ -10,7 +10,7 @@ import { tempRepo, writeFiles } from './hooks/test-helpers.mjs';
 
 const NOW = new Date(2026, 9, 17, 14, 5);
 const DRAFT =
-  '# Handoff: card draw\n(save fills this line)\n\n## Goal\nDraw cards.\n\n## Next\n1. Edit packages/engine/src/draw.ts\n';
+  '# Handoff: card draw\n(save fills this line)\n\n## Goal\nDraw cards.\n\n## Next\n1. Edit packages/core/src/replay.ts\n';
 const configs = [];
 after(() => {
   for (const dir of configs) rmSync(dir, { recursive: true, force: true });
