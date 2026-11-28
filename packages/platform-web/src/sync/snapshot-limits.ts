@@ -19,8 +19,10 @@ export interface MobileHints {
 }
 
 /**
- * True on a phone or tablet browser. Client hints decide where present (Chromium); otherwise the
- * user agent, plus iPadOS, which reports itself as a Mac but has touch points.
+ * True on a phone or tablet browser: when the client hint says `mobile` (Chromium), when the user
+ * agent names a phone or tablet, or on iPadOS, which reports itself as a Mac but has touch points.
+ * A hint of `mobile: false` does not override the user agent: any one sign of a mobile device is
+ * enough, since the lower cap is the safe side.
  */
 export function isMobileBrowser(hints: MobileHints | undefined): boolean {
   if (!hints) return false;
