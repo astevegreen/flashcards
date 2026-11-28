@@ -35,7 +35,7 @@ export interface AudioSpeakResult {
   source: 'attached' | 'cached_tts' | 'cloud_tts' | 'device_tts' | 'none';
   played: boolean;
   missingLocalVoice?: boolean;
-  warning?: string;
+  warning?: string | undefined;
 }
 
 export interface TtsVoiceTestOverride {
@@ -47,6 +47,7 @@ export interface AudioController {
   ttsConfig: TtsProviderConfig;
   ttsConfigLoaded: boolean;
   missingVoicePrompt: MissingVoicePromptState | null;
+  /** The last study-card cloud TTS failure; speakText callers get theirs in the result. */
   lastAudioWarning: string | null;
   saveTtsConfig: (config: TtsProviderConfig) => Promise<void>;
   clearTtsKey: () => Promise<void>;
@@ -247,7 +248,8 @@ export function useAudioController({
       const cfg = override?.config ?? ttsConfigRef.current;
       const normLang = normalizeAudioLang(lang);
       const langKey = computeTtsLangCacheKey(normalizedText, normLang);
-      const cloudConfigured = isCloudTtsConfigured(cfg);
+      // Without a provider factory cloud TTS can't run here, so a clip in another voice must do.
+      const cloudConfigured = isCloudTtsConfigured(cfg) && !!platform.createTtsProvider;
       const voiceOverride =
         override !== undefined
           ? override.voiceOverride?.trim() || undefined
@@ -272,7 +274,7 @@ export function useAudioController({
       const langHash = st.ttsMediaByLangKey.get(langKey);
       return langHash ? { hash: langHash, langKey } : { langKey };
     },
-    [stateRef],
+    [platform.createTtsProvider, stateRef],
   );
 
   const playMediaHash = useCallback(
@@ -301,6 +303,8 @@ export function useAudioController({
       target: CardAudioTarget,
       rate = 1.0,
       override?: TtsVoiceTestOverride,
+      // Only study cards pass the banner's setter; every other caller reads its result's warning.
+      report?: (warning: string | null) => void,
     ): Promise<AudioSpeakResult> => {
       const player = platform.audioPlayer;
       const reqId = ++requestIdRef.current;
@@ -367,16 +371,14 @@ export function useAudioController({
           ttsLangKey,
           ...(override !== undefined ? { override } : {}),
           addMedia,
-          setLastAudioWarning,
         });
-        if (synthRes.warning) {
-          cloudWarning = synthRes.warning;
-        }
+        cloudWarning = synthRes.warning;
         if (isStale()) return { source: 'none', played: false };
+        if (cloudWarning) report?.(cloudWarning);
         if (synthRes.audio) {
           const ok = await player.playPreloaded(synthRes.audio.hash, rate);
           if (ok) {
-            setLastAudioWarning(null);
+            report?.(null);
             return { source: 'cloud_tts', played: true };
           }
         } else if (!override) {
@@ -388,7 +390,7 @@ export function useAudioController({
               return {
                 source: 'cached_tts',
                 played: true,
-                ...(cloudWarning ? { warning: cloudWarning } : {}),
+                warning: cloudWarning,
               };
             }
           }
@@ -401,7 +403,7 @@ export function useAudioController({
         return {
           source: 'none',
           played: false,
-          ...(cloudWarning ? { warning: cloudWarning } : {}),
+          warning: cloudWarning,
         };
       }
 
@@ -414,7 +416,7 @@ export function useAudioController({
         return {
           source: 'device_tts',
           played: true,
-          ...(cloudWarning ? { warning: cloudWarning } : {}),
+          warning: cloudWarning,
         };
       }
 
@@ -441,7 +443,7 @@ export function useAudioController({
           source: 'none',
           played: false,
           missingLocalVoice: true,
-          ...(cloudWarning ? { warning: cloudWarning } : {}),
+          warning: cloudWarning,
         };
       }
 
@@ -453,7 +455,7 @@ export function useAudioController({
       return {
         source: 'none',
         played: false,
-        ...(warning ? { warning } : {}),
+        warning,
       };
     },
     [addMedia, platform, resolveCachedTtsHash, stateRef],
@@ -461,7 +463,7 @@ export function useAudioController({
 
   const speakTarget = useCallback(
     (target: CardAudioTarget, rate = 1.0): Promise<AudioSpeakResult> =>
-      speakTargetInternal(target, rate),
+      speakTargetInternal(target, rate, undefined, setLastAudioWarning),
     [speakTargetInternal],
   );
 
@@ -489,9 +491,9 @@ export function useAudioController({
         lang: normLang,
         bcp47Lang: toBcp47SpeechTag(normLang),
       };
-      return speakTarget(target, rate);
+      return speakTargetInternal(target, rate);
     },
-    [speakTarget],
+    [speakTargetInternal],
   );
 
   const preloadCards = useCallback(
