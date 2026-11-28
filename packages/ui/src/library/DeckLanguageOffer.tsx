@@ -1,18 +1,19 @@
 import { deckLanguageOfferEvents, normalizeLanguage, type Deck } from '@flash/core';
 import { useApp } from '../state/AppContext.tsx';
 
-const LANGUAGE_NAMES: Readonly<Record<string, string>> = {
-  en: 'English',
-  ja: 'Japanese',
-  ko: 'Korean',
-  'zh-Hans': 'Chinese',
-};
+// A Map: a tag from an imported file such as `constructor` must not find an Object.prototype member.
+const LANGUAGE_NAMES: ReadonlyMap<string, string> = new Map([
+  ['en', 'English'],
+  ['ja', 'Japanese'],
+  ['ko', 'Korean'],
+  ['zh-Hans', 'Chinese'],
+]);
 
 let displayNames: Intl.DisplayNames | undefined;
 
 /** A readable name for a language tag: `en-US` reads English; an empty tag reads "no language". */
 function languageName(language: string): string {
-  const known = LANGUAGE_NAMES[normalizeLanguage(language)];
+  const known = LANGUAGE_NAMES.get(normalizeLanguage(language));
   if (known) return known;
   const tag = language.trim();
   if (tag === '') return 'no language';

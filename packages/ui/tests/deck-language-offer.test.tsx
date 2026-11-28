@@ -165,4 +165,12 @@ describe('Library deck language offer', () => {
     await waitFor('deck-language-offer-old-link');
     expect(find('deck-language-offer-old-link')?.textContent).toContain('its language is French');
   });
+
+  it('renders a prototype-member tag as text, never a function', async () => {
+    const { find, waitFor } = await mountLibrary(false, 'constructor');
+    await waitFor('deck-language-offer-old-link');
+    const text = find('deck-language-offer-old-link')?.textContent ?? '';
+    expect(text).toContain('its language is constructor');
+    expect(text).not.toContain('function');
+  });
 });
