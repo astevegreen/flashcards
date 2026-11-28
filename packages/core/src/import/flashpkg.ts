@@ -88,6 +88,12 @@ export interface FlashpkgImportResult {
   notesImported: number;
   pagesImported: number;
   upgradedDecks: number;
+  /**
+   * Notes the import archives because an upgraded package no longer lists them (only with
+   * `archiveRemovedOnUpgrade`). Callers show this before writing `events` (the C9 preview), so
+   * the preview and the import always agree.
+   */
+  notesArchived: number;
   extractedMedia: ExtractedPackageMedia[];
   warnings: Array<PageNormalizeWarning | FlashpkgLayoutWarning | FlashpkgNoteWarning>;
 }
@@ -631,6 +637,7 @@ export function importFlashpkg(
   let decksImported = 0;
   let notesImported = 0;
   let upgradedDecks = 0;
+  let notesArchived = 0;
   const deckIdMap = new Map<string, string>();
   const groupImporter = createPackageGroupImporter(state, manifest, eventFactory, nowMs);
   const pageIdMap = new Map<string, string>();
@@ -855,6 +862,7 @@ export function importFlashpkg(
         const keyStillListed = !!existing.source_key && seenRecordIds.has(existing.source_key);
         if (!existing.archived && !seenNoteIds.has(existing.id) && !keyStillListed) {
           events.push(eventFactory.create('NoteArchived', { note_id: existing.id }, nowMs));
+          notesArchived += 1;
         }
       }
     }
@@ -975,6 +983,7 @@ export function importFlashpkg(
     notesImported,
     pagesImported,
     upgradedDecks,
+    notesArchived,
     extractedMedia,
     warnings,
   };

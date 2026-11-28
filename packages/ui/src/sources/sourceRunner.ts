@@ -57,6 +57,7 @@ import {
   refreshLinkedGoogleDriveFiles,
 } from './googleDriveFileSource.ts';
 import {
+  archiveHoldReason,
   carriesSource,
   isOnline,
   loadSourcesRegistry,
@@ -71,6 +72,7 @@ export {
   LINKED_SOURCES_KV_KEY,
   loadSourcesRegistry,
   saveSourcesRegistry,
+  type ArchivePreviewRequest,
   type SourceRefreshSummary,
   type SourceRunContext,
   withSourcesLock,
@@ -926,6 +928,23 @@ export async function linkAndScanLocalFolder(
 }
 
 /**
+ * The status line after one folder's Scan. A package update the user cancelled (or that was held
+ * for review, C9) says so, so a scan whose only change was held doesn't read as "no new changes".
+ */
+export function folderScanStatusMessage(
+  folder: Pick<LinkedLocalFolder, 'name' | 'warnings'>,
+  res: { updated: boolean; notesTouched: number; pagesTouched: number; inboxImported: number },
+): string {
+  const done = res.updated
+    ? `Scanned "${folder.name}" (${res.notesTouched} note change(s), ${res.pagesTouched} page(s), ${res.inboxImported} Inbox).`
+    : `"${folder.name}" has no new changes.`;
+  const held = (folder.warnings ?? []).filter((w) => w.code === 'archive_held');
+  if (held.length === 0) return done;
+  const heldText = held.map((w) => w.message).join(' ');
+  return res.updated ? `${done} ${heldText}` : heldText;
+}
+
+/**
  * Scans a linked PC local folder (.csv/.tsv, .xlsx via lazy read-excel-file, .md, .flashpkg,
  * relative media, and `Inbox/` auto-import) using `lastModified`/content-hash caching (§3.2, §10.3).
  */
@@ -1084,6 +1103,12 @@ export async function scanSingleLocalFolder(
         });
         // Not cached, so the next scan tries again.
         if (overDeckLimit(state, newDeckIds(state, pkgRes.events, scanDecks), file.relativePath)) {
+          continue;
+        }
+        // Not cached either: the next scan asks again.
+        const held = await archiveHoldReason(ctx, file.name, pkgRes.notesArchived); // NOSONAR (S9382)
+        if (held) {
+          warnings.push({ code: 'archive_held', message: held, file: file.relativePath });
           continue;
         }
         // Files one at a time: each package checks the deck limit against the state so far.
@@ -1514,6 +1539,8 @@ export async function refreshSinglePackageSubscription(
   });
   const overLimit = deckLimitReason(ctx.entitlement, state, newDeckIds(state, pkgRes.events));
   if (overLimit) throw new Error(overLimit);
+  const held = await archiveHoldReason(ctx, sub.title, pkgRes.notesArchived);
+  if (held) throw new Error(held);
 
   await putMediaListTracked(ctx.platform.storage, pkgRes.extractedMedia);
   if (pkgRes.events.length > 0) {

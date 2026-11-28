@@ -47,6 +47,40 @@ export interface SourceRunContext {
    * package refreshes); a run that would pass the limit skips that file or package (C14).
    */
   entitlement?: EntitlementState;
+  /**
+   * Asks the user before a package re-import archives notes (C9). Resolves `true` to go ahead.
+   * Absent (the launch check, a background run), such an update is held and nothing is written.
+   */
+  confirmArchive?: (request: ArchivePreviewRequest) => Promise<boolean>;
+}
+
+/** A package re-import that would archive notes no longer in the package (C9). */
+export interface ArchivePreviewRequest {
+  sourceName: string;
+  notesArchived: number;
+}
+
+function notesPhrase(count: number): string {
+  return count === 1 ? '1 note' : `${count} notes`;
+}
+
+/**
+ * `undefined` when a package import may write: it archives nothing, or the user said Continue.
+ * Otherwise why it was not applied; the caller then writes nothing (no events, no media).
+ * The count is the import's own `notesArchived`, so what the user sees is what gets archived.
+ */
+export async function archiveHoldReason(
+  ctx: SourceRunContext,
+  sourceName: string,
+  notesArchived: number,
+): Promise<string | undefined> {
+  if (notesArchived <= 0) return undefined;
+  const notes = notesPhrase(notesArchived);
+  if (!ctx.confirmArchive) {
+    return `Not updated: this version of "${sourceName}" would archive ${notes} and ${notesArchived === 1 ? 'its' : 'their'} review progress. Refresh it in Sources to review.`;
+  }
+  if (await ctx.confirmArchive({ sourceName, notesArchived })) return undefined;
+  return `Not updated: you cancelled the update of "${sourceName}", which would archive ${notes}.`;
 }
 
 export interface SourceRefreshSummary {

@@ -436,4 +436,42 @@ describe('linked Google Drive files (§3.1, drive.file)', () => {
     );
     expect(other.googleDriveFiles?.[0]).toMatchObject({ format: 'flashpkg', fileId: 'pkg-1' });
   });
+
+  it('asks before an update archives notes: Cancel writes nothing, Continue applies it (C9)', async () => {
+    const { drive, ctx, state, emitted } = setup();
+    const PKG = 'application/octet-stream';
+    const v1: Array<[string, string]> = [
+      ['물', 'water'],
+      ['불', 'fire'],
+      ['흙', 'earth'],
+    ];
+    drive.put('pkg-1', 'pack.flashpkg', PKG, buildFlashpkg('1.0.0', v1));
+    const answer = vi.fn(async () => false);
+    const asking = { ...ctx, confirmArchive: answer };
+    const { source } = await linkGoogleDriveFile(
+      { id: 'pkg-1', name: 'pack.flashpkg', mimeType: PKG },
+      asking,
+    );
+    expect(answer).not.toHaveBeenCalled();
+    drive.put('pkg-1', 'pack.flashpkg', PKG, buildFlashpkg('2.0.0', [['물', 'water']]));
+    const words = () =>
+      [...state.notes.values()]
+        .filter((n) => !n.archived)
+        .map((n) => n.fields['word'])
+        .sort();
+
+    const written = emitted.length;
+    await expect(refreshSingleGoogleDriveFileSource(source, asking)).rejects.toThrow(/cancelled/);
+    expect(answer).toHaveBeenCalledWith({ sourceName: 'Drive Pack', notesArchived: 2 });
+    await expect(refreshSingleGoogleDriveFileSource(source, ctx)).rejects.toThrow(/Not updated/);
+    expect(emitted).toHaveLength(written);
+    expect(source.version).toBe('1.0.0');
+    expect(words()).toEqual(['물', '불', '흙']);
+
+    answer.mockResolvedValue(true);
+    await refreshSingleGoogleDriveFileSource(source, asking);
+    expect(emitted.slice(written).filter((e) => e.type === 'NoteArchived')).toHaveLength(2);
+    expect(source.version).toBe('2.0.0');
+    expect(words()).toEqual(['물']);
+  });
 });

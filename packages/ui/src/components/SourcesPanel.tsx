@@ -18,6 +18,7 @@ import { lazyWithRetry } from '../lazy/lazyWithRetry.tsx';
 import type { PickedDriveFile } from '../sources/googleDriveFileSource.ts';
 import { GoogleDriveFileRows } from '../sources/GoogleDriveFileRows.tsx';
 import type * as SourceRunner from '../sources/sourceRunner.ts';
+import type { ArchivePreviewRequest } from '../sources/sourcesRegistry.ts';
 import { emptyLinkedSourcesHint, linkedSourcesDescription } from '../sources/sourceProviders.ts';
 import { UnconfiguredSourceHints } from '../sources/UnconfiguredSourceHints.tsx';
 import { useApp } from '../state/AppContext.tsx';
@@ -28,6 +29,13 @@ const LazyOneDrivePickerPanel = lazyWithRetry(() => import('../sources/OneDriveP
 const LazyGoogleDriveFileLinkPanel = lazyWithRetry(
   () => import('../sources/GoogleDriveFileLinkPanel.tsx'),
   { closeWith: 'onClose' },
+);
+// A chunk that can't load offers Close, which answers Cancel (`onAnswer()` with no argument).
+const LazyArchivePreviewDialog = lazyWithRetry(
+  () => import('../sources/ArchivePreviewDialog.tsx'),
+  {
+    closeWith: 'onAnswer',
+  },
 );
 const LazyDropboxPickerPanel = lazyWithRetry(() => import('../sources/DropboxPickerPanel.tsx'), {
   closeWith: 'onClose',
@@ -273,6 +281,22 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
     [state, stateVersion],
   );
 
+  // C9: a package update that would archive notes waits here for Continue or Cancel.
+  const [archivePreview, setArchivePreview] = useState<{
+    request: ArchivePreviewRequest;
+    resolve: (proceed: boolean) => void;
+  } | null>(null);
+  const confirmArchive = useCallback(
+    (request: ArchivePreviewRequest) =>
+      new Promise<boolean>((resolve) => setArchivePreview({ request, resolve })),
+    [],
+  );
+  // Leaving the panel mid-question cancels, so the waiting refresh releases the sources lock.
+  useEffect(() => {
+    if (!archivePreview) return;
+    return () => archivePreview.resolve(false);
+  }, [archivePreview]);
+
   const makeRunnerCtx = useCallback(
     () => ({
       platform,
@@ -280,8 +304,9 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       getEventFactory,
       emitEvents,
       entitlement,
+      confirmArchive,
     }),
-    [emitEvents, getEventFactory, platform, state, entitlement],
+    [emitEvents, getEventFactory, platform, state, entitlement, confirmArchive],
   );
 
   // Load persisted source registry & check Google auth state on mount
@@ -633,8 +658,12 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       setBusy(true);
       onErrorMessage(null);
       try {
-        const { loadSourcesRegistry, saveSourcesRegistry, scanSingleLocalFolder } =
-          await import('../sources/sourceRunner.ts');
+        const {
+          folderScanStatusMessage,
+          loadSourcesRegistry,
+          saveSourcesRegistry,
+          scanSingleLocalFolder,
+        } = await import('../sources/sourceRunner.ts');
         const nextReg = await loadSourcesRegistry(platform, state);
         const target = nextReg.localFolders.find((f) => f.id === folder.id);
         if (!target) return;
@@ -649,11 +678,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         if (res.error) {
           onErrorMessage(res.error);
         } else {
-          onStatusMessage(
-            res.updated
-              ? `Scanned "${target.name}" (${res.notesTouched} note change(s), ${res.pagesTouched} page(s), ${res.inboxImported} Inbox).`
-              : `"${target.name}" has no new changes.`,
-          );
+          onStatusMessage(folderScanStatusMessage(target, res));
         }
       } catch (err) {
         onErrorMessage(err instanceof Error ? err.message : String(err));
@@ -973,6 +998,19 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
           Subscribe to URL / Catalog
         </button>
       </div>
+
+      {/* C9: how many notes a package update would archive, before it writes anything (lazy). */}
+      {archivePreview && (
+        <Suspense fallback={null}>
+          <LazyArchivePreviewDialog
+            request={archivePreview.request}
+            onAnswer={(proceed) => {
+              archivePreview.resolve(proceed === true);
+              setArchivePreview(null);
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Dev builds only: providers hidden for a missing env var, so it can't go unnoticed. */}
       <UnconfiguredSourceHints platform={platform} />

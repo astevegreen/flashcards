@@ -88,7 +88,7 @@ export interface UseAudioControllerOptions {
   }) => Promise<void>;
 }
 
-function isCloudTtsConfigured(cfg: TtsProviderConfig): boolean {
+export function isCloudTtsConfigured(cfg: TtsProviderConfig): boolean {
   if (cfg.provider === 'google') {
     return Boolean(cfg.apiKey?.trim());
   }

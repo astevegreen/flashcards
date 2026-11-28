@@ -408,6 +408,10 @@ test.describe('Phase 3 Sources — Google Sheets/Docs & Family Library Package S
 
     await page.getByRole('button', { name: 'Decks' }).first().click();
     await page.getByTestId('refresh-sources-btn').click();
+    // C9: v2 drops 바다, so the update asks before archiving it.
+    const archivePreview = page.getByTestId('archive-preview-dialog');
+    await expect(archivePreview).toContainText('Archive 1 note?');
+    await archivePreview.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByTestId('pkg-sub-row-pkg:family-ko-pack')).toContainText('v2.0.0');
 
     // Confirm updated meaning in Browse
