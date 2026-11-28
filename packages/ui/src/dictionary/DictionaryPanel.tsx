@@ -36,6 +36,7 @@ import {
 import { ShowAllLanguagesSwitch } from '../packs/ShowAllLanguagesSwitch.tsx';
 import { homeSummariesFor, searchPackIds, useVisiblePacks } from './useVisiblePacks.ts';
 import { DictionaryBrowseHeader, DictionaryHome } from './DictionaryHome.tsx';
+import { EntrySpeakerButton, SpeechWarning, useCanSpeak } from './entrySpeech.tsx';
 import {
   createLatestSearch,
   directionTargetName,
@@ -101,6 +102,9 @@ const PACK_LANG: Record<DictionaryPackId, string> = {
   'dict-urimalsam': 'ko',
   'dict-kaikki-ko': 'ko',
 };
+
+/** Every language an entry can be spoken in. */
+const ENTRY_LANGS: readonly string[] = [...new Set(Object.values(PACK_LANG))];
 
 /** `Radical: 水 · Strokes: 4 · grade` notes for character entries. */
 function entryMetaNotes(entry: DictionaryEntry): string {
@@ -437,8 +441,10 @@ function EntryReading(props: EntryLangProps) {
   );
 }
 
-function EntryHeadline(props: EntryLangProps & { onLookup: (text: string) => void }) {
-  const { entry, lang, onLookup } = props;
+function EntryHeadline(
+  props: EntryLangProps & { speakable: boolean; onLookup: (text: string) => void },
+) {
+  const { entry, lang, speakable, onLookup } = props;
   return (
     <div className="flex flex-wrap items-baseline gap-2">
       <span lang={lang} className="text-2xl font-bold leading-none text-[var(--fg)]">
@@ -463,7 +469,11 @@ function EntryHeadline(props: EntryLangProps & { onLookup: (text: string) => voi
           )
         </span>
       )}
-      <EntryReading {...props} />
+      {/* One wrapping unit, so the speaker stays centred beside the pronunciation */}
+      <span className="inline-flex flex-wrap items-center gap-2">
+        <EntryReading {...props} />
+        {speakable && <EntrySpeakerButton headword={entry.headword} lang={lang} />}
+      </span>
     </div>
   );
 }
@@ -782,6 +792,7 @@ function AddToDeckBar({
 interface DictionaryResultRowProps extends AddToDeckBarProps {
   direction: DictionaryDirection;
   pinyinToneColors: boolean;
+  speakable: boolean;
   isSelected: boolean;
   isAdding: boolean;
   deckPresenceByDeck: DeckPresenceIndex;
@@ -795,6 +806,7 @@ function DictionaryResultRow({
   entry,
   direction,
   pinyinToneColors,
+  speakable,
   isSelected,
   isAdding,
   deckPresenceByDeck,
@@ -828,6 +840,7 @@ function DictionaryResultRow({
             entry={entry}
             lang={PACK_LANG[entry.packId]}
             pinyinToneColors={pinyinToneColors}
+            speakable={speakable}
             onLookup={onLookup}
           />
           <div className="@lg:hidden">
@@ -899,6 +912,7 @@ export function DictionaryPanel({
 }: DictionaryPanelProps) {
   const { platform, state, stateVersion, entitlement, emitEvents, getEventFactory } = useApp();
   const { createDeck } = useLibraryActions();
+  const canSpeak = useCanSpeak(ENTRY_LANGS);
   const searchInputId = useId();
 
   const [installedPacks, setInstalledPacks] = useState<InstalledPackInfo[]>([]);
@@ -1374,6 +1388,8 @@ export function DictionaryPanel({
         </div>
       )}
 
+      <SpeechWarning />
+
       {/* Collapsible Draw-to-Lookup handwriting surface */}
       {showDraw && showDrawTools && (
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
@@ -1469,6 +1485,7 @@ export function DictionaryPanel({
                       entry={entry}
                       direction={direction}
                       pinyinToneColors={state.preferences.pinyin_tone_colors}
+                      speakable={canSpeak(entry.headword, PACK_LANG[entry.packId])}
                       isSelected={selectedEntry?.id === entry.id}
                       isAdding={addingEntryId === entry.id}
                       decks={decks}
