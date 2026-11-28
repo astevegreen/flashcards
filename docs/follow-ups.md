@@ -873,9 +873,9 @@ Open items, grouped by area. The batch ran one round; its fallout is here instea
 ### Sync transports (#117)
 
 - [ ] The full streamed `read()` interface (#103 design note) is still open; #115 and #117 only cap `read()` per file kind.
-- [ ] The native adapter cap wiring is untested: `createICloudDocumentPlugin` forwarding `maxBytes`, and `createFsBridge` returning TOO_LARGE with the size.
-- [ ] iCloud downloads an oversized placeholder before the `max_bytes` check (`icloud.rs` `placeholder_size`, and the Swift side). Check the placeholder size first.
-- [ ] `assertSyncReadCapsCover` rejects any override above the defaults, stricter than its description ("transports would refuse").
+- [x] The native adapter cap wiring is untested: `createICloudDocumentPlugin` forwarding `maxBytes`, and `createFsBridge` returning TOO_LARGE with the size. Done in #141.
+- [x] iCloud downloads an oversized placeholder before the `max_bytes` check (`icloud.rs` `placeholder_size`, and the Swift side). Check the placeholder size first. Done in #141.
+- [x] `assertSyncReadCapsCover` rejects any override above the defaults, stricter than its description ("transports would refuse"). Done in #141 (description fixed to match the code).
 
 ### Sync engine (#120)
 
