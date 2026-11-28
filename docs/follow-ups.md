@@ -929,6 +929,19 @@ Open items, grouped by area.
 
 - [ ] Under heavy local load (several agents at once), `pnpm test:e2e` failed `phase4` Markdown pages and `rebuild-reload-prompt`, and unit tests `sync-read-caps` (100k segments) and `writer-tabs` (yielding) timed out; each passes alone (#129 run).
 
+## Left over from the follow-ups batch 2026-11-27c (#139–#141)
+
+Open items, grouped by area. The batch ran one round.
+
+### Merge-gate tooling (#139)
+
+- [ ] A heading with the colon outside the bold, `**Blockers**:` or `**Blocker**:`, over an untagged list still reads clean in `tools/gemini/rails.mjs`: after the `*` are stripped, the answer is empty. It is older than #139, and singular and plural behave the same. Making it retry only tightens the gate.
+- [ ] `tools/gemini/rails.mjs:135`: the `(?:^|[^a-z])` boundary in `NEGATION_WORD` (so `Cannot blocker: a.ts:1 wrong` is not read as negated) has no test in `rails.test.mjs` (agy note on #139).
+
+### Sync (#140, #141)
+
+- [ ] On-device check of the iCloud pre-download size check (`sizeBeforeDownload` in `ICloudDocumentsPlugin.swift`, `size_before_download` in `icloud.rs`) with dataless and `.icloud` placeholder files. CI compiles both, but neither has run on a device (#141).
+
 ## Needs the owner (hands-on)
 
 Everything here needs a real device, a real account or sign-in, or a design call. Items moved here from other sections leave a one-line pointer where they were.
