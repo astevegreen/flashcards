@@ -29,6 +29,7 @@ import {
   type SourceRef,
 } from '../model/types.ts';
 import { applySuspensionRegister, isCardSuspendedIn } from './suspension.ts';
+import { applyStarterNoteUpgrades, starterUpgradeNoteId } from './starter-upgrades.ts';
 import { applyTagAddRegisters, canonicalizeNoteTags, noteHasTagAdds } from './tag-adds.ts';
 import {
   isKnownEventType,
@@ -1053,6 +1054,8 @@ function applyNoteUpserted(ctx: ApplyEventContext, p: EventPayloadMap['NoteUpser
       note.fields[fieldKey] = fieldValue;
     }
   }
+  // A starter upgrade shows over the register only while no unseen edit wrote the field.
+  applyStarterNoteUpgrades(state, note);
 
   if (p.tags !== undefined && shouldApplyLww(state, `note:${p.note_id}:tags`, hlc, collector)) {
     note.tags = [...p.tags];
@@ -1633,6 +1636,20 @@ function isEventAlreadyCompacted(state: CollectionState, event: FlashEvent): boo
   return false;
 }
 
+/** Shows a just-retained `StarterNoteUpgraded` on its note (see ./starter-upgrades.ts). */
+function applyRetainedStarterUpgrade(
+  state: CollectionState,
+  event: UnknownEvent,
+  dirtyNotes: Set<string>,
+  collector?: ApplyMutationCollector,
+): void {
+  const noteId = starterUpgradeNoteId(event);
+  const note = noteId === undefined ? undefined : state.notes.get(noteId);
+  if (!note || !applyStarterNoteUpgrades(state, note)) return;
+  collector?.noteIds.add(note.id);
+  dirtyNotes.add(note.id);
+}
+
 /**
  * Applies a batch of events to `state` while tracking affected cards and optional entity mutations.
  */
@@ -1672,6 +1689,7 @@ export function applyEventsWithCollector(
     } else {
       state.unknownEvents.push(event);
       collector?.addedUnknownEvents.push(event);
+      applyRetainedStarterUpgrade(state, event, dirtyNotes, collector);
     }
   }
 

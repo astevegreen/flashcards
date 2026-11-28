@@ -3,9 +3,11 @@ import type { CollectionState, EventFactory } from '../events/replay.ts';
 import type {
   DeckDescriptionChangedPayload,
   KnownEvent,
-  NoteUpsertedPayload,
   StarterDeckUpgradedPayload,
+  StarterFieldUpgrade,
+  StarterNoteUpgradedPayload,
 } from '../events/types.ts';
+import { noteFieldRegisterKey } from '../events/starter-upgrades.ts';
 import { deriveNoteId } from '../ids.ts';
 import { comparePackageVersions, shouldUpgradePackage } from '../sources/package-version.ts';
 import { STARTER_DECKS, starterDeckId } from './index.ts';
@@ -25,9 +27,11 @@ import type {
  *
  * - A field changes only while it still exactly equals a value an older release generated for
  *   that note (`retiredStarterValues`); an edited field stays as it is.
- * - Each `NoteUpserted` carries only the changed fields, stamped now, and is `fields_only`: replay
- *   leaves the note's deck and source key alone, so it merges with other devices' edits and never
- *   moves back a note another device moved.
+ * - Each note's new text is one `StarterNoteUpgraded` with only the changed fields, each with
+ *   the HLC of the field register that held the old text. It never writes a note's deck, source
+ *   key or field registers, so it never moves back a note another device moved, and replay shows
+ *   it only while no edit the upgrading device had not seen wrote the field: a user's edit, made
+ *   offline on another device before the upgrade synced, always wins (`events/starter-upgrades.ts`).
  * - It runs once per release: the deck's release is the newer of its
  *   `DeckCreated.source.package_version` and any `StarterDeckUpgraded` (`starterDeckVersion`),
  *   compared with the catalog's (`shouldUpgradePackage`). The upgrade ends with a
@@ -171,7 +175,7 @@ function hasUserDescription(state: CollectionState, deckId: string): boolean {
 export interface StarterDeckUpgradePlan {
   deckId: string;
   /** One per note with a field still at an older release's value: only those fields. */
-  notes: NoteUpsertedPayload[];
+  notes: StarterNoteUpgradedPayload[];
   /**
    * The catalog description (it carries the deck's credits since 1.2.0), when it differs and the
    * user never wrote or cleared one.
@@ -179,6 +183,29 @@ export interface StarterDeckUpgradePlan {
   description?: DeckDescriptionChangedPayload;
   /** Records the new release, so the upgrade runs once per release. */
   upgraded: StarterDeckUpgradedPayload;
+}
+
+/** One note's fields still at an older release's text, or undefined when there are none. */
+function planStarterNoteUpgrade(
+  state: CollectionState,
+  deckId: string,
+  slug: string,
+  starter: StarterNote,
+  legacyGlosses: StarterLegacyGlosses,
+): StarterNoteUpgradedPayload | undefined {
+  // The id never changes, so a note the user moved to another deck is still found. The event
+  // names no deck, so the note stays where it is, even after a move that hasn't synced yet.
+  const note = state.notes.get(deriveNoteId(deckId, starter.key));
+  if (note === undefined) return undefined;
+  const fields: Record<string, StarterFieldUpgrade> = {};
+  for (const [field, values] of retiredStarterValues(slug, starter, legacyGlosses)) {
+    const value = note.fields[field];
+    const next = starter.fields[field];
+    const base = state.fieldHlcs.get(noteFieldRegisterKey(note.id, field));
+    if (value === undefined || next === undefined || base === undefined) continue;
+    if (values.has(value)) fields[field] = { value: next, base_hlc: base };
+  }
+  return Object.keys(fields).length === 0 ? undefined : { note_id: note.id, fields };
 }
 
 /**
@@ -195,26 +222,10 @@ export function planStarterDeckUpgrade(
   if (!canUpgrade(starterDeckVersion(state, info), info)) return undefined;
   if (content.slug !== info.slug) throw new Error(`Starter deck content is not "${info.slug}"`);
 
-  const notes: NoteUpsertedPayload[] = [];
+  const notes: StarterNoteUpgradedPayload[] = [];
   for (const starter of content.notes) {
-    // The id never changes, so a note the user moved to another deck is still found. The payload
-    // is fields-only, so the note stays where it is, even after a move that hasn't synced yet.
-    const note = state.notes.get(deriveNoteId(deckId, starter.key));
-    if (note === undefined) continue;
-    const fields: Record<string, string> = {};
-    for (const [field, values] of retiredStarterValues(info.slug, starter, legacyGlosses)) {
-      const value = note.fields[field];
-      const next = starter.fields[field];
-      if (value !== undefined && next !== undefined && values.has(value)) fields[field] = next;
-    }
-    if (Object.keys(fields).length === 0) continue;
-    notes.push({
-      note_id: note.id,
-      deck_id: note.deck_id,
-      source_key: note.source_key,
-      fields,
-      fields_only: true,
-    });
+    const upgrade = planStarterNoteUpgrade(state, deckId, info.slug, starter, legacyGlosses);
+    if (upgrade !== undefined) notes.push(upgrade);
   }
 
   const plan: StarterDeckUpgradePlan = {
@@ -241,7 +252,9 @@ export function buildStarterDeckUpgradeEvents(
   plan: StarterDeckUpgradePlan,
   nowMs: number,
 ): KnownEvent[] {
-  const events = plan.notes.map((payload) => eventFactory.create('NoteUpserted', payload, nowMs));
+  const events = plan.notes.map((payload) =>
+    eventFactory.create('StarterNoteUpgraded', payload, nowMs),
+  );
   if (plan.description !== undefined) {
     events.push(eventFactory.create('DeckDescriptionChanged', plan.description, nowMs));
   }

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   applyEvents,
@@ -11,6 +12,9 @@ import {
   type EventFactory,
   type KnownEvent,
 } from '../src/index.ts';
+import { computeStatePatch, mergeStatePatch } from '../src/events/patch.ts';
+import { deserializeCollectionState, serializeCollectionState } from '../src/events/snapshot.ts';
+import { createHlcState as hlcAt } from '../src/hlc.ts';
 import { deriveNoteId } from '../src/ids.ts';
 import {
   buildStarterDeckEvents,
@@ -244,14 +248,15 @@ describe('starter-deck upgrade', () => {
     });
     expect(events.some((e) => e.type === 'SourceLinked')).toBe(false);
     expect(getDeckDescription(state, starterDeckId(slug))).toBe(info.description);
-    // Only changed fields travel (never the front, reading or tags), and never the note's deck.
+    // Only changed fields travel (never the front, reading or tags), and never the note's deck:
+    // the note fields go in `StarterNoteUpgraded`, never in a `NoteUpserted`.
+    expect(events.some((e) => e.type === 'NoteUpserted')).toBe(false);
     for (const ev of events) {
-      if (ev.type !== 'NoteUpserted') continue;
+      if (ev.type !== 'StarterNoteUpgraded') continue;
       expect(Object.keys(ev.payload.fields).every((f) => f === 'meaning' || f === 'notes')).toBe(
         true,
       );
-      expect(ev.payload.tags).toBeUndefined();
-      expect(ev.payload.fields_only).toBe(true);
+      expect(Object.keys(ev.payload)).toEqual(['note_id', 'fields']);
     }
   });
 
@@ -259,10 +264,10 @@ describe('starter-deck upgrade', () => {
     const seed = await legacySeed(device('dev-a'), 'starter-ko-core', '1.1.0');
     const state = replay(seed);
     const events = await upgrade(device('dev-a'), state);
-    const notes = events.filter((e) => e.type === 'NoteUpserted');
+    const notes = events.flatMap((e) => (e.type === 'StarterNoteUpgraded' ? [e.payload] : []));
     expect(notes).toHaveLength(145);
-    for (const ev of notes) expect(ev.payload).toMatchObject({ fields: { notes: '' } });
-    expect(notes.every((e) => !('meaning' in e.payload.fields))).toBe(true);
+    for (const p of notes) expect(p).toMatchObject({ fields: { notes: { value: '' } } });
+    expect(notes.every((p) => !('meaning' in p.fields))).toBe(true);
   });
 
   it('leaves every field the user edited as it is, and still upgrades the rest', async () => {
@@ -439,7 +444,7 @@ describe('starter-deck upgrade', () => {
       const state = replay(seed, [own]);
       const events = await upgrade(user, state);
       expect(events.some((e) => e.type === 'DeckDescriptionChanged')).toBe(false);
-      expect(events.some((e) => e.type === 'NoteUpserted')).toBe(true);
+      expect(events.some((e) => e.type === 'StarterNoteUpgraded')).toBe(true);
       applyEvents(state, events);
       expect(getDeckDescription(state, deckId)).toBe(text);
     }
@@ -475,5 +480,165 @@ describe('starter-deck upgrade', () => {
     const upA = await upgrade(a, replay(seed));
     expect(upA.length).toBeGreaterThan(1);
     expect(await upgrade(device('dev-b'), replay(seed, upA))).toEqual([]);
+  });
+});
+
+/**
+ * The starter-upgrade race (#83): a user edits a field that still holds the old starter text on a
+ * device that has not synced the upgrade yet. The edit must win over the upgrade for that field,
+ * whichever HLC is later and in whichever order the events arrive.
+ */
+describe('starter-deck upgrade vs an unsynced edit', () => {
+  const slug = 'starter-ko-core';
+  // 사람: its 1.0.0 meaning was reworded, and its Notes held the credit, so both fields upgrade.
+  const KEY = 'nikl:사람:noun';
+  const OTHER = 'nikl:나03:pronoun';
+  const current = async (key: string) =>
+    must((await deck(slug)).content.notes.find((n) => n.key === key)?.fields, key);
+
+  /** A 1.0.0 deck seeded on A and synced to B, an edit B makes offline, and A's upgrade. */
+  async function race(editFirst: boolean) {
+    const a = device('dev-a');
+    const b = device('dev-b');
+    const seed = await legacySeed(a, slug, '1.0.0');
+    const before = replay(seed);
+    const fields = { notes: 'My mnemonic', meaning: 'a person, a human' };
+    // A upgrades without having seen B's edit; which of the two has the later HLC varies.
+    let editB: KnownEvent;
+    let upA: KnownEvent[];
+    if (editFirst) {
+      editB = edit(b, before, slug, KEY, fields);
+      upA = await upgrade(a, replay(seed));
+    } else {
+      upA = await upgrade(a, replay(seed));
+      editB = edit(b, before, slug, KEY, fields);
+    }
+    return { seed, upA, editB, fields };
+  }
+
+  it.each([
+    ['the edit has the earlier HLC', true],
+    ['the edit has the later HLC', false],
+  ])('%s: the edit wins in every delivery order, the rest upgrades', async (_name, editFirst) => {
+    const { seed, upA, editB, fields } = await race(editFirst);
+    const expected = { ...(await current(KEY)), ...fields };
+    const other = await current(OTHER);
+    const orders = everyOrder([seed, [editB], upA]);
+    expect(orders).toHaveLength(6);
+    for (const merged of [...orders.map((o) => replayInTurn(...o)), replay(seed, [editB], upA)]) {
+      expect(noteFields(merged, slug)[KEY]).toEqual(expected);
+      expect(noteFields(merged, slug)[OTHER]).toEqual(other);
+      expect(starterDecksDueForUpgrade(merged)).toEqual([]);
+    }
+  });
+
+  it('an edit made after the upgrade synced wins too, even back to the old text', async () => {
+    const a = device('dev-a');
+    const seed = await legacySeed(a, slug, '1.0.0');
+    const oldNotes = must(noteFields(replay(seed), slug)[KEY]?.['notes'], 'old notes');
+    const upA = await upgrade(a, replay(seed));
+    const synced = replay(seed, upA);
+    expect(noteFields(synced, slug)[KEY]).toEqual(await current(KEY));
+    const revert = edit(device('dev-b'), synced, slug, KEY, { notes: oldNotes });
+    const expected = { ...(await current(KEY)), notes: oldNotes };
+    for (const order of everyOrder([seed, upA, [revert]])) {
+      expect(noteFields(replayInTurn(...order), slug)[KEY]).toEqual(expected);
+    }
+  });
+
+  it('a snapshot keeps the order: a late unsynced edit still wins after hydration', async () => {
+    const { seed, upA, editB, fields } = await race(true);
+    const hydrated = deserializeCollectionState(serializeCollectionState(replay(seed, upA)));
+    expect(noteFields(hydrated, slug)[KEY]).toEqual(await current(KEY));
+    applyEvents(hydrated, [editB]);
+    expect(noteFields(hydrated, slug)[KEY]).toEqual({ ...(await current(KEY)), ...fields });
+  });
+
+  it('reaches the main thread through a worker patch, then loses to the late edit', async () => {
+    const { seed, upA, editB, fields } = await race(true);
+    const worker = replay(seed);
+    const main = replay(seed);
+    mergeStatePatch(main, computeStatePatch(worker, upA));
+    expect(serializeCollectionState(main)).toEqual(serializeCollectionState(replay(seed, upA)));
+    mergeStatePatch(main, computeStatePatch(worker, [editB]));
+    expect(noteFields(main, slug)[KEY]).toEqual({ ...(await current(KEY)), ...fields });
+    expect(serializeCollectionState(main)).toEqual(serializeCollectionState(worker));
+  });
+
+  it('hydrating an older build’s snapshot (event kept, old text shown) shows the upgrade', async () => {
+    const a = device('dev-a');
+    const seed = await legacySeed(a, slug, '1.0.0');
+    const upA = await upgrade(a, replay(seed));
+    const full = replay(seed, upA);
+    // An older build keeps `StarterNoteUpgraded` in `unknownEvents` but never applies it.
+    const snapshot = serializeCollectionState(full);
+    const oldNotes = new Map(serializeCollectionState(replay(seed)).notes.map((n) => [n.id, n]));
+    snapshot.notes = snapshot.notes.map((n) => must(oldNotes.get(n.id), n.id));
+    expect(snapshot.unknownEvents.some((e) => e.type === 'StarterNoteUpgraded')).toBe(true);
+    const hydrated = deserializeCollectionState(snapshot);
+    expect(noteFields(hydrated, slug)).toEqual(noteFields(full, slug));
+  });
+
+  it('property: unsynced edits always win, at any HLC and in any delivery order', async () => {
+    const { content, legacy } = await deck(slug);
+    const keys = [KEY, OTHER, 'nikl:것01:dependent-noun'];
+    const a = createEventFactory('dev-a', 0, hlcAt('dev-a', STARTER_SEED_EPOCH_MS));
+    const seed = await legacySeed(a, slug, '1.0.0');
+    const before = replay(seed);
+    const old = noteFields(before, slug);
+    const upgradeAt = STARTER_SEED_EPOCH_MS + 10 * 60_000;
+    const upA: KnownEvent[] = [];
+    for (const info of starterDecksDueForUpgrade(before)) {
+      const plan = must(planStarterDeckUpgrade(before, info, content, legacy), 'plan');
+      upA.push(...buildStarterDeckUpgradeEvents(a, plan, upgradeAt));
+    }
+    const target = Object.fromEntries(content.notes.map((n) => [n.key, { ...n.fields }]));
+
+    const editArb = fc.record({
+      key: fc.constantFrom(...keys),
+      field: fc.constantFrom('notes', 'meaning'),
+      // The user's own text, an emptied field, or (concurrently) exactly the old starter text.
+      value: fc.constantFrom('mine', '', 'OLD'),
+      // Minutes after the seed; the upgrade is at minute 10.
+      minute: fc.integer({ min: 1, max: 20 }),
+    });
+    fc.assert(
+      fc.property(
+        fc.uniqueArray(editArb, { minLength: 1, maxLength: 4, selector: (e) => e.minute }),
+        fc.integer({ min: 0, max: 1_000_000 }),
+        (edits, shuffleSeed) => {
+          const b = createEventFactory('dev-b', 0, hlcAt('dev-b', STARTER_SEED_EPOCH_MS));
+          const expected = structuredClone(target);
+          const editEvents = [...edits]
+            .sort((x, y) => x.minute - y.minute)
+            .map((e) => {
+              const note = must(before.notes.get(deriveNoteId(starterDeckId(slug), e.key)), e.key);
+              const value = e.value === 'OLD' ? must(old[e.key]?.[e.field], e.field) : e.value;
+              must(expected[e.key], e.key)[e.field] = value;
+              return b.create(
+                'NoteUpserted',
+                {
+                  note_id: note.id,
+                  deck_id: note.deck_id,
+                  source_key: note.source_key,
+                  fields: { [e.field]: value },
+                },
+                STARTER_SEED_EPOCH_MS + e.minute * 60_000,
+              );
+            });
+          // A seeded shuffle of the chunks a device receives, each applied in its own call.
+          const chunks: KnownEvent[][] = [seed, upA, ...editEvents.map((e) => [e])];
+          let r = shuffleSeed;
+          for (let i = chunks.length - 1; i > 0; i -= 1) {
+            r = (r * 1_103_515_245 + 12_345) % 2_147_483_648;
+            const j = r % (i + 1);
+            [chunks[i], chunks[j]] = [must(chunks[j], 'chunk'), must(chunks[i], 'chunk')];
+          }
+          expect(noteFields(replayInTurn(...chunks), slug)).toEqual(expected);
+          expect(noteFields(replay(seed, upA, editEvents), slug)).toEqual(expected);
+        },
+      ),
+      { numRuns: 40 },
+    );
   });
 });
