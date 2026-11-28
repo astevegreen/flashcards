@@ -14,6 +14,7 @@ import type {
 } from '@flash/platform';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  folderScanStatusMessage,
   refreshSinglePackageSubscription,
   scanSingleLocalFolder,
   type ArchivePreviewRequest,
@@ -163,6 +164,13 @@ describe('package update that archives notes (C9 preview)', () => {
     expect(activeWords(state)).toEqual(['k1', 'k2', 'k3']);
     expect(folder.files['words.flashpkg']?.contentHash).toBe(cachedV1);
     expect(folder.warnings?.map((w) => w.code)).toContain('archive_held');
+    const heldRes = { updated: false, notesTouched: 0, pagesTouched: 0, inboxImported: 0 };
+    expect(folderScanStatusMessage(folder, heldRes)).toMatch(
+      /^Not updated: you cancelled the update of "words\.flashpkg", which would archive 2 notes\.$/,
+    );
+    expect(folderScanStatusMessage(folder, { ...heldRes, updated: true, notesTouched: 1 })).toBe(
+      `Scanned "Cards" (1 note change(s), 0 page(s), 0 Inbox). ${folder.warnings?.[0]?.message}`,
+    );
 
     // Continue on the next scan: the counted notes are archived and the new version is cached.
     confirm.mockResolvedValue(true);

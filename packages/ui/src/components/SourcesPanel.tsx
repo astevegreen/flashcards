@@ -658,8 +658,12 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
       setBusy(true);
       onErrorMessage(null);
       try {
-        const { loadSourcesRegistry, saveSourcesRegistry, scanSingleLocalFolder } =
-          await import('../sources/sourceRunner.ts');
+        const {
+          folderScanStatusMessage,
+          loadSourcesRegistry,
+          saveSourcesRegistry,
+          scanSingleLocalFolder,
+        } = await import('../sources/sourceRunner.ts');
         const nextReg = await loadSourcesRegistry(platform, state);
         const target = nextReg.localFolders.find((f) => f.id === folder.id);
         if (!target) return;
@@ -674,11 +678,7 @@ export function SourcesPanel({ onStatusMessage, onErrorMessage }: SourcesPanelPr
         if (res.error) {
           onErrorMessage(res.error);
         } else {
-          onStatusMessage(
-            res.updated
-              ? `Scanned "${target.name}" (${res.notesTouched} note change(s), ${res.pagesTouched} page(s), ${res.inboxImported} Inbox).`
-              : `"${target.name}" has no new changes.`,
-          );
+          onStatusMessage(folderScanStatusMessage(target, res));
         }
       } catch (err) {
         onErrorMessage(err instanceof Error ? err.message : String(err));

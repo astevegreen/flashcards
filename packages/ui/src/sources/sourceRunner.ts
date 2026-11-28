@@ -928,6 +928,23 @@ export async function linkAndScanLocalFolder(
 }
 
 /**
+ * The status line after one folder's Scan. A package update the user cancelled (or that was held
+ * for review, C9) says so, so a scan whose only change was held doesn't read as "no new changes".
+ */
+export function folderScanStatusMessage(
+  folder: Pick<LinkedLocalFolder, 'name' | 'warnings'>,
+  res: { updated: boolean; notesTouched: number; pagesTouched: number; inboxImported: number },
+): string {
+  const done = res.updated
+    ? `Scanned "${folder.name}" (${res.notesTouched} note change(s), ${res.pagesTouched} page(s), ${res.inboxImported} Inbox).`
+    : `"${folder.name}" has no new changes.`;
+  const held = (folder.warnings ?? []).filter((w) => w.code === 'archive_held');
+  if (held.length === 0) return done;
+  const heldText = held.map((w) => w.message).join(' ');
+  return res.updated ? `${done} ${heldText}` : heldText;
+}
+
+/**
  * Scans a linked PC local folder (.csv/.tsv, .xlsx via lazy read-excel-file, .md, .flashpkg,
  * relative media, and `Inbox/` auto-import) using `lastModified`/content-hash caching (§3.2, §10.3).
  */
