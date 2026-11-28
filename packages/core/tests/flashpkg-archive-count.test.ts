@@ -13,19 +13,14 @@ const PACKAGE_ID = 'pkg:archive-count-test';
 
 type Factory = ReturnType<typeof createEventFactory>;
 
-function noteEvent(factory: Factory, id: string, sourceKey: string, word: string, order: number) {
-  return factory.create(
-    'NoteUpserted',
-    {
-      note_id: id,
-      deck_id: 'deck-src',
-      source_key: sourceKey,
-      fields: { word, meaning: word },
-      tags: [],
-      provenance: { source: 'import', reviewed: true },
-      created_order: order,
-    },
-    T0 + order + 1,
+/** Author notes `[id, sourceKey, word]` into `deck-src`, in order from `first`. */
+function notes(factory: Factory, rows: ReadonlyArray<[string, string, string]>, first = 0) {
+  return rows.map(([note_id, source_key, word], i) =>
+    factory.create(
+      'NoteUpserted',
+      { note_id, deck_id: 'deck-src', source_key, fields: { word }, created_order: first + i },
+      T0 + first + i + 1,
+    ),
   );
 }
 
@@ -38,16 +33,24 @@ function authorVersions(): { v1: Uint8Array; v2: Uint8Array; v2Subset: Uint8Arra
       { deck_id: 'deck-src', name: 'Words', note_type_id: 'preset:vocab-ko', language: 'ko' },
       T0,
     ),
-    noteEvent(author, 'a1', 'k1', '나무', 0),
-    noteEvent(author, 'a2', 'k2', '하늘', 1),
-    noteEvent(author, 'a3', 'k3', '바다', 2),
+    ...notes(author, [
+      ['a1', 'k1', '나무'],
+      ['a2', 'k2', '하늘'],
+      ['a3', 'k3', '바다'],
+    ]),
   ];
   const v1State = replayAllEvents(v1Events);
   const v2State = applyEvents(replayAllEvents(v1Events), [
     author.create('NoteArchived', { note_id: 'a2' }, T0 + 100),
     author.create('NoteArchived', { note_id: 'a3' }, T0 + 101),
-    noteEvent(author, 'a4', 'k4', '하늘 (sky)', 3),
-    noteEvent(author, 'a5', 'k5', '바다 (sea)', 4),
+    ...notes(
+      author,
+      [
+        ['a4', 'k4', '하늘 (sky)'],
+        ['a5', 'k5', '바다 (sea)'],
+      ],
+      3,
+    ),
   ]);
   return {
     v1: exportFlashpkg(v1State, { deckId: 'deck-src', packageId: PACKAGE_ID }),

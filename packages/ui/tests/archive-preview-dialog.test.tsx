@@ -1,15 +1,7 @@
 // @vitest-environment happy-dom
 // C9: Check Update on a package whose new version drops notes asks first; Cancel writes nothing.
-import {
-  applyEvents,
-  BUILTIN_NOTE_TYPE_IDS,
-  createEmptyState,
-  createEventFactory,
-  createHlcState,
-  deriveNoteId,
-  type FlashEvent,
-} from '@flash/core';
-import { exportFlashpkg, importFlashpkg } from '@flash/core/flashpkg';
+import { createEmptyState, createEventFactory, createHlcState, type FlashEvent } from '@flash/core';
+import { importFlashpkg } from '@flash/core/flashpkg';
 import type { PackageSubscription, SourcesRegistry } from '@flash/platform';
 import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -22,39 +14,9 @@ import {
   must,
   type Mounted,
 } from './helpers/app-harness.tsx';
+import { activeWords as wordsIn, packageBytes } from './helpers/package-versions.ts';
 
-const DECK = 'pkg-deck';
 const URL = 'https://example.com/words.flashpkg';
-
-function packageBytes(keys: readonly string[], version: string): Uint8Array {
-  const pkgState = createEmptyState();
-  const f = createEventFactory('cli', 0, createHlcState('cli', 500));
-  applyEvents(pkgState, [
-    f.create(
-      'DeckCreated',
-      {
-        deck_id: DECK,
-        name: 'Words',
-        note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
-        language: 'ko',
-      },
-      500,
-    ),
-    ...keys.map((k) =>
-      f.create(
-        'NoteUpserted',
-        {
-          note_id: deriveNoteId(DECK, k),
-          deck_id: DECK,
-          source_key: k,
-          fields: { word: k, meaning: k },
-        },
-        500,
-      ),
-    ),
-  ]);
-  return exportFlashpkg(pkgState, { packageId: 'pkg:words', name: 'Words', version });
-}
 
 let mounted: Mounted | undefined;
 afterEach(async () => {
@@ -99,15 +61,10 @@ async function mountSubscribed() {
     { platform, initialEvents: v1Events },
   );
   await flush(6);
-  return { m: mounted, onError, onStatus };
+  return { m: mounted, onError, onStatus, storage };
 }
 
-function activeWords(m: Mounted): string[] {
-  return [...m.app().state.notes.values()]
-    .filter((n) => !n.archived)
-    .map((n) => n.fields['word'] ?? '')
-    .sort();
-}
+const activeWords = (m: Mounted): string[] => wordsIn(m.app().state);
 
 function buttonByText(root: ParentNode, text: string): HTMLButtonElement {
   return must(
@@ -170,5 +127,17 @@ describe('archive-count preview in the Sources panel (C9)', () => {
     expect(document.querySelector('[data-testid="archive-preview-dialog"]')).toBeNull();
     expect(activeWords(m)).toEqual(['k1', 'k4']);
     expect(onStatus).toHaveBeenLastCalledWith(expect.stringMatching(/v2\.0\.0/));
+  });
+
+  it('closing the panel mid-question cancels and writes nothing', async () => {
+    const { m, onError, storage } = await mountSubscribed();
+    await openPreview(m);
+    const appendedBefore = storage.appended.length;
+    await m.unmount();
+    mounted = undefined;
+    await flush(8);
+    // The waiting refresh settled (so the sources lock is free) without writing.
+    expect(onError).toHaveBeenLastCalledWith(expect.stringMatching(/cancelled/));
+    expect(storage.appended).toHaveLength(appendedBefore);
   });
 });

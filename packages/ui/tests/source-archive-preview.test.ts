@@ -1,14 +1,10 @@
 import {
   applyEvents,
-  BUILTIN_NOTE_TYPE_IDS,
   createEmptyState,
   createEventFactory,
   createHlcState,
-  deriveNoteId,
-  type CollectionState,
   type KnownEvent,
 } from '@flash/core';
-import { exportFlashpkg } from '@flash/core/flashpkg';
 import type {
   LinkedLocalFolder,
   LocalFolderSourcesAdapter,
@@ -22,50 +18,11 @@ import {
   scanSingleLocalFolder,
   type ArchivePreviewRequest,
 } from '../src/sources/sourceRunner.ts';
-
-const DECK = 'pkg-deck';
-
-/** One package deck at a version, holding a note per key. */
-function packageBytes(keys: readonly string[], version: string): Uint8Array {
-  const pkgState = createEmptyState();
-  const f = createEventFactory('cli', 0, createHlcState('cli', 500));
-  applyEvents(pkgState, [
-    f.create(
-      'DeckCreated',
-      {
-        deck_id: DECK,
-        name: 'Words',
-        note_type_id: BUILTIN_NOTE_TYPE_IDS.VOCAB_KO,
-        language: 'ko',
-      },
-      500,
-    ),
-    ...keys.map((k) =>
-      f.create(
-        'NoteUpserted',
-        {
-          note_id: deriveNoteId(DECK, k),
-          deck_id: DECK,
-          source_key: k,
-          fields: { word: k, meaning: k },
-        },
-        500,
-      ),
-    ),
-  ]);
-  return exportFlashpkg(pkgState, { packageId: 'pkg:words', name: 'Words', version });
-}
+import { activeWords, packageBytes } from './helpers/package-versions.ts';
 
 const V1 = packageBytes(['k1', 'k2', 'k3'], '1.0.0');
 /** k2 and k3 were replaced by k4: an update that archives 2 notes. */
 const V2 = packageBytes(['k1', 'k4'], '2.0.0');
-
-function activeWords(state: CollectionState): string[] {
-  return [...state.notes.values()]
-    .filter((n) => !n.archived)
-    .map((n) => n.fields['word'] ?? '')
-    .sort();
-}
 
 /** A collection subscribed to the package at v1, and a refresh context serving `next`. */
 function subscribedAtV1(confirmArchive?: (r: ArchivePreviewRequest) => Promise<boolean>) {
@@ -131,7 +88,7 @@ describe('package update that archives notes (C9 preview)', () => {
     const archived = s.emitted.at(-1)?.filter((e) => e.type === 'NoteArchived') ?? [];
     expect(archived).toHaveLength(2);
     expect(activeWords(s.state)).toEqual(['k1', 'k4']);
-    expect(activeWords(s.state).length).toBe(activeBefore - 2 + 1);
+    expect(activeWords(s.state)).toHaveLength(activeBefore - 2 + 1);
     expect(s.sub.version).toBe('2.0.0');
   });
 

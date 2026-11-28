@@ -13,7 +13,10 @@ export interface ArchivePreviewDialogProps {
  * modal `<dialog>` opened with `showModal()` (Escape closes it as Cancel). Loaded lazily by the
  * Sources panel, only when an update would archive at least one note.
  */
-export default function ArchivePreviewDialog({ request, onAnswer }: ArchivePreviewDialogProps) {
+export default function ArchivePreviewDialog({
+  request,
+  onAnswer,
+}: Readonly<ArchivePreviewDialogProps>) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const answeredRef = useRef(false);
   const titleId = useId();
