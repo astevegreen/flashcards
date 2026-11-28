@@ -14,6 +14,7 @@ import {
   resolveDeckFsrsConfig,
   shouldAutoSuspendLeech,
   uuidv7,
+  withNewDeckCardOrder,
   type Card,
   type CollectionPreferences,
   type CollectionState,
@@ -427,10 +428,13 @@ export function AppProvider({
   );
 
   const emitEvents = useCallback(
-    (events: readonly KnownEvent[]) => {
-      if (events.length === 0) return;
+    (emitted: readonly KnownEvent[]) => {
+      if (emitted.length === 0) return;
       const factory = factoryRef.current;
       const st = stateRef.current;
+      // Every local path that creates a deck (Library, imports, sources, starters, samples) starts
+      // it on the Settings card order, written into its DeckCreated before it is applied or saved.
+      const events = withNewDeckCardOrder(st, emitted);
       // An edit that starts using a file re-adds it right after, so the newer use beats a Check
       // media removal another device decided before this edit synced (mediaReAdds.ts).
       const mediaPrior = priorOfMediaEdits(st, events);

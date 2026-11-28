@@ -16,6 +16,7 @@ import {
   createHlcState,
   FLASH_NAMESPACE_UUID,
   uuidv5,
+  withNewDeckCardOrder,
   type CollectionState,
   type KnownEvent,
 } from '@flash/core';
@@ -89,8 +90,10 @@ export function processInboxFolder(
       if (ext === '.flashpkg') {
         const bytes = readFileSync(filePath);
         const res = importFlashpkg(bytes, state, factory, { nowMs });
-        applyEvents(state, res.events);
-        allEvents.push(...res.events);
+        // New decks start on the collection's Settings card order, as in the app.
+        const events = withNewDeckCardOrder(state, res.events);
+        applyEvents(state, events);
+        allEvents.push(...events);
         for (const m of res.extractedMedia) {
           mediaBlobs.set(m.hash.toLowerCase(), m.bytes);
         }
@@ -131,7 +134,7 @@ export function processInboxFolder(
             }
           }
         }
-        const batch = [deckEv, ...csvRes.events];
+        const batch = withNewDeckCardOrder(state, [deckEv, ...csvRes.events]);
         applyEvents(state, batch);
         allEvents.push(...batch);
       } else if (ext === '.md') {

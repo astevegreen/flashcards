@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { getEnabledLayoutsForDeck, type FlashEvent, type Layout } from '@flash/core';
 import { act } from 'react';
+import { buildSampleDeckEvents, SAMPLE_SEED_EPOCH_MS } from '@flash/core/samples';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useLibraryActions, type LibraryActions } from '../src/state/libraryActions.ts';
 import {
@@ -51,6 +52,46 @@ describe('library actions (off the study chunk, §8)', () => {
     const deck = must(m.app().state.decks.get(deckId));
     expect(deck.name).toBe('Verbs');
     expect(deck.note_type_id).toBe(noteTypeId);
+  });
+
+  it('createDeck starts the deck on the Settings card order, written in DeckCreated', async () => {
+    const { m, run, appended } = await mount();
+    await act(async () => m.app().updatePreferences({ study_order: 'random' }));
+    const noteTypeId = must([...m.app().state.noteTypes.keys()][0]);
+    const deckId = await run((a) => a.createDeck('Shuffled', noteTypeId, 'ko'));
+    expect(m.app().state.decks.get(deckId)?.settings.new_card_order).toBe('random');
+    const create = appended().find(
+      (e) => e.type === 'DeckCreated' && (e.payload as { deck_id: string }).deck_id === deckId,
+    );
+    expect(create?.payload).toMatchObject({ settings: { new_card_order: 'random' } });
+  });
+
+  it('every batch emitted through the app (samples, starters, imports) gets the order', async () => {
+    const { m, appended } = await mount();
+    await act(async () => m.app().updatePreferences({ study_order: 'random' }));
+    const { buildStarterDeckEvents, loadStarterDeck, STARTER_DECKS } =
+      await import('@flash/core/starters');
+    const info = must(STARTER_DECKS[0]);
+    const content = await loadStarterDeck(info.slug);
+    await act(async () => {
+      m.app().emitEvents(buildStarterDeckEvents(m.app().getEventFactory(), info, content));
+    });
+    await flush();
+    const creates = appended().filter((e) => e.type === 'DeckCreated');
+    expect(creates.at(-1)?.payload).toMatchObject({ settings: { new_card_order: 'random' } });
+    // Sample decks already in the collection are left alone when re-emitted.
+    const before = appended().length;
+    await act(async () => {
+      m.app().emitEvents(buildSampleDeckEvents(m.app().getEventFactory(), SAMPLE_SEED_EPOCH_MS));
+    });
+    await flush();
+    const resent = appended()
+      .slice(before)
+      .filter((e) => e.type === 'DeckCreated');
+    expect(resent.length).toBeGreaterThan(0);
+    for (const e of resent) {
+      expect((e.payload as { settings?: unknown }).settings).toBeUndefined();
+    }
   });
 
   it('upsertPage cleans the slug, keeps a given page id and marks pages read', async () => {

@@ -8,6 +8,7 @@ import {
   deriveNoteId,
   encodeUtf8,
   SyncTransportError,
+  withNewDeckCardOrder,
   type CollectionState,
   type KnownEvent,
 } from '@flash/core';
@@ -950,6 +951,25 @@ describe.each(CLOUD_CASES)('merged cloud-file runner — $name (R4)', (c) => {
     expect(changed.updated).toBe(true);
     expect(drive.downloads).toBe(2);
     expect(upserts()).toBe(3);
+  });
+
+  it('links a new deck on the Settings card order, as the app emits it', async () => {
+    const { state, ctx, emitted } = cloudSetup(c);
+    const pref = createEventFactory('prefs', 0, createHlcState('prefs', 500)).create(
+      'PreferencesChanged',
+      { preferences: { study_order: 'random' } },
+      500,
+    );
+    applyEvents(state, [pref]);
+    // AppContext.emitEvents runs every local batch through withNewDeckCardOrder.
+    const appCtx: SourceRunContext = {
+      ...ctx,
+      emitEvents: (events) => ctx.emitEvents(withNewDeckCardOrder(state, events)),
+    };
+    const { source } = await c.link(FILE, appCtx);
+    expect(state.decks.get(source.deckId ?? '')?.settings.new_card_order).toBe('random');
+    const create = emitted.find((e) => e.type === 'DeckCreated');
+    expect(create?.payload).toMatchObject({ settings: { new_card_order: 'random' } });
   });
 
   it('leaves a file whose deck is archived alone, before any network call', async () => {

@@ -222,6 +222,32 @@ describe('Phase 7 tools/cli & Local MCP Server (§7.1, §10.3)', () => {
     expect(existsSync(outConsolidated)).toBe(true);
   });
 
+  it('inbox: new decks start on the collection Settings card order', () => {
+    const inboxDir = makeTempDir('flash-inbox-order-');
+    const pkg = buildPackageFromSpec({
+      packageId: 'pkg:inbox-order',
+      name: 'Inbox Order',
+      decks: [{ name: 'Hanja', language: 'ko', notes: [{ id: 'h1', fields: { word: '학교' } }] }],
+    });
+    writeFileSync(join(inboxDir, 'sample.flashpkg'), pkg.bytes);
+    writeFileSync(join(inboxDir, 'extra-ko.csv'), 'Word,Meaning\n우산,umbrella\n');
+    const state = createEmptyState();
+    applyEvents(state, [
+      createEventFactory('prefs', 0, createHlcState('prefs', 1000)).create(
+        'PreferencesChanged',
+        { preferences: { study_order: 'random' } },
+        1000,
+      ),
+    ]);
+    const res = processInboxFolder(inboxDir, { language: 'ko', nowMs: 5000, state });
+    const creates = res.events.filter((e) => e.type === 'DeckCreated');
+    expect(creates).toHaveLength(2);
+    for (const e of creates) {
+      expect(e.payload).toMatchObject({ settings: { new_card_order: 'random' } });
+    }
+    for (const d of res.state.decks.values()) expect(d.settings.new_card_order).toBe('random');
+  });
+
   it('inbox without an output package leaves every file in the inbox (C27)', () => {
     const inboxDir = makeTempDir('flash-inbox-noout-');
     writeFileSync(join(inboxDir, 'extra-ko.csv'), 'Word,Meaning\n우산,umbrella\n');
