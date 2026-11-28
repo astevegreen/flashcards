@@ -18,6 +18,13 @@ import { useApp } from '../state/AppContext.tsx';
 import { useLibraryActions } from '../state/libraryActions.ts';
 import { parsePageMarkdownToAst, type AstNode } from './markdownAst.ts';
 
+// Now and the UTC offset, read outside the component body: the React Compiler's purity check
+// cannot tell a handler or a memo there from render code. Kept per file so it adds no shared chunk.
+const readClock = (nowMs = Date.now()) => ({
+  nowMs,
+  tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset(),
+});
+
 export interface PageViewerProps {
   page: Page;
   onBack?: () => void;
@@ -126,7 +133,9 @@ function InlineCardsWidget({
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [reviewedCount, setReviewedCount] = useState(0);
-  const shownAtRef = useRef(Date.now());
+  // When the current card was shown: the first at mount, each next one when it is flipped to.
+  const [mountedAtMs] = useState(() => Date.now());
+  const shownAtRef = useRef(mountedAtMs);
 
   const { deck, notes } = useMemo(() => {
     const matchedDeck = findDeckByRef(state.decks.values(), deckRef);
@@ -206,12 +215,12 @@ function InlineCardsWidget({
   const goNext = () => {
     setIndex((prev) => (prev + 1) % notes.length);
     setRevealed(false);
-    shownAtRef.current = Date.now();
+    shownAtRef.current = readClock().nowMs;
   };
 
   const handleRate = (rating: ReviewRating) => {
     if (!studyCard) return;
-    rateCard(studyCard, rating, Date.now() - shownAtRef.current);
+    rateCard(studyCard, rating, readClock().nowMs - shownAtRef.current);
     setReviewedCount((n) => n + 1);
     goNext();
   };

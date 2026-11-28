@@ -16,6 +16,13 @@ import {
   type SessionDeps,
 } from './studySessions.ts';
 
+// Now and the UTC offset, read outside the component body: the React Compiler's purity check
+// cannot tell a handler or a memo there from render code. Kept per file so it adds no shared chunk.
+const readClock = (nowMs = Date.now()) => ({
+  nowMs,
+  tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset(),
+});
+
 const BTN =
   'shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold hover:bg-[var(--surface-2)] disabled:opacity-40';
 const INPUT =
@@ -56,8 +63,7 @@ export function CustomStudySection({
   const [extraNew, setExtraNew] = useState(10);
 
   const counts = useMemo(() => {
-    const nowMs = Date.now();
-    const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
+    const { nowMs, tzOffsetMinutes } = readClock();
     return {
       ahead: buildReviewAheadQueue(state, {
         days: aheadDays,

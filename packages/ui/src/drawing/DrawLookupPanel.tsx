@@ -1,5 +1,5 @@
 import type { HandwritingCandidate, InkStroke } from '@flash/platform';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { PointerInkCanvas } from './PointerInkCanvas.tsx';
 
@@ -32,20 +32,33 @@ export function DrawLookupPanel({
   const { platform } = useApp();
   const [strokes, setStrokes] = useState<InkStroke[]>([]);
   const [candidates, setCandidates] = useState<HandwritingCandidate[]>([]);
-  const [recognizerReady, setRecognizerReady] = useState<boolean | null>(null);
+  // No recognizer on this platform: not ready, in the same render the platform arrives.
+  const [recognizerReady, setRecognizerReady] = useState<boolean | null>(() =>
+    platform.getHandwritingRecognizer ? null : false,
+  );
+  const [recognizerPlatform, setRecognizerPlatform] = useState(platform);
+  if (recognizerPlatform !== platform) {
+    setRecognizerPlatform(platform);
+    if (!platform.getHandwritingRecognizer) setRecognizerReady(false);
+  }
   const [recognizerLabel, setRecognizerLabel] = useState('Web Stroke Matcher');
   const [busy, setBusy] = useState(false);
 
   const reqSeqRef = useRef(0);
   const onCandidatesChangeRef = useRef(onCandidatesChange);
-  onCandidatesChangeRef.current = onCandidatesChange;
+  useLayoutEffect(() => {
+    onCandidatesChangeRef.current = onCandidatesChange;
+  });
+
+  // Undoing or clearing the last stroke drops the candidates with it.
+  const changeStrokes = (next: InkStroke[]) => {
+    setStrokes(next);
+    if (next.length === 0) setCandidates([]);
+  };
 
   useEffect(() => {
+    if (!platform.getHandwritingRecognizer) return undefined;
     let cancelled = false;
-    if (!platform.getHandwritingRecognizer) {
-      setRecognizerReady(false);
-      return undefined;
-    }
     void platform
       .getHandwritingRecognizer()
       .then(async (rec) => {
@@ -64,7 +77,6 @@ export function DrawLookupPanel({
 
   useEffect(() => {
     if (strokes.length === 0) {
-      setCandidates([]);
       onCandidatesChangeRef.current?.([]);
       return undefined;
     }
@@ -118,7 +130,7 @@ export function DrawLookupPanel({
       <PointerInkCanvas
         size={size}
         strokes={strokes}
-        onChangeStrokes={setStrokes}
+        onChangeStrokes={changeStrokes}
         disabled={disabled}
         {...(onReveal ? { onReveal } : {})}
         {...(revealLabel ? { revealLabel } : {})}

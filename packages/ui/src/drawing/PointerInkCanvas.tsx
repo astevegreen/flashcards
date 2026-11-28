@@ -1,5 +1,5 @@
 import type { InkPoint, InkStroke } from '@flash/platform';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 export type GridGuideMode = 'star' | 'cross' | 'none';
 
@@ -92,8 +92,11 @@ export function PointerInkCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
   const activeStrokeRef = useRef<InkPoint[] | null>(null);
+  // Read by the pointer handlers, which outlive a render.
   const strokesRef = useRef<readonly InkStroke[]>(strokes);
-  strokesRef.current = strokes;
+  useLayoutEffect(() => {
+    strokesRef.current = strokes;
+  });
 
   const [gridMode, setGridMode] = useState<GridGuideMode>(initialGrid);
   const [liveStroke, setLiveStroke] = useState<InkPoint[] | null>(null);

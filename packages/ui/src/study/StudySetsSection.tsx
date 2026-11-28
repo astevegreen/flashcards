@@ -14,6 +14,13 @@ import {
 } from '@flash/core';
 import { useMemo, useState } from 'react';
 
+// Now and the UTC offset, read outside the component body: the React Compiler's purity check
+// cannot tell a handler or a memo there from render code. Kept per file so it adds no shared chunk.
+const readClock = (nowMs = Date.now()) => ({
+  nowMs,
+  tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset(),
+});
+
 const BTN =
   'rounded-lg border border-[var(--border)] px-2 py-0.5 text-xs font-medium hover:bg-[var(--surface-2)] disabled:opacity-40';
 
@@ -121,8 +128,7 @@ export function StudySetsSection({
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const rows = useMemo(() => {
-    const nowMs = Date.now();
-    const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
+    const { nowMs, tzOffsetMinutes } = readClock();
     return listStudySets(state).map((set) => {
       const filter = studySetScopeFilter(set.filter, deckId);
       return {

@@ -1,7 +1,7 @@
 import { mapDrawMistakesToRating, type StrokeScript } from '@flash/core/drawing';
 import type { HanziStrokeData, InkStroke } from '@flash/platform';
 import HanziWriter from 'hanzi-writer';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import type { AnswerEvaluation } from '../study/answerModes/types.ts';
 import { CharacterGridSvg, PointerInkCanvas, type GridGuideMode } from './PointerInkCanvas.tsx';
@@ -32,14 +32,17 @@ export default function DrawQuizPanel({
 
   const [charIndex, setCharIndex] = useState(0);
   const [strokeData, setStrokeData] = useState<HanziStrokeData | null>(null);
-  const [loadingChar, setLoadingChar] = useState(true);
-  const [missingOffline, setMissingOffline] = useState(false);
+  // Stroke data loads only for a character on a platform with a stroke provider; otherwise the
+  // freehand fallback shows straight away.
+  const canLoad = (char: string | undefined) => Boolean(char && platform.getStrokeDataProvider);
+  const [loadingChar, setLoadingChar] = useState(() => canLoad(characters[0]));
+  const [missingOffline, setMissingOffline] = useState(() => !canLoad(characters[0]));
 
   const [gridMode, setGridMode] = useState<GridGuideMode>('star');
   const [showOutline, setShowOutline] = useState(false);
   const [currentStrokeNum, setCurrentStrokeNum] = useState(0);
   const [totalMistakes, setTotalMistakes] = useState(0);
-  const [statusText, setStatusText] = useState('Draw stroke 1…');
+  const [statusText, setStatusText] = useState('Loading stroke data…');
   const [quizFinished, setQuizFinished] = useState(false);
   const [fallbackStrokes, setFallbackStrokes] = useState<InkStroke[]>([]);
 
@@ -48,38 +51,55 @@ export default function DrawQuizPanel({
   const totalMistakesRef = useRef(0);
   const charMistakesAtStartRef = useRef(0);
   const onEvaluateRef = useRef(onEvaluateAndReveal);
-  onEvaluateRef.current = onEvaluateAndReveal;
+  useLayoutEffect(() => {
+    onEvaluateRef.current = onEvaluateAndReveal;
+  });
 
   const activeChar = characters[charIndex] ?? '';
   const totalChars = characters.length;
 
-  // Reset entire multi-character session when card changes
-  useEffect(() => {
+  // Reset entire multi-character session when card changes: the state in the same render, the
+  // mistake counters (read only by the quiz callbacks) once it commits.
+  const [sessionFor, setSessionFor] = useState({ cardId, characters, script });
+  if (
+    sessionFor.cardId !== cardId ||
+    sessionFor.characters !== characters ||
+    sessionFor.script !== script
+  ) {
+    setSessionFor({ cardId, characters, script });
     setCharIndex(0);
     setTotalMistakes(0);
-    totalMistakesRef.current = 0;
-    charMistakesAtStartRef.current = 0;
     setCurrentStrokeNum(0);
     setShowOutline(false);
     setQuizFinished(false);
     setFallbackStrokes([]);
     setStatusText('Loading stroke data…');
+  }
+  useEffect(() => {
+    totalMistakesRef.current = 0;
+    charMistakesAtStartRef.current = 0;
   }, [cardId, characters, script]);
 
-  // Fetch active character stroke data from StrokeDataProvider (local IDB -> packs.json host)
-  useEffect(() => {
-    let cancelled = false;
-    setLoadingChar(true);
-    setMissingOffline(false);
+  // A new character (or platform or script) shows Loading in the same render, or the freehand
+  // fallback when there is nothing to load.
+  const [loadFor, setLoadFor] = useState({ activeChar, platform, script });
+  if (
+    loadFor.activeChar !== activeChar ||
+    loadFor.platform !== platform ||
+    loadFor.script !== script
+  ) {
+    setLoadFor({ activeChar, platform, script });
+    setLoadingChar(canLoad(activeChar));
+    setMissingOffline(!canLoad(activeChar));
     setStrokeData(null);
     setCurrentStrokeNum(0);
     setFallbackStrokes([]);
+  }
 
-    if (!activeChar || !platform.getStrokeDataProvider) {
-      setLoadingChar(false);
-      setMissingOffline(true);
-      return undefined;
-    }
+  // Fetch active character stroke data from StrokeDataProvider (local IDB -> packs.json host)
+  useEffect(() => {
+    if (!activeChar || !platform.getStrokeDataProvider) return undefined;
+    let cancelled = false;
 
     void platform
       .getStrokeDataProvider()

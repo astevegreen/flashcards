@@ -9,6 +9,13 @@ import { DUPLICATE_TAG, findDuplicateGroups, planDuplicateTagAdds } from '@flash
 import { useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 
+// Now and the UTC offset, read outside the component body: the React Compiler's purity check
+// cannot tell a handler or a memo there from render code. Kept per file so it adds no shared chunk.
+const readClock = (nowMs = Date.now()) => ({
+  nowMs,
+  tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset(),
+});
+
 /** Groups shown per page; "Show more" reveals the next page. */
 const PAGE_SIZE = 50;
 
@@ -45,7 +52,7 @@ export function DuplicateFinderPanel({ onOpen, onClose }: Readonly<DuplicateFind
     const payloads = planDuplicateTagAdds(state, noteIds);
     if (payloads.length > 0) {
       const factory = getEventFactory();
-      const nowMs = Date.now();
+      const { nowMs } = readClock();
       emitEvents(payloads.map((p) => factory.create('NoteTagsAdded', p, nowMs)));
     }
     setMessage(`Tagged "${DUPLICATE_TAG}" on ${notesText(payloads.length)}.`);

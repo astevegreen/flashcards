@@ -11,6 +11,13 @@ import { useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useApp } from '../state/AppContext.tsx';
 import { useLibraryActions } from '../state/libraryActions.ts';
 
+// Now and the UTC offset, read outside the component body: the React Compiler's purity check
+// cannot tell a handler or a memo there from render code. Kept per file so it adds no shared chunk.
+const readClock = (nowMs = Date.now()) => ({
+  nowMs,
+  tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset(),
+});
+
 export interface CoursesPanelProps {
   onOpenPage: (pageId: string) => void;
   onStudyDeck: (deckId: string) => void;
@@ -451,8 +458,7 @@ export function CoursesPanel({ onOpenPage, onStudyDeck, onExportCourse }: Course
   const { upsertCourse } = useLibraryActions();
   const [editorMode, setEditorMode] = useState<CourseEditorMode>(null);
 
-  const nowMs = Date.now();
-  const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
+  const { nowMs, tzOffsetMinutes } = readClock();
 
   const pages = useMemo(
     () =>

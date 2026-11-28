@@ -19,6 +19,13 @@ import { useBrowseFilter, type ActiveStudyFilter } from './filterStore.ts';
 import { createPracticeSession } from './studySessions.ts';
 import { SaveStudySetForm, saveStudySet, StudySetsSection } from './StudySetsSection.tsx';
 
+// Now and the UTC offset, read outside the component body: the React Compiler's purity check
+// cannot tell a handler or a memo there from render code. Kept per file so it adds no shared chunk.
+const readClock = (nowMs = Date.now()) => ({
+  nowMs,
+  tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset(),
+});
+
 const SMALL_BTN =
   'rounded-lg border border-[var(--border)] px-2 py-0.5 text-xs font-medium hover:bg-[var(--surface-2)]';
 
@@ -99,8 +106,7 @@ export function StudyFilterPanel({ deckId, onStart, onClose }: StudyFilterPanelP
   }, [baseFilter, browseFilter.states]);
 
   const counts = useMemo(() => {
-    const nowMs = Date.now();
-    const tzOffsetMinutes = -new Date(nowMs).getTimezoneOffset();
+    const { nowMs, tzOffsetMinutes } = readClock();
     const out = new Map<string, { matching: number; dueNow: number }>();
     for (const opt of options) {
       const matching = filterCards(state, opt.filter, {

@@ -53,6 +53,13 @@ import {
   SENSE_SOURCE_LABEL,
 } from './sense-source.ts';
 
+// Now and the UTC offset, read outside the component body: the React Compiler's purity check
+// cannot tell a handler or a memo there from render code. Kept per file so it adds no shared chunk.
+const readClock = (nowMs = Date.now()) => ({
+  nowMs,
+  tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset(),
+});
+
 export interface DictionaryPanelProps {
   initialQuery?: string;
   initialDrawOpen?: boolean;
@@ -916,7 +923,14 @@ export function DictionaryPanel({
   const searchInputId = useId();
 
   const [installedPacks, setInstalledPacks] = useState<InstalledPackInfo[]>([]);
-  const [packsLoaded, setPacksLoaded] = useState(false);
+  // A platform without a dictionary service has nothing to load: its packs count as loaded (none),
+  // in the same render it arrives.
+  const [packsLoaded, setPacksLoaded] = useState(() => !platform.getDictionaryService);
+  const [packsPlatform, setPacksPlatform] = useState(platform);
+  if (packsPlatform !== platform) {
+    setPacksPlatform(platform);
+    if (!platform.getDictionaryService) setPacksLoaded(true);
+  }
   const [selectedPack, setSelectedPack] = useState<DictionaryPackId | 'all'>('all');
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<DictionaryEntry[]>([]);
@@ -947,6 +961,15 @@ export function DictionaryPanel({
   // Browse without typing (home screen groups and the open browse list).
   const [summaries, setSummaries] = useState<DictionaryBrowseSummary[]>([]);
   const [hanjaPreview, setHanjaPreview] = useState<DictionaryEntry[]>([]);
+  // No service or no packs: the browse home empties in the same render the packs (or platform) change.
+  const [homeFor, setHomeFor] = useState({ platform, installedPacks });
+  if (homeFor.platform !== platform || homeFor.installedPacks !== installedPacks) {
+    setHomeFor({ platform, installedPacks });
+    if (!platform.getDictionaryService || installedPacks.length === 0) {
+      setSummaries([]);
+      setHanjaPreview([]);
+    }
+  }
   const [browseSel, setBrowseSel] = useState<DictionaryBrowseSelection | null>(null);
   const [browseEntries, setBrowseEntries] = useState<DictionaryEntry[]>([]);
   const [browseNext, setBrowseNext] = useState<string | undefined>(undefined);
@@ -1010,11 +1033,8 @@ export function DictionaryPanel({
   );
 
   useEffect(() => {
+    if (!platform.getDictionaryService) return undefined;
     let cancelled = false;
-    if (!platform.getDictionaryService) {
-      setPacksLoaded(true);
-      return undefined;
-    }
     void platform
       .getDictionaryService()
       .then((svc) => svc.listInstalledDictionaryPacks())
@@ -1033,13 +1053,9 @@ export function DictionaryPanel({
   }, [platform]);
 
   useEffect(() => {
-    let cancelled = false;
     const getService = platform.getDictionaryService;
-    if (!getService || installedPacks.length === 0) {
-      setSummaries([]);
-      setHanjaPreview([]);
-      return undefined;
-    }
+    if (!getService || installedPacks.length === 0) return undefined;
+    let cancelled = false;
     getService()
       .then((svc) => loadBrowseHome(svc, installedPacks))
       .then((home) => {
@@ -1169,7 +1185,7 @@ export function DictionaryPanel({
       return;
     }
     const factory = getEventFactory();
-    const nowMs = Date.now();
+    const { nowMs } = readClock();
 
     const ev = factory.create(
       'NoteUpserted',
@@ -1203,7 +1219,7 @@ export function DictionaryPanel({
     const sourceKey = `dict:${entry.id}`;
     const noteId = deriveNoteId(newDeckId, sourceKey);
     const factory = getEventFactory();
-    const nowMs = Date.now();
+    const { nowMs } = readClock();
     emitEvents([
       factory.create(
         'NoteUpserted',

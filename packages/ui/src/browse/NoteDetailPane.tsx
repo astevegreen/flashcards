@@ -13,6 +13,13 @@ import {
 import { RichText } from '../components/RichText.tsx';
 import { useApp } from '../state/AppContext.tsx';
 
+// Now and the UTC offset, read outside the component body: the React Compiler's purity check
+// cannot tell a handler or a memo there from render code. Kept per file so it adds no shared chunk.
+const readClock = (nowMs = Date.now()) => ({
+  nowMs,
+  tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset(),
+});
+
 const STATE_LABEL: Record<'new' | 'learning' | 'review', string> = {
   new: 'New',
   learning: 'Learning',
@@ -79,8 +86,8 @@ export function NoteDetailPane({ note, onEdit }: Readonly<NoteDetailPaneProps>) 
       kind: 'text',
       lang: deck?.language ?? 'en',
     }));
-  const nowMs = Date.now();
-  const ctx = { nowMs, tzOffsetMinutes: -new Date(nowMs).getTimezoneOffset() };
+  const ctx = readClock();
+  const { nowMs } = ctx;
   // compareHlc is the shared code-unit string comparator (deterministic, locale-free).
   const cards = [...(state.cardIdsByNote.get(note.id) ?? [])]
     .sort(compareHlc)
